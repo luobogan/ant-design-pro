@@ -49,4 +49,10 @@ export default {
   'menu.editor.flow': '流程编辑器',
   'menu.editor.mind': '脑图编辑器',
   'menu.editor.koni': '拓扑编辑器',
+  'menu.lowcode': '低代码',
+  'menu.lowcode.desform': '表单设计',
+  'menu.lowcode.desform.list': '表单列表',
+  'menu.lowcode.desform.design': '表单设计',
+  'menu.lowcode.tabledesign': '表单开发',
+  'menu.lowcode.tabledesign.list': '表单开发列表',
 };

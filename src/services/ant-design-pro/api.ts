@@ -2,11 +2,13 @@
 /* eslint-disable */
 import { request } from '@umijs/max';
 
-/** 获取当前的用户 GET /api/currentUser */
+/** 获取当前的用户 GET /api/blade-system/user/info */
 export async function currentUser(options?: { [key: string]: any }) {
   return request<{
+    code: number;
     data: API.CurrentUser;
-  }>('/api/currentUser', {
+    msg: string;
+  }>('/api/blade-system/user/info', {
     method: 'GET',
     ...(options || {}),
   });
@@ -14,18 +16,18 @@ export async function currentUser(options?: { [key: string]: any }) {
 
 /** 退出登录接口 POST /api/login/outLogin */
 export async function outLogin(options?: { [key: string]: any }) {
-  return request<Record<string, any>>('/api/login/outLogin', {
+  return request<Record<string, any>>('/api/blade-auth/logout', {
     method: 'POST',
     ...(options || {}),
   });
 }
 
-/** 登录接口 POST /api/login/account */
+/** 登录接口 POST /api/blade-auth/token */
 export async function login(body: API.LoginParams, options?: { [key: string]: any }) {
-  return request<API.LoginResult>('/api/login/account', {
+  return request<API.LoginResult>('/api/blade-auth/token', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
     },
     data: body,
     ...(options || {}),

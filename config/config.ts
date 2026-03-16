@@ -2,6 +2,7 @@
 
 import { join } from 'node:path';
 import { defineConfig } from '@umijs/max';
+import { theme } from 'antd';
 import defaultSettings from './defaultSettings';
 import proxy from './proxy';
 
@@ -115,8 +116,11 @@ export default defineConfig({
    */
   antd: {
     appConfig: {},
+    // 启用暗黑主题
+    dark: false,
     configProvider: {
       theme: {
+        algorithm: theme.darkAlgorithm,
         token: {
           fontFamily: 'AlibabaSans, sans-serif',
         },
@@ -141,6 +145,7 @@ export default defineConfig({
    */
   headScripts: [
     // 解决首次加载时白屏的问题
+    // { src: PUBLIC_PATH + 'scripts/loading.js', async: true },
     { src: join(PUBLIC_PATH, 'scripts/loading.js'), async: true },
   ],
   //================ pro 插件配置 =================
@@ -165,10 +170,14 @@ export default defineConfig({
       projectName: 'swagger',
     },
   ],
-  mock: {
-    include: ['mock/**/*', 'src/pages/**/_mock.ts'],
-  },
-  utoopack: {},
+  mock: false,
+  mako: {},
+  // mock: {
+  //   include: ['mock/**/*', 'src/pages/**/_mock.ts'],
+  // },
+  // utoopack: {
+  //   outputPath: 'src_umi'
+  // }, // 在 Windows 上可能导致路径拼接错误，已禁用以使用 Webpack
   requestRecord: {},
   exportStatic: {},
   define: {

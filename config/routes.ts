@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @name umi 的路由配置
  * @description 只支持 path,component,routes,redirect,wrappers,name,icon 的配置
  * @param path  path 只支持两种占位符配置，第一种是动态参数 :id 的形式，第二种是 * 通配符，通配符只能出现路由字符串的最后。
@@ -16,48 +16,38 @@ export default [
     layout: false,
     routes: [
       {
+        path: '/user',
+        redirect: '/user/login',
+      },
+      {
         name: 'login',
         path: '/user/login',
-        component: './user/login',
+        component: './login/Login',
       },
+      // {
+      //   name: 'register',
+      //   path: '/user/register',
+      //   component: './Login/Register',
+      // },
+      // {
+      //   name: 'register-result',
+      //   path: '/user/register-result',
+      //   component: './Login/RegisterResult',
+      // },
     ],
-  },
-  {
-    path: '/welcome',
-    name: 'welcome',
-    icon: 'smile',
-    component: './Welcome',
-  },
-  {
-    path: '/admin',
-    name: 'admin',
-    icon: 'crown',
-    access: 'canAdmin',
-    routes: [
-      {
-        path: '/admin',
-        redirect: '/admin/sub-page',
-      },
-      {
-        path: '/admin/sub-page',
-        name: 'sub-page',
-        component: './Admin',
-      },
-    ],
-  },
-  {
-    name: 'list.table-list',
-    icon: 'table',
-    path: '/list',
-    component: './table-list',
   },
   {
     path: '/',
-    redirect: '/welcome',
+    routes: [
+      // 动态菜单路由，使用通配符匹配所有路径
+      {
+        path: '/*',
+        component: './_dynamic',
+      },
+    ],
   },
   {
-    component: '404',
-    layout: false,
-    path: './*',
+    path: '*',
+    component: './404',
   },
 ];
