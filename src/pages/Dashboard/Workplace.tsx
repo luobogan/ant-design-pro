@@ -11,6 +11,7 @@ import {
   TeamOutlined,
   UserOutlined,
 } from '@ant-design/icons';
+import { history } from '@umijs/max';
 import {
   Avatar,
   Badge,
@@ -25,7 +26,6 @@ import {
   Typography,
 } from 'antd';
 import React, { useEffect, useState } from 'react';
-import { history } from 'umi';
 
 const { Title, Paragraph } = Typography;
 const { Meta } = List;
