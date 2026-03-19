@@ -15,14 +15,14 @@ export default [
     path: '/user',
     layout: false,
     routes: [
-      {
-        path: '/user',
-        redirect: '/user/login',
-      },
+      // {
+      //   path: '/user',
+      //   redirect: '/user/login',
+      // },
       {
         name: 'login',
         path: '/user/login',
-        component: './login/Login',
+        component: './Login/Login',
       },
       // {
       //   name: 'register',
@@ -39,10 +39,15 @@ export default [
   {
     path: '/',
     routes: [
-      // 动态菜单路由，使用通配符匹配所有路径
+      // 默认路由，重定向到欢迎页面
+      {
+        path: '/',
+        redirect: '/welcome',
+      },
+      // 通配符路由，直接指向404页面
       {
         path: '/*',
-        component: './_dynamic',
+        component: './404',
       },
     ],
   },

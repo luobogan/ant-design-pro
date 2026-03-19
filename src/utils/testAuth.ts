@@ -19,15 +19,9 @@ export const testAuthConfig = () => {
   // 测试一个需要认证的 API
   console.log('=== 测试 API 调用 ===');
 
-  // 测试 desform save API
-  request('/api/lowcode/desform/save', {
-    method: 'POST',
-    data: {
-      desformName: '测试表单',
-      desformJson: '{"test": "value"}',
-      isOpen: '0',
-      isTemplate: '0',
-    },
+  // 测试系统菜单 API
+  request('/api/blade-system/menu/list', {
+    method: 'GET',
   })
     .then((response) => {
       console.log('API 调用成功:', response);

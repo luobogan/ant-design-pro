@@ -16,7 +16,27 @@ export default class RequestForm {
       Object.keys(data).forEach((key) => {
         const value = data[key];
         if (value !== undefined && value !== null) {
-          formData.append(key, String(value));
+          formData.append(key, Array.isArray(value) ? value.join(',') : String(value));
+        }
+      });
+    }
+
+    return formData;
+  }
+
+  /**
+   * 构建包含文件的表单数据
+   * @param data 表单数据对象
+   * @returns FormData 对象
+   */
+  static buildFormDataWithArray(data: any): FormData {
+    const formData = new FormData();
+
+    if (data && typeof data === 'object') {
+      Object.keys(data).forEach((key) => {
+        const value = data[key];
+        if (value !== undefined && value !== null) {
+          formData.append(key, Array.isArray(value) ? value.join(',') : String(value));
         }
       });
     }

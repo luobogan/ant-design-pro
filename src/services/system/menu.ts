@@ -1,5 +1,6 @@
 import { request } from '@umijs/max';
 import { stringify } from 'qs';
+import RequestForm from '@/utils/RequestForm';
 
 // =====================菜单===========================
 
@@ -62,15 +63,23 @@ export async function roleTreeKeys(params: any) {
 export async function remove(params: any) {
   return request('/api/blade-system/menu/remove', {
     method: 'POST',
-    data: params,
+    data: RequestForm.buildFormDataWithArray(params),
   });
 }
 
 // 提交菜单信息
 export async function submit(params: any) {
+  // 清理数据，确保所有字段都是可序列化的
+  const cleanedParams = {
+    ...params,
+    source: typeof params.source === 'string' ? params.source : '',
+  };
+
+  console.log('提交菜单参数:', JSON.stringify(cleanedParams));
+
   return request('/api/blade-system/menu/submit', {
     method: 'POST',
-    data: params,
+    data: cleanedParams,
   });
 }
 
@@ -93,7 +102,7 @@ export async function dataScopeList(params: any) {
 export async function removeDataScope(params: any) {
   return request('/api/blade-system/data-scope/remove', {
     method: 'POST',
-    data: params,
+    data: RequestForm.buildFormDataWithArray(params),
   });
 }
 
@@ -113,4 +122,37 @@ export async function scopeDataDetail(params: any) {
 // 获取API权限列表
 export async function apiScopeList(params: any) {
   return request(`/api/blade-system/api-scope/list?${stringify(params)}`);
+}
+
+// =====================菜单组件===========================
+
+// 获取组件映射配置
+export async function getComponentMap() {
+  return request('/api/blade-system/menu-component/component-map');
+}
+
+// 获取远程组件列表
+export async function getRemoteComponentList() {
+  return request('/api/blade-system/menu-component/remote-list');
+}
+
+// 注册远程组件
+export async function registerRemoteComponent(params: any) {
+  return request('/api/blade-system/menu-component/register', {
+    method: 'POST',
+    data: params,
+  });
+}
+
+// 获取组件详情
+export async function getComponentDetail(params: any) {
+  return request(`/api/blade-system/menu-component/detail?${stringify(params)}`);
+}
+
+// 删除组件
+export async function removeComponent(params: any) {
+  return request('/api/blade-system/menu-component/remove', {
+    method: 'POST',
+    data: RequestForm.buildFormDataWithArray(params),
+  });
 }

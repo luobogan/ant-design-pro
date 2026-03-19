@@ -1,28 +1,185 @@
-import { LinkOutlined } from '@ant-design/icons';
-import type { Settings as LayoutSettings } from '@ant-design/pro-components';
-import { SettingDrawer } from '@ant-design/pro-components';
-import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
-import { history, Link } from '@umijs/max';
-import React, { useState } from 'react';
-import {
-  AvatarDropdown,
-  AvatarName,
-  Footer,
-  Question,
-  SelectLang,
-} from '@/components';
-import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
+import React, { createElement } from 'react';
+import { Navigate } from '@umijs/max';
+import { Spin } from 'antd';
+import { errorConfig } from '@/requestErrorConfig';
 import { dynamicRoutes } from '@/services/system/menu';
+import { formatRoutes} from '@/utils/utils';
+import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
+import { history, Link } from '@umijs/max';
+import { RunTimeLayoutConfig } from '@@/plugin-layout/types';
 import defaultSettings from '../config/defaultSettings';
-import Loading from './loading';
-import { errorConfig } from './requestErrorConfig';
+import { AvatarDropdown, AvatarName } from '@/components/RightContent/AvatarDropdown';
+import type {MenuDataItem, Settings as LayoutSettings} from '@ant-design/pro-components';
+import Footer from '@/components/Footer';
+import Icon, { LinkOutlined } from '@ant-design/icons';
+import { SettingDrawer } from '@ant-design/pro-components';
+import Func from '@/utils/Func';
+import * as icons from '@ant-design/icons';
+import { stringify } from 'qs';
+
 
 const isDev = process.env.NODE_ENV === 'development';
-const isDevOrTest = isDev || process.env.CI;
+// const vConsole = new VConsole();
 const loginPath = '/user/login';
 
+interface MenuItem {
+  url: string;
+  menuName: string;
+  icon: string;
+  menuID: number | string;
+  page?: string;
+  children?: MenuItem[];
+}
+interface RouteItem {
+  path?: string;
+  name?: string;
+  icon?: string;
+  id?: number | string;
+  parentId?: number | string;
+  element?: JSX.Element;
+  children?: RouteItem[];
+}
+
+let extraRoutes: any[] = [];
+export function patchClientRoutes({ routes }: {routes: any}) {
+  const routerIndex = routes.findIndex((item: RouteItem) => item.path === '/')
+  const parentId = routes[routerIndex].id
+  if (extraRoutes) {
+    Object.assign(routes[routerIndex], { routes: [] }, { children: [] });
+    const x = loopMenuItem(extraRoutes, parentId);
+    routes[routerIndex]['routes'].push(
+      ...x
+    )
+    routes[routerIndex]['children'].push(
+      ...x
+    )
+    console.log("test:  "+routes)
+  }
+}
+
+const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
+  // debugger
+  return menus.flatMap((item) => {
+    let Component: React.ComponentType<any> | null = null;
+    if (item.path) {
+      // 使用格式化路径，确保路径大小写与实际文件路径一致
+      const x = Func.formatRoutePath(item.path);
+      console.log("tempComponent  路径 "+x)
+
+      console.log("tempComponent  路径详细 "+`./pages${x}/index.tsx`)
+      // 防止配置了路由，但本地暂未添加对应的页面，产生的错误 /index.tsx
+      Component = React.lazy(() => new Promise((resolve, reject) => {
+        import(`./pages${x}/index.tsx`)
+          .then(module => resolve(module))
+          .catch((error) => {
+            console.error("组件导入错误:", error);
+            resolve(import(`./pages/404.tsx`))
+          })
+      }))
+    }
+    if (item.children) {
+      console.log(item.children[0])
+      return [
+        {
+          path: item.path,
+          name: item.name,
+          icon: item.icon,
+          id: item.id,
+          parentId: pId,
+          children: [
+            {
+              path: item.path,
+              element: <Navigate to={item.children[0].path} replace />,
+            },
+            ...loopMenuItem(item.children, item.id)
+          ]
+        }
+      ]
+    } else {
+      return [
+        {
+          path: item.path,
+          name: item.name,
+          icon: item.icon,
+          id: item.id,
+          parentId: pId,
+          // element: createElement(Component)
+          element: (
+            <React.Suspense fallback={
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minHeight: '400px',
+                padding: '20px',
+                textAlign: 'center'
+              }}>
+                <div style={{ marginBottom: '16px' }}>
+                  <Spin size="large" tip="加载中..." />
+                </div>
+                <p style={{
+                  fontSize: '14px',
+                  color: '#666',
+                  marginTop: '16px'
+                }}>正在加载页面，请稍候...</p>
+              </div>
+            }>
+              {Component && <Component />}
+            </React.Suspense>
+          )
+        }
+      ]
+    }
+    })
+}
+
+export function render(oldRender: () => void) {
+  // fetchRouter().then((res: any) => {
+  //   extraRoutes = res
+  //
+  //   oldRender()
+  // })
+  setTimeout(async () => {
+  try {
+    const menuData =  await dynamicRoutes();
+    extraRoutes=formatRoutes(menuData.data);
+    // extraRoutes=loopMenuItem1(menu1);
+    const urlParams = new URL(window.location.href).searchParams;
+    const redirect = urlParams.get("redirect");
+    if (redirect) {
+      history.push(redirect);
+    }
+    oldRender();
+  } catch (e) {
+    const { search, pathname } = window.location;
+    // eslint-disable-next-line no-case-declarations
+    const urlParams = new URL(window.location.href).searchParams;
+    /** 此方法会跳转到 redirect 参数所在的位置 */
+      // eslint-disable-next-line no-case-declarations
+    const redirect = urlParams.get('redirect');
+    // Note: There may be security issues, please note
+    if (window.location.pathname !== loginPath && !redirect) {
+      history.replace({
+        pathname: loginPath,
+        search: stringify({
+          redirect: pathname + search,
+        }),
+      });
+    }else {
+      // history.push("/system/login?redirect=" + window.location.pathname + window.location.search);
+      history.push(loginPath +window.location.search);
+    // history.push(
+    //   "/system/login"
+    // );
+    }
+    oldRender();
+  }
+  }, 500);
+}
+
 /**
- * @see https://umijs.org/docs/api/runtime-config#getinitialstate
+ * @see  https://umijs.org/zh-CN/plugins/plugin-initial-state
  * */
 export async function getInitialState(): Promise<{
   settings?: Partial<LayoutSettings>;
@@ -32,22 +189,23 @@ export async function getInitialState(): Promise<{
 }> {
   const fetchUserInfo = async () => {
     try {
-      const msg = await queryCurrentUser({
-        skipErrorHandler: true,
-      });
-      return msg.data;
-    } catch (_error) {
+      // const msg = await queryCurrentUser({
+      //   skipErrorHandler: true,
+      // });
+      // return msg.data;
+      // 获取用户信息
+      const res = await queryCurrentUser();
+      console.log(1212);
+      return res;
+
+    } catch (error) {
       history.push(loginPath);
     }
     return undefined;
   };
   // 如果不是登录页面，执行
   const { location } = history;
-  if (
-    ![loginPath, '/user/register', '/user/register-result'].includes(
-      location.pathname,
-    )
-  ) {
+  if (location.pathname !== loginPath) {
     const currentUser = await fetchUserInfo();
     return {
       fetchUserInfo,
@@ -60,29 +218,58 @@ export async function getInitialState(): Promise<{
     settings: defaultSettings as Partial<LayoutSettings>,
   };
 }
-
+// 映射菜单对应的图标
+const loopMenuItem1 = (menus: MenuDataItem[]): MenuDataItem[] =>
+  menus.map(({ icon, routes, ...item }) => ({
+    ...item,
+    icon: icon && <Icon component={icons[icon]} />,
+    routes: routes && loopMenuItem1(routes),
+  }));
 // ProLayout 支持的api https://procomponents.ant.design/components/layout
-export const layout: RunTimeLayoutConfig = ({
-  initialState,
-  setInitialState,
-}) => {
-  // 菜单加载状态
-  const [menuLoading, setMenuLoading] = useState(false);
-
+export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) => {
+  console.log(initialState?.currentUser?.name)
+  // console.log(initialState?.currentUser?.id)
+  console.log(initialState?.currentUser?.userid)
   return {
-    actionsRender: () => [
-      <Question key="doc" />,
-      <SelectLang key="SelectLang" />,
-    ],
+    // actionsRender: () => [<Question key="doc" />, <SelectLang key="SelectLang" />],
     avatarProps: {
       src: initialState?.currentUser?.avatar,
       title: <AvatarName />,
-      render: (_, avatarChildren) => (
-        <AvatarDropdown>{avatarChildren}</AvatarDropdown>
-      ),
+      render: (_, avatarChildren) => {
+        return <AvatarDropdown>{avatarChildren}</AvatarDropdown>;
+      },
     },
     waterMarkProps: {
-      content: initialState?.currentUser?.name,
+      // content: initialState?.currentUser?.name,
+      height:36,
+      width:115,
+      content:"qixian.cs",
+      image:"https://gw.alipayobjects.com/zos/bmw-prod/59a18171-ae17-4fc5-93a0-2645f64a3aca.svg",
+    },
+    menu: {
+      // 每当 initialState?.currentUser?.userid 发生修改时重新执行 request
+      params: {
+        userId: initialState?.currentUser?.userid,
+      },
+      request: async (params, defaultMenuData) => {
+        // initialState.currentUser 中包含了所有用户信息
+        // console.log("menuData:test ")
+        // const menuData = await dynamicRoutes();
+        // console.log("menuData:2222 "+menuData)
+        // const menu1=loopMenuItem1(formatRoutes(menuData.data));
+        // console.log("menuData 转换1："+menu1)
+        // //console.log("menuData 获取数据:"+menuData)
+        // // console.log("menuData 转换2："+formatRoutes(menuData))
+        // return menu1;
+
+        // return extraRoutes;
+        const menu1=loopMenuItem1(formatRoutes(extraRoutes));
+        console.log("menuData 转换1："+menu1)
+        //console.log("menuData 获取数据:"+menuData)
+        // console.log("menuData 转换2："+formatRoutes(menuData))
+        return menu1;
+
+      },
     },
     footerRender: () => <Footer />,
     onPageChange: () => {
@@ -92,7 +279,7 @@ export const layout: RunTimeLayoutConfig = ({
         history.push(loginPath);
       }
     },
-    bgLayoutImgList: [
+    layoutBgImgList: [
       {
         src: 'https://mdn.alipayobjects.com/yuyan_qk0oxh/afts/img/D2LWSqNny4sAAAAAAAAAAAAAFl94AQBr',
         left: 85,
@@ -112,127 +299,48 @@ export const layout: RunTimeLayoutConfig = ({
         width: '331px',
       },
     ],
-    links: isDevOrTest
+    links: isDev
       ? [
-          <Link key="openapi" to="/umi/plugin/openapi" target="_blank">
-            <LinkOutlined />
-            <span>OpenAPI 文档</span>
-          </Link>,
-        ]
+        <Link key="openapi" to="/umi/plugin/openapi" target="_blank">
+          <LinkOutlined />
+          <span>OpenAPI 文档</span>
+        </Link>,
+      ]
       : [],
     menuHeaderRender: undefined,
     // 自定义 403 页面
-    unAccessible: (
-      <div style={{ padding: '24px', textAlign: 'center' }}>无权限访问</div>
-    ),
+    // unAccessible: <div>unAccessible</div>,
     // 增加一个 loading 的状态
     childrenRender: (children) => {
-      if (menuLoading) return <Loading />;
+      // if (initialState?.loading) return <PageLoading />;
       return (
         <>
           {children}
-          {isDevOrTest && (
-            <SettingDrawer
-              disableUrlParams
-              enableDarkTheme
-              settings={initialState?.settings}
-              onSettingChange={(settings) => {
-                setInitialState((preInitialState) => ({
-                  ...preInitialState,
-                  settings,
-                }));
-              }}
-            />
-          )}
+          <SettingDrawer
+            disableUrlParams
+            enableDarkTheme
+            settings={initialState?.settings}
+            onSettingChange={(settings) => {
+              setInitialState((preInitialState) => ({
+                ...preInitialState,
+                settings,
+              }));
+            }}
+          />
         </>
       );
-    },
-    // 动态菜单配置
-    menu: {
-      // 每当 initialState?.currentUser 发生修改时重新执行 request
-      params: {
-        userId: initialState?.currentUser?.userid,
-      },
-      // 从服务端直接请求菜单数据，性能最好的方法
-      request: async (_params, defaultMenuData) => {
-        try {
-          // 开始加载
-          setMenuLoading(true);
-
-          // 从后端获取动态菜单数据
-          const response = await dynamicRoutes();
-          console.log('Raw menu response:', response);
-
-          // 检查响应格式，确保返回正确的菜单数据结构
-          if (response?.data && Array.isArray(response.data)) {
-            // 处理菜单数据，确保每个路由对象都有正确的结构
-            const processRoutes = (routes: any[]) => {
-              if (!routes || !Array.isArray(routes)) {
-                return [];
-              }
-              return routes
-                .filter(
-                  (route: any) =>
-                    route && typeof route === 'object' && route.path,
-                )
-                .map((route: any) => {
-                  const processedRoute: any = {
-                    ...route,
-                    // 确保 access 属性格式正确
-                    access: route.access || undefined,
-                    // 确保 icon 属性格式正确
-                    icon: route.icon || undefined,
-                    // 确保 name 属性格式正确
-                    name: route.name || route.title || undefined,
-                    // 确保 component 属性格式正确 - 使用通用组件包装器
-                    component: route.component || './404',
-                  };
-                  // 确保 routes 属性是数组，递归处理子路由
-                  if (route.routes && Array.isArray(route.routes)) {
-                    processedRoute.routes = processRoutes(route.routes);
-                  } else {
-                    processedRoute.routes = [];
-                  }
-                  return processedRoute;
-                });
-            };
-
-            const processedRoutes = processRoutes(response.data);
-            console.log('Processed menu routes:', processedRoutes);
-
-            // 将处理后的路由注册到 Umi
-            // 注意：这里返回的只是菜单数据，不是实际的路由配置
-            // 实际的路由匹配由 ProLayout 的 menu 配置处理
-            return processedRoutes;
-          }
-
-          // 如果后端返回格式不符合预期，返回默认菜单数据
-          return defaultMenuData || [];
-        } catch (error) {
-          console.error('获取菜单数据失败:', error);
-          // 发生错误时返回默认菜单数据
-          return defaultMenuData || [];
-        } finally {
-          // 结束加载
-          setMenuLoading(false);
-        }
-      },
-    },
-    // 配置 ProLayout 使用动态路由
-    route: {
-      path: '/',
-      routes: [],
     },
     ...initialState?.settings,
   };
 };
+
 
 /**
  * @name request 配置，可以配置错误处理
  * 它基于 axios 和 ahooks 的 useRequest 提供了一套统一的网络请求和错误处理方案。
  * @doc https://umijs.org/docs/max/request#配置
  */
-export const request: RequestConfig = {
-  baseURL: isDev ? '' : 'https://proapi.azurewebsites.net',
+export const request = {
   ...errorConfig,
 };
+

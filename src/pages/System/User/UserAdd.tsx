@@ -41,16 +41,9 @@ const UserAdd: React.FC<UserAddProps> = ({
       // 移除确认密码字段，因为后端不需要这个字段
       const { confirmPassword, ...submitValues } = values;
 
-      // 处理状态字段
-      if (submitValues.status !== undefined) {
-        submitValues.status = submitValues.status ? 1 : 0;
-      }
-
-      // 处理生日字段，转换为 yyyy-MM-dd HH:mm:ss 格式
+      // 处理生日字段，转换为字符串格式
       if (submitValues.birthday) {
-        submitValues.birthday = moment(submitValues.birthday).format(
-          'YYYY-MM-DD HH:mm:ss',
-        );
+        submitValues.birthday = moment(submitValues.birthday).format('YYYY-MM-DD HH:mm:ss');
       }
 
       // 处理 TreeSelect 返回的数组，转换为逗号分隔的字符串
@@ -64,7 +57,23 @@ const UserAdd: React.FC<UserAddProps> = ({
         submitValues.positionId = submitValues.positionId.join(',');
       }
 
-      await userApi.submit(submitValues);
+      // 只保留后端 User 实体中存在的字段
+      const filteredValues: any = {
+        tenantId: submitValues.tenantId,
+        account: submitValues.account,
+        password: submitValues.password,
+        name: submitValues.name,
+        realName: submitValues.realName,
+        phone: submitValues.phone,
+        email: submitValues.email,
+        sex: submitValues.sex,
+        birthday: submitValues.birthday,
+        roleId: submitValues.roleId,
+        deptId: submitValues.deptId,
+        postId: submitValues.positionId,
+      };
+
+      await userApi.submit(filteredValues);
       message.success('添加成功');
       form.resetFields();
       onOk();
@@ -95,7 +104,7 @@ const UserAdd: React.FC<UserAddProps> = ({
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>基础信息</h3>
         </div>
         <Row gutter={16}>
-          <Col span={24}>
+          <Col span={12}>
             <Form.Item
               name="tenantId"
               label="所属租户"
@@ -105,8 +114,8 @@ const UserAdd: React.FC<UserAddProps> = ({
                 placeholder="请选择所属租户"
                 options={[
                   { label: '默认租户', value: '000000' },
-                  { label: '租户1', value: '000001' },
-                  { label: '租户2', value: '000002' },
+                  { label: '租户 1', value: '000001' },
+                  { label: '租户 2', value: '000002' },
                 ]}
               />
             </Form.Item>
@@ -118,22 +127,6 @@ const UserAdd: React.FC<UserAddProps> = ({
               rules={[{ required: true, message: '请输入登录账号' }]}
             >
               <Input placeholder="请输入登录账号" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item
-              name="platform"
-              label="用户平台"
-              rules={[{ required: true, message: '请选择用户平台' }]}
-            >
-              <Select
-                placeholder="请选择用户平台"
-                options={[
-                  { label: 'WEB', value: 'web' },
-                  { label: 'APP', value: 'app' },
-                  { label: 'OTHER', value: 'other' },
-                ]}
-              />
             </Form.Item>
           </Col>
           <Col span={12}>
@@ -261,11 +254,6 @@ const UserAdd: React.FC<UserAddProps> = ({
         </div>
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item name="userCode" label="用户编号">
-              <Input placeholder="请输入用户编号" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
             <Form.Item
               name="roleId"
               label="所属角色"
@@ -310,27 +298,6 @@ const UserAdd: React.FC<UserAddProps> = ({
                 placeholder="请选择所属岗位"
                 style={{ width: '100%' }}
               />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="managerId" label="直属主管">
-              <Select
-                placeholder="请选择直属主管"
-                options={[
-                  { label: '张三', value: '1' },
-                  { label: '李四', value: '2' },
-                  { label: '王五', value: '3' },
-                ]}
-              />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item
-              name="isManager"
-              label="是否主管"
-              valuePropName="checked"
-            >
-              <Switch checkedChildren="是" unCheckedChildren="否" />
             </Form.Item>
           </Col>
         </Row>

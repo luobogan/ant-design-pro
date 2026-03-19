@@ -171,7 +171,7 @@ export default defineConfig({
     },
   ],
   mock: false,
-  mako: {},
+  mako: {}, // 禁用 Mako，默认使用 Webpack 5
   // mock: {
   //   include: ['mock/**/*', 'src/pages/**/_mock.ts'],
   // },
@@ -183,4 +183,5 @@ export default defineConfig({
   define: {
     'process.env.CI': process.env.CI,
   },
+  esbuildMinifyIIFE: true,
 });

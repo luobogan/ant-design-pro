@@ -219,7 +219,7 @@ const Dept: React.FC = () => {
     >
       <ProTable
         columns={columns}
-        dataSource={depts}
+        dataSource={depts || []}
         loading={loading}
         rowKey="id"
         pagination={{ pageSize: 10 }}
@@ -264,7 +264,7 @@ const Dept: React.FC = () => {
           <Form.Item name="parentId" label="上级部门">
             <Select placeholder="请选择上级部门">
               <Option value="0">无</Option>
-              {deptTree?.map((dept: any) => (
+              {deptTree?.data?.map((dept: any) => (
                 <Option key={dept.id} value={dept.id}>
                   {dept.name}
                 </Option>
@@ -331,7 +331,7 @@ const Dept: React.FC = () => {
           <Form.Item name="parentId" label="上级部门">
             <Select placeholder="请选择上级部门">
               <Option value="0">无</Option>
-              {deptTree?.map((dept: any) => (
+              {deptTree?.data?.map((dept: any) => (
                 <Option key={dept.id} value={dept.id}>
                   {dept.name}
                 </Option>

@@ -18,6 +18,20 @@ export async function submit(params: any) {
   return request('/api/blade-system/user/submit', {
     method: 'POST',
     data: params,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+}
+
+// 更新用户信息
+export async function update(params: any) {
+  return request('/api/blade-system/user/update', {
+    method: 'POST',
+    data: params,
+    headers: {
+      'Content-Type': 'application/json',
+    },
   });
 }
 
