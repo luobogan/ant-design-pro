@@ -55,7 +55,7 @@ export async function completeOrder(id: number) {
  * 订单取消
  */
 export async function cancelOrder(id: number) {
-  return request(`/api/mall/orders/${id}/cancel`, {
+  return request(`${ORDER_BASE_URL}/${id}/cancel`, {
     method: 'POST',
   });
 }
@@ -64,7 +64,7 @@ export async function cancelOrder(id: number) {
  * 获取订单统计
  */
 export async function getOrderStats() {
-  return request('/api/mall/orders/stats', {
+  return request(`${ORDER_BASE_URL}/stats`, {
     method: 'GET',
   });
 }

@@ -96,7 +96,7 @@ const MemberList: React.FC = () => {
     try {
       const params = {
         current: page,
-        pageSize,
+        size: pageSize, // 后端使用的是 size 而不是 pageSize
         ...filters,
       };
 
