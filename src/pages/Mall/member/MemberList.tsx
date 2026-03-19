@@ -1,36 +1,54 @@
-import React, { useState, useEffect } from 'react';
+import {
+  EditOutlined,
+  EyeOutlined,
+  GiftOutlined,
+  HistoryOutlined,
+  RiseOutlined,
+  SearchOutlined,
+} from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import {
-  Table,
-  Card,
-  Space,
   Button,
-  Modal,
+  Card,
   Descriptions,
-  Tag,
+  Divider,
+  Drawer,
+  Empty,
+  Form,
   Input,
+  List,
+  Modal,
   message,
   Select,
-  Form,
-  Drawer,
-  List,
+  Space,
+  Table,
+  Tag,
   Typography,
-  Divider,
-  Empty,
 } from 'antd';
-import {
-  EyeOutlined,
-  SearchOutlined,
-  EditOutlined,
-  GiftOutlined,
-  RiseOutlined,
-  HistoryOutlined,
-} from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import { getMemberList, getMemberById, updateMemberLevel, adjustPoints, adjustGrowth, updateMemberStatus, getPointsLog, getGrowthLog } from '@/services/mall/member';
+import React, { useEffect, useState } from 'react';
+import {
+  adjustGrowth,
+  adjustPoints,
+  getGrowthLog,
+  getMemberList,
+  getPointsLog,
+  updateMemberLevel,
+  updateMemberStatus,
+} from '@/services/mall/member';
 import { getMemberLevelList } from '@/services/mall/memberLevel';
-import type { Member, MemberLevel, PointsLog, GrowthLog } from '@/services/mall/typings';
-import { formatDateTime, getMemberStatusText, getMemberStatusColor, getMemberLevelColor } from '@/utils/mall/format';
+import type {
+  GrowthLog,
+  Member,
+  MemberLevel,
+  PointsLog,
+} from '@/services/mall/typings';
+import {
+  formatDateTime,
+  getMemberLevelColor,
+  getMemberStatusColor,
+  getMemberStatusText,
+} from '@/utils/mall/format';
 
 const { Search } = Input;
 const { Option } = Select;
@@ -81,9 +99,9 @@ const MemberList: React.FC = () => {
         pageSize,
         ...filters,
       };
-      
+
       const result = await getMemberList(params);
-      
+
       if (result) {
         setData(result.list || []);
         setPagination({
@@ -109,7 +127,7 @@ const MemberList: React.FC = () => {
 
   // 获取会员等级名称
   const getLevelName = (levelId: number) => {
-    const level = memberLevels.find(l => l.id === levelId);
+    const level = memberLevels.find((l) => l.id === levelId);
     return level?.name || '-';
   };
 
@@ -145,17 +163,23 @@ const MemberList: React.FC = () => {
     setCurrentMember(record);
     setLogType(type);
     setLogDrawerVisible(true);
-    
+
     try {
       if (type === 'points') {
-        const res = await getPointsLog(record.userId, { current: 1, pageSize: 50 });
+        const res = await getPointsLog(record.userId, {
+          current: 1,
+          pageSize: 50,
+        });
         setLogs(res || []);
       } else {
-        const res = await getGrowthLog(record.userId, { current: 1, pageSize: 50 });
+        const res = await getGrowthLog(record.userId, {
+          current: 1,
+          pageSize: 50,
+        });
         setLogs(res || []);
       }
     } catch (error: any) {
-      message.error('加载日志失败：' + error.message);
+      message.error(`加载日志失败：${error.message}`);
     }
   };
 
@@ -164,13 +188,15 @@ const MemberList: React.FC = () => {
     try {
       const values = await form.validateFields();
       if (!currentMember) return;
-      
-      await updateMemberLevel(currentMember.userId, { levelId: values.levelId });
+
+      await updateMemberLevel(currentMember.userId, {
+        levelId: values.levelId,
+      });
       message.success('会员等级更新成功');
       setLevelModalVisible(false);
       fetchData(pagination.current, pagination.pageSize);
     } catch (error: any) {
-      message.error('更新失败：' + error.message);
+      message.error(`更新失败：${error.message}`);
     }
   };
 
@@ -179,18 +205,18 @@ const MemberList: React.FC = () => {
     try {
       const values = await form.validateFields();
       if (!currentMember) return;
-      
+
       await adjustPoints(
         currentMember.userId,
         values.points,
         values.type,
-        values.remark
+        values.remark,
       );
       message.success('积分调整成功');
       setPointsModalVisible(false);
       fetchData(pagination.current, pagination.pageSize);
     } catch (error: any) {
-      message.error('调整失败：' + error.message);
+      message.error(`调整失败：${error.message}`);
     }
   };
 
@@ -199,29 +225,29 @@ const MemberList: React.FC = () => {
     try {
       const values = await form.validateFields();
       if (!currentMember) return;
-      
+
       await adjustGrowth(
         currentMember.userId,
         values.growth,
         values.type,
-        values.remark
+        values.remark,
       );
       message.success('成长值调整成功');
       setGrowthModalVisible(false);
       fetchData(pagination.current, pagination.pageSize);
     } catch (error: any) {
-      message.error('调整失败：' + error.message);
+      message.error(`调整失败：${error.message}`);
     }
   };
 
   // 更新会员状态
-  const handleUpdateStatus = async (record: Member, status: number) => {
+  const _handleUpdateStatus = async (record: Member, status: number) => {
     try {
       await updateMemberStatus(record.userId, status);
       message.success(status === 1 ? '启用成功' : '禁用成功');
       fetchData(pagination.current, pagination.pageSize);
     } catch (error: any) {
-      message.error('操作失败：' + error.message);
+      message.error(`操作失败：${error.message}`);
     }
   };
 
@@ -343,10 +369,7 @@ const MemberList: React.FC = () => {
 
   return (
     <PageContainer>
-      <Card
-        title="会员管理"
-        bordered={false}
-      >
+      <Card title="会员管理" bordered={false}>
         <Space style={{ marginBottom: 16 }}>
           <Search
             placeholder="搜索用户名、邮箱"
@@ -378,21 +401,41 @@ const MemberList: React.FC = () => {
       >
         {currentMember && (
           <Descriptions column={2} bordered>
-            <Descriptions.Item label="用户 ID">{currentMember.userId}</Descriptions.Item>
-            <Descriptions.Item label="用户名">{currentMember.username}</Descriptions.Item>
-            <Descriptions.Item label="邮箱">{currentMember.email}</Descriptions.Item>
-            <Descriptions.Item label="手机号">{currentMember.phone || '-'}</Descriptions.Item>
-            <Descriptions.Item label="昵称">{currentMember.nickname || '-'}</Descriptions.Item>
+            <Descriptions.Item label="用户 ID">
+              {currentMember.userId}
+            </Descriptions.Item>
+            <Descriptions.Item label="用户名">
+              {currentMember.username}
+            </Descriptions.Item>
+            <Descriptions.Item label="邮箱">
+              {currentMember.email}
+            </Descriptions.Item>
+            <Descriptions.Item label="手机号">
+              {currentMember.phone || '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="昵称">
+              {currentMember.nickname || '-'}
+            </Descriptions.Item>
             <Descriptions.Item label="会员等级">
               <Tag color={getMemberLevelColor(currentMember.levelValue || 1)}>
                 {getLevelName(currentMember.levelId)}
               </Tag>
             </Descriptions.Item>
-            <Descriptions.Item label="积分">{currentMember.points}</Descriptions.Item>
-            <Descriptions.Item label="成长值">{currentMember.growth}</Descriptions.Item>
-            <Descriptions.Item label="经验值">{currentMember.experience}</Descriptions.Item>
-            <Descriptions.Item label="累计消费">¥{currentMember.totalConsumption?.toFixed(2)}</Descriptions.Item>
-            <Descriptions.Item label="订单数">{currentMember.orderCount}</Descriptions.Item>
+            <Descriptions.Item label="积分">
+              {currentMember.points}
+            </Descriptions.Item>
+            <Descriptions.Item label="成长值">
+              {currentMember.growth}
+            </Descriptions.Item>
+            <Descriptions.Item label="经验值">
+              {currentMember.experience}
+            </Descriptions.Item>
+            <Descriptions.Item label="累计消费">
+              ¥{currentMember.totalConsumption?.toFixed(2)}
+            </Descriptions.Item>
+            <Descriptions.Item label="订单数">
+              {currentMember.orderCount}
+            </Descriptions.Item>
             <Descriptions.Item label="状态">
               <Tag color={getMemberStatusColor(currentMember.status)}>
                 {getMemberStatusText(currentMember.status)}
@@ -422,9 +465,11 @@ const MemberList: React.FC = () => {
             rules={[{ required: true, message: '请选择会员等级' }]}
           >
             <Select>
-              {memberLevels.map(level => (
+              {memberLevels.map((level) => (
                 <Option key={level.id} value={level.id}>
-                  <Tag color={getMemberLevelColor(level.levelValue)}>{level.name}</Tag>
+                  <Tag color={getMemberLevelColor(level.levelValue)}>
+                    {level.name}
+                  </Tag>
                   {level.minGrowth > 0 && ` (≥${level.minGrowth}成长值)`}
                 </Option>
               ))}
@@ -466,10 +511,7 @@ const MemberList: React.FC = () => {
               <Option value={6}>其他</Option>
             </Select>
           </Form.Item>
-          <Form.Item
-            name="remark"
-            label="备注说明"
-          >
+          <Form.Item name="remark" label="备注说明">
             <Input.TextArea rows={3} placeholder="请输入调整原因" />
           </Form.Item>
         </Form>
@@ -506,10 +548,7 @@ const MemberList: React.FC = () => {
               <Option value={4}>其他</Option>
             </Select>
           </Form.Item>
-          <Form.Item
-            name="remark"
-            label="备注说明"
-          >
+          <Form.Item name="remark" label="备注说明">
             <Input.TextArea rows={3} placeholder="请输入调整原因" />
           </Form.Item>
         </Form>
@@ -527,9 +566,13 @@ const MemberList: React.FC = () => {
           <>
             <Card size="small" style={{ marginBottom: 16 }}>
               <Descriptions column={2} size="small">
-                <Descriptions.Item label="用户名">{currentMember.username}</Descriptions.Item>
+                <Descriptions.Item label="用户名">
+                  {currentMember.username}
+                </Descriptions.Item>
                 <Descriptions.Item label="当前{logType === 'points' ? '积分' : '成长值'}">
-                  {logType === 'points' ? currentMember.points : currentMember.growth}
+                  {logType === 'points'
+                    ? currentMember.points
+                    : currentMember.growth}
                 </Descriptions.Item>
               </Descriptions>
             </Card>
@@ -541,22 +584,41 @@ const MemberList: React.FC = () => {
                   <List.Item.Meta
                     title={
                       <Space>
-                        <Text strong>{logType === 'points' ? item.pointsValue : item.growthValue} {logType === 'points' ? '积分' : '成长值'}</Text>
+                        <Text strong>
+                          {logType === 'points'
+                            ? item.pointsValue
+                            : item.growthValue}{' '}
+                          {logType === 'points' ? '积分' : '成长值'}
+                        </Text>
                         <Tag color={item.type === 1 ? 'green' : 'red'}>
                           {item.typeText || (item.type === 1 ? '增加' : '减少')}
                         </Tag>
-                        <Text type="secondary">{formatDateTime(item.createdAt)}</Text>
+                        <Text type="secondary">
+                          {formatDateTime(item.createdAt)}
+                        </Text>
                       </Space>
                     }
                     description={
                       <>
                         <Space>
-                          <Text>变动前：{logType === 'points' ? item.beforePoints : item.beforeGrowth}</Text>
+                          <Text>
+                            变动前：
+                            {logType === 'points'
+                              ? item.beforePoints
+                              : item.beforeGrowth}
+                          </Text>
                           <Text>→</Text>
-                          <Text>变动后：{logType === 'points' ? item.afterPoints : item.afterGrowth}</Text>
+                          <Text>
+                            变动后：
+                            {logType === 'points'
+                              ? item.afterPoints
+                              : item.afterGrowth}
+                          </Text>
                         </Space>
                         <Divider type="vertical" />
-                        <Text type="secondary">来源：{item.sourceType || '-'}</Text>
+                        <Text type="secondary">
+                          来源：{item.sourceType || '-'}
+                        </Text>
                         {item.description && (
                           <>
                             <Divider type="vertical" />
@@ -570,9 +632,7 @@ const MemberList: React.FC = () => {
               )}
             />
 
-            {logs.length === 0 && (
-              <Empty description="暂无日志记录" />
-            )}
+            {logs.length === 0 && <Empty description="暂无日志记录" />}
           </>
         )}
       </Drawer>

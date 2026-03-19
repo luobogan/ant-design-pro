@@ -1,4 +1,4 @@
-import React, { LazyExoticComponent, ComponentType } from 'react';
+import React, { type ComponentType, type LazyExoticComponent } from 'react';
 
 export interface MenuDTO {
   id: number;

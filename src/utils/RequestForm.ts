@@ -16,7 +16,10 @@ export default class RequestForm {
       Object.keys(data).forEach((key) => {
         const value = data[key];
         if (value !== undefined && value !== null) {
-          formData.append(key, Array.isArray(value) ? value.join(',') : String(value));
+          formData.append(
+            key,
+            Array.isArray(value) ? value.join(',') : String(value),
+          );
         }
       });
     }
@@ -36,7 +39,10 @@ export default class RequestForm {
       Object.keys(data).forEach((key) => {
         const value = data[key];
         if (value !== undefined && value !== null) {
-          formData.append(key, Array.isArray(value) ? value.join(',') : String(value));
+          formData.append(
+            key,
+            Array.isArray(value) ? value.join(',') : String(value),
+          );
         }
       });
     }

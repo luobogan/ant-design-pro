@@ -1,5 +1,10 @@
-import type { MenuDTO, MenuCacheData, CacheConfig, APIResponse } from '@/types/menu';
-import { DEFAULT_CACHE_CONFIG, CACHE_KEYS } from '@/types/menu';
+import type {
+  APIResponse,
+  CacheConfig,
+  MenuCacheData,
+  MenuDTO,
+} from '@/types/menu';
+import { CACHE_KEYS, DEFAULT_CACHE_CONFIG } from '@/types/menu';
 
 class MenuCacheManager {
   private memoryCache: Map<string, { data: any; expiry: number }> = new Map();
@@ -96,7 +101,7 @@ class MenuCacheManager {
 
   async fetchMenuData(
     apiFunc: () => Promise<APIResponse<MenuDTO[]>>,
-    forceRefresh = false
+    forceRefresh = false,
   ): Promise<MenuDTO[]> {
     if (!forceRefresh) {
       const memoryData = this.getMenuDataFromMemory();
@@ -154,7 +159,11 @@ class MenuCacheManager {
     }
   }
 
-  getCacheStatus(): { memory: boolean; local: boolean; version: string | null } {
+  getCacheStatus(): {
+    memory: boolean;
+    local: boolean;
+    version: string | null;
+  } {
     return {
       memory: this.isMemoryValid(CACHE_KEYS.MENU_CACHE),
       local: this.isLocalValid(),

@@ -123,8 +123,12 @@ const MenuPage: React.FC = () => {
     return menuList.map((menu: any) => {
       const transformed = {
         ...menu,
-        parentName: menu.parentId === 0 || menu.parentId === '0' ? '无' : menu.parentName || '未知',
-        sort: typeof menu.sort === 'string' ? parseInt(menu.sort, 10) : menu.sort,
+        parentName:
+          menu.parentId === 0 || menu.parentId === '0'
+            ? '无'
+            : menu.parentName || '未知',
+        sort:
+          typeof menu.sort === 'string' ? parseInt(menu.sort, 10) : menu.sort,
       };
       if (menu.children && menu.children.length > 0) {
         transformed.children = transformMenuData(menu.children);
@@ -311,7 +315,11 @@ const MenuPage: React.FC = () => {
       const values = await form.validateFields();
       // 确保 source 是字符串
       const iconValue = typeof selectedIcon === 'string' ? selectedIcon : '';
-      console.log('提交数据:', { ...values, source: iconValue, id: currentMenu?.id });
+      console.log('提交数据:', {
+        ...values,
+        source: iconValue,
+        id: currentMenu?.id,
+      });
       await menuApi.submit({
         ...values,
         source: iconValue,

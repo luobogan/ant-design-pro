@@ -10,7 +10,6 @@ import {
   Row,
   Select,
   Space,
-  Switch,
   TreeSelect,
 } from 'antd';
 import moment from 'moment';
@@ -43,7 +42,9 @@ const UserAdd: React.FC<UserAddProps> = ({
 
       // 处理生日字段，转换为字符串格式
       if (submitValues.birthday) {
-        submitValues.birthday = moment(submitValues.birthday).format('YYYY-MM-DD HH:mm:ss');
+        submitValues.birthday = moment(submitValues.birthday).format(
+          'YYYY-MM-DD HH:mm:ss',
+        );
       }
 
       // 处理 TreeSelect 返回的数组，转换为逗号分隔的字符串

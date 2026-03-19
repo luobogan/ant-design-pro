@@ -1,11 +1,16 @@
-import React, { ComponentType, LazyExoticComponent } from 'react';
-import { componentRegistry, registerBundledComponents } from './ComponentRegistry';
+import React, { type ComponentType, type LazyExoticComponent } from 'react';
 import { menuCacheManager } from './CacheManager';
+import {
+  componentRegistry,
+  registerBundledComponents,
+} from './ComponentRegistry';
 import { remoteComponentLoader } from './RemoteLoader';
-import type { MenuDTO, ComponentMapResponse } from '@/types/menu';
 
 export interface DynamicComponentResult {
-  component: ComponentType<any> | LazyExoticComponent<ComponentType<any>> | null;
+  component:
+    | ComponentType<any>
+    | LazyExoticComponent<ComponentType<any>>
+    | null;
   source: 'bundled' | 'remote' | 'bundled-legacy' | null;
   error?: string;
 }
@@ -29,12 +34,19 @@ class DynamicLoader {
     Object.entries(urls).forEach(([name, url]) => {
       this.remoteComponentUrls.set(name, url);
     });
-    console.log('[DynamicLoader] Remote component URLs set:', this.remoteComponentUrls.size);
+    console.log(
+      '[DynamicLoader] Remote component URLs set:',
+      this.remoteComponentUrls.size,
+    );
   }
 
   async getComponent(componentPath: string): Promise<DynamicComponentResult> {
     if (!componentPath) {
-      return { component: null, source: null, error: 'No component path provided' };
+      return {
+        component: null,
+        source: null,
+        error: 'No component path provided',
+      };
     }
 
     const bundled = componentRegistry.getBundledComponent(componentPath);
@@ -57,7 +69,10 @@ class DynamicLoader {
         });
         return { component, source: 'remote' };
       } catch (error) {
-        console.error(`[DynamicLoader] Failed to load remote component: ${remoteName}`, error);
+        console.error(
+          `[DynamicLoader] Failed to load remote component: ${remoteName}`,
+          error,
+        );
         return {
           component: null,
           source: 'remote',
@@ -74,7 +89,7 @@ class DynamicLoader {
   }
 
   private findRemoteComponentName(componentPath: string): string | null {
-    for (const [name, url] of this.remoteComponentUrls) {
+    for (const [name, _url] of this.remoteComponentUrls) {
       if (componentPath.includes(name)) {
         return name;
       }
@@ -114,6 +129,11 @@ class DynamicLoader {
 
 export const dynamicLoader = new DynamicLoader();
 
-export { componentRegistry, registerBundledComponents, menuCacheManager, remoteComponentLoader };
+export {
+  componentRegistry,
+  menuCacheManager,
+  registerBundledComponents,
+  remoteComponentLoader,
+};
 
 export default DynamicLoader;

@@ -1,4 +1,4 @@
-import React, { ComponentType } from 'react';
+import React, { type ComponentType } from 'react';
 import type { RemoteComponentConfig } from '@/types/menu';
 
 declare global {
@@ -39,8 +39,13 @@ class RemoteComponentLoader {
     }
   }
 
-  private async doLoad(config: RemoteComponentConfig, cacheKey: string): Promise<ComponentType<any>> {
-    console.log(`[RemoteLoader] Loading component: ${config.name} from ${config.url}`);
+  private async doLoad(
+    config: RemoteComponentConfig,
+    _cacheKey: string,
+  ): Promise<ComponentType<any>> {
+    console.log(
+      `[RemoteLoader] Loading component: ${config.name} from ${config.url}`,
+    );
 
     try {
       const response = await fetch(config.url);
@@ -48,12 +53,14 @@ class RemoteComponentLoader {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      let scriptContent = await response.text();
+      const scriptContent = await response.text();
 
       if (config.md5) {
         const isValid = await this.verifyMD5(scriptContent, config.md5);
         if (!isValid) {
-          throw new Error(`MD5 verification failed for component: ${config.name}`);
+          throw new Error(
+            `MD5 verification failed for component: ${config.name}`,
+          );
         }
         console.log(`[RemoteLoader] MD5 verified for: ${config.name}`);
       }
@@ -68,21 +75,28 @@ class RemoteComponentLoader {
     }
   }
 
-  private async verifyMD5(content: string, expectedMD5: string): Promise<boolean> {
+  private async verifyMD5(
+    content: string,
+    expectedMD5: string,
+  ): Promise<boolean> {
     if (typeof crypto !== 'undefined' && crypto.subtle) {
       try {
         const encoder = new TextEncoder();
         const data = encoder.encode(content);
         const hashBuffer = await crypto.subtle.digest('MD5', data.buffer);
         const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+        const hashHex = hashArray
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
         return hashHex === expectedMD5;
       } catch {
         console.warn('[RemoteLoader] MD5 verification not supported, skipping');
         return true;
       }
     }
-    console.warn('[RemoteLoader] Web Crypto API not available, skipping MD5 verification');
+    console.warn(
+      '[RemoteLoader] Web Crypto API not available, skipping MD5 verification',
+    );
     return true;
   }
 
@@ -93,7 +107,10 @@ class RemoteComponentLoader {
           window.__REMOTE_COMPONENTS__ = {};
         }
 
-        const moduleExec = new Function('scope', 'window', `
+        const moduleExec = new Function(
+          'scope',
+          'window',
+          `
           "use strict";
           try {
             const module = { exports: {} };
@@ -114,7 +131,8 @@ class RemoteComponentLoader {
             console.error('Script execution error:', e);
             throw e;
           }
-        `);
+        `,
+        );
 
         const success = moduleExec(scope, window);
 
@@ -132,9 +150,12 @@ class RemoteComponentLoader {
   preload(configs: RemoteComponentConfig[]): Promise<void> {
     const promises = configs.map((config) =>
       this.load(config).catch((error) => {
-        console.warn(`[RemoteLoader] Preload failed for ${config.name}:`, error);
+        console.warn(
+          `[RemoteLoader] Preload failed for ${config.name}:`,
+          error,
+        );
         return null;
-      })
+      }),
     );
     return Promise.all(promises).then(() => undefined);
   }

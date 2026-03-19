@@ -1,22 +1,26 @@
-import React, { createElement } from 'react';
-import { Navigate } from '@umijs/max';
-import { Spin } from 'antd';
-import { errorConfig } from '@/requestErrorConfig';
-import { dynamicRoutes } from '@/services/system/menu';
-import { formatRoutes} from '@/utils/utils';
-import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
-import { history, Link } from '@umijs/max';
-import { RunTimeLayoutConfig } from '@@/plugin-layout/types';
-import defaultSettings from '../config/defaultSettings';
-import { AvatarDropdown, AvatarName } from '@/components/RightContent/AvatarDropdown';
-import type {MenuDataItem, Settings as LayoutSettings} from '@ant-design/pro-components';
-import Footer from '@/components/Footer';
-import Icon, { LinkOutlined } from '@ant-design/icons';
-import { SettingDrawer } from '@ant-design/pro-components';
-import Func from '@/utils/Func';
+import type { RunTimeLayoutConfig } from '@@/plugin-layout/types';
 import * as icons from '@ant-design/icons';
+import Icon, { LinkOutlined } from '@ant-design/icons';
+import type {
+  Settings as LayoutSettings,
+  MenuDataItem,
+} from '@ant-design/pro-components';
+import { SettingDrawer } from '@ant-design/pro-components';
+import { history, Link, Navigate } from '@umijs/max';
+import { Spin } from 'antd';
 import { stringify } from 'qs';
-
+import React from 'react';
+import Footer from '@/components/Footer';
+import {
+  AvatarDropdown,
+  AvatarName,
+} from '@/components/RightContent/AvatarDropdown';
+import { errorConfig } from '@/requestErrorConfig';
+import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
+import { dynamicRoutes } from '@/services/system/menu';
+import Func from '@/utils/Func';
+import { formatRoutes } from '@/utils/utils';
+import defaultSettings from '../config/defaultSettings';
 
 const isDev = process.env.NODE_ENV === 'development';
 // const vConsole = new VConsole();
@@ -41,19 +45,15 @@ interface RouteItem {
 }
 
 let extraRoutes: any[] = [];
-export function patchClientRoutes({ routes }: {routes: any}) {
-  const routerIndex = routes.findIndex((item: RouteItem) => item.path === '/')
-  const parentId = routes[routerIndex].id
+export function patchClientRoutes({ routes }: { routes: any }) {
+  const routerIndex = routes.findIndex((item: RouteItem) => item.path === '/');
+  const parentId = routes[routerIndex].id;
   if (extraRoutes) {
     Object.assign(routes[routerIndex], { routes: [] }, { children: [] });
     const x = loopMenuItem(extraRoutes, parentId);
-    routes[routerIndex]['routes'].push(
-      ...x
-    )
-    routes[routerIndex]['children'].push(
-      ...x
-    )
-    console.log("test:  "+routes)
+    routes[routerIndex].routes.push(...x);
+    routes[routerIndex].children.push(...x);
+    console.log(`test:  ${routes}`);
   }
 }
 
@@ -64,21 +64,24 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
     if (item.path) {
       // 使用格式化路径，确保路径大小写与实际文件路径一致
       const x = Func.formatRoutePath(item.path);
-      console.log("tempComponent  路径 "+x)
+      console.log(`tempComponent  路径 ${x}`);
 
-      console.log("tempComponent  路径详细 "+`./pages${x}/index.tsx`)
+      console.log(`tempComponent  路径详细 ./pages${x}/index.tsx`);
       // 防止配置了路由，但本地暂未添加对应的页面，产生的错误 /index.tsx
-      Component = React.lazy(() => new Promise((resolve, reject) => {
-        import(`./pages${x}/index.tsx`)
-          .then(module => resolve(module))
-          .catch((error) => {
-            console.error("组件导入错误:", error);
-            resolve(import(`./pages/404.tsx`))
-          })
-      }))
+      Component = React.lazy(
+        () =>
+          new Promise((resolve, _reject) => {
+            import(`./pages${x}/index.tsx`)
+              .then((module) => resolve(module))
+              .catch((error) => {
+                console.error('组件导入错误:', error);
+                resolve(import(`./pages/404.tsx`));
+              });
+          }),
+      );
     }
     if (item.children) {
-      console.log(item.children[0])
+      console.log(item.children[0]);
       return [
         {
           path: item.path,
@@ -91,10 +94,10 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
               path: item.path,
               element: <Navigate to={item.children[0].path} replace />,
             },
-            ...loopMenuItem(item.children, item.id)
-          ]
-        }
-      ]
+            ...loopMenuItem(item.children, item.id),
+          ],
+        },
+      ];
     } else {
       return [
         {
@@ -105,34 +108,42 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
           parentId: pId,
           // element: createElement(Component)
           element: (
-            <React.Suspense fallback={
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                minHeight: '400px',
-                padding: '20px',
-                textAlign: 'center'
-              }}>
-                <div style={{ marginBottom: '16px' }}>
-                  <Spin size="large" tip="加载中..." />
+            <React.Suspense
+              fallback={
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minHeight: '400px',
+                    padding: '20px',
+                    textAlign: 'center',
+                  }}
+                >
+                  <div style={{ marginBottom: '16px' }}>
+                    <Spin size="large" tip="加载中..." />
+                  </div>
+                  <p
+                    style={{
+                      fontSize: '14px',
+                      color: '#666',
+                      marginTop: '16px',
+                    }}
+                  >
+                    正在加载页面，请稍候...
+                  </p>
                 </div>
-                <p style={{
-                  fontSize: '14px',
-                  color: '#666',
-                  marginTop: '16px'
-                }}>正在加载页面，请稍候...</p>
-              </div>
-            }>
+              }
+            >
               {Component && <Component />}
             </React.Suspense>
-          )
-        }
-      ]
+          ),
+        },
+      ];
     }
-    })
-}
+  });
+};
 
 export function render(oldRender: () => void) {
   // fetchRouter().then((res: any) => {
@@ -141,40 +152,40 @@ export function render(oldRender: () => void) {
   //   oldRender()
   // })
   setTimeout(async () => {
-  try {
-    const menuData =  await dynamicRoutes();
-    extraRoutes=formatRoutes(menuData.data);
-    // extraRoutes=loopMenuItem1(menu1);
-    const urlParams = new URL(window.location.href).searchParams;
-    const redirect = urlParams.get("redirect");
-    if (redirect) {
-      history.push(redirect);
-    }
-    oldRender();
-  } catch (e) {
-    const { search, pathname } = window.location;
-    // eslint-disable-next-line no-case-declarations
-    const urlParams = new URL(window.location.href).searchParams;
-    /** 此方法会跳转到 redirect 参数所在的位置 */
+    try {
+      const menuData = await dynamicRoutes();
+      extraRoutes = formatRoutes(menuData.data);
+      // extraRoutes=loopMenuItem1(menu1);
+      const urlParams = new URL(window.location.href).searchParams;
+      const redirect = urlParams.get('redirect');
+      if (redirect) {
+        history.push(redirect);
+      }
+      oldRender();
+    } catch (_e) {
+      const { search, pathname } = window.location;
       // eslint-disable-next-line no-case-declarations
-    const redirect = urlParams.get('redirect');
-    // Note: There may be security issues, please note
-    if (window.location.pathname !== loginPath && !redirect) {
-      history.replace({
-        pathname: loginPath,
-        search: stringify({
-          redirect: pathname + search,
-        }),
-      });
-    }else {
-      // history.push("/system/login?redirect=" + window.location.pathname + window.location.search);
-      history.push(loginPath +window.location.search);
-    // history.push(
-    //   "/system/login"
-    // );
+      const urlParams = new URL(window.location.href).searchParams;
+      /** 此方法会跳转到 redirect 参数所在的位置 */
+      // eslint-disable-next-line no-case-declarations
+      const redirect = urlParams.get('redirect');
+      // Note: There may be security issues, please note
+      if (window.location.pathname !== loginPath && !redirect) {
+        history.replace({
+          pathname: loginPath,
+          search: stringify({
+            redirect: pathname + search,
+          }),
+        });
+      } else {
+        // history.push("/system/login?redirect=" + window.location.pathname + window.location.search);
+        history.push(loginPath + window.location.search);
+        // history.push(
+        //   "/system/login"
+        // );
+      }
+      oldRender();
     }
-    oldRender();
-  }
   }, 500);
 }
 
@@ -197,8 +208,7 @@ export async function getInitialState(): Promise<{
       const res = await queryCurrentUser();
       console.log(1212);
       return res;
-
-    } catch (error) {
+    } catch (_error) {
       history.push(loginPath);
     }
     return undefined;
@@ -226,10 +236,13 @@ const loopMenuItem1 = (menus: MenuDataItem[]): MenuDataItem[] =>
     routes: routes && loopMenuItem1(routes),
   }));
 // ProLayout 支持的api https://procomponents.ant.design/components/layout
-export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) => {
-  console.log(initialState?.currentUser?.name)
+export const layout: RunTimeLayoutConfig = ({
+  initialState,
+  setInitialState,
+}) => {
+  console.log(initialState?.currentUser?.name);
   // console.log(initialState?.currentUser?.id)
-  console.log(initialState?.currentUser?.userid)
+  console.log(initialState?.currentUser?.userid);
   return {
     // actionsRender: () => [<Question key="doc" />, <SelectLang key="SelectLang" />],
     avatarProps: {
@@ -241,17 +254,18 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
     },
     waterMarkProps: {
       // content: initialState?.currentUser?.name,
-      height:36,
-      width:115,
-      content:"qixian.cs",
-      image:"https://gw.alipayobjects.com/zos/bmw-prod/59a18171-ae17-4fc5-93a0-2645f64a3aca.svg",
+      height: 36,
+      width: 115,
+      content: 'qixian.cs',
+      image:
+        'https://gw.alipayobjects.com/zos/bmw-prod/59a18171-ae17-4fc5-93a0-2645f64a3aca.svg',
     },
     menu: {
       // 每当 initialState?.currentUser?.userid 发生修改时重新执行 request
       params: {
         userId: initialState?.currentUser?.userid,
       },
-      request: async (params, defaultMenuData) => {
+      request: async (_params, _defaultMenuData) => {
         // initialState.currentUser 中包含了所有用户信息
         // console.log("menuData:test ")
         // const menuData = await dynamicRoutes();
@@ -263,12 +277,11 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
         // return menu1;
 
         // return extraRoutes;
-        const menu1=loopMenuItem1(formatRoutes(extraRoutes));
-        console.log("menuData 转换1："+menu1)
+        const menu1 = loopMenuItem1(formatRoutes(extraRoutes));
+        console.log(`menuData 转换1：${menu1}`);
         //console.log("menuData 获取数据:"+menuData)
         // console.log("menuData 转换2："+formatRoutes(menuData))
         return menu1;
-
       },
     },
     footerRender: () => <Footer />,
@@ -301,11 +314,11 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
     ],
     links: isDev
       ? [
-        <Link key="openapi" to="/umi/plugin/openapi" target="_blank">
-          <LinkOutlined />
-          <span>OpenAPI 文档</span>
-        </Link>,
-      ]
+          <Link key="openapi" to="/umi/plugin/openapi" target="_blank">
+            <LinkOutlined />
+            <span>OpenAPI 文档</span>
+          </Link>,
+        ]
       : [],
     menuHeaderRender: undefined,
     // 自定义 403 页面
@@ -334,7 +347,6 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
   };
 };
 
-
 /**
  * @name request 配置，可以配置错误处理
  * 它基于 axios 和 ahooks 的 useRequest 提供了一套统一的网络请求和错误处理方案。
@@ -343,4 +355,3 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
 export const request = {
   ...errorConfig,
 };
-

@@ -1,56 +1,79 @@
-import React, { useState, useEffect } from 'react';
-import { PageContainer } from '@ant-design/pro-components';
 import {
-  Table,
-  Space,
-  Button,
-  Modal,
-  Form,
-  Input,
-  InputNumber,
-  Select,
-  TreeSelect,
-  Switch,
-  message,
-  Card,
-  Row,
-  Col,
-  Popconfirm,
-  Tag,
-  Dropdown,
-  Badge,
-  Statistic,
-  Empty,
-  Drawer,
-} from 'antd';
-import {
-  PlusOutlined,
-  EditOutlined,
-  DeleteOutlined,
-  SearchOutlined,
-  FilterOutlined,
-  ReloadOutlined,
-  MoreOutlined,
   CheckOutlined,
   CloseOutlined,
-  StarOutlined,
-  GiftOutlined,
-  FireOutlined,
-  WarningOutlined,
   DeleteFilled,
-  UndoOutlined,
-  ShoppingOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  FilterOutlined,
+  FireOutlined,
+  GiftOutlined,
   HistoryOutlined,
-  LinkOutlined,
-  EyeOutlined,
+  MoreOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+  ShoppingOutlined,
+  StarOutlined,
+  UndoOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
-import type { ColumnsType } from 'antd/es/table';
+import { PageContainer } from '@ant-design/pro-components';
 import { useNavigate } from '@umijs/max';
-import { getProductList, deleteProduct, batchDeleteProducts, batchUpdateStatus, publishProduct, unpublishProduct, setRecommend, setNew, setHot, getProductStats, getRecycleList, restoreProduct, getProductSkus, deleteSku, getSkuStockLogs, adjustSkuStock } from '@/services/mall/product';
-import { getCategoryTree } from '@/services/mall/category';
+import {
+  Badge,
+  Button,
+  Card,
+  Col,
+  Drawer,
+  Dropdown,
+  Empty,
+  Form,
+  Input,
+  Modal,
+  message,
+  Popconfirm,
+  Row,
+  Select,
+  Space,
+  Statistic,
+  Table,
+  Tag,
+  TreeSelect,
+} from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import React, { useEffect, useState } from 'react';
 import { getBrandList } from '@/services/mall/brand';
-import type { Product, Category, Brand, ProductSku, SkuStockLog } from '@/services/mall/typings';
-import { formatMoney, formatDateTime, getProductStatusText, getProductStatusColor } from '@/utils/mall/format';
+import { getCategoryTree } from '@/services/mall/category';
+import {
+  adjustSkuStock,
+  batchDeleteProducts,
+  batchUpdateStatus,
+  deleteProduct,
+  deleteSku,
+  getProductList,
+  getProductSkus,
+  getProductStats,
+  getRecycleList,
+  getSkuStockLogs,
+  publishProduct,
+  restoreProduct,
+  setHot,
+  setNew,
+  setRecommend,
+  unpublishProduct,
+} from '@/services/mall/product';
+import type {
+  Brand,
+  Category,
+  Product,
+  ProductSku,
+  SkuStockLog,
+} from '@/services/mall/typings';
+import {
+  formatDateTime,
+  formatMoney,
+  getProductStatusText,
+} from '@/utils/mall/format';
 
 const { Option } = Select;
 
@@ -61,14 +84,14 @@ const ProductList: React.FC = () => {
   const navigate = useNavigate();
   const [categories, setCategories] = useState<Category[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
-  
+
   const [searchForm] = Form.useForm();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [stats, setStats] = useState<any>(null);
 
   // 编辑相关状态
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const [currentProduct, setCurrentProduct] = useState<Product | null>(null);
+  const [_editModalVisible, setEditModalVisible] = useState(false);
+  const [_currentProduct, setCurrentProduct] = useState<Product | null>(null);
 
   // 回收站相关状态
   const [recycleModalVisible, setRecycleModalVisible] = useState(false);
@@ -76,12 +99,15 @@ const ProductList: React.FC = () => {
 
   // SKU 管理相关状态
   const [skuDrawerVisible, setSkuDrawerVisible] = useState(false);
-  const [currentProductForSku, setCurrentProductForSku] = useState<Product | null>(null);
+  const [currentProductForSku, setCurrentProductForSku] =
+    useState<Product | null>(null);
   const [skuData, setSkuData] = useState<ProductSku[]>([]);
 
   // 库存日志相关状态
   const [stockLogModalVisible, setStockLogModalVisible] = useState(false);
-  const [currentSkuForLog, setCurrentSkuForLog] = useState<ProductSku | null>(null);
+  const [currentSkuForLog, setCurrentSkuForLog] = useState<ProductSku | null>(
+    null,
+  );
   const [stockLogs, setStockLogs] = useState<SkuStockLog[]>([]);
 
   const [data, setData] = useState<Product[]>([]);
@@ -100,7 +126,7 @@ const ProductList: React.FC = () => {
         getBrandList({ current: 1, pageSize: 100 }),
       ]);
       setCategories(categoryRes || []);
-      setBrands(Array.isArray(brandRes) ? brandRes : (brandRes.list || []));
+      setBrands(Array.isArray(brandRes) ? brandRes : brandRes.list || []);
     } catch (error) {
       console.error('获取分类和品牌失败:', error);
     }
@@ -125,9 +151,9 @@ const ProductList: React.FC = () => {
         pageSize,
         ...filters,
       };
-      
+
       const result = await getProductList(params);
-      
+
       if (result) {
         setData(result.list || []);
         setPagination({
@@ -196,7 +222,7 @@ const ProductList: React.FC = () => {
       message.warning('请先选择要删除的商品');
       return;
     }
-    
+
     try {
       await batchDeleteProducts(selectedRowKeys.map(Number));
       message.success('批量删除成功');
@@ -213,7 +239,7 @@ const ProductList: React.FC = () => {
       message.warning('请先选择商品');
       return;
     }
-    
+
     try {
       await batchUpdateStatus(selectedRowKeys.map(Number), status);
       message.success('批量更新状态成功');
@@ -348,7 +374,12 @@ const ProductList: React.FC = () => {
     fetchStockLogs(sku.id);
   };
 
-  const handleAdjustStock = async (skuId: number, quantity: number, type: number, remark: string) => {
+  const _handleAdjustStock = async (
+    skuId: number,
+    quantity: number,
+    type: number,
+    remark: string,
+  ) => {
     try {
       await adjustSkuStock(skuId, quantity, type, remark);
       message.success('库存调整成功');
@@ -391,7 +422,10 @@ const ProductList: React.FC = () => {
       key: 'publish',
       label: record.status === 'active' ? '下架' : '上架',
       icon: record.status === 'active' ? <CloseOutlined /> : <CheckOutlined />,
-      onClick: () => record.status === 'active' ? handleUnpublish(record.id) : handlePublish(record.id),
+      onClick: () =>
+        record.status === 'active'
+          ? handleUnpublish(record.id)
+          : handlePublish(record.id),
     },
     {
       key: 'recommend',
@@ -439,10 +473,25 @@ const ProductList: React.FC = () => {
           <img
             src={record.image}
             alt={record.name}
-            style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 4 }}
+            style={{
+              width: 64,
+              height: 64,
+              objectFit: 'cover',
+              borderRadius: 4,
+            }}
           />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 500, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.name}</div>
+            <div
+              style={{
+                fontWeight: 500,
+                color: '#111827',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {record.name}
+            </div>
             <div style={{ fontSize: 14, color: '#6b7280' }}>
               {record.categoryName || '未分类'}
             </div>
@@ -456,9 +505,19 @@ const ProductList: React.FC = () => {
       width: 120,
       render: (_, record) => (
         <div>
-          <div style={{ fontWeight: 600, color: '#ef4444' }}>{formatMoney(record.price)}</div>
+          <div style={{ fontWeight: 600, color: '#ef4444' }}>
+            {formatMoney(record.price)}
+          </div>
           {record.originalPrice && (
-            <div style={{ fontSize: 12, color: '#9ca3af', textDecoration: 'line-through' }}>{formatMoney(record.originalPrice)}</div>
+            <div
+              style={{
+                fontSize: 12,
+                color: '#9ca3af',
+                textDecoration: 'line-through',
+              }}
+            >
+              {formatMoney(record.originalPrice)}
+            </div>
           )}
         </div>
       ),
@@ -484,8 +543,8 @@ const ProductList: React.FC = () => {
       dataIndex: 'status',
       width: 100,
       render: (status: string) => (
-        <Badge 
-          status={status === 'active' ? 'success' : 'default'} 
+        <Badge
+          status={status === 'active' ? 'success' : 'default'}
           text={getProductStatusText(status)}
         />
       ),
@@ -523,14 +582,14 @@ const ProductList: React.FC = () => {
           >
             编辑
           </Button>
-          
-          <Dropdown 
-            menu={{ items: getMoreActionsMenu(record) }} 
+
+          <Dropdown
+            menu={{ items: getMoreActionsMenu(record) }}
             placement="bottomRight"
           >
             <Button type="link" size="small" icon={<MoreOutlined />} />
           </Dropdown>
-          
+
           <Popconfirm
             title="确认删除"
             description="确定要删除该商品吗？"
@@ -552,37 +611,34 @@ const ProductList: React.FC = () => {
 
   return (
     <PageContainer>
-      <Card
-        title="商品统计"
-        style={{ marginBottom: 16 }}
-      >
+      <Card title="商品统计" style={{ marginBottom: 16 }}>
         <Row gutter={[16, 16]}>
           <Col xs={12} sm={8} md={6}>
-            <Statistic 
-              title="商品总数" 
-              value={stats?.totalProducts || 0} 
+            <Statistic
+              title="商品总数"
+              value={stats?.totalProducts || 0}
               valueStyle={{ color: '#1890ff' }}
             />
           </Col>
           <Col xs={12} sm={8} md={6}>
-            <Statistic 
-              title="上架商品" 
-              value={stats?.activeProducts || 0} 
+            <Statistic
+              title="上架商品"
+              value={stats?.activeProducts || 0}
               valueStyle={{ color: '#52c41a' }}
               prefix={<CheckOutlined />}
             />
           </Col>
           <Col xs={12} sm={8} md={6}>
-            <Statistic 
-              title="推荐商品" 
-              value={stats?.recommendProducts || 0} 
+            <Statistic
+              title="推荐商品"
+              value={stats?.recommendProducts || 0}
               valueStyle={{ color: '#1890ff' }}
             />
           </Col>
           <Col xs={12} sm={8} md={6}>
-            <Statistic 
-              title="库存预警" 
-              value={stats?.lowStockProducts || 0} 
+            <Statistic
+              title="库存预警"
+              value={stats?.lowStockProducts || 0}
               valueStyle={{ color: '#faad14' }}
               prefix={<WarningOutlined />}
             />
@@ -603,7 +659,11 @@ const ProductList: React.FC = () => {
             <Button icon={<ReloadOutlined />} onClick={handleReset}>
               重置
             </Button>
-            <Button type="primary" icon={<SearchOutlined />} onClick={() => searchForm.submit()}>
+            <Button
+              type="primary"
+              icon={<SearchOutlined />}
+              onClick={() => searchForm.submit()}
+            >
               搜索
             </Button>
           </Space>
@@ -620,7 +680,12 @@ const ProductList: React.FC = () => {
           </Form.Item>
 
           <Form.Item name="categoryId" label="分类">
-            <TreeSelect placeholder="请选择分类" style={{ width: 180 }} allowClear treeData={categories} />
+            <TreeSelect
+              placeholder="请选择分类"
+              style={{ width: 180 }}
+              allowClear
+              treeData={categories}
+            />
           </Form.Item>
 
           <Form.Item name="brandId" label="品牌">
@@ -650,7 +715,10 @@ const ProductList: React.FC = () => {
               回收站
             </Button>
             {selectedRowKeys.length > 0 && (
-              <Dropdown menu={{ items: batchActionsMenu }} placement="bottomRight">
+              <Dropdown
+                menu={{ items: batchActionsMenu }}
+                placement="bottomRight"
+              >
                 <Button icon={<SettingOutlined />}>
                   批量操作 ({selectedRowKeys.length})
                 </Button>
@@ -674,7 +742,8 @@ const ProductList: React.FC = () => {
             total: pagination.total,
             showSizeChanger: true,
             showQuickJumper: true,
-            showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
+            showTotal: (total, range) =>
+              `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
           }}
           onChange={(pag) => handleTableChange(pag)}
           scroll={{ x: 1600 }}
@@ -704,11 +773,18 @@ const ProductList: React.FC = () => {
               title: '商品信息',
               key: 'productInfo',
               render: (_, record) => (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
+                >
                   <img
                     src={record.image}
                     alt={record.name}
-                    style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 4 }}
+                    style={{
+                      width: 48,
+                      height: 48,
+                      objectFit: 'cover',
+                      borderRadius: 4,
+                    }}
                   />
                   <div style={{ fontWeight: 500 }}>{record.name}</div>
                 </div>
@@ -772,7 +848,9 @@ const ProductList: React.FC = () => {
               title: '规格',
               render: (_, record) => (
                 <span style={{ wordBreak: 'break-all' }}>
-                  {[record.spec1, record.spec2, record.spec3, record.spec4].filter(Boolean).join('/')}
+                  {[record.spec1, record.spec2, record.spec3, record.spec4]
+                    .filter(Boolean)
+                    .join('/')}
                 </span>
               ),
               width: 200,
@@ -840,10 +918,15 @@ const ProductList: React.FC = () => {
               title: '类型',
               dataIndex: 'typeText',
               render: (text: string, record: SkuStockLog) => (
-                <Tag color={
-                  record.type === 1 ? 'success' :
-                  record.type === 2 ? 'error' : 'warning'
-                }>
+                <Tag
+                  color={
+                    record.type === 1
+                      ? 'success'
+                      : record.type === 2
+                        ? 'error'
+                        : 'warning'
+                  }
+                >
                   {text}
                 </Tag>
               ),
@@ -853,7 +936,8 @@ const ProductList: React.FC = () => {
               dataIndex: 'quantity',
               render: (quantity: number) => (
                 <span style={{ color: quantity > 0 ? '#52c41a' : '#ff4d4f' }}>
-                  {quantity > 0 ? '+' : ''}{quantity}
+                  {quantity > 0 ? '+' : ''}
+                  {quantity}
                 </span>
               ),
             },

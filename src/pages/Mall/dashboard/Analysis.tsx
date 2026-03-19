@@ -1,7 +1,18 @@
-import React from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import { Card } from 'antd';
-import { Area, AreaChart, CartesianGrid, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
+import React from 'react';
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
 /**
  * 商城仪表盘页面
@@ -26,10 +37,7 @@ const MallDashboard: React.FC = () => {
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
 
   return (
-    <PageContainer
-      title="商城仪表盘"
-      subTitle="销售、订单和商品数据的综合分析"
-    >
+    <PageContainer title="商城仪表盘" subTitle="销售、订单和商品数据的综合分析">
       <Card title="销售趋势" style={{ marginBottom: 16 }}>
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={salesData}>
@@ -90,7 +98,7 @@ const MallDashboard: React.FC = () => {
 };
 
 // 为了兼容 Recharts 的 cell 组件
-const cell: React.FC<any> = (_props) => {
+const _cell: React.FC<any> = (_props) => {
   return null;
 };
 

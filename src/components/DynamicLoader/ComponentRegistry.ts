@@ -1,12 +1,18 @@
-import React, { LazyExoticComponent, ComponentType } from 'react';
+import React, { type ComponentType, type LazyExoticComponent } from 'react';
 import type { ComponentInfo, ComponentSource } from '@/types/menu';
 
 class ComponentRegistry {
   private registry: Map<string, ComponentInfo> = new Map();
 
-  private bundledComponents: Map<string, LazyExoticComponent<ComponentType<any>>> = new Map();
+  private bundledComponents: Map<
+    string,
+    LazyExoticComponent<ComponentType<any>>
+  > = new Map();
 
-  registerBundled(path: string, component: LazyExoticComponent<ComponentType<any>>): void {
+  registerBundled(
+    path: string,
+    component: LazyExoticComponent<ComponentType<any>>,
+  ): void {
     this.bundledComponents.set(path, component);
     this.registry.set(path, {
       component,
@@ -15,7 +21,11 @@ class ComponentRegistry {
     });
   }
 
-  registerRemote(path: string, component: ComponentType<any>, url: string): void {
+  registerRemote(
+    path: string,
+    component: ComponentType<any>,
+    url: string,
+  ): void {
     this.registry.set(path, {
       component,
       source: 'remote',
@@ -41,7 +51,9 @@ class ComponentRegistry {
     return info ? info.source : null;
   }
 
-  getBundledComponent(path: string): LazyExoticComponent<ComponentType<any>> | null {
+  getBundledComponent(
+    path: string,
+  ): LazyExoticComponent<ComponentType<any>> | null {
     return this.bundledComponents.get(path) || null;
   }
 
@@ -68,8 +80,7 @@ class ComponentRegistry {
 export const componentRegistry = new ComponentRegistry();
 
 export function registerBundledComponents(): void {
-  const mappedPaths: Record<string, () => any> = {
-  };
+  const mappedPaths: Record<string, () => any> = {};
 
   Object.entries(mappedPaths).forEach(([path, importFn]) => {
     const lazyComponent = React.lazy(importFn as any);

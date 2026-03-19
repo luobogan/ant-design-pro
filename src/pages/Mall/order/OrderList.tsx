@@ -1,22 +1,31 @@
-import React, { useState } from 'react';
+import { EyeOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import {
-  Table,
-  Card,
-  Space,
   Button,
-  Drawer,
+  Card,
   Descriptions,
-  Tag,
-  Select,
+  Drawer,
   Input,
   message,
+  Select,
+  Space,
+  Table,
+  Tag,
 } from 'antd';
-import { EyeOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import { getOrderList, getOrderById, updateOrderStatus } from '@/services/mall/order';
+import React, { useState } from 'react';
+import {
+  getOrderById,
+  getOrderList,
+  updateOrderStatus,
+} from '@/services/mall/order';
 import type { Order } from '@/services/mall/typings';
-import { formatMoney, formatDateTime, getOrderStatusText, getOrderStatusColor } from '@/utils/mall/format';
+import {
+  formatDateTime,
+  formatMoney,
+  getOrderStatusColor,
+  getOrderStatusText,
+} from '@/utils/mall/format';
 
 const { Option } = Select;
 const { Search } = Input;
@@ -38,7 +47,11 @@ const OrderList: React.FC = () => {
   });
 
   // 获取订单列表
-  const fetchData = async (page = 1, pageSize = 10, searchFilters: any = {}) => {
+  const fetchData = async (
+    page = 1,
+    pageSize = 10,
+    searchFilters: any = {},
+  ) => {
     setLoading(true);
     try {
       const params = {
@@ -46,9 +59,9 @@ const OrderList: React.FC = () => {
         pageSize,
         ...searchFilters,
       };
-      
+
       const result = await getOrderList(params);
-      
+
       if (result) {
         setData(result.list || []);
         setPagination({
@@ -84,7 +97,7 @@ const OrderList: React.FC = () => {
       const detail = await getOrderById(order.id);
       setCurrentOrder(detail);
       setDetailVisible(true);
-    } catch (error: any) {
+    } catch (_error: any) {
       message.error('获取订单详情失败');
     }
   };
@@ -100,7 +113,7 @@ const OrderList: React.FC = () => {
 
       const updatedOrder = await getOrderById(currentOrder.id);
       setCurrentOrder(updatedOrder);
-    } catch (error: any) {
+    } catch (_error: any) {
       message.error('状态更新失败');
     }
   };
@@ -147,7 +160,9 @@ const OrderList: React.FC = () => {
       dataIndex: 'status',
       width: 100,
       render: (status: string) => (
-        <Tag color={getOrderStatusColor(status)}>{getOrderStatusText(status)}</Tag>
+        <Tag color={getOrderStatusColor(status)}>
+          {getOrderStatusText(status)}
+        </Tag>
       ),
     },
     {
@@ -234,24 +249,36 @@ const OrderList: React.FC = () => {
           <div>
             <Card title="订单信息" style={{ marginBottom: 16 }}>
               <Descriptions column={2} bordered>
-                <Descriptions.Item label="订单号">{currentOrder.orderNo}</Descriptions.Item>
+                <Descriptions.Item label="订单号">
+                  {currentOrder.orderNo}
+                </Descriptions.Item>
                 <Descriptions.Item label="订单状态">
                   <Tag color={getOrderStatusColor(currentOrder.status)}>
                     {getOrderStatusText(currentOrder.status)}
                   </Tag>
                 </Descriptions.Item>
-                <Descriptions.Item label="用户">{currentOrder.username}</Descriptions.Item>
-                <Descriptions.Item label="邮箱">{currentOrder.userEmail}</Descriptions.Item>
+                <Descriptions.Item label="用户">
+                  {currentOrder.username}
+                </Descriptions.Item>
+                <Descriptions.Item label="邮箱">
+                  {currentOrder.userEmail}
+                </Descriptions.Item>
                 <Descriptions.Item label="创建时间">
                   {formatDateTime(currentOrder.createTime)}
                 </Descriptions.Item>
                 <Descriptions.Item label="支付时间">
-                  {currentOrder.paymentTime ? formatDateTime(currentOrder.paymentTime) : '-'}
+                  {currentOrder.paymentTime
+                    ? formatDateTime(currentOrder.paymentTime)
+                    : '-'}
                 </Descriptions.Item>
                 <Descriptions.Item label="发货时间">
-                  {currentOrder.shippingTime ? formatDateTime(currentOrder.shippingTime) : '-'}
+                  {currentOrder.shippingTime
+                    ? formatDateTime(currentOrder.shippingTime)
+                    : '-'}
                 </Descriptions.Item>
-                <Descriptions.Item label="备注">{currentOrder.remark || '-'}</Descriptions.Item>
+                <Descriptions.Item label="备注">
+                  {currentOrder.remark || '-'}
+                </Descriptions.Item>
               </Descriptions>
             </Card>
 
@@ -260,10 +287,20 @@ const OrderList: React.FC = () => {
                 <Descriptions.Item label="商品小计">
                   {formatMoney(currentOrder.subtotal)}
                 </Descriptions.Item>
-                <Descriptions.Item label="折扣">{formatMoney(currentOrder.discount)}</Descriptions.Item>
-                <Descriptions.Item label="运费">{formatMoney(currentOrder.shipping)}</Descriptions.Item>
+                <Descriptions.Item label="折扣">
+                  {formatMoney(currentOrder.discount)}
+                </Descriptions.Item>
+                <Descriptions.Item label="运费">
+                  {formatMoney(currentOrder.shipping)}
+                </Descriptions.Item>
                 <Descriptions.Item label="订单总额">
-                  <span style={{ fontSize: 18, color: '#ff4d4f', fontWeight: 'bold' }}>
+                  <span
+                    style={{
+                      fontSize: 18,
+                      color: '#ff4d4f',
+                      fontWeight: 'bold',
+                    }}
+                  >
                     {formatMoney(currentOrder.total)}
                   </span>
                 </Descriptions.Item>
@@ -273,13 +310,20 @@ const OrderList: React.FC = () => {
             <Card title="收货地址" style={{ marginBottom: 16 }}>
               {currentOrder.address ? (
                 <Descriptions column={1} bordered>
-                  <Descriptions.Item label="收货人">{currentOrder.address.name}</Descriptions.Item>
-                  <Descriptions.Item label="联系电话">{currentOrder.address.phone}</Descriptions.Item>
+                  <Descriptions.Item label="收货人">
+                    {currentOrder.address.name}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="联系电话">
+                    {currentOrder.address.phone}
+                  </Descriptions.Item>
                   <Descriptions.Item label="收货地址">
                     {currentOrder.address.province} {currentOrder.address.city}{' '}
-                    {currentOrder.address.district} {currentOrder.address.detail}
+                    {currentOrder.address.district}{' '}
+                    {currentOrder.address.detail}
                   </Descriptions.Item>
-                  <Descriptions.Item label="邮编">{currentOrder.address.postalCode}</Descriptions.Item>
+                  <Descriptions.Item label="邮编">
+                    {currentOrder.address.postalCode}
+                  </Descriptions.Item>
                 </Descriptions>
               ) : (
                 <span>无收货地址信息</span>
@@ -295,7 +339,11 @@ const OrderList: React.FC = () => {
                     dataIndex: 'productName',
                     render: (name: string, record: any) => (
                       <Space>
-                        <img src={record.productImage} alt="" style={{ width: 50, height: 50 }} />
+                        <img
+                          src={record.productImage}
+                          alt=""
+                          style={{ width: 50, height: 50 }}
+                        />
                         {name}
                       </Space>
                     ),
@@ -311,7 +359,8 @@ const OrderList: React.FC = () => {
                   },
                   {
                     title: '小计',
-                    render: (_: unknown, record: any) => formatMoney(record.price * record.quantity),
+                    render: (_: unknown, record: any) =>
+                      formatMoney(record.price * record.quantity),
                   },
                 ]}
                 dataSource={currentOrder.items}
@@ -323,17 +372,26 @@ const OrderList: React.FC = () => {
             <Card title="订单操作">
               <Space>
                 {currentOrder.status === 'paid' && (
-                  <Button type="primary" onClick={() => handleUpdateStatus('shipped')}>
+                  <Button
+                    type="primary"
+                    onClick={() => handleUpdateStatus('shipped')}
+                  >
                     标记为已发货
                   </Button>
                 )}
                 {currentOrder.status === 'shipped' && (
-                  <Button type="primary" onClick={() => handleUpdateStatus('delivered')}>
+                  <Button
+                    type="primary"
+                    onClick={() => handleUpdateStatus('delivered')}
+                  >
                     标记为已完成
                   </Button>
                 )}
                 {currentOrder.status === 'pending' && (
-                  <Button danger onClick={() => handleUpdateStatus('cancelled')}>
+                  <Button
+                    danger
+                    onClick={() => handleUpdateStatus('cancelled')}
+                  >
                     取消订单
                   </Button>
                 )}

@@ -15,16 +15,16 @@ export default class Func {
   //   formattedPath = formattedPath.endsWith('/') ? formattedPath.slice(0, -1) : formattedPath;
   //   return formattedPath;
   // }
-static formatRoutePath(path: string) {
-  const words = path.replace(/^\//, '').split(/(?<=\w+)\//);
-  console.log('words:'+words)
-  // 提取路径单词
-  return `/${words
-    .map((word: string) =>
-      word.toLowerCase().replace(word[0], word[0].toUpperCase()),
-    )
-    .join('/')}`;
-}
+  static formatRoutePath(path: string) {
+    const words = path.replace(/^\//, '').split(/(?<=\w+)\//);
+    console.log(`words:${words}`);
+    // 提取路径单词
+    return `/${words
+      .map((word: string) =>
+        word.toLowerCase().replace(word[0], word[0].toUpperCase()),
+      )
+      .join('/')}`;
+  }
 
   /**
    * 将对象转换为 FormData
@@ -34,7 +34,7 @@ static formatRoutePath(path: string) {
   static toFormData(data: any): FormData {
     const formData = new FormData();
     if (data) {
-      Object.keys(data).forEach(key => {
+      Object.keys(data).forEach((key) => {
         const value = data[key];
         if (Array.isArray(value)) {
           value.forEach((item: any, index: number) => {

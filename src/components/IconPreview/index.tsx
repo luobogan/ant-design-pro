@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Modal, Input, List, Typography, Space } from 'antd';
 import * as icons from '@ant-design/icons';
+import { Input, List, Modal, Space, Typography } from 'antd';
+import React, { useState } from 'react';
 
 interface IconPreviewProps {
   onCancel: (value: string) => void;
@@ -11,16 +11,16 @@ const { Text } = Typography;
 
 const IconPreview: React.FC<IconPreviewProps> = ({ onCancel }) => {
   const [searchText, setSearchText] = useState('');
-  
+
   // Get all icon names from @ant-design/icons
-  const allIcons = Object.keys(icons).filter(key => {
+  const allIcons = Object.keys(icons).filter((key) => {
     // Filter out non-icon exports
     return typeof icons[key] === 'function' && key.endsWith('Outlined');
   });
-  
+
   // Filter icons based on search text
-  const filteredIcons = allIcons.filter(iconName => 
-    iconName.toLowerCase().includes(searchText.toLowerCase())
+  const filteredIcons = allIcons.filter((iconName) =>
+    iconName.toLowerCase().includes(searchText.toLowerCase()),
   );
 
   return (
@@ -44,12 +44,12 @@ const IconPreview: React.FC<IconPreviewProps> = ({ onCancel }) => {
           return (
             <List.Item
               onClick={() => onCancel(iconName.replace('Outlined', ''))}
-              style={{ 
-                textAlign: 'center', 
+              style={{
+                textAlign: 'center',
                 cursor: 'pointer',
                 padding: '16px',
                 borderRadius: '8px',
-                hover: { backgroundColor: '#f0f0f0' }
+                hover: { backgroundColor: '#f0f0f0' },
               }}
             >
               <Space direction="vertical" size={8}>

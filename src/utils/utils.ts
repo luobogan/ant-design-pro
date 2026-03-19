@@ -126,7 +126,7 @@ export const generateRandomString = (length: number = 8): string => {
 //   function format(arr: any[], parentPath = '') {
 //     return arr.map(node => {
 //       const item = { ...node }; // 创建副本避免直接修改原始数据
-      
+
 //       // 处理路径：如果是子路由且使用绝对路径，转换为相对路径
 //       if (item.path && parentPath) {
 //         // 如果子路由路径以父路由路径开头，提取相对部分
@@ -144,23 +144,21 @@ export const generateRandomString = (length: number = 8): string => {
 //           item.path = parts[parts.length - 1];
 //         }
 //       }
-      
+
 //       // 生成组件路径（只在有实际路径时）
 //       if (item.path && item.path !== '/') {
 //         const pathParts = item.path.split('/').filter(Boolean);
-        
+
 //         // 只为最底层的路由生成组件路径，菜单分组不生成
 //         const hasChildren = item.children && item.children.length > 0;
 //         const isLeafNode = !hasChildren;
-        
+
 //         if (isLeafNode && pathParts.length > 0) {
 //           const systemPath = pathParts[0].toLowerCase();
 
-
-
 //           console.log(`123  Processing path: ${item.path}`);
 //           console.log(`1234 Processing path: ${item.path}, systemPath: ${systemPath}`);
-          
+
 //           if (systemPath === 'system') {
 //             // 系统管理相关路径，使用System目录
 //             if (pathParts.length === 2) {
@@ -201,29 +199,29 @@ export const generateRandomString = (length: number = 8): string => {
 //           }
 //         }
 //       }
-      
+
 //       const currentPath = parentPath ? `${parentPath}/${item.path}` : item.path;
-      
+
 //       if (item.children && Array.isArray(item.children)) {
 //         item.routes = format(item.children, currentPath);
 //         delete item.children; // 删除 children，使用 routes
 //       }
-      
+
 //       if (item.isOpen === 2) {
 //         item.target = '_blank';
 //       }
-      
+
 //       // 处理图标
 //       if (item.source) {
 //         const fixIconName = item.source.slice(0, 1).toLocaleUpperCase() + item.source.slice(1) + iconType;
 //         item.icon = fixIconName;
 //       }
-      
+
 //       // 删除不需要的字段
 //       delete item.sort;
 //       delete item.code;
 //       delete item.source;
-      
+
 //       return item;
 //     });
 //   }
@@ -231,15 +229,16 @@ export const generateRandomString = (length: number = 8): string => {
 // }
 
 export function formatRoutes(routes: any, iconType = 'Outlined') {
-
-  console.log('formatRoutes  routes :'+routes);
+  console.log(`formatRoutes  routes :${routes}`);
   function format(arr: any[]) {
-    arr.forEach(node => {
+    arr.forEach((node) => {
       const item = node;
-      
+
       // 检查是否为外部URL
-      const isExternalUrl = item.path && (item.path.startsWith('http://') || item.path.startsWith('https://'));
-      
+      const isExternalUrl =
+        item.path &&
+        (item.path.startsWith('http://') || item.path.startsWith('https://'));
+
       if (item.children && Array.isArray(item.children)) {
         item.routes = item.children;
         format(item.routes);
@@ -248,11 +247,11 @@ export function formatRoutes(routes: any, iconType = 'Outlined') {
         item.target = '_blank';
       }
       // item.name = item.code;
-      
-      console.log('item.parentId test   :'+item.parentId);
-      if (item.parentId!==0 && !isExternalUrl) {
-        item.component = "." + item.component;
-        console.log("item.component   :"+item.component);
+
+      console.log(`item.parentId test   :${item.parentId}`);
+      if (item.parentId !== 0 && !isExternalUrl) {
+        item.component = `.${item.component}`;
+        console.log(`item.component   :${item.component}`);
       }
 
       // item.layout='top';
@@ -271,7 +270,10 @@ export function formatRoutes(routes: any, iconType = 'Outlined') {
       // }))
       // item.element=createElement(Component);
       if (item.source) {
-        const fixIconName = item.source.slice(0, 1).toLocaleUpperCase() + item.source.slice(1) + iconType
+        const fixIconName =
+          item.source.slice(0, 1).toLocaleUpperCase() +
+          item.source.slice(1) +
+          iconType;
         //console.log('fixIconName:'+fixIconName);
 
         // item.icon =fixIconName && <Icon component={icons[fixIconName]} />
@@ -279,7 +281,7 @@ export function formatRoutes(routes: any, iconType = 'Outlined') {
         // eslint-disable-next-line no-param-reassign
         item.icon = fixIconName;
         // item.icon = React.createElement(allIcons[fixIconName] || allIcons[item.source])
-        console.log('item.icon:'+item.icon);
+        console.log(`item.icon:${item.icon}`);
       }
       // delete item.id;
       // delete item.parentId;
