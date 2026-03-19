@@ -1,11 +1,14 @@
 import { request } from '@umijs/max';
 import type { Product, ProductFormData, ProductSkuFormData, SkuMatrixGenerateData, ProductRelationFormData } from './typings';
+import { API_MALL_BASE_PATH } from '@/constants';
+
+const PRODUCT_BASE_URL = `${API_MALL_BASE_PATH}/products`;
 
 /**
  * 获取商品列表
  */
 export async function getProductList(params: any) {
-  return request('/api/mall/products', {
+  return request(PRODUCT_BASE_URL, {
     method: 'GET',
     params,
   });
@@ -15,7 +18,7 @@ export async function getProductList(params: any) {
  * 获取商品详情
  */
 export async function getProductById(id: number) {
-  return request(`/api/mall/products/${id}`, {
+  return request(`${PRODUCT_BASE_URL}/${id}`, {
     method: 'GET',
   });
 }
@@ -24,7 +27,7 @@ export async function getProductById(id: number) {
  * 创建商品
  */
 export async function createProduct(data: ProductFormData) {
-  return request('/api/mall/products', {
+  return request(PRODUCT_BASE_URL, {
     method: 'POST',
     data,
   });
@@ -34,7 +37,7 @@ export async function createProduct(data: ProductFormData) {
  * 更新商品
  */
 export async function updateProduct(id: number, data: ProductFormData) {
-  return request(`/api/mall/products/${id}`, {
+  return request(`${PRODUCT_BASE_URL}/${id}`, {
     method: 'PUT',
     data,
   });

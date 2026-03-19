@@ -1,21 +1,24 @@
 import { request } from '@umijs/max';
 import { stringify } from 'qs';
+import { API_BASE_PATH, APPLICATION_SYSTEM_NAME } from '@/constants';
 
 // =====================用户===========================
 
+const USER_BASE_URL = `${API_BASE_PATH}/${APPLICATION_SYSTEM_NAME}/user`;
+
 // 获取用户列表
 export async function list(params: any) {
-  return request(`/api/blade-system/user/list?${stringify(params)}`);
+  return request(`${USER_BASE_URL}/list?${stringify(params)}`);
 }
 
 // 获取用户详情
 export async function detail(params: any) {
-  return request(`/api/blade-system/user/detail?${stringify(params)}`);
+  return request(`${USER_BASE_URL}/detail?${stringify(params)}`);
 }
 
 // 提交用户信息
 export async function submit(params: any) {
-  return request('/api/blade-system/user/submit', {
+  return request(`${USER_BASE_URL}/submit`, {
     method: 'POST',
     data: params,
     headers: {
@@ -26,7 +29,7 @@ export async function submit(params: any) {
 
 // 更新用户信息
 export async function update(params: any) {
-  return request('/api/blade-system/user/update', {
+  return request(`${USER_BASE_URL}/update`, {
     method: 'POST',
     data: params,
     headers: {
@@ -37,7 +40,7 @@ export async function update(params: any) {
 
 // 删除用户
 export async function remove(params: any) {
-  return request('/api/blade-system/user/remove', {
+  return request(`${USER_BASE_URL}/remove`, {
     method: 'POST',
     data: params,
   });
@@ -45,7 +48,7 @@ export async function remove(params: any) {
 
 // 获取用户选择列表
 export async function select(params: any) {
-  return request(`/api/blade-system/user/select?${stringify(params)}`);
+  return request(`${USER_BASE_URL}/select?${stringify(params)}`);
 }
 
 // 获取用户角色

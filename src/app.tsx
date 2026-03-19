@@ -206,9 +206,10 @@ export async function getInitialState(): Promise<{
       // return msg.data;
       // 获取用户信息
       const res = await queryCurrentUser();
-      console.log(1212);
-      return res;
+      console.log('用户信息响应:', res);
+      return res.data;
     } catch (_error) {
+      console.error('获取用户信息失败:', _error);
       history.push(loginPath);
     }
     return undefined;

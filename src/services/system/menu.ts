@@ -1,39 +1,42 @@
 import { request } from '@umijs/max';
 import { stringify } from 'qs';
 import RequestForm from '@/utils/RequestForm';
+import { API_BASE_PATH, APPLICATION_SYSTEM_NAME } from '@/constants';
 
 // =====================菜单===========================
 
+const MENU_BASE_URL = `${API_BASE_PATH}/${APPLICATION_SYSTEM_NAME}/menu`;
+
 // 获取动态路由
 export async function dynamicRoutes() {
-  return request('/api/blade-system/menu/routes');
+  return request(`${MENU_BASE_URL}/routes`);
 }
 
 // 获取动态按钮
 export async function dynamicButtons() {
-  return request('/api/blade-system/menu/buttons');
+  return request(`${MENU_BASE_URL}/buttons`);
 }
 
 // 获取菜单列表
 export async function list(params: any) {
-  return request(`/api/blade-system/menu/list?${stringify(params)}`);
+  return request(`${MENU_BASE_URL}/list?${stringify(params)}`);
 }
 
 // 获取父菜单列表
 export async function parentList(params: any) {
-  return request(`/api/blade-system/menu/menu-list?${stringify(params)}`);
+  return request(`${MENU_BASE_URL}/menu-list?${stringify(params)}`);
 }
 
 // 获取菜单树
 export async function tree(params: any) {
-  return request(`/api/blade-system/menu/tree?${stringify(params)}`);
+  return request(`${MENU_BASE_URL}/tree?${stringify(params)}`);
 }
 
 // 获取授权菜单树
 export async function grantTree(params: any) {
   try {
     console.log('Calling grant-tree API with params:', params);
-    const url = params ? `/api/blade-system/menu/grant-tree?${stringify(params)}` : '/api/blade-system/menu/grant-tree';
+    const url = params ? `${MENU_BASE_URL}/grant-tree?${stringify(params)}` : `${MENU_BASE_URL}/grant-tree`;
     console.log('Constructed URL:', url);
     const response = await request(url);
     console.log('grant-tree API response:', response);
@@ -48,7 +51,7 @@ export async function grantTree(params: any) {
 export async function roleTreeKeys(params: any) {
   try {
     console.log('Calling role-tree-keys API with params:', params);
-    const url = params ? `/api/blade-system/menu/role-tree-keys?${stringify(params)}` : '/api/blade-system/menu/role-tree-keys';
+    const url = params ? `${MENU_BASE_URL}/role-tree-keys?${stringify(params)}` : `${MENU_BASE_URL}/role-tree-keys`;
     console.log('Constructed URL:', url);
     const response = await request(url);
     console.log('role-tree-keys API response:', response);
@@ -61,7 +64,7 @@ export async function roleTreeKeys(params: any) {
 
 // 删除菜单
 export async function remove(params: any) {
-  return request('/api/blade-system/menu/remove', {
+  return request(`${MENU_BASE_URL}/remove`, {
     method: 'POST',
     data: RequestForm.buildFormDataWithArray(params),
   });
@@ -77,7 +80,7 @@ export async function submit(params: any) {
 
   console.log('提交菜单参数:', JSON.stringify(cleanedParams));
 
-  return request('/api/blade-system/menu/submit', {
+  return request(`${MENU_BASE_URL}/submit`, {
     method: 'POST',
     data: cleanedParams,
   });

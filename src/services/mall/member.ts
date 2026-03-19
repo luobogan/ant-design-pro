@@ -1,10 +1,13 @@
 import { request } from '@umijs/max';
+import { API_MALL_BASE_PATH } from '@/constants';
+
+const MEMBER_BASE_URL = `${API_MALL_BASE_PATH}/members`;
 
 /**
  * 获取会员列表
  */
 export async function getMemberList(params: any) {
-  return request('/api/mall/members', {
+  return request(MEMBER_BASE_URL, {
     method: 'GET',
     params,
   });
@@ -14,7 +17,7 @@ export async function getMemberList(params: any) {
  * 获取会员详情
  */
 export async function getMemberById(userId: number) {
-  return request(`/api/mall/members/${userId}`, {
+  return request(`${MEMBER_BASE_URL}/${userId}`, {
     method: 'GET',
   });
 }
@@ -23,7 +26,7 @@ export async function getMemberById(userId: number) {
  * 更新会员等级
  */
 export async function updateMemberLevel(userId: number, data: { levelId: number }) {
-  return request(`/api/mall/members/${userId}/level`, {
+  return request(`${MEMBER_BASE_URL}/${userId}/level`, {
     method: 'PUT',
     data,
   });
@@ -33,7 +36,7 @@ export async function updateMemberLevel(userId: number, data: { levelId: number 
  * 调整积分
  */
 export async function adjustPoints(userId: number, points: number, type: number, remark?: string) {
-  return request(`/api/mall/members/${userId}/points`, {
+  return request(`${MEMBER_BASE_URL}/${userId}/points`, {
     method: 'POST',
     data: { points, type, remark },
   });
@@ -43,7 +46,7 @@ export async function adjustPoints(userId: number, points: number, type: number,
  * 调整成长值
  */
 export async function adjustGrowth(userId: number, growth: number, type: number, remark?: string) {
-  return request(`/api/mall/members/${userId}/growth`, {
+  return request(`${MEMBER_BASE_URL}/${userId}/growth`, {
     method: 'POST',
     data: { growth, type, remark },
   });
@@ -53,7 +56,7 @@ export async function adjustGrowth(userId: number, growth: number, type: number,
  * 更新会员状态
  */
 export async function updateMemberStatus(userId: number, status: number) {
-  return request(`/api/mall/members/${userId}/status`, {
+  return request(`${MEMBER_BASE_URL}/${userId}/status`, {
     method: 'PUT',
     data: { status },
   });
