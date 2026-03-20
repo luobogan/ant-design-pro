@@ -5,267 +5,385 @@ import { API_MALL_BASE_PATH } from '@/constants';
 const PRODUCT_BASE_URL = `${API_MALL_BASE_PATH}/products`;
 
 /**
- * 获取商品列表
+ * 商品 API
  */
+export const productApi = {
+  /**
+   * 获取商品列表
+   */
+  getList: async (params: any) => {
+    return request(PRODUCT_BASE_URL, {
+      method: 'GET',
+      params,
+    });
+  },
+
+  /**
+   * 获取商品详情
+   */
+  getById: async (id: number) => {
+    return request(`${PRODUCT_BASE_URL}/${id}`, {
+      method: 'GET',
+    });
+  },
+
+  /**
+   * 创建商品
+   */
+  create: async (data: ProductFormData) => {
+    return request(PRODUCT_BASE_URL, {
+      method: 'POST',
+      data,
+    });
+  },
+
+  /**
+   * 更新商品
+   */
+  update: async (id: number, data: ProductFormData) => {
+    return request(`${PRODUCT_BASE_URL}/${id}`, {
+      method: 'PUT',
+      data,
+    });
+  },
+
+  /**
+   * 更新商品（带确认）
+   */
+  updateWithConfirm: async (id: number, data: ProductFormData, confirm: boolean) => {
+    return request(`/api/mall/products/${id}`, {
+      method: 'PUT',
+      data: { ...data, confirm },
+    });
+  },
+
+  /**
+   * 删除商品
+   */
+  delete: async (id: number) => {
+    return request(`/api/mall/products/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * 批量删除商品
+   */
+  batchDelete: async (ids: number[]) => {
+    return request('/api/mall/products/batch-delete', {
+      method: 'POST',
+      data: { ids },
+    });
+  },
+
+  /**
+   * 批量更新状态
+   */
+  batchUpdateStatus: async (ids: number[], status: 'active' | 'inactive') => {
+    return request('/api/mall/products/batch-status', {
+      method: 'POST',
+      data: { ids, status },
+    });
+  },
+
+  /**
+   * 商品上架
+   */
+  publish: async (id: number) => {
+    return request(`/api/mall/products/${id}/publish`, {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * 商品下架
+   */
+  unpublish: async (id: number) => {
+    return request(`/api/mall/products/${id}/unpublish`, {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * 设为推荐
+   */
+  setRecommend: async (id: number, recommend: boolean) => {
+    return request(`/api/mall/products/${id}/recommend`, {
+      method: 'POST',
+      data: { recommend },
+    });
+  },
+
+  /**
+   * 设为新品
+   */
+  setNew: async (id: number, isNew: boolean) => {
+    return request(`/api/mall/products/${id}/new`, {
+      method: 'POST',
+      data: { isNew },
+    });
+  },
+
+  /**
+   * 设为热销
+   */
+  setHot: async (id: number, isHot: boolean) => {
+    return request(`/api/mall/products/${id}/hot`, {
+      method: 'POST',
+      data: { isHot },
+    });
+  },
+
+  /**
+   * 获取商品统计
+   */
+  getStats: async () => {
+    return request('/api/mall/products/stats', {
+      method: 'GET',
+    });
+  },
+
+  /**
+   * 获取回收站列表
+   */
+  getRecycleList: async () => {
+    return request('/api/mall/products/recycle', {
+      method: 'GET',
+    });
+  },
+
+  /**
+   * 恢复商品
+   */
+  restore: async (id: number) => {
+    return request(`/api/mall/products/${id}/restore`, {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * 获取 SKU 列表
+   */
+  getSkus: async (productId: number) => {
+    return request(`/api/mall/products/${productId}/skus`, {
+      method: 'GET',
+    });
+  },
+
+  /**
+   * 创建 SKU
+   */
+  createSku: async (productId: number, data: ProductSkuFormData) => {
+    return request(`/api/mall/products/${productId}/skus`, {
+      method: 'POST',
+      data,
+    });
+  },
+
+  /**
+   * 更新 SKU
+   */
+  updateSku: async (id: number, data: ProductSkuFormData) => {
+    return request(`/api/mall/skus/${id}`, {
+      method: 'PUT',
+      data,
+    });
+  },
+
+  /**
+   * 删除 SKU
+   */
+  deleteSku: async (id: number) => {
+    return request(`/api/mall/skus/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * 生成 SKU 矩阵
+   */
+  generateSkuMatrix: async (data: SkuMatrixGenerateData) => {
+    return request('/api/mall/products/skus/matrix', {
+      method: 'POST',
+      data,
+    });
+  },
+
+  /**
+   * 获取规格属性
+   */
+  getSpecAttributes: async (productId: number) => {
+    return request(`/api/mall/products/${productId}/spec-attributes`, {
+      method: 'GET',
+    });
+  },
+
+  /**
+   * 获取 SKU 库存日志
+   */
+  getSkuStockLogs: async (skuId: number) => {
+    return request(`/api/mall/skus/${skuId}/stock-logs`, {
+      method: 'GET',
+    });
+  },
+
+  /**
+   * 调整 SKU 库存
+   */
+  adjustSkuStock: async (skuId: number, quantity: number, type: number, remark?: string) => {
+    return request(`/api/mall/skus/${skuId}/stock`, {
+      method: 'POST',
+      data: { quantity, type, remark },
+    });
+  },
+
+  /**
+   * 获取商品统计（带分类和品牌）
+   */
+  getStatsDetailed: async () => {
+    return request('/api/mall/products/stats/detailed', {
+      method: 'GET',
+    });
+  },
+
+  /**
+   * 添加商品关联
+   */
+  addRelation: async (data: ProductRelationFormData) => {
+    return request('/api/mall/product-relations', {
+      method: 'POST',
+      data,
+    });
+  },
+
+  /**
+   * 获取商品关联列表
+   */
+  getRelations: async (productId: number) => {
+    return request(`/api/mall/products/${productId}/relations`, {
+      method: 'GET',
+    });
+  },
+
+  /**
+   * 删除商品关联
+   */
+  deleteRelation: async (id: number) => {
+    return request(`/api/mall/product-relations/${id}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// 兼容旧的导出方式
 export async function getProductList(params: any) {
-  return request(PRODUCT_BASE_URL, {
-    method: 'GET',
-    params,
-  });
+  return productApi.getList(params);
 }
 
-/**
- * 获取商品详情
- */
 export async function getProductById(id: number) {
-  return request(`${PRODUCT_BASE_URL}/${id}`, {
-    method: 'GET',
-  });
+  return productApi.getById(id);
 }
 
-/**
- * 创建商品
- */
 export async function createProduct(data: ProductFormData) {
-  return request(PRODUCT_BASE_URL, {
-    method: 'POST',
-    data,
-  });
+  return productApi.create(data);
 }
 
-/**
- * 更新商品
- */
 export async function updateProduct(id: number, data: ProductFormData) {
-  return request(`${PRODUCT_BASE_URL}/${id}`, {
-    method: 'PUT',
-    data,
-  });
+  return productApi.update(id, data);
 }
 
-/**
- * 更新商品（带确认）
- */
 export async function updateProductWithConfirm(id: number, data: ProductFormData, confirm: boolean) {
-  return request(`/api/mall/products/${id}`, {
-    method: 'PUT',
-    data: { ...data, confirm },
-  });
+  return productApi.updateWithConfirm(id, data, confirm);
 }
 
-/**
- * 删除商品
- */
 export async function deleteProduct(id: number) {
-  return request(`/api/mall/products/${id}`, {
-    method: 'DELETE',
-  });
+  return productApi.delete(id);
 }
 
-/**
- * 批量删除商品
- */
 export async function batchDeleteProducts(ids: number[]) {
-  return request('/api/mall/products/batch-delete', {
-    method: 'POST',
-    data: { ids },
-  });
+  return productApi.batchDelete(ids);
 }
 
-/**
- * 批量更新状态
- */
 export async function batchUpdateStatus(ids: number[], status: 'active' | 'inactive') {
-  return request('/api/mall/products/batch-status', {
-    method: 'POST',
-    data: { ids, status },
-  });
+  return productApi.batchUpdateStatus(ids, status);
 }
 
-/**
- * 商品上架
- */
 export async function publishProduct(id: number) {
-  return request(`/api/mall/products/${id}/publish`, {
-    method: 'POST',
-  });
+  return productApi.publish(id);
 }
 
-/**
- * 商品下架
- */
 export async function unpublishProduct(id: number) {
-  return request(`/api/mall/products/${id}/unpublish`, {
-    method: 'POST',
-  });
+  return productApi.unpublish(id);
 }
 
-/**
- * 设为推荐
- */
 export async function setRecommend(id: number, recommend: boolean) {
-  return request(`/api/mall/products/${id}/recommend`, {
-    method: 'POST',
-    data: { recommend },
-  });
+  return productApi.setRecommend(id, recommend);
 }
 
-/**
- * 设为新品
- */
 export async function setNew(id: number, isNew: boolean) {
-  return request(`/api/mall/products/${id}/new`, {
-    method: 'POST',
-    data: { isNew },
-  });
+  return productApi.setNew(id, isNew);
 }
 
-/**
- * 设为热销
- */
 export async function setHot(id: number, isHot: boolean) {
-  return request(`/api/mall/products/${id}/hot`, {
-    method: 'POST',
-    data: { isHot },
-  });
+  return productApi.setHot(id, isHot);
 }
 
-/**
- * 获取商品统计
- */
 export async function getProductStats() {
-  return request('/api/mall/products/stats', {
-    method: 'GET',
-  });
+  return productApi.getStats();
 }
 
-/**
- * 获取回收站列表
- */
 export async function getRecycleList() {
-  return request('/api/mall/products/recycle', {
-    method: 'GET',
-  });
+  return productApi.getRecycleList();
 }
 
-/**
- * 恢复商品
- */
 export async function restoreProduct(id: number) {
-  return request(`/api/mall/products/${id}/restore`, {
-    method: 'POST',
-  });
+  return productApi.restore(id);
 }
 
-/**
- * 获取 SKU 列表
- */
 export async function getProductSkus(productId: number) {
-  return request(`/api/mall/products/${productId}/skus`, {
-    method: 'GET',
-  });
+  return productApi.getSkus(productId);
 }
 
-/**
- * 创建 SKU
- */
 export async function createSku(productId: number, data: ProductSkuFormData) {
-  return request(`/api/mall/products/${productId}/skus`, {
-    method: 'POST',
-    data,
-  });
+  return productApi.createSku(productId, data);
 }
 
-/**
- * 更新 SKU
- */
 export async function updateSku(id: number, data: ProductSkuFormData) {
-  return request(`/api/mall/skus/${id}`, {
-    method: 'PUT',
-    data,
-  });
+  return productApi.updateSku(id, data);
 }
 
-/**
- * 删除 SKU
- */
 export async function deleteSku(id: number) {
-  return request(`/api/mall/skus/${id}`, {
-    method: 'DELETE',
-  });
+  return productApi.deleteSku(id);
 }
 
-/**
- * 生成 SKU 矩阵
- */
 export async function generateSkuMatrix(data: SkuMatrixGenerateData) {
-  return request('/api/mall/products/skus/matrix', {
-    method: 'POST',
-    data,
-  });
+  return productApi.generateSkuMatrix(data);
 }
 
-/**
- * 获取规格属性
- */
 export async function getSpecAttributes(productId: number) {
-  return request(`/api/mall/products/${productId}/spec-attributes`, {
-    method: 'GET',
-  });
+  return productApi.getSpecAttributes(productId);
 }
 
-/**
- * 获取 SKU 库存日志
- */
 export async function getSkuStockLogs(skuId: number) {
-  return request(`/api/mall/skus/${skuId}/stock-logs`, {
-    method: 'GET',
-  });
+  return productApi.getSkuStockLogs(skuId);
 }
 
-/**
- * 调整 SKU 库存
- */
 export async function adjustSkuStock(skuId: number, quantity: number, type: number, remark?: string) {
-  return request(`/api/mall/skus/${skuId}/stock`, {
-    method: 'POST',
-    data: { quantity, type, remark },
-  });
+  return productApi.adjustSkuStock(skuId, quantity, type, remark);
 }
 
-/**
- * 获取商品统计（带分类和品牌）
- */
 export async function getProductStatsDetailed() {
-  return request('/api/mall/products/stats/detailed', {
-    method: 'GET',
-  });
+  return productApi.getStatsDetailed();
 }
 
-/**
- * 添加商品关联
- */
 export async function addProductRelation(data: ProductRelationFormData) {
-  return request('/api/mall/product-relations', {
-    method: 'POST',
-    data,
-  });
+  return productApi.addRelation(data);
 }
 
-/**
- * 获取商品关联列表
- */
 export async function getProductRelations(productId: number) {
-  return request(`/api/mall/products/${productId}/relations`, {
-    method: 'GET',
-  });
+  return productApi.getRelations(productId);
 }
 
-/**
- * 删除商品关联
- */
 export async function deleteProductRelation(id: number) {
-  return request(`/api/mall/product-relations/${id}`, {
-    method: 'DELETE',
-  });
+  return productApi.deleteRelation(id);
 }

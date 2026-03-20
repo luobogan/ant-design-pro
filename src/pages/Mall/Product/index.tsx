@@ -125,8 +125,12 @@ const ProductList: React.FC = () => {
         getCategoryTree(),
         getBrandList({ current: 1, pageSize: 100 }),
       ]);
-      setCategories(categoryRes || []);
-      setBrands(Array.isArray(brandRes) ? brandRes : brandRes.list || []);
+      setCategories(categoryRes?.data || []);
+      setBrands(
+        Array.isArray(brandRes?.data)
+          ? brandRes.data
+          : brandRes?.data?.list || [],
+      );
     } catch (error) {
       console.error('获取分类和品牌失败:', error);
     }
@@ -136,7 +140,7 @@ const ProductList: React.FC = () => {
   const fetchProductStats = async () => {
     try {
       const statsData = await getProductStats();
-      setStats(statsData);
+      setStats(statsData?.data || null);
     } catch (error) {
       console.error('获取统计数据失败:', error);
     }
@@ -154,12 +158,12 @@ const ProductList: React.FC = () => {
 
       const result = await getProductList(params);
 
-      if (result) {
-        setData(result.list || []);
+      if (result && result.success && result.data) {
+        setData(result.data.list || []);
         setPagination({
-          current: result.current || page,
-          pageSize: result.pageSize || pageSize,
-          total: result.total || 0,
+          current: result.data.current || page,
+          pageSize: result.data.pageSize || pageSize,
+          total: result.data.total || 0,
         });
       }
     } catch (error: any) {
@@ -307,7 +311,7 @@ const ProductList: React.FC = () => {
   const fetchRecycleData = async () => {
     try {
       const result = await getRecycleList();
-      setRecycleData(result || []);
+      setRecycleData(result?.data || []);
     } catch (error: any) {
       message.error(error.message || '获取回收站数据失败');
     }
@@ -334,7 +338,7 @@ const ProductList: React.FC = () => {
   const fetchSkuData = async (productId: number) => {
     try {
       const result = await getProductSkus(productId);
-      setSkuData(result || []);
+      setSkuData(result?.data || []);
     } catch (error: any) {
       message.error(error.message || '获取 SKU 数据失败');
     }
@@ -362,7 +366,7 @@ const ProductList: React.FC = () => {
   const fetchStockLogs = async (skuId: number) => {
     try {
       const result = await getSkuStockLogs(skuId);
-      setStockLogs(result || []);
+      setStockLogs(result?.data || []);
     } catch (error: any) {
       message.error(error.message || '获取库存日志失败');
     }
