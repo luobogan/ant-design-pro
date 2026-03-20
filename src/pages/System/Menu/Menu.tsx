@@ -43,6 +43,7 @@ import {
   Row,
   Select,
   Space,
+  TreeSelect,
 } from 'antd';
 import React, { useMemo, useState } from 'react';
 import * as menuApi from '@/services/system/menu';
@@ -151,21 +152,20 @@ const MenuPage: React.FC = () => {
     return transformedData;
   }, [data]);
 
-  // 构建上级菜单选项
+  // 构建上级菜单选项（树形结构）
   const parentMenuOptions = useMemo(() => {
-    const buildOptions = (list: any[], level = 0): any[] => {
-      return list.flatMap((item) => {
-        const option = {
-          value: item.id,
-          label: `${'  '.repeat(level)}${item.name}`,
-        };
-        const children = item.children
-          ? buildOptions(item.children, level + 1)
-          : [];
-        return [option, ...children];
-      });
+    const buildTree = (list: any[]): any[] => {
+      return list.map((item) => ({
+        title: item.name,
+        value: item.id,
+        key: item.id,
+        children: item.children ? buildTree(item.children) : undefined,
+      }));
     };
-    return [{ value: '0', label: '顶级菜单' }, ...buildOptions(menus)];
+    return [
+      { title: '顶级菜单', value: '0', key: '0' },
+      ...buildTree(menus),
+    ];
   }, [menus]);
 
   const columns: ProColumns<MenuItem>[] = [
@@ -484,9 +484,13 @@ const MenuPage: React.FC = () => {
                 label="上级菜单"
                 rules={[{ required: true, message: '请选择上级菜单' }]}
               >
-                <Select
+                <TreeSelect
                   placeholder="请选择上级菜单"
-                  options={parentMenuOptions}
+                  treeData={parentMenuOptions}
+                  treeDefaultExpandAll
+                  showSearch
+                  treeNodeFilterProp="title"
+                  allowClear
                 />
               </Form.Item>
             </Col>

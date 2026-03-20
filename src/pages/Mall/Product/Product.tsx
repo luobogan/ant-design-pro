@@ -19,6 +19,7 @@ import {
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { useNavigate } from '@umijs/max';
+import { usePageButtons } from '@/hooks/usePageButtons';
 import {
   Badge,
   Button,
@@ -82,6 +83,7 @@ const { Option } = Select;
  */
 const ProductList: React.FC = () => {
   const navigate = useNavigate();
+  const { buttons } = usePageButtons();
   const [categories, setCategories] = useState<Category[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
 
@@ -578,14 +580,16 @@ const ProductList: React.FC = () => {
       fixed: 'right',
       render: (_: unknown, record: Product) => (
         <Space size="small">
-          <Button
-            type="link"
-            size="small"
-            icon={<EditOutlined />}
-            onClick={() => handleEdit(record)}
-          >
-            编辑
-          </Button>
+          {buttons.some(btn => btn.code === 'product_edit') && (
+            <Button
+              type="link"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(record)}
+            >
+              编辑
+            </Button>
+          )}
 
           <Dropdown
             menu={{ items: getMoreActionsMenu(record) }}
@@ -594,15 +598,17 @@ const ProductList: React.FC = () => {
             <Button type="link" size="small" icon={<MoreOutlined />} />
           </Dropdown>
 
-          <Popconfirm
-            title="确认删除"
-            description="确定要删除该商品吗？"
-            onConfirm={() => handleDelete(record.id)}
-            okText="确认"
-            cancelText="取消"
-          >
-            <Button type="link" size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
+          {buttons.some(btn => btn.code === 'product_delete') && (
+            <Popconfirm
+              title="确认删除"
+              description="确定要删除该商品吗？"
+              onConfirm={() => handleDelete(record.id)}
+              okText="确认"
+              cancelText="取消"
+            >
+              <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -715,9 +721,11 @@ const ProductList: React.FC = () => {
         title="商品管理"
         extra={
           <Space>
-            <Button icon={<DeleteFilled />} onClick={handleOpenRecycle}>
-              回收站
-            </Button>
+            {buttons.some(btn => btn.code === 'product_recycle') && (
+              <Button icon={<DeleteFilled />} onClick={handleOpenRecycle}>
+                回收站
+              </Button>
+            )}
             {selectedRowKeys.length > 0 && (
               <Dropdown
                 menu={{ items: batchActionsMenu }}
@@ -728,9 +736,11 @@ const ProductList: React.FC = () => {
                 </Button>
               </Dropdown>
             )}
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-              新增商品
-            </Button>
+            {buttons.some(btn => btn.code === 'product_add') && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+                新增商品
+              </Button>
+            )}
           </Space>
         }
       >
