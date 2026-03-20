@@ -21,6 +21,7 @@ import { dynamicRoutes, dynamicButtons } from '@/services/system/menu';
 import { setButtons } from '@/utils/authority';
 import Func from '@/utils/Func';
 import { formatRoutes } from '@/utils/utils';
+import { loadComponent } from '@/utils/componentLoader';
 import defaultSettings from '../config/defaultSettings';
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -59,28 +60,32 @@ export function patchClientRoutes({ routes }: { routes: any }) {
 }
 
 const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
-  // debugger
   return menus.flatMap((item) => {
     let Component: React.ComponentType<any> | null = null;
+    //&& !item.children
     if (item.path) {
-      // 使用格式化路径，确保路径大小写与实际文件路径一致
-      const x = Func.formatRoutePath(item.path);
-      console.log(`tempComponent  路径 ${x}`);
-
-      console.log(`tempComponent  路径详细 ./pages${x}/index.tsx`);
-      // 防止配置了路由，但本地暂未添加对应的页面，产生的错误 /index.tsx
-      Component = React.lazy(
-        () =>
-          new Promise((resolve, _reject) => {
-            import(`./pages${x}/index.tsx`)
-              .then((module) => resolve(module))
-              .catch((error) => {
-                console.error('组件导入错误:', error);
-                resolve(import(`./pages/404.tsx`));
-              });
-          }),
-      );
+      const formattedPath = Func.formatRoutePath(item.path);
+      const pathParts = formattedPath.split('/').filter(Boolean);
+      
+      if (pathParts.length >= 2) {
+        const [module, page] = [pathParts[0], pathParts[pathParts.length - 1]];
+        const componentPath = `./pages/${module}/${page}/index.tsx`;
+        console.log(`组件路径：${componentPath}`);
+        
+        Component = React.lazy(
+          () =>
+            new Promise((resolve, _reject) => {
+              import(`./pages/${module}/${page}/index.tsx`)
+                .then((mod) => resolve(mod))
+                .catch((error) => {
+                  console.error('组件导入错误:', error);
+                  import('./pages/404.tsx').then((mod) => resolve(mod));
+                });
+            }),
+        );
+      }
     }
+    
     if (item.children) {
       console.log(item.children[0]);
       return [
@@ -107,7 +112,6 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
           icon: item.icon,
           id: item.id,
           parentId: pId,
-          // element: createElement(Component)
           element: (
             <React.Suspense
               fallback={

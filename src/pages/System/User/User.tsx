@@ -82,7 +82,6 @@ const UserPage: React.FC = () => {
   const [selectedDeptId, setSelectedDeptId] = useState<string>('');
   const [searchValue, setSearchValue] = useState<string>('');
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
-  const [pageButtons, setPageButtons] = useState<any[]>([]);
 
   const { initialState } = useModel('@@initialState');
 
@@ -97,9 +96,6 @@ const UserPage: React.FC = () => {
 
   // 获取岗位列表数据
   const { data: positionListData } = useRequest(positionApi.list);
-
-  // 获取页面按钮权限（自动从路由提取菜单 code）
-  const { buttons: pageButtons, loading: buttonsLoading } = usePageButtons();
 
   // 获取用户数据
   const {
