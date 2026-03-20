@@ -294,7 +294,15 @@ const MenuPage: React.FC = () => {
   const handleAddOk = async () => {
     try {
       const values = await form.validateFields();
-      await menuApi.submit({ ...values, source: selectedIcon });
+      // 确保 category 和 isOpen 是数字类型
+      const submitData = {
+        ...values,
+        source: selectedIcon,
+        category: Number(values.category),
+        isOpen: Number(values.isOpen),
+      };
+      console.log('新增提交数据:', submitData);
+      await menuApi.submit(submitData);
       message.success('添加成功');
       setAddModalVisible(false);
       refresh();
@@ -314,8 +322,14 @@ const MenuPage: React.FC = () => {
       alias: record.alias,
       path: record.path,
       sort: record.sort,
-      category: record.category,
-      isOpen: record.isOpen,
+      // 确保 category 是数字类型
+      category: typeof record.category === 'string' 
+        ? parseInt(record.category, 10) 
+        : record.category,
+      // 确保 isOpen 是数字类型
+      isOpen: typeof record.isOpen === 'string' 
+        ? parseInt(record.isOpen, 10) 
+        : record.isOpen,
       remark: record.remark,
     });
     setEditModalVisible(true);
@@ -326,16 +340,19 @@ const MenuPage: React.FC = () => {
       const values = await form.validateFields();
       // 确保 source 是字符串
       const iconValue = typeof selectedIcon === 'string' ? selectedIcon : '';
-      console.log('提交数据:', {
+      
+      // 确保 category 和 isOpen 是数字类型
+      const submitData = {
         ...values,
         source: iconValue,
         id: currentMenu?.id,
-      });
-      await menuApi.submit({
-        ...values,
-        source: iconValue,
-        id: currentMenu?.id,
-      });
+        category: Number(values.category),
+        isOpen: Number(values.isOpen),
+      };
+      
+      console.log('提交数据:', submitData);
+      
+      await menuApi.submit(submitData);
       message.success('编辑成功');
       setEditModalVisible(false);
       refresh();
@@ -378,7 +395,7 @@ const MenuPage: React.FC = () => {
                 value={icon.name}
                 style={{ padding: '8px 12px' }}
               >
-                <Space direction="vertical" align="center" size={0}>
+                <Space style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }} size={0}>
                   {icon.component}
                   <span style={{ fontSize: '10px', marginTop: '4px' }}>
                     {icon.label}

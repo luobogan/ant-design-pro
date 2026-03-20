@@ -3,7 +3,7 @@ import { Card, message } from 'antd';
 import React, { useState } from 'react';
 import { productApi } from '@/services/mall/product';
 import type { ProductFormData } from '@/services/mall/typings';
-import ProductForm from './ProductForm';
+import ProductAdd from './ProductAdd';
 
 /**
  * 商品添加向导页面
@@ -42,7 +42,7 @@ const ProductAddWizardPage: React.FC = () => {
   return (
     <div style={{ padding: '24px' }}>
       <Card title="添加商品">
-        <ProductForm
+        <ProductAdd
           onSubmit={handleSubmit}
           onCancel={handleCancel}
           submitting={submitting}

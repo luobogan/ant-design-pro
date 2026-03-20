@@ -84,6 +84,18 @@ const { Option } = Select;
 const ProductList: React.FC = () => {
   const navigate = useNavigate();
   const { buttons } = usePageButtons();
+
+  // 调试：打印当前页面按钮权限
+  useEffect(() => {
+    console.log('=== 商品管理页面按钮权限调试 ===');
+    console.log('当前路由:', window.location.pathname);
+    console.log('获取到的按钮权限:', buttons);
+    console.log('按钮权限代码列表:', buttons.map((btn: any) => btn.code).join(', '));
+    console.log('product_view 权限:', buttons.some((btn: any) => btn.code === 'product_view'));
+    console.log('product_edit 权限:', buttons.some((btn: any) => btn.code === 'product_edit'));
+    console.log('product_delete 权限:', buttons.some((btn: any) => btn.code === 'product_delete'));
+  }, [buttons]);
+
   const [categories, setCategories] = useState<Category[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
 
@@ -94,6 +106,9 @@ const ProductList: React.FC = () => {
   // 编辑相关状态
   const [_editModalVisible, setEditModalVisible] = useState(false);
   const [_currentProduct, setCurrentProduct] = useState<Product | null>(null);
+
+  // 查看相关状态
+  const [_viewModalVisible, setViewModalVisible] = useState(false);
 
   // 回收站相关状态
   const [recycleModalVisible, setRecycleModalVisible] = useState(false);
@@ -205,6 +220,10 @@ const ProductList: React.FC = () => {
 
   const handleAdd = () => {
     navigate('/mall/products/add');
+  };
+
+  const handleView = (record: Product) => {
+    navigate(`/mall/products/view/${record.id}`);
   };
 
   const handleEdit = async (product: Product) => {
@@ -580,6 +599,16 @@ const ProductList: React.FC = () => {
       fixed: 'right',
       render: (_: unknown, record: Product) => (
         <Space size="small">
+          {buttons.some(btn => btn.code === 'product_view') && (
+            <Button
+              type="link"
+              size="small"
+              icon={<SearchOutlined />}
+              onClick={() => handleView(record)}
+            >
+              查看
+            </Button>
+          )}
           {buttons.some(btn => btn.code === 'product_edit') && (
             <Button
               type="link"

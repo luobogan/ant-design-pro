@@ -137,8 +137,10 @@ export function getButton(code: string): any[] {
   const data = buttons.filter((d: any) => {
     return d.code === code;
   });
-  // 菜单项的按钮存储在 children 字段中
-  return data.length === 0 ? [] : (data[0].children || []);
+  // 菜单项的按钮可能存储在 children 或 buttons 字段中
+  if (data.length === 0) return [];
+  const item = data[0];
+  return item.children || item.buttons || [];
 }
 
 /**

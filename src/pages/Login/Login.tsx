@@ -32,6 +32,7 @@ import {
 } from '@/utils/authority';
 import Crypto from '@/utils/crypto';
 import { getQueryString, getTopUrl, validateNull } from '@/utils/utils';
+import { dynamicButtons, dynamicRoutes } from '@/services/system/menu';
 import styles from './Login.less';
 
 const { Title, Paragraph } = Typography;
@@ -234,13 +235,33 @@ const Login: React.FC = () => {
           authority: data.data.authority,
         };
 
-        const routes: any[] = [];
-        const buttons: any[] = [];
+        // 获取路由和按钮权限
+        try {
+          const [routesRes, buttonsRes] = await Promise.all([
+            dynamicRoutes(),
+            dynamicButtons(),
+          ]);
 
-        // 设置用户信息、路由权限和按钮权限
-        setUserInfo(userInfo);
-        setRoutes(routes);
-        setButtons(buttons);
+          console.log('获取到的路由权限:', routesRes);
+          console.log('获取到的按钮权限:', buttonsRes);
+
+          const routes: any[] = routesRes?.data || [];
+          const buttons: any[] = buttonsRes?.data || [];
+
+          // 设置用户信息、路由权限和按钮权限
+          setUserInfo(userInfo);
+          setRoutes(routes);
+          setButtons(buttons);
+
+          console.log('权限设置完成:', {
+            routesCount: routes.length,
+            buttonsCount: buttons.length,
+          });
+        } catch (error) {
+          console.error('获取权限失败:', error);
+          // 如果获取权限失败，至少设置用户信息
+          setUserInfo(userInfo);
+        }
 
         message.success('登录成功');
         console.log('准备跳转到 /dashboard/workplace');
