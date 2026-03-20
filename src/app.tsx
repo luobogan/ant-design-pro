@@ -215,9 +215,11 @@ export async function getInitialState(): Promise<{
   const fetchButtons = async () => {
     try {
       const response = await dynamicButtons();
+      console.log('按钮权限 API 响应:', response);
       const buttonsData = response.data || [];
       setButtons(buttonsData);
       console.log('按钮权限已加载:', buttonsData);
+      console.log('按钮权限存储到 localStorage:', JSON.stringify(buttonsData));
       return buttonsData;
     } catch (error) {
       console.error('获取按钮权限失败:', error);

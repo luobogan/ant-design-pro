@@ -32,7 +32,7 @@ import {
 } from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import React, { useEffect, useMemo, useState } from 'react';
-import { usePermission } from '@/hooks/usePermission';
+import { usePageButtons } from '@/hooks/usePageButtons';
 import * as roleApi from '@/services/authority/role';
 import * as deptApi from '@/services/system/dept';
 import * as positionApi from '@/services/system/position';
@@ -85,7 +85,9 @@ const UserPage: React.FC = () => {
   const [pageButtons, setPageButtons] = useState<any[]>([]);
 
   const { initialState } = useModel('@@initialState');
-  const { getPageButtons } = usePermission();
+
+  // 获取页面按钮权限（自动从路由提取菜单 code）
+  const { buttons: pageButtons, loading: buttonsLoading } = usePageButtons();
 
   // 获取部门树数据
   const { data: deptTreeData, loading: deptLoading } = useRequest(deptApi.tree);
@@ -96,11 +98,8 @@ const UserPage: React.FC = () => {
   // 获取岗位列表数据
   const { data: positionListData } = useRequest(positionApi.list);
 
-  // 获取页面按钮权限
-  useEffect(() => {
-    const buttons = getPageButtons('system.user');
-    setPageButtons(buttons);
-  }, []);
+  // 获取页面按钮权限（自动从路由提取菜单 code）
+  const { buttons: pageButtons, loading: buttonsLoading } = usePageButtons();
 
   // 获取用户数据
   const {
@@ -447,7 +446,7 @@ const UserPage: React.FC = () => {
               onChange: (keys) => setSelectedRowKeys(keys),
             }}
             toolBarRender={() => [
-              pageButtons.some((btn) => btn.code === 'user:add') && (
+              pageButtons.some((btn) => btn.code === 'user_add') && (
                 <Button
                   key="add"
                   type="primary"
@@ -457,7 +456,7 @@ const UserPage: React.FC = () => {
                   新增
                 </Button>
               ),
-              pageButtons.some((btn) => btn.code === 'user:delete') && (
+              pageButtons.some((btn) => btn.code === 'user_delete') && (
                 <Button
                   key="delete"
                   danger
@@ -468,17 +467,17 @@ const UserPage: React.FC = () => {
                   删除
                 </Button>
               ),
-              pageButtons.some((btn) => btn.code === 'user:audit') && (
+              pageButtons.some((btn) => btn.code === 'user_audit') && (
                 <Button key="audit" icon={<CheckCircleOutlined />}>
                   审核
                 </Button>
               ),
-              pageButtons.some((btn) => btn.code === 'user:role') && (
+              pageButtons.some((btn) => btn.code === 'user_role') && (
                 <Button key="role" icon={<SettingOutlined />}>
                   角色配置
                 </Button>
               ),
-              pageButtons.some((btn) => btn.code === 'user:password') && (
+              pageButtons.some((btn) => btn.code === 'user_password') && (
                 <Button
                   key="password"
                   icon={<KeyOutlined />}
@@ -487,17 +486,17 @@ const UserPage: React.FC = () => {
                   密码重置
                 </Button>
               ),
-              pageButtons.some((btn) => btn.code === 'user:unlock') && (
+              pageButtons.some((btn) => btn.code === 'user_unlock') && (
                 <Button key="unlock" icon={<UnlockOutlined />}>
                   账户解封
                 </Button>
               ),
-              pageButtons.some((btn) => btn.code === 'user:import') && (
+              pageButtons.some((btn) => btn.code === 'user_import') && (
                 <Button key="import" icon={<ImportOutlined />}>
                   导入
                 </Button>
               ),
-              pageButtons.some((btn) => btn.code === 'user:export') && (
+              pageButtons.some((btn) => btn.code === 'user_export') && (
                 <Button key="export" icon={<ExportOutlined />}>
                   导出
                 </Button>

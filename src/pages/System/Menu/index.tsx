@@ -44,9 +44,9 @@ import {
   Select,
   Space,
 } from 'antd';
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import * as menuApi from '@/services/system/menu';
-import { getButton } from '@/utils/authority';
+import { usePageButtons } from '@/hooks/usePageButtons';
 import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
 
 const { Option } = Select;
@@ -116,12 +116,9 @@ const MenuPage: React.FC = () => {
   const [currentMenu, setCurrentMenu] = useState<MenuItem | null>(null);
   const [selectedIcon, setSelectedIcon] = useState<string>('');
   const [form] = Form.useForm();
-  const [buttons, setButtons] = useState<ButtonConfig[]>([]);
 
-  useEffect(() => {
-    const btns = getButton('menu');
-    setButtons(btns || []);
-  }, []);
+  // 获取页面按钮权限（自动从路由提取菜单 code）
+  const { buttons } = usePageButtons();
 
   // 获取菜单数据
   const { data, loading, refresh } = useRequest(menuApi.list);
@@ -221,7 +218,7 @@ const MenuPage: React.FC = () => {
       width: 200,
       render: (_: any, record: MenuItem) => (
         <Space>
-          {buttons.some(btn => btn.code === 'menu:view') && (
+          {buttons.some(btn => btn.code === 'menu_view') && (
             <Button
               type="link"
               icon={<EyeOutlined />}
@@ -230,7 +227,7 @@ const MenuPage: React.FC = () => {
               查看
             </Button>
           )}
-          {buttons.some(btn => btn.code === 'menu:edit') && (
+          {buttons.some(btn => btn.code === 'menu_edit') && (
             <Button
               type="link"
               icon={<EditOutlined />}
@@ -239,7 +236,7 @@ const MenuPage: React.FC = () => {
               编辑
             </Button>
           )}
-          {buttons.some(btn => btn.code === 'menu:delete') && (
+          {buttons.some(btn => btn.code === 'menu_delete') && (
             <Button
               type="link"
               danger
@@ -411,7 +408,7 @@ const MenuPage: React.FC = () => {
           onChange: (keys) => setSelectedRowKeys(keys),
         }}
         toolBarRender={() => [
-          buttons.some(btn => btn.code === 'menu:add') && (
+          buttons.some(btn => btn.code === 'menu_add') && (
             <Button
               key="add"
               type="primary"
@@ -421,7 +418,7 @@ const MenuPage: React.FC = () => {
               新增
             </Button>
           ),
-          buttons.some(btn => btn.code === 'menu:delete') && (
+          buttons.some(btn => btn.code === 'menu_delete') && (
             <Button
               key="delete"
               danger
