@@ -8,9 +8,11 @@ import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { useRequest } from '@umijs/max';
 import { Button, Form, Input, InputNumber, Modal, message, Select } from 'antd';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import * as deptApi from '@/services/system/dept';
 import * as positionApi from '@/services/system/position';
+import { getButton } from '@/utils/authority';
+import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
 
 interface Position {
   id: string;
@@ -35,6 +37,12 @@ const Position: React.FC = () => {
   const [currentPosition, setCurrentPosition] = useState<Position | null>(null);
   const [addForm] = Form.useForm();
   const [editForm] = Form.useForm();
+  const [buttons, setButtons] = useState<ButtonConfig[]>([]);
+
+  useEffect(() => {
+    const btns = getButton('position');
+    setButtons(btns || []);
+  }, []);
 
   // 获取岗位列表
   const {
@@ -118,36 +126,42 @@ const Position: React.FC = () => {
       width: 150,
       render: (_: any, record: Position) => (
         <>
-          <Button
-            type="text"
-            icon={<EyeOutlined />}
-            onClick={() => handleView(record)}
-            style={{ marginRight: 8 }}
-          >
-            查看
-          </Button>
-          <Button
-            type="text"
-            icon={<EditOutlined />}
-            onClick={() => handleEdit(record)}
-            style={{ marginRight: 8 }}
-          >
-            编辑
-          </Button>
-          <Button
-            type="text"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => {
-              Modal.confirm({
-                title: '确认删除',
-                content: `确定要删除岗位 ${record.name} 吗？`,
-                onOk: () => handleDelete(record.id),
-              });
-            }}
-          >
-            删除
-          </Button>
+          {buttons.some(btn => btn.code === 'position:view') && (
+            <Button
+              type="text"
+              icon={<EyeOutlined />}
+              onClick={() => handleView(record)}
+              style={{ marginRight: 8 }}
+            >
+              查看
+            </Button>
+          )}
+          {buttons.some(btn => btn.code === 'position:edit') && (
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(record)}
+              style={{ marginRight: 8 }}
+            >
+              编辑
+            </Button>
+          )}
+          {buttons.some(btn => btn.code === 'position:delete') && (
+            <Button
+              type="text"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => {
+                Modal.confirm({
+                  title: '确认删除',
+                  content: `确定要删除岗位 ${record.name} 吗？`,
+                  onOk: () => handleDelete(record.id),
+                });
+              }}
+            >
+              删除
+            </Button>
+          )}
         </>
       ),
     },
@@ -207,16 +221,16 @@ const Position: React.FC = () => {
     <PageContainer
       title="岗位管理"
       subTitle="管理系统岗位，包括添加、编辑、删除岗位等操作"
-      extra={[
+      extra={buttons.filter(btn => btn.action === 1 || btn.action === 3).map(btn => (
         <Button
-          key="add"
-          type="primary"
-          icon={<PlusOutlined />}
+          key={btn.code}
+          type={btn.alias === 'add' ? 'primary' : 'default'}
+          icon={btn.source ? <span>{btn.source}</span> : undefined}
           onClick={handleAdd}
         >
-          添加岗位
-        </Button>,
-      ]}
+          {btn.name}
+        </Button>
+      ))}
     >
       <ProTable
         columns={columns}

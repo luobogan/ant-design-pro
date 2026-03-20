@@ -15,7 +15,7 @@ import {
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
-import { useRequest } from '@umijs/max';
+import { useModel, useRequest } from '@umijs/max';
 import {
   Button,
   Card,
@@ -24,15 +24,15 @@ import {
   Descriptions,
   Input,
   Modal,
-  message,
-  Row,
   Space,
   Switch,
   Tag,
   Tree,
+  message,
 } from 'antd';
 import type { DataNode } from 'antd/es/tree';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { usePermission } from '@/hooks/usePermission';
 import * as roleApi from '@/services/authority/role';
 import * as deptApi from '@/services/system/dept';
 import * as positionApi from '@/services/system/position';
@@ -82,6 +82,10 @@ const UserPage: React.FC = () => {
   const [selectedDeptId, setSelectedDeptId] = useState<string>('');
   const [searchValue, setSearchValue] = useState<string>('');
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
+  const [pageButtons, setPageButtons] = useState<any[]>([]);
+
+  const { initialState } = useModel('@@initialState');
+  const { getPageButtons } = usePermission();
 
   // 获取部门树数据
   const { data: deptTreeData, loading: deptLoading } = useRequest(deptApi.tree);
@@ -91,6 +95,12 @@ const UserPage: React.FC = () => {
 
   // 获取岗位列表数据
   const { data: positionListData } = useRequest(positionApi.list);
+
+  // 获取页面按钮权限
+  useEffect(() => {
+    const buttons = getPageButtons('system.user');
+    setPageButtons(buttons);
+  }, []);
 
   // 获取用户数据
   const {
@@ -377,6 +387,16 @@ const UserPage: React.FC = () => {
     <PageContainer
       title="用户管理"
       subTitle="管理系统用户，包括添加、编辑、删除用户等操作"
+      extra={pageButtons
+        .filter((btn) => btn.action === 1 || btn.action === 3)
+        .map((btn) => (
+          <Button
+            key={btn.code}
+            type={btn.alias === 'add' ? 'primary' : 'default'}
+          >
+            {btn.name}
+          </Button>
+        ))}
     >
       <Row gutter={16}>
         {/* 左侧部门树 */}
@@ -427,46 +447,62 @@ const UserPage: React.FC = () => {
               onChange: (keys) => setSelectedRowKeys(keys),
             }}
             toolBarRender={() => [
-              <Button
-                key="add"
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => setAddModalVisible(true)}
-              >
-                新增
-              </Button>,
-              <Button
-                key="delete"
-                danger
-                icon={<DeleteOutlined />}
-                onClick={handleBatchDelete}
-                disabled={selectedRowKeys.length === 0}
-              >
-                删除
-              </Button>,
-              <Button key="audit" icon={<CheckCircleOutlined />}>
-                审核
-              </Button>,
-              <Button key="role" icon={<SettingOutlined />}>
-                角色配置
-              </Button>,
-              <Button
-                key="password"
-                icon={<KeyOutlined />}
-                onClick={handleResetPassword}
-              >
-                密码重置
-              </Button>,
-              <Button key="unlock" icon={<UnlockOutlined />}>
-                账户解封
-              </Button>,
-              <Button key="import" icon={<ImportOutlined />}>
-                导入
-              </Button>,
-              <Button key="export" icon={<ExportOutlined />}>
-                导出
-              </Button>,
-            ]}
+              pageButtons.some((btn) => btn.code === 'user:add') && (
+                <Button
+                  key="add"
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => setAddModalVisible(true)}
+                >
+                  新增
+                </Button>
+              ),
+              pageButtons.some((btn) => btn.code === 'user:delete') && (
+                <Button
+                  key="delete"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={handleBatchDelete}
+                  disabled={selectedRowKeys.length === 0}
+                >
+                  删除
+                </Button>
+              ),
+              pageButtons.some((btn) => btn.code === 'user:audit') && (
+                <Button key="audit" icon={<CheckCircleOutlined />}>
+                  审核
+                </Button>
+              ),
+              pageButtons.some((btn) => btn.code === 'user:role') && (
+                <Button key="role" icon={<SettingOutlined />}>
+                  角色配置
+                </Button>
+              ),
+              pageButtons.some((btn) => btn.code === 'user:password') && (
+                <Button
+                  key="password"
+                  icon={<KeyOutlined />}
+                  onClick={handleResetPassword}
+                >
+                  密码重置
+                </Button>
+              ),
+              pageButtons.some((btn) => btn.code === 'user:unlock') && (
+                <Button key="unlock" icon={<UnlockOutlined />}>
+                  账户解封
+                </Button>
+              ),
+              pageButtons.some((btn) => btn.code === 'user:import') && (
+                <Button key="import" icon={<ImportOutlined />}>
+                  导入
+                </Button>
+              ),
+              pageButtons.some((btn) => btn.code === 'user:export') && (
+                <Button key="export" icon={<ExportOutlined />}>
+                  导出
+                </Button>
+              ),
+            ].filter(Boolean)}
             search={{
               labelWidth: 'auto',
             }}

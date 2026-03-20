@@ -44,8 +44,10 @@ import {
   Select,
   Space,
 } from 'antd';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import * as menuApi from '@/services/system/menu';
+import { getButton } from '@/utils/authority';
+import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -114,6 +116,12 @@ const MenuPage: React.FC = () => {
   const [currentMenu, setCurrentMenu] = useState<MenuItem | null>(null);
   const [selectedIcon, setSelectedIcon] = useState<string>('');
   const [form] = Form.useForm();
+  const [buttons, setButtons] = useState<ButtonConfig[]>([]);
+
+  useEffect(() => {
+    const btns = getButton('menu');
+    setButtons(btns || []);
+  }, []);
 
   // 获取菜单数据
   const { data, loading, refresh } = useRequest(menuApi.list);
@@ -213,28 +221,34 @@ const MenuPage: React.FC = () => {
       width: 200,
       render: (_: any, record: MenuItem) => (
         <Space>
-          <Button
-            type="link"
-            icon={<EyeOutlined />}
-            onClick={() => handleView(record)}
-          >
-            查看
-          </Button>
-          <Button
-            type="link"
-            icon={<EditOutlined />}
-            onClick={() => handleEdit(record)}
-          >
-            编辑
-          </Button>
-          <Button
-            type="link"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => handleDelete([record.id])}
-          >
-            删除
-          </Button>
+          {buttons.some(btn => btn.code === 'menu:view') && (
+            <Button
+              type="link"
+              icon={<EyeOutlined />}
+              onClick={() => handleView(record)}
+            >
+              查看
+            </Button>
+          )}
+          {buttons.some(btn => btn.code === 'menu:edit') && (
+            <Button
+              type="link"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(record)}
+            >
+              编辑
+            </Button>
+          )}
+          {buttons.some(btn => btn.code === 'menu:delete') && (
+            <Button
+              type="link"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDelete([record.id])}
+            >
+              删除
+            </Button>
+          )}
         </Space>
       ),
     },
@@ -397,24 +411,28 @@ const MenuPage: React.FC = () => {
           onChange: (keys) => setSelectedRowKeys(keys),
         }}
         toolBarRender={() => [
-          <Button
-            key="add"
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={handleAdd}
-          >
-            新增
-          </Button>,
-          <Button
-            key="delete"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={handleBatchDelete}
-            disabled={selectedRowKeys.length === 0}
-          >
-            删除
-          </Button>,
-        ]}
+          buttons.some(btn => btn.code === 'menu:add') && (
+            <Button
+              key="add"
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleAdd}
+            >
+              新增
+            </Button>
+          ),
+          buttons.some(btn => btn.code === 'menu:delete') && (
+            <Button
+              key="delete"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={handleBatchDelete}
+              disabled={selectedRowKeys.length === 0}
+            >
+              删除
+            </Button>
+          ),
+        ].filter(Boolean)}
         search={{
           labelWidth: 'auto',
           defaultCollapsed: false,

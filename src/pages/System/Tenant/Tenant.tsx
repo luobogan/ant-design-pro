@@ -10,8 +10,10 @@ import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { useRequest } from '@umijs/max';
 import { Button, Form, Input, Modal, message, Select, Space, Tag } from 'antd';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import * as tenantApi from '@/services/system/tenant';
+import { getButton } from '@/utils/authority';
+import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -36,6 +38,12 @@ const TenantPage: React.FC = () => {
   const [viewModalVisible, setViewModalVisible] = useState<boolean>(false);
   const [currentTenant, setCurrentTenant] = useState<Tenant | null>(null);
   const [form] = Form.useForm();
+  const [buttons, setButtons] = useState<ButtonConfig[]>([]);
+
+  useEffect(() => {
+    const btns = getButton('tenant');
+    setButtons(btns || []);
+  }, []);
 
   // 获取租户列表
   const {
@@ -127,34 +135,44 @@ const TenantPage: React.FC = () => {
       width: 280,
       render: (_: any, record: Tenant) => (
         <Space>
-          <Button
-            type="link"
-            icon={<EyeOutlined />}
-            onClick={() => handleView(record)}
-          >
-            查看
-          </Button>
-          <Button
-            type="link"
-            icon={<EditOutlined />}
-            onClick={() => handleEdit(record)}
-          >
-            编辑
-          </Button>
-          <Button
-            type="link"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => handleDelete([record.id])}
-          >
-            删除
-          </Button>
-          <Button type="link" icon={<DatabaseOutlined />}>
-            数据源
-          </Button>
-          <Button type="link" icon={<SettingOutlined />}>
-            产品包
-          </Button>
+          {buttons.some(btn => btn.code === 'tenant:view') && (
+            <Button
+              type="link"
+              icon={<EyeOutlined />}
+              onClick={() => handleView(record)}
+            >
+              查看
+            </Button>
+          )}
+          {buttons.some(btn => btn.code === 'tenant:edit') && (
+            <Button
+              type="link"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(record)}
+            >
+              编辑
+            </Button>
+          )}
+          {buttons.some(btn => btn.code === 'tenant:delete') && (
+            <Button
+              type="link"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDelete([record.id])}
+            >
+              删除
+            </Button>
+          )}
+          {buttons.some(btn => btn.code === 'tenant:datasource') && (
+            <Button type="link" icon={<DatabaseOutlined />}>
+              数据源
+            </Button>
+          )}
+          {buttons.some(btn => btn.code === 'tenant:package') && (
+            <Button type="link" icon={<SettingOutlined />}>
+              产品包
+            </Button>
+          )}
         </Space>
       ),
     },
@@ -249,24 +267,28 @@ const TenantPage: React.FC = () => {
           onChange: (keys) => setSelectedRowKeys(keys),
         }}
         toolBarRender={() => [
-          <Button
-            key="add"
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={handleAdd}
-          >
-            新增
-          </Button>,
-          <Button
-            key="delete"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={handleBatchDelete}
-            disabled={selectedRowKeys.length === 0}
-          >
-            删除
-          </Button>,
-        ]}
+          buttons.some(btn => btn.code === 'tenant:add') && (
+            <Button
+              key="add"
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleAdd}
+            >
+              新增
+            </Button>
+          ),
+          buttons.some(btn => btn.code === 'tenant:delete') && (
+            <Button
+              key="delete"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={handleBatchDelete}
+              disabled={selectedRowKeys.length === 0}
+            >
+              删除
+            </Button>
+          ),
+        ].filter(Boolean)}
         search={{
           labelWidth: 'auto',
           defaultCollapsed: false,

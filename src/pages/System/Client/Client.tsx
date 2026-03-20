@@ -7,8 +7,11 @@ import {
 import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { useRequest } from '@umijs/max';
-import { Button, Modal, message } from 'antd';
-import React, { useState } from 'react';
+import { Button, Form, Input, Modal, message, Select } from 'antd';
+import React, { useState, useEffect } from 'react';
+import * as clientApi from '@/services/system/client';
+import { getButton } from '@/utils/authority';
+import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
 
 interface Client {
   id: string;
@@ -22,58 +25,31 @@ interface Client {
   createTime: string;
 }
 
+const { Option } = Select;
+const { TextArea } = Input;
+
 const Client: React.FC = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [addModalVisible, setAddModalVisible] = useState<boolean>(false);
   const [editModalVisible, setEditModalVisible] = useState<boolean>(false);
   const [viewModalVisible, setViewModalVisible] = useState<boolean>(false);
-  const [_currentClient, setCurrentClient] = useState<Client | null>(null);
+  const [currentClient, setCurrentClient] = useState<Client | null>(null);
+  const [addForm] = Form.useForm();
+  const [editForm] = Form.useForm();
+  const [buttons, setButtons] = useState<ButtonConfig[]>([]);
 
-  // 模拟客户端数据
+  useEffect(() => {
+    const btns = getButton('client');
+    setButtons(btns || []);
+  }, []);
+
+  // 获取客户端列表
   const {
     data: clients,
     loading,
     refresh,
   } = useRequest(() => {
-    return new Promise<Client[]>((resolve) => {
-      setTimeout(() => {
-        resolve([
-          {
-            id: '1',
-            name: 'Web端',
-            clientId: 'web',
-            clientSecret: 'web_secret',
-            redirectUri: 'http://localhost:8000/callback',
-            scope: 'all',
-            status: '启用',
-            remark: 'Web端客户端',
-            createTime: '2026-01-01 00:00:00',
-          },
-          {
-            id: '2',
-            name: '移动端',
-            clientId: 'mobile',
-            clientSecret: 'mobile_secret',
-            redirectUri: 'http://localhost:8000/mobile/callback',
-            scope: 'all',
-            status: '启用',
-            remark: '移动端客户端',
-            createTime: '2026-01-02 00:00:00',
-          },
-          {
-            id: '3',
-            name: '第三方',
-            clientId: 'third',
-            clientSecret: 'third_secret',
-            redirectUri: 'http://localhost:8000/third/callback',
-            scope: 'read',
-            status: '禁用',
-            remark: '第三方客户端',
-            createTime: '2026-01-03 00:00:00',
-          },
-        ]);
-      }, 500);
-    });
+    return clientApi.list({});
   });
 
   const columns: ProColumns<Client>[] = [
@@ -151,80 +127,105 @@ const Client: React.FC = () => {
       width: 150,
       render: (_: any, record: Client) => (
         <>
-          <Button
-            type="text"
-            icon={<EyeOutlined />}
-            onClick={() => {
-              setCurrentClient(record);
-              setViewModalVisible(true);
-            }}
-            style={{ marginRight: 8 }}
-          >
-            查看
-          </Button>
-          <Button
-            type="text"
-            icon={<EditOutlined />}
-            onClick={() => {
-              setCurrentClient(record);
-              setEditModalVisible(true);
-            }}
-            style={{ marginRight: 8 }}
-          >
-            编辑
-          </Button>
-          <Button
-            type="text"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => {
-              Modal.confirm({
-                title: '确认删除',
-                content: `确定要删除客户端 ${record.name} 吗？`,
-                onOk: () => {
-                  message.success('删除成功');
-                  refresh();
-                },
-              });
-            }}
-          >
-            删除
-          </Button>
+          {buttons.some(btn => btn.code === 'client:view') && (
+            <Button
+              type="text"
+              icon={<EyeOutlined />}
+              onClick={() => {
+                setCurrentClient(record);
+                setViewModalVisible(true);
+              }}
+              style={{ marginRight: 8 }}
+            >
+              查看
+            </Button>
+          )}
+          {buttons.some(btn => btn.code === 'client:edit') && (
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={() => {
+                setCurrentClient(record);
+                editForm.setFieldsValue(record);
+                setEditModalVisible(true);
+              }}
+              style={{ marginRight: 8 }}
+            >
+              编辑
+            </Button>
+          )}
+          {buttons.some(btn => btn.code === 'client:delete') && (
+            <Button
+              type="text"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => {
+                Modal.confirm({
+                  title: '确认删除',
+                  content: `确定要删除客户端 ${record.name} 吗？`,
+                  onOk: async () => {
+                    try {
+                      await clientApi.remove({ ids: [record.id] });
+                      message.success('删除成功');
+                      refresh();
+                    } catch {
+                      message.error('删除失败');
+                    }
+                  },
+                });
+              }}
+            >
+              删除
+            </Button>
+          )}
         </>
       ),
     },
   ];
 
   const handleAdd = () => {
+    addForm.resetFields();
     setAddModalVisible(true);
   };
 
-  const handleAddOk = () => {
-    message.success('添加成功');
-    setAddModalVisible(false);
-    refresh();
+  const handleAddOk = async () => {
+    try {
+      const values = await addForm.validateFields();
+      await clientApi.submit(values);
+      message.success('添加成功');
+      setAddModalVisible(false);
+      refresh();
+    } catch {
+      message.error('添加失败');
+    }
   };
 
-  const handleEditOk = () => {
-    message.success('编辑成功');
-    setEditModalVisible(false);
-    refresh();
+  const handleEditOk = async () => {
+    try {
+      const values = await editForm.validateFields();
+      await clientApi.submit({ ...values, id: currentClient?.id });
+      message.success('编辑成功');
+      setEditModalVisible(false);
+      refresh();
+    } catch {
+      message.error('编辑失败');
+    }
   };
 
   return (
     <PageContainer
       title="客户端管理"
       subTitle="管理系统客户端，包括添加、编辑、删除客户端等操作"
-      extra={[
+      extra={buttons.filter(btn => btn.action === 1 || btn.action === 3).map(btn => (
         <Button
-          key="add"
-          type="primary"
-          icon={<PlusOutlined />}
+          key={btn.code}
+          type={btn.alias === 'add' ? 'primary' : 'default'}
+          icon={btn.source ? <span>{btn.source}</span> : undefined}
           onClick={handleAdd}
         >
-          添加客户端
-        </Button>,
-      ]}
+          {btn.name}
+        </Button>
+      ))}
     >
       <ProTable
         columns={columns}
@@ -255,9 +256,60 @@ const Client: React.FC = () => {
         ]}
         width={600}
       >
-        <div style={{ padding: '24px' }}>
-          <p>添加客户端表单</p>
-        </div>
+        <Form form={addForm} layout="vertical" style={{ padding: '24px' }}>
+          <Form.Item
+            name="name"
+            label="客户端名称"
+            rules={[{ required: true, message: '请输入客户端名称' }]}
+          >
+            <Input placeholder="请输入客户端名称" />
+          </Form.Item>
+          <Form.Item
+            name="clientId"
+            label="Client ID"
+            rules={[{ required: true, message: '请输入 Client ID' }]}
+          >
+            <Input placeholder="请输入 Client ID" />
+          </Form.Item>
+          <Form.Item
+            name="clientSecret"
+            label="Client Secret"
+            rules={[{ required: true, message: '请输入 Client Secret' }]}
+          >
+            <Input.Password placeholder="请输入 Client Secret" />
+          </Form.Item>
+          <Form.Item
+            name="redirectUri"
+            label="Redirect URI"
+            rules={[{ required: true, message: '请输入 Redirect URI' }]}
+          >
+            <Input placeholder="请输入 Redirect URI" />
+          </Form.Item>
+          <Form.Item
+            name="scope"
+            label="授权范围"
+            rules={[{ required: true, message: '请选择授权范围' }]}
+          >
+            <Select placeholder="请选择授权范围">
+              <Option value="all">全部权限</Option>
+              <Option value="read">只读权限</Option>
+              <Option value="write">写入权限</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item
+            name="status"
+            label="状态"
+            rules={[{ required: true, message: '请选择状态' }]}
+          >
+            <Select placeholder="请选择状态">
+              <Option value="启用">启用</Option>
+              <Option value="禁用">禁用</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="remark" label="备注">
+            <TextArea rows={3} placeholder="请输入备注" />
+          </Form.Item>
+        </Form>
       </Modal>
 
       {/* 编辑客户端弹窗 */}
@@ -276,9 +328,59 @@ const Client: React.FC = () => {
         ]}
         width={600}
       >
-        <div style={{ padding: '24px' }}>
-          <p>编辑客户端表单</p>
-        </div>
+        <Form form={editForm} layout="vertical" style={{ padding: '24px' }}>
+          <Form.Item name="id" hidden>
+            <Input />
+          </Form.Item>
+          <Form.Item
+            name="name"
+            label="客户端名称"
+            rules={[{ required: true, message: '请输入客户端名称' }]}
+          >
+            <Input placeholder="请输入客户端名称" />
+          </Form.Item>
+          <Form.Item
+            name="clientId"
+            label="Client ID"
+            rules={[{ required: true, message: '请输入 Client ID' }]}
+          >
+            <Input placeholder="请输入 Client ID" />
+          </Form.Item>
+          <Form.Item name="clientSecret" label="Client Secret">
+            <Input.Password placeholder="留空表示不修改" />
+          </Form.Item>
+          <Form.Item
+            name="redirectUri"
+            label="Redirect URI"
+            rules={[{ required: true, message: '请输入 Redirect URI' }]}
+          >
+            <Input placeholder="请输入 Redirect URI" />
+          </Form.Item>
+          <Form.Item
+            name="scope"
+            label="授权范围"
+            rules={[{ required: true, message: '请选择授权范围' }]}
+          >
+            <Select placeholder="请选择授权范围">
+              <Option value="all">全部权限</Option>
+              <Option value="read">只读权限</Option>
+              <Option value="write">写入权限</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item
+            name="status"
+            label="状态"
+            rules={[{ required: true, message: '请选择状态' }]}
+          >
+            <Select placeholder="请选择状态">
+              <Option value="启用">启用</Option>
+              <Option value="禁用">禁用</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="remark" label="备注">
+            <TextArea rows={3} placeholder="请输入备注" />
+          </Form.Item>
+        </Form>
       </Modal>
 
       {/* 查看客户端弹窗 */}
@@ -294,7 +396,44 @@ const Client: React.FC = () => {
         width={600}
       >
         <div style={{ padding: '24px' }}>
-          <p>查看客户端详情</p>
+          {currentClient && (
+            <div>
+              <p>
+                <strong>客户端名称：</strong>
+                {currentClient.name}
+              </p>
+              <p>
+                <strong>Client ID：</strong>
+                {currentClient.clientId}
+              </p>
+              <p>
+                <strong>Client Secret：</strong>
+                <span>{currentClient.clientSecret.substring(0, 6)}****</span>
+              </p>
+              <p>
+                <strong>Redirect URI：</strong>
+                {currentClient.redirectUri}
+              </p>
+              <p>
+                <strong>授权范围：</strong>
+                {currentClient.scope}
+              </p>
+              <p>
+                <strong>状态：</strong>
+                <span style={{ color: currentClient.status === '启用' ? '#52c41a' : '#ff4d4f' }}>
+                  {currentClient.status}
+                </span>
+              </p>
+              <p>
+                <strong>备注：</strong>
+                {currentClient.remark || '-'}
+              </p>
+              <p>
+                <strong>创建时间：</strong>
+                {currentClient.createTime}
+              </p>
+            </div>
+          )}
         </div>
       </Modal>
     </PageContainer>

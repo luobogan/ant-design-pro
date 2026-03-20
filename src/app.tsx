@@ -17,7 +17,8 @@ import {
 } from '@/components/RightContent/AvatarDropdown';
 import { errorConfig } from '@/requestErrorConfig';
 import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
-import { dynamicRoutes } from '@/services/system/menu';
+import { dynamicRoutes, dynamicButtons } from '@/services/system/menu';
+import { setButtons } from '@/utils/authority';
 import Func from '@/utils/Func';
 import { formatRoutes } from '@/utils/utils';
 import defaultSettings from '../config/defaultSettings';
@@ -195,16 +196,12 @@ export function render(oldRender: () => void) {
 export async function getInitialState(): Promise<{
   settings?: Partial<LayoutSettings>;
   currentUser?: API.CurrentUser;
+  buttons?: any[];
   loading?: boolean;
   fetchUserInfo?: () => Promise<API.CurrentUser | undefined>;
 }> {
   const fetchUserInfo = async () => {
     try {
-      // const msg = await queryCurrentUser({
-      //   skipErrorHandler: true,
-      // });
-      // return msg.data;
-      // 获取用户信息
       const res = await queryCurrentUser();
       console.log('用户信息响应:', res);
       return res.data;
@@ -214,13 +211,30 @@ export async function getInitialState(): Promise<{
     }
     return undefined;
   };
-  // 如果不是登录页面，执行
+
+  const fetchButtons = async () => {
+    try {
+      const response = await dynamicButtons();
+      const buttonsData = response.data || [];
+      setButtons(buttonsData);
+      console.log('按钮权限已加载:', buttonsData);
+      return buttonsData;
+    } catch (error) {
+      console.error('获取按钮权限失败:', error);
+      return [];
+    }
+  };
+
   const { location } = history;
   if (location.pathname !== loginPath) {
-    const currentUser = await fetchUserInfo();
+    const [currentUser, buttons] = await Promise.all([
+      fetchUserInfo(),
+      fetchButtons(),
+    ]);
     return {
       fetchUserInfo,
       currentUser,
+      buttons,
       settings: defaultSettings as Partial<LayoutSettings>,
     };
   }

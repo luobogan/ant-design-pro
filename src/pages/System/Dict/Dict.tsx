@@ -7,8 +7,11 @@ import {
 import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { useRequest } from '@umijs/max';
-import { Button, Modal, message } from 'antd';
-import React, { useState } from 'react';
+import { Button, Form, Input, Modal, message, Select } from 'antd';
+import React, { useState, useEffect } from 'react';
+import * as dictApi from '@/services/system/dict';
+import { getButton } from '@/utils/authority';
+import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
 
 interface Dict {
   id: string;
@@ -19,49 +22,31 @@ interface Dict {
   createTime: string;
 }
 
+const { Option } = Select;
+const { TextArea } = Input;
+
 const Dict: React.FC = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [addModalVisible, setAddModalVisible] = useState<boolean>(false);
   const [editModalVisible, setEditModalVisible] = useState<boolean>(false);
   const [viewModalVisible, setViewModalVisible] = useState<boolean>(false);
-  const [_currentDict, setCurrentDict] = useState<Dict | null>(null);
+  const [currentDict, setCurrentDict] = useState<Dict | null>(null);
+  const [addForm] = Form.useForm();
+  const [editForm] = Form.useForm();
+  const [buttons, setButtons] = useState<ButtonConfig[]>([]);
 
-  // 模拟字典数据
+  useEffect(() => {
+    const btns = getButton('dict');
+    setButtons(btns || []);
+  }, []);
+
+  // 获取字典列表
   const {
     data: dicts,
     loading,
     refresh,
   } = useRequest(() => {
-    return new Promise<Dict[]>((resolve) => {
-      setTimeout(() => {
-        resolve([
-          {
-            id: '1',
-            name: '用户状态',
-            code: 'user_status',
-            status: '启用',
-            remark: '用户状态字典',
-            createTime: '2026-01-01 00:00:00',
-          },
-          {
-            id: '2',
-            name: '角色类型',
-            code: 'role_type',
-            status: '启用',
-            remark: '角色类型字典',
-            createTime: '2026-01-02 00:00:00',
-          },
-          {
-            id: '3',
-            name: '部门状态',
-            code: 'dept_status',
-            status: '禁用',
-            remark: '部门状态字典',
-            createTime: '2026-01-03 00:00:00',
-          },
-        ]);
-      }, 500);
-    });
+    return dictApi.list({});
   });
 
   const columns: ProColumns<Dict>[] = [
@@ -119,80 +104,105 @@ const Dict: React.FC = () => {
       width: 150,
       render: (_: any, record: Dict) => (
         <>
-          <Button
-            type="text"
-            icon={<EyeOutlined />}
-            onClick={() => {
-              setCurrentDict(record);
-              setViewModalVisible(true);
-            }}
-            style={{ marginRight: 8 }}
-          >
-            查看
-          </Button>
-          <Button
-            type="text"
-            icon={<EditOutlined />}
-            onClick={() => {
-              setCurrentDict(record);
-              setEditModalVisible(true);
-            }}
-            style={{ marginRight: 8 }}
-          >
-            编辑
-          </Button>
-          <Button
-            type="text"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => {
-              Modal.confirm({
-                title: '确认删除',
-                content: `确定要删除字典 ${record.name} 吗？`,
-                onOk: () => {
-                  message.success('删除成功');
-                  refresh();
-                },
-              });
-            }}
-          >
-            删除
-          </Button>
+          {buttons.some(btn => btn.code === 'dict:view') && (
+            <Button
+              type="text"
+              icon={<EyeOutlined />}
+              onClick={() => {
+                setCurrentDict(record);
+                setViewModalVisible(true);
+              }}
+              style={{ marginRight: 8 }}
+            >
+              查看
+            </Button>
+          )}
+          {buttons.some(btn => btn.code === 'dict:edit') && (
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={() => {
+                setCurrentDict(record);
+                editForm.setFieldsValue(record);
+                setEditModalVisible(true);
+              }}
+              style={{ marginRight: 8 }}
+            >
+              编辑
+            </Button>
+          )}
+          {buttons.some(btn => btn.code === 'dict:delete') && (
+            <Button
+              type="text"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => {
+                Modal.confirm({
+                  title: '确认删除',
+                  content: `确定要删除字典 ${record.name} 吗？`,
+                  onOk: async () => {
+                    try {
+                      await dictApi.remove({ ids: [record.id] });
+                      message.success('删除成功');
+                      refresh();
+                    } catch {
+                      message.error('删除失败');
+                    }
+                  },
+                });
+              }}
+            >
+              删除
+            </Button>
+          )}
         </>
       ),
     },
   ];
 
   const handleAdd = () => {
+    addForm.resetFields();
     setAddModalVisible(true);
   };
 
-  const handleAddOk = () => {
-    message.success('添加成功');
-    setAddModalVisible(false);
-    refresh();
+  const handleAddOk = async () => {
+    try {
+      const values = await addForm.validateFields();
+      await dictApi.submit(values);
+      message.success('添加成功');
+      setAddModalVisible(false);
+      refresh();
+    } catch {
+      message.error('添加失败');
+    }
   };
 
-  const handleEditOk = () => {
-    message.success('编辑成功');
-    setEditModalVisible(false);
-    refresh();
+  const handleEditOk = async () => {
+    try {
+      const values = await editForm.validateFields();
+      await dictApi.submit(values);
+      message.success('编辑成功');
+      setEditModalVisible(false);
+      refresh();
+    } catch {
+      message.error('编辑失败');
+    }
   };
 
   return (
     <PageContainer
       title="字典管理"
       subTitle="管理系统字典，包括添加、编辑、删除字典等操作"
-      extra={[
+      extra={buttons.filter(btn => btn.action === 1 || btn.action === 3).map(btn => (
         <Button
-          key="add"
-          type="primary"
-          icon={<PlusOutlined />}
+          key={btn.code}
+          type={btn.alias === 'add' ? 'primary' : 'default'}
+          icon={btn.source ? <span>{btn.source}</span> : undefined}
           onClick={handleAdd}
         >
-          添加字典
-        </Button>,
-      ]}
+          {btn.name}
+        </Button>
+      ))}
     >
       <ProTable
         columns={columns}
@@ -223,9 +233,35 @@ const Dict: React.FC = () => {
         ]}
         width={600}
       >
-        <div style={{ padding: '24px' }}>
-          <p>添加字典表单</p>
-        </div>
+        <Form form={addForm} layout="vertical" style={{ padding: '24px' }}>
+          <Form.Item
+            name="name"
+            label="字典名称"
+            rules={[{ required: true, message: '请输入字典名称' }]}
+          >
+            <Input placeholder="请输入字典名称" />
+          </Form.Item>
+          <Form.Item
+            name="code"
+            label="字典编码"
+            rules={[{ required: true, message: '请输入字典编码' }]}
+          >
+            <Input placeholder="请输入字典编码" />
+          </Form.Item>
+          <Form.Item
+            name="status"
+            label="状态"
+            rules={[{ required: true, message: '请选择状态' }]}
+          >
+            <Select placeholder="请选择状态">
+              <Option value="启用">启用</Option>
+              <Option value="禁用">禁用</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="remark" label="备注">
+            <TextArea rows={3} placeholder="请输入备注" />
+          </Form.Item>
+        </Form>
       </Modal>
 
       {/* 编辑字典弹窗 */}
@@ -244,9 +280,38 @@ const Dict: React.FC = () => {
         ]}
         width={600}
       >
-        <div style={{ padding: '24px' }}>
-          <p>编辑字典表单</p>
-        </div>
+        <Form form={editForm} layout="vertical" style={{ padding: '24px' }}>
+          <Form.Item name="id" hidden>
+            <Input />
+          </Form.Item>
+          <Form.Item
+            name="name"
+            label="字典名称"
+            rules={[{ required: true, message: '请输入字典名称' }]}
+          >
+            <Input placeholder="请输入字典名称" />
+          </Form.Item>
+          <Form.Item
+            name="code"
+            label="字典编码"
+            rules={[{ required: true, message: '请输入字典编码' }]}
+          >
+            <Input placeholder="请输入字典编码" />
+          </Form.Item>
+          <Form.Item
+            name="status"
+            label="状态"
+            rules={[{ required: true, message: '请选择状态' }]}
+          >
+            <Select placeholder="请选择状态">
+              <Option value="启用">启用</Option>
+              <Option value="禁用">禁用</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="remark" label="备注">
+            <TextArea rows={3} placeholder="请输入备注" />
+          </Form.Item>
+        </Form>
       </Modal>
 
       {/* 查看字典弹窗 */}
@@ -262,7 +327,30 @@ const Dict: React.FC = () => {
         width={600}
       >
         <div style={{ padding: '24px' }}>
-          <p>查看字典详情</p>
+          {currentDict && (
+            <div>
+              <p>
+                <strong>字典名称：</strong>
+                {currentDict.name}
+              </p>
+              <p>
+                <strong>字典编码：</strong>
+                {currentDict.code}
+              </p>
+              <p>
+                <strong>状态：</strong>
+                {currentDict.status}
+              </p>
+              <p>
+                <strong>备注：</strong>
+                {currentDict.remark}
+              </p>
+              <p>
+                <strong>创建时间：</strong>
+                {currentDict.createTime}
+              </p>
+            </div>
+          )}
         </div>
       </Modal>
     </PageContainer>

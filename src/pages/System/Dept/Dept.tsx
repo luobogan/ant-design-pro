@@ -8,8 +8,10 @@ import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { useRequest } from '@umijs/max';
 import { Button, Form, Input, InputNumber, Modal, message, Select } from 'antd';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import * as deptApi from '@/services/system/dept';
+import { getButton } from '@/utils/authority';
+import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
 
 interface Dept {
   id: string;
@@ -34,6 +36,12 @@ const Dept: React.FC = () => {
   const [currentDept, setCurrentDept] = useState<Dept | null>(null);
   const [addForm] = Form.useForm();
   const [editForm] = Form.useForm();
+  const [buttons, setButtons] = useState<ButtonConfig[]>([]);
+
+  useEffect(() => {
+    const btns = getButton('dept');
+    setButtons(btns || []);
+  }, []);
 
   // 获取部门列表
   const {
@@ -117,36 +125,42 @@ const Dept: React.FC = () => {
       width: 150,
       render: (_: any, record: Dept) => (
         <>
-          <Button
-            type="text"
-            icon={<EyeOutlined />}
-            onClick={() => handleView(record)}
-            style={{ marginRight: 8 }}
-          >
-            查看
-          </Button>
-          <Button
-            type="text"
-            icon={<EditOutlined />}
-            onClick={() => handleEdit(record)}
-            style={{ marginRight: 8 }}
-          >
-            编辑
-          </Button>
-          <Button
-            type="text"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => {
-              Modal.confirm({
-                title: '确认删除',
-                content: `确定要删除部门 ${record.name} 吗？`,
-                onOk: () => handleDelete(record.id),
-              });
-            }}
-          >
-            删除
-          </Button>
+          {buttons.some(btn => btn.code === 'dept:view') && (
+            <Button
+              type="text"
+              icon={<EyeOutlined />}
+              onClick={() => handleView(record)}
+              style={{ marginRight: 8 }}
+            >
+              查看
+            </Button>
+          )}
+          {buttons.some(btn => btn.code === 'dept:edit') && (
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(record)}
+              style={{ marginRight: 8 }}
+            >
+              编辑
+            </Button>
+          )}
+          {buttons.some(btn => btn.code === 'dept:delete') && (
+            <Button
+              type="text"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => {
+                Modal.confirm({
+                  title: '确认删除',
+                  content: `确定要删除部门 ${record.name} 吗？`,
+                  onOk: () => handleDelete(record.id),
+                });
+              }}
+            >
+              删除
+            </Button>
+          )}
         </>
       ),
     },
@@ -206,16 +220,16 @@ const Dept: React.FC = () => {
     <PageContainer
       title="部门管理"
       subTitle="管理系统部门，包括添加、编辑、删除部门等操作"
-      extra={[
+      extra={buttons.filter(btn => btn.action === 1 || btn.action === 3).map(btn => (
         <Button
-          key="add"
-          type="primary"
-          icon={<PlusOutlined />}
+          key={btn.code}
+          type={btn.alias === 'add' ? 'primary' : 'default'}
+          icon={btn.source ? <span>{btn.source}</span> : undefined}
           onClick={handleAdd}
         >
-          添加部门
-        </Button>,
-      ]}
+          {btn.name}
+        </Button>
+      ))}
     >
       <ProTable
         columns={columns}
