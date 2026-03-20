@@ -69,13 +69,13 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
       
       if (pathParts.length >= 2) {
         const [module, page] = [pathParts[0], pathParts[pathParts.length - 1]];
-        const componentPath = `./pages/${module}/${page}/index.tsx`;
-        console.log(`组件路径：${componentPath}`);
+        const componentPath = `./pages/${module}/${page}/${page}.tsx`;
+        console.log(`组件路径   23123：${componentPath}`);
         
         Component = React.lazy(
           () =>
             new Promise((resolve, _reject) => {
-              import(`./pages/${module}/${page}/index.tsx`)
+              import(`./pages/${module}/${page}/${page}.tsx`)
                 .then((mod) => resolve(mod))
                 .catch((error) => {
                   console.error('组件导入错误:', error);
