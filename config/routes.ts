@@ -43,27 +43,7 @@ export default [
       {
         path: '/',
         redirect: '/welcome',
-      },
-      // 商城相关路由
-      {
-        path: '/mall',
-        routes: [
-          {
-            path: '/mall/products',
-            routes: [
-              {
-                path: '/mall/products',
-                component: './Mall/Product/index',
-              },
-              {
-                path: '/mall/products/add',
-                component: './Mall/Product/add',
-              },
-            ],
-          },
-        ],
-      },
-      // 通配符路由，直接指向404页面
+      },      // 通配符路由，直接指向404页面
       {
         path: '/*',
         component: './404',
