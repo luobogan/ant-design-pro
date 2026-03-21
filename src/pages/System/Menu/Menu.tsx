@@ -34,6 +34,7 @@ import { useRequest } from '@umijs/max';
 import {
   Button,
   Card,
+  Checkbox,
   Col,
   Form,
   Input,
@@ -45,7 +46,7 @@ import {
   Space,
   TreeSelect,
 } from 'antd';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import * as menuApi from '@/services/system/menu';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
@@ -104,6 +105,7 @@ interface MenuItem {
   source: string;
   category: number;
   isOpen: number;
+  isComponent: number;
   remark: string;
   createTime: string;
   children?: MenuItem[];
@@ -117,6 +119,7 @@ const MenuPage: React.FC = () => {
   const [currentMenu, setCurrentMenu] = useState<MenuItem | null>(null);
   const [selectedIcon, setSelectedIcon] = useState<string>('');
   const [form] = Form.useForm();
+  const [menuType, setMenuType] = useState<number>(1); // 菜单类型状态，用于控制条件渲染
 
   // 获取页面按钮权限（自动从路由提取菜单 code）
   const { buttons } = usePageButtons();
@@ -300,6 +303,8 @@ const MenuPage: React.FC = () => {
         source: selectedIcon,
         category: Number(values.category),
         isOpen: Number(values.isOpen),
+        // 确保 isComponent 是数字类型
+        isComponent: values.is_component ? 1 : 0,
       };
       console.log('新增提交数据:', submitData);
       await menuApi.submit(submitData);
@@ -315,23 +320,25 @@ const MenuPage: React.FC = () => {
     setCurrentMenu(record);
     setSelectedIcon(record.source || '');
     form.setFieldsValue({
-      id: record.id,
-      parentId: record.parentId,
-      name: record.name,
-      code: record.code,
-      alias: record.alias,
-      path: record.path,
-      sort: record.sort,
-      // 确保 category 是数字类型
-      category: typeof record.category === 'string' 
-        ? parseInt(record.category, 10) 
-        : record.category,
-      // 确保 isOpen 是数字类型
-      isOpen: typeof record.isOpen === 'string' 
-        ? parseInt(record.isOpen, 10) 
-        : record.isOpen,
-      remark: record.remark,
-    });
+    id: record.id,
+    parentId: record.parentId,
+    name: record.name,
+    code: record.code,
+    alias: record.alias,
+    path: record.path,
+    sort: record.sort,
+    // 确保 category 是数字类型
+    category: typeof record.category === 'string' 
+      ? parseInt(record.category, 10) 
+      : record.category,
+    // 确保 isOpen 是数字类型
+    isOpen: typeof record.isOpen === 'string' 
+      ? parseInt(record.isOpen, 10) 
+      : record.isOpen,
+    // 确保 isComponent 是布尔类型
+    is_component: record.isComponent === 1,
+    remark: record.remark,
+  });
     setEditModalVisible(true);
   };
 
@@ -348,6 +355,8 @@ const MenuPage: React.FC = () => {
         id: currentMenu?.id,
         category: Number(values.category),
         isOpen: Number(values.isOpen),
+        // 确保 isComponent 是数字类型
+        isComponent: values.is_component ? 1 : 0,
       };
       
       console.log('提交数据:', submitData);
@@ -472,7 +481,16 @@ const MenuPage: React.FC = () => {
         onOk={editModalVisible ? handleEditOk : handleAddOk}
         width={800}
       >
-        <Form form={form} layout="vertical" style={{ padding: '24px' }}>
+        <Form
+          form={form}
+          layout="vertical"
+          style={{ padding: '24px' }}
+          onValuesChange={(changedValues) => {
+            if (changedValues.category !== undefined) {
+              setMenuType(changedValues.category);
+            }
+          }}
+        >
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
@@ -568,6 +586,22 @@ const MenuPage: React.FC = () => {
             </Col>
           </Row>
 
+          {/* 当菜单类型为按钮时显示是否生成组件 */}
+          {menuType === 2 && (
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="is_component"
+                  label="是否生成组件"
+                  valuePropName="checked"
+                  initialValue={false}
+                >
+                  <Checkbox>是否生成组件</Checkbox>
+                </Form.Item>
+              </Col>
+            </Row>
+          )}
+
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
@@ -636,6 +670,10 @@ const MenuPage: React.FC = () => {
               <p>
                 <strong>是否缓存：</strong>
                 {currentMenu.isOpen === 1 ? '是' : '否'}
+              </p>
+              <p>
+                <strong>是否生成组件：</strong>
+                {currentMenu.isComponent === 1 ? '是' : '否'}
               </p>
               <p>
                 <strong>备注：</strong>

@@ -247,7 +247,7 @@ export async function getInitialState(): Promise<{
   return {
     fetchUserInfo,
     settings: defaultSettings as Partial<LayoutSettings>,
-  };
+  };      
 }
 // 映射菜单对应的图标
 const loopMenuItem1 = (menus: MenuDataItem[]): MenuDataItem[] =>
@@ -255,7 +255,7 @@ const loopMenuItem1 = (menus: MenuDataItem[]): MenuDataItem[] =>
     ...item,
     icon: icon && <Icon component={icons[icon]} />,
     routes: routes && loopMenuItem1(routes),
-  }));
+  }));  
 // ProLayout 支持的api https://procomponents.ant.design/components/layout
 export const layout: RunTimeLayoutConfig = ({
   initialState,
