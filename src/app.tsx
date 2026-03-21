@@ -65,10 +65,16 @@ export function patchClientRoutes({ routes }: { routes: any }) {
   }
 }
 
+const toPascalCase = (str: string): string => {
+  if (!str) return '';
+  return str.charAt(0).toUpperCase() + str.slice(1);
+};
+
 const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
   return menus.flatMap((item) => {
     let Component: React.ComponentType<any> | null = null;
-    //&& !item.children
+    const buttonRoutes: RouteItem[] = [];
+    
     if (item.path) {
       const formattedPath = Func.formatRoutePath(item.path);
       const pathParts = formattedPath.split('/').filter(Boolean);
@@ -83,47 +89,82 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
         // 根据菜单项的 id 找到对应的按钮数据
         const relatedButtons = buttonsData.filter(button => button.children && button.children.some(child => child.parentId === item.id));
         console.log(`与菜单 ${item.name} (id: ${item.id}) 关联的按钮：`, relatedButtons);
+        
+        // 处理按钮组件路由
         relatedButtons.forEach((button) => {
-          button.children?.flatMap((item1) => {
+          button.children?.forEach((item1) => {
+            if (item1.category === 2 && item1.isComponent === 1 && item1.path) {
               const formattedPath1 = Func.formatRoutePath(item1.path);
-                    const pathParts1 = formattedPath1.split('/').filter(Boolean);
-                      //  const [module1, page1] = [pathParts1[0], pathParts1[pathParts1.length - 1]];
-                 // 检查是否为按钮类型且需要生成组件
-                if (item1.category === 2 && item1.isComponent === 1) {
-                  // 按钮类型的组件映射规则
-                  const lastSegment = pathParts1[pathParts1.length - 1];
-                  const componentName = `${page}${lastSegment}`;
-                  console.log(`按钮组件路径：./pages/${module}/${page}/${componentName}.tsx`);
-                  
-                  Component = React.lazy(
-                    () =>
-                      new Promise((resolve, _reject) => {
-                        import(`./pages/${module}/${page}/${componentName}.tsx`)
-                          .then((mod) => resolve(mod))
-                          .catch((error) => {
-                            console.error('组件导入错误:', error);
-                            import('./pages/404.tsx').then((mod) => resolve(mod));
-                          });
-                      }),
-                  );
-                }
+              const pathParts1 = formattedPath1.split('/').filter(Boolean);
+              const lastSegment = pathParts1[pathParts1.length - 1];
+              const componentName = `${toPascalCase(page)}${toPascalCase(lastSegment)}`;
+              console.log(`按钮组件路径：./pages/${module}/${page}/${componentName}.tsx`);
+              
+              const ButtonComponent = React.lazy(
+                () =>
+                  new Promise((resolve, _reject) => {
+                    import(`./pages/${module}/${page}/${componentName}.tsx`)
+                      .then((mod) => resolve(mod))
+                      .catch((error) => {
+                        console.error('组件导入错误:', error);
+                        import('./pages/404.tsx').then((mod) => resolve(mod));
+                      });
+                  }),
+              );
+              
+              // 将按钮路由添加到列表中
+              buttonRoutes.push({
+                path: item1.path,
+                name: item1.name,
+                id: item1.id,
+                parentId: item1.parentId,
+                element: (
+                  <React.Suspense
+                    fallback={
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          minHeight: '400px',
+                          padding: '20px',
+                          textAlign: 'center',
+                        }}
+                      >
+                        <div style={{ marginBottom: '16px' }}>
+                          <Spin size="large" tip="加载中..." />
+                        </div>
+                        <p style={{ fontSize: '14px', color: '#666', marginTop: '16px' }}>
+                          正在加载页面，请稍候...
+                        </p>
+                      </div>
+                    }
+                  >
+                    <ButtonComponent />
+                  </React.Suspense>
+                ),
               });
+            }
+          });
         });
-          // 普通页面的组件映射规则
-          const componentPath = `./pages/${module}/${page}/${page}.tsx`;
-          console.log(`组件路径：${componentPath}`);
-          
-          Component = React.lazy(
-            () =>
-              new Promise((resolve, _reject) => {
-                import(`./pages/${module}/${page}/${page}.tsx`)
-                  .then((mod) => resolve(mod))
-                  .catch((error) => {
-                    console.error('组件导入错误:', error);
-                    import('./pages/404.tsx').then((mod) => resolve(mod));
-                  });
-              }),
-          );
+        
+        // 普通页面的组件映射规则
+        const pageComponentName = toPascalCase(page);
+        const componentPath = `./pages/${module}/${page}/${pageComponentName}.tsx`;
+        console.log(`组件路径：${componentPath}`);
+        
+        Component = React.lazy(
+          () =>
+            new Promise((resolve, _reject) => {
+              import(`./pages/${module}/${page}/${pageComponentName}.tsx`)
+                .then((mod) => resolve(mod))
+                .catch((error) => {
+                  console.error('组件导入错误:', error);
+                  import('./pages/404.tsx').then((mod) => resolve(mod));
+                });
+            }),
+        );
       }
     }
     
@@ -186,6 +227,7 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
             </React.Suspense>
           ),
         },
+        ...buttonRoutes,
       ];
     }
   });

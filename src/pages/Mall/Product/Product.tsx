@@ -219,11 +219,11 @@ const ProductList: React.FC = () => {
   };
 
   const handleAdd = () => {
-    navigate('/mall/products/add');
+    navigate('/mall/product/add');
   };
 
   const handleView = (record: Product) => {
-    navigate(`/mall/products/view/${record.id}`);
+    navigate(`/mall/product/view/${record.id}`);
   };
 
   const handleEdit = async (product: Product) => {
