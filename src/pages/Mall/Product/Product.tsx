@@ -43,8 +43,7 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import React, { useEffect, useState } from 'react';
-import { getBrandList } from '@/services/mall/brand';
-import { getCategoryTree } from '@/services/mall/category';
+import { brandApi, categoryApi } from '@/services/mall';
 import {
   adjustSkuStock,
   batchDeleteProducts,
@@ -139,15 +138,11 @@ const ProductList: React.FC = () => {
   const fetchCategoriesAndBrands = async () => {
     try {
       const [categoryRes, brandRes] = await Promise.all([
-        getCategoryTree(),
-        getBrandList({ current: 1, pageSize: 100 }),
+        categoryApi.getTree(),
+        brandApi.getList({ page: 1, pageSize: 100 }),
       ]);
-      setCategories(categoryRes?.data || []);
-      setBrands(
-        Array.isArray(brandRes?.data)
-          ? brandRes.data
-          : brandRes?.data?.list || [],
-      );
+      setCategories(categoryRes || []);
+      setBrands(brandRes?.list || []);
     } catch (error) {
       console.error('获取分类和品牌失败:', error);
     }

@@ -395,3 +395,81 @@ export interface PageResponse<T> {
   current: number;
   pageSize: number;
 }
+
+export interface CategoryFormData {
+  name: string;
+  description?: string;
+  icon?: string;
+  banner?: string;
+  parentId?: number;
+  sort: number;
+}
+
+export interface CategoryAttribute {
+  id: number;
+  categoryId: number;
+  name: string;
+  type: number;
+  isRequired: number;
+  isSearchable: number;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt?: string;
+  values?: CategoryAttributeValue[];
+}
+
+export interface CategoryAttributeFormData {
+  id?: number;
+  categoryId?: number;
+  name: string;
+  type: number;
+  isRequired?: number;
+  isSearchable?: number;
+  sortOrder?: number;
+}
+
+export interface CategoryAttributeValue {
+  id: number;
+  attributeId: number;
+  value: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface CategoryAttributeValueFormData {
+  attributeId: number;
+  value: string;
+  sortOrder?: number;
+}
+
+export interface CategoryParamTemplate {
+  id: number;
+  categoryId: number;
+  name: string;
+  type: number;
+  value: string;
+  isRequired: number;
+  isSearchable: number;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface CategoryParamTemplateFormData {
+  id?: number;
+  categoryId?: number;
+  name: string;
+  type: number;
+  value: string;
+  isRequired?: number;
+  isSearchable?: number;
+  sortOrder?: number;
+}
+
+export interface BrandFormData {
+  name: string;
+  description?: string;
+  logo?: string;
+  sort: number;
+  status?: number;
+}

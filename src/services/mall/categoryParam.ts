@@ -1,20 +1,51 @@
-import { request } from 'umi';
+import { request } from '@umijs/max';
 import { API_MALL_BASE_PATH } from '@/constants';
+import type { CategoryParamTemplate, CategoryParamTemplateFormData } from './typings';
 
-const CATEGORY_PARAM_BASE_URL = `${API_MALL_BASE_PATH}/category-param`;
+const CATEGORY_PARAM_BASE_URL = `${API_MALL_BASE_PATH}/category-param-templates`;
 
-/**
- * 分类参数 API
- */
 export const categoryParamApi = {
-  /**
-   * 根据分类ID获取参数
-   */
-  getParamsByCategoryId: async (categoryId: number) => {
-    const response = await request(`${CATEGORY_PARAM_BASE_URL}/get-by-category-id/${categoryId}`, {
+  getParamsByCategoryId: async (
+    categoryId: number,
+  ): Promise<CategoryParamTemplate[]> => {
+    return request(`${CATEGORY_PARAM_BASE_URL}/category/${categoryId}`, {
       method: 'GET',
     });
-    return response.data;
+  },
+
+  createParam: async (
+    data: CategoryParamTemplateFormData,
+  ): Promise<CategoryParamTemplate> => {
+    return request(CATEGORY_PARAM_BASE_URL, {
+      method: 'POST',
+      data,
+    });
+  },
+
+  updateParam: async (
+    id: number,
+    data: Partial<CategoryParamTemplateFormData>,
+  ): Promise<CategoryParamTemplate> => {
+    return request(`${CATEGORY_PARAM_BASE_URL}/${id}`, {
+      method: 'PUT',
+      data,
+    });
+  },
+
+  deleteParam: async (id: number): Promise<void> => {
+    return request(`${CATEGORY_PARAM_BASE_URL}/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  copyParamsToCategory: async (
+    sourceCategoryId: number,
+    targetCategoryId: number,
+  ): Promise<void> => {
+    return request(`${CATEGORY_PARAM_BASE_URL}/copy`, {
+      method: 'POST',
+      data: { sourceCategoryId, targetCategoryId },
+    });
   },
 };
 

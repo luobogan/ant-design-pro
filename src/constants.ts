@@ -13,7 +13,7 @@ export const APPLICATION_MALL_NAME = APPLICATION_NAME_PREFIX + 'mall';
 // API 基础路径
 export const API_BASE_PATH = '/api';
 
-// 商城API基础路径（特殊处理，不使用 blade- 前缀）
+// 商城API基础路径
 export const API_MALL_BASE_PATH = `${API_BASE_PATH}/${APPLICATION_MALL_NAME}`;
 
 // 其他常用常量
