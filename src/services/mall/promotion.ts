@@ -1,10 +1,14 @@
 import { request } from '@umijs/max';
+import { API_MALL_BASE_PATH } from '@/constants';
+
+const PROMOTION_BASE_URL = `${API_MALL_BASE_PATH}/promotions`;
+const PROMOTION_PRODUCT_BASE_URL = `${API_MALL_BASE_PATH}/promotion-products`;
 
 /**
  * 获取促销列表
  */
 export async function getPromotionList(params: any) {
-  return request('/api/mall/promotions', {
+  return request(PROMOTION_BASE_URL, {
     method: 'GET',
     params,
   });
@@ -14,7 +18,7 @@ export async function getPromotionList(params: any) {
  * 获取促销详情
  */
 export async function getPromotionById(id: number) {
-  return request(`/api/mall/promotions/${id}`, {
+  return request(`${PROMOTION_BASE_URL}/${id}`, {
     method: 'GET',
   });
 }
@@ -23,7 +27,7 @@ export async function getPromotionById(id: number) {
  * 创建促销
  */
 export async function createPromotion(data: any) {
-  return request('/api/mall/promotions', {
+  return request(PROMOTION_BASE_URL, {
     method: 'POST',
     data,
   });
@@ -33,7 +37,7 @@ export async function createPromotion(data: any) {
  * 更新促销
  */
 export async function updatePromotion(id: number, data: any) {
-  return request(`/api/mall/promotions/${id}`, {
+  return request(`${PROMOTION_BASE_URL}/${id}`, {
     method: 'PUT',
     data,
   });
@@ -43,7 +47,7 @@ export async function updatePromotion(id: number, data: any) {
  * 删除促销
  */
 export async function deletePromotion(id: number) {
-  return request(`/api/mall/promotions/${id}`, {
+  return request(`${PROMOTION_BASE_URL}/${id}`, {
     method: 'DELETE',
   });
 }
@@ -52,7 +56,7 @@ export async function deletePromotion(id: number) {
  * 获取促销商品列表
  */
 export async function getPromotionProducts(promotionId: number) {
-  return request(`/api/mall/promotions/${promotionId}/products`, {
+  return request(`${PROMOTION_BASE_URL}/${promotionId}/products`, {
     method: 'GET',
   });
 }
@@ -61,7 +65,7 @@ export async function getPromotionProducts(promotionId: number) {
  * 添加促销商品
  */
 export async function addPromotionProduct(data: any) {
-  return request('/api/mall/promotion-products', {
+  return request(PROMOTION_PRODUCT_BASE_URL, {
     method: 'POST',
     data,
   });
@@ -71,7 +75,7 @@ export async function addPromotionProduct(data: any) {
  * 删除促销商品
  */
 export async function deletePromotionProduct(id: number) {
-  return request(`/api/mall/promotion-products/${id}`, {
+  return request(`${PROMOTION_PRODUCT_BASE_URL}/${id}`, {
     method: 'DELETE',
   });
 }

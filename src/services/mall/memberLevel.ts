@@ -1,10 +1,13 @@
 import { request } from '@umijs/max';
+import { API_MALL_BASE_PATH } from '@/constants';
+
+const MEMBER_LEVEL_BASE_URL = `${API_MALL_BASE_PATH}/member-levels`;
 
 /**
  * 获取会员等级列表
  */
 export async function getMemberLevelList(params?: any) {
-  return request('/api/mall/member-levels', {
+  return request(MEMBER_LEVEL_BASE_URL, {
     method: 'GET',
     params,
   });
@@ -14,7 +17,7 @@ export async function getMemberLevelList(params?: any) {
  * 获取会员等级详情
  */
 export async function getMemberLevelById(id: number) {
-  return request(`/api/mall/member-levels/${id}`, {
+  return request(`${MEMBER_LEVEL_BASE_URL}/${id}`, {
     method: 'GET',
   });
 }
@@ -23,7 +26,7 @@ export async function getMemberLevelById(id: number) {
  * 创建会员等级
  */
 export async function createMemberLevel(data: any) {
-  return request('/api/mall/member-levels', {
+  return request(MEMBER_LEVEL_BASE_URL, {
     method: 'POST',
     data,
   });
@@ -33,7 +36,7 @@ export async function createMemberLevel(data: any) {
  * 更新会员等级
  */
 export async function updateMemberLevel(id: number, data: any) {
-  return request(`/api/mall/member-levels/${id}`, {
+  return request(`${MEMBER_LEVEL_BASE_URL}/${id}`, {
     method: 'PUT',
     data,
   });
@@ -43,7 +46,7 @@ export async function updateMemberLevel(id: number, data: any) {
  * 删除会员等级
  */
 export async function deleteMemberLevel(id: number) {
-  return request(`/api/mall/member-levels/${id}`, {
+  return request(`${MEMBER_LEVEL_BASE_URL}/${id}`, {
     method: 'DELETE',
   });
 }

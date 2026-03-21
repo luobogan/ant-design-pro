@@ -66,7 +66,7 @@ export async function updateMemberStatus(userId: number, status: number) {
  * 获取积分日志
  */
 export async function getPointsLog(userId: number, params: any) {
-  return request(`/api/mall/members/${userId}/points-log`, {
+  return request(`${MEMBER_BASE_URL}/${userId}/points-log`, {
     method: 'GET',
     params,
   });
@@ -76,7 +76,7 @@ export async function getPointsLog(userId: number, params: any) {
  * 获取成长值日志
  */
 export async function getGrowthLog(userId: number, params: any) {
-  return request(`/api/mall/members/${userId}/growth-log`, {
+  return request(`${MEMBER_BASE_URL}/${userId}/growth-log`, {
     method: 'GET',
     params,
   });
@@ -86,7 +86,7 @@ export async function getGrowthLog(userId: number, params: any) {
  * 获取会员统计
  */
 export async function getMemberStats() {
-  return request('/api/mall/members/stats', {
+  return request(`${MEMBER_BASE_URL}/stats`, {
     method: 'GET',
   });
 }

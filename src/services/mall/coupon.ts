@@ -64,7 +64,7 @@ export async function publishCoupon(id: number) {
  * 获取优惠券统计
  */
 export async function getCouponStats() {
-  return request('/api/mall/coupons/stats', {
+  return request(`${COUPON_BASE_URL}/stats`, {
     method: 'GET',
   });
 }

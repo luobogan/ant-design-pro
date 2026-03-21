@@ -1,10 +1,13 @@
 import { request } from '@umijs/max';
+import { API_MALL_BASE_PATH } from '@/constants';
+
+const LOGISTICS_BASE_URL = `${API_MALL_BASE_PATH}/logistics`;
 
 /**
  * 获取物流列表
  */
 export async function getLogisticsList(params: any) {
-  return request('/api/mall/logistics', {
+  return request(LOGISTICS_BASE_URL, {
     method: 'GET',
     params,
   });
@@ -14,7 +17,7 @@ export async function getLogisticsList(params: any) {
  * 获取物流详情
  */
 export async function getLogisticsById(id: number) {
-  return request(`/api/mall/logistics/${id}`, {
+  return request(`${LOGISTICS_BASE_URL}/${id}`, {
     method: 'GET',
   });
 }
@@ -23,7 +26,7 @@ export async function getLogisticsById(id: number) {
  * 创建物流
  */
 export async function createLogistics(data: any) {
-  return request('/api/mall/logistics', {
+  return request(LOGISTICS_BASE_URL, {
     method: 'POST',
     data,
   });
@@ -33,7 +36,7 @@ export async function createLogistics(data: any) {
  * 更新物流
  */
 export async function updateLogistics(id: number, data: any) {
-  return request(`/api/mall/logistics/${id}`, {
+  return request(`${LOGISTICS_BASE_URL}/${id}`, {
     method: 'PUT',
     data,
   });
@@ -43,7 +46,7 @@ export async function updateLogistics(id: number, data: any) {
  * 删除物流
  */
 export async function deleteLogistics(id: number) {
-  return request(`/api/mall/logistics/${id}`, {
+  return request(`${LOGISTICS_BASE_URL}/${id}`, {
     method: 'DELETE',
   });
 }
@@ -52,7 +55,7 @@ export async function deleteLogistics(id: number) {
  * 获取物流轨迹
  */
 export async function getLogisticsTracking(id: number) {
-  return request(`/api/mall/logistics/${id}/tracking`, {
+  return request(`${LOGISTICS_BASE_URL}/${id}/tracking`, {
     method: 'GET',
   });
 }

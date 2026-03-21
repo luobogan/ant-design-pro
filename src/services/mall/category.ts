@@ -1,10 +1,14 @@
 import { request } from '@umijs/max';
+import { API_MALL_BASE_PATH } from '@/constants';
+
+const CATEGORY_BASE_URL = `${API_MALL_BASE_PATH}/categories`;
+const CATEGORY_ATTRIBUTE_BASE_URL = `${API_MALL_BASE_PATH}/category-attributes`;
 
 /**
  * 获取分类树
  */
 export async function getCategoryTree() {
-  return request('/api/mall/categories/tree', {
+  return request(`${CATEGORY_BASE_URL}/tree`, {
     method: 'GET',
   });
 }
@@ -13,7 +17,7 @@ export async function getCategoryTree() {
  * 获取分类列表
  */
 export async function getCategoryList(params: any) {
-  return request('/api/mall/categories', {
+  return request(CATEGORY_BASE_URL, {
     method: 'GET',
     params,
   });
@@ -23,7 +27,7 @@ export async function getCategoryList(params: any) {
  * 获取分类详情
  */
 export async function getCategoryById(id: number) {
-  return request(`/api/mall/categories/${id}`, {
+  return request(`${CATEGORY_BASE_URL}/${id}`, {
     method: 'GET',
   });
 }
@@ -32,7 +36,7 @@ export async function getCategoryById(id: number) {
  * 创建分类
  */
 export async function createCategory(data: any) {
-  return request('/api/mall/categories', {
+  return request(CATEGORY_BASE_URL, {
     method: 'POST',
     data,
   });
@@ -42,7 +46,7 @@ export async function createCategory(data: any) {
  * 更新分类
  */
 export async function updateCategory(id: number, data: any) {
-  return request(`/api/mall/categories/${id}`, {
+  return request(`${CATEGORY_BASE_URL}/${id}`, {
     method: 'PUT',
     data,
   });
@@ -52,7 +56,7 @@ export async function updateCategory(id: number, data: any) {
  * 删除分类
  */
 export async function deleteCategory(id: number) {
-  return request(`/api/mall/categories/${id}`, {
+  return request(`${CATEGORY_BASE_URL}/${id}`, {
     method: 'DELETE',
   });
 }
@@ -61,7 +65,7 @@ export async function deleteCategory(id: number) {
  * 获取分类属性
  */
 export async function getCategoryAttributes(categoryId: number) {
-  return request(`/api/mall/categories/${categoryId}/attributes`, {
+  return request(`${CATEGORY_BASE_URL}/${categoryId}/attributes`, {
     method: 'GET',
   });
 }
@@ -70,7 +74,7 @@ export async function getCategoryAttributes(categoryId: number) {
  * 创建分类属性
  */
 export async function createCategoryAttribute(categoryId: number, data: any) {
-  return request(`/api/mall/categories/${categoryId}/attributes`, {
+  return request(`${CATEGORY_BASE_URL}/${categoryId}/attributes`, {
     method: 'POST',
     data,
   });
@@ -80,7 +84,7 @@ export async function createCategoryAttribute(categoryId: number, data: any) {
  * 更新分类属性
  */
 export async function updateCategoryAttribute(id: number, data: any) {
-  return request(`/api/mall/category-attributes/${id}`, {
+  return request(`${CATEGORY_ATTRIBUTE_BASE_URL}/${id}`, {
     method: 'PUT',
     data,
   });
@@ -90,7 +94,7 @@ export async function updateCategoryAttribute(id: number, data: any) {
  * 删除分类属性
  */
 export async function deleteCategoryAttribute(id: number) {
-  return request(`/api/mall/category-attributes/${id}`, {
+  return request(`${CATEGORY_ATTRIBUTE_BASE_URL}/${id}`, {
     method: 'DELETE',
   });
 }

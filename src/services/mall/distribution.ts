@@ -1,10 +1,13 @@
 import { request } from '@umijs/max';
+import { API_MALL_BASE_PATH } from '@/constants';
+
+const DISTRIBUTION_BASE_URL = `${API_MALL_BASE_PATH}/distributions`;
 
 /**
  * 获取铺货列表
  */
 export async function getDistributionList(params: any) {
-  return request('/api/mall/distributions', {
+  return request(DISTRIBUTION_BASE_URL, {
     method: 'GET',
     params,
   });
@@ -14,7 +17,7 @@ export async function getDistributionList(params: any) {
  * 获取铺货详情
  */
 export async function getDistributionById(id: number) {
-  return request(`/api/mall/distributions/${id}`, {
+  return request(`${DISTRIBUTION_BASE_URL}/${id}`, {
     method: 'GET',
   });
 }
@@ -23,7 +26,7 @@ export async function getDistributionById(id: number) {
  * 创建铺货
  */
 export async function createDistribution(data: any) {
-  return request('/api/mall/distributions', {
+  return request(DISTRIBUTION_BASE_URL, {
     method: 'POST',
     data,
   });
@@ -33,7 +36,7 @@ export async function createDistribution(data: any) {
  * 更新铺货
  */
 export async function updateDistribution(id: number, data: any) {
-  return request(`/api/mall/distributions/${id}`, {
+  return request(`${DISTRIBUTION_BASE_URL}/${id}`, {
     method: 'PUT',
     data,
   });
@@ -43,7 +46,7 @@ export async function updateDistribution(id: number, data: any) {
  * 删除铺货
  */
 export async function deleteDistribution(id: number) {
-  return request(`/api/mall/distributions/${id}`, {
+  return request(`${DISTRIBUTION_BASE_URL}/${id}`, {
     method: 'DELETE',
   });
 }
@@ -52,7 +55,7 @@ export async function deleteDistribution(id: number) {
  * 铺货同步
  */
 export async function syncDistribution(id: number) {
-  return request(`/api/mall/distributions/${id}/sync`, {
+  return request(`${DISTRIBUTION_BASE_URL}/${id}/sync`, {
     method: 'POST',
   });
 }

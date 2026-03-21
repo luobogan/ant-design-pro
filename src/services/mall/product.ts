@@ -3,6 +3,8 @@ import type { Product, ProductFormData, ProductSkuFormData, SkuMatrixGenerateDat
 import { API_MALL_BASE_PATH } from '@/constants';
 
 const PRODUCT_BASE_URL = `${API_MALL_BASE_PATH}/products`;
+const SKU_BASE_URL = `${API_MALL_BASE_PATH}/skus`;
+const PRODUCT_RELATION_BASE_URL = `${API_MALL_BASE_PATH}/product-relations`;
 
 /**
  * 商品 API
@@ -51,7 +53,7 @@ export const productApi = {
    * 更新商品（带确认）
    */
   updateWithConfirm: async (id: number, data: ProductFormData, confirm: boolean) => {
-    return request(`/api/mall/products/${id}`, {
+    return request(`${PRODUCT_BASE_URL}/${id}`, {
       method: 'PUT',
       data: { ...data, confirm },
     });
@@ -61,7 +63,7 @@ export const productApi = {
    * 删除商品
    */
   delete: async (id: number) => {
-    return request(`/api/mall/products/${id}`, {
+    return request(`${PRODUCT_BASE_URL}/${id}`, {
       method: 'DELETE',
     });
   },
@@ -70,7 +72,7 @@ export const productApi = {
    * 批量删除商品
    */
   batchDelete: async (ids: number[]) => {
-    return request('/api/mall/products/batch-delete', {
+    return request(`${PRODUCT_BASE_URL}/batch-delete`, {
       method: 'POST',
       data: { ids },
     });
@@ -80,7 +82,7 @@ export const productApi = {
    * 批量更新状态
    */
   batchUpdateStatus: async (ids: number[], status: 'active' | 'inactive') => {
-    return request('/api/mall/products/batch-status', {
+    return request(`${PRODUCT_BASE_URL}/batch-status`, {
       method: 'POST',
       data: { ids, status },
     });
@@ -90,7 +92,7 @@ export const productApi = {
    * 商品上架
    */
   publish: async (id: number) => {
-    return request(`/api/mall/products/${id}/publish`, {
+    return request(`${PRODUCT_BASE_URL}/${id}/publish`, {
       method: 'POST',
     });
   },
@@ -99,7 +101,7 @@ export const productApi = {
    * 商品下架
    */
   unpublish: async (id: number) => {
-    return request(`/api/mall/products/${id}/unpublish`, {
+    return request(`${PRODUCT_BASE_URL}/${id}/unpublish`, {
       method: 'POST',
     });
   },
@@ -108,7 +110,7 @@ export const productApi = {
    * 设为推荐
    */
   setRecommend: async (id: number, recommend: boolean) => {
-    return request(`/api/mall/products/${id}/recommend`, {
+    return request(`${PRODUCT_BASE_URL}/${id}/recommend`, {
       method: 'POST',
       data: { recommend },
     });
@@ -118,7 +120,7 @@ export const productApi = {
    * 设为新品
    */
   setNew: async (id: number, isNew: boolean) => {
-    return request(`/api/mall/products/${id}/new`, {
+    return request(`${PRODUCT_BASE_URL}/${id}/new`, {
       method: 'POST',
       data: { isNew },
     });
@@ -128,7 +130,7 @@ export const productApi = {
    * 设为热销
    */
   setHot: async (id: number, isHot: boolean) => {
-    return request(`/api/mall/products/${id}/hot`, {
+    return request(`${PRODUCT_BASE_URL}/${id}/hot`, {
       method: 'POST',
       data: { isHot },
     });
@@ -138,7 +140,7 @@ export const productApi = {
    * 获取商品统计
    */
   getStats: async () => {
-    return request('/api/mall/products/stats', {
+    return request(`${PRODUCT_BASE_URL}/stats`, {
       method: 'GET',
     });
   },
@@ -147,7 +149,7 @@ export const productApi = {
    * 获取回收站列表
    */
   getRecycleList: async () => {
-    return request('/api/mall/products/recycle', {
+    return request(`${PRODUCT_BASE_URL}/recycle`, {
       method: 'GET',
     });
   },
@@ -156,7 +158,7 @@ export const productApi = {
    * 恢复商品
    */
   restore: async (id: number) => {
-    return request(`/api/mall/products/${id}/restore`, {
+    return request(`${PRODUCT_BASE_URL}/${id}/restore`, {
       method: 'POST',
     });
   },
@@ -165,7 +167,7 @@ export const productApi = {
    * 获取 SKU 列表
    */
   getSkus: async (productId: number) => {
-    return request(`/api/mall/products/${productId}/skus`, {
+    return request(`${PRODUCT_BASE_URL}/${productId}/skus`, {
       method: 'GET',
     });
   },
@@ -174,7 +176,7 @@ export const productApi = {
    * 创建 SKU
    */
   createSku: async (productId: number, data: ProductSkuFormData) => {
-    return request(`/api/mall/products/${productId}/skus`, {
+    return request(`${PRODUCT_BASE_URL}/${productId}/skus`, {
       method: 'POST',
       data,
     });
@@ -184,7 +186,7 @@ export const productApi = {
    * 更新 SKU
    */
   updateSku: async (id: number, data: ProductSkuFormData) => {
-    return request(`/api/mall/skus/${id}`, {
+    return request(`${SKU_BASE_URL}/${id}`, {
       method: 'PUT',
       data,
     });
@@ -194,7 +196,7 @@ export const productApi = {
    * 删除 SKU
    */
   deleteSku: async (id: number) => {
-    return request(`/api/mall/skus/${id}`, {
+    return request(`${SKU_BASE_URL}/${id}`, {
       method: 'DELETE',
     });
   },
@@ -203,7 +205,7 @@ export const productApi = {
    * 生成 SKU 矩阵
    */
   generateSkuMatrix: async (data: SkuMatrixGenerateData) => {
-    return request('/api/mall/products/skus/matrix', {
+    return request(`${PRODUCT_BASE_URL}/skus/matrix`, {
       method: 'POST',
       data,
     });
@@ -213,7 +215,7 @@ export const productApi = {
    * 获取规格属性
    */
   getSpecAttributes: async (productId: number) => {
-    return request(`/api/mall/products/${productId}/spec-attributes`, {
+    return request(`${PRODUCT_BASE_URL}/${productId}/spec-attributes`, {
       method: 'GET',
     });
   },
@@ -222,7 +224,7 @@ export const productApi = {
    * 获取 SKU 库存日志
    */
   getSkuStockLogs: async (skuId: number) => {
-    return request(`/api/mall/skus/${skuId}/stock-logs`, {
+    return request(`${SKU_BASE_URL}/${skuId}/stock-logs`, {
       method: 'GET',
     });
   },
@@ -231,7 +233,7 @@ export const productApi = {
    * 调整 SKU 库存
    */
   adjustSkuStock: async (skuId: number, quantity: number, type: number, remark?: string) => {
-    return request(`/api/mall/skus/${skuId}/stock`, {
+    return request(`${SKU_BASE_URL}/${skuId}/stock`, {
       method: 'POST',
       data: { quantity, type, remark },
     });
@@ -241,7 +243,7 @@ export const productApi = {
    * 获取商品统计（带分类和品牌）
    */
   getStatsDetailed: async () => {
-    return request('/api/mall/products/stats/detailed', {
+    return request(`${PRODUCT_BASE_URL}/stats/detailed`, {
       method: 'GET',
     });
   },
@@ -250,7 +252,7 @@ export const productApi = {
    * 添加商品关联
    */
   addRelation: async (data: ProductRelationFormData) => {
-    return request('/api/mall/product-relations', {
+    return request(PRODUCT_RELATION_BASE_URL, {
       method: 'POST',
       data,
     });
@@ -260,7 +262,7 @@ export const productApi = {
    * 获取商品关联列表
    */
   getRelations: async (productId: number) => {
-    return request(`/api/mall/products/${productId}/relations`, {
+    return request(`${PRODUCT_BASE_URL}/${productId}/relations`, {
       method: 'GET',
     });
   },
@@ -269,7 +271,7 @@ export const productApi = {
    * 删除商品关联
    */
   deleteRelation: async (id: number) => {
-    return request(`/api/mall/product-relations/${id}`, {
+    return request(`${PRODUCT_RELATION_BASE_URL}/${id}`, {
       method: 'DELETE',
     });
   },
