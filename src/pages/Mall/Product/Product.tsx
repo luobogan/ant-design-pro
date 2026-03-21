@@ -219,16 +219,15 @@ const ProductList: React.FC = () => {
   };
 
   const handleAdd = () => {
-    navigate('/mall/product/add');
+    navigate('/mall/product/aae?mode=add');
   };
 
   const handleView = (record: Product) => {
     navigate(`/mall/product/view/${record.id}`);
   };
 
-  const handleEdit = async (product: Product) => {
-    setCurrentProduct(product);
-    setEditModalVisible(true);
+  const handleEdit = (record: Product) => {
+    navigate(`/mall/product/aae?mode=edit&id=${record.id}`);
   };
 
   const handleDelete = async (id: number) => {
