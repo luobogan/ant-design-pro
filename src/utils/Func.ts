@@ -16,13 +16,16 @@ export default class Func {
   //   return formattedPath;
   // }
   static formatRoutePath(path: string) {
+    if (!path) return '';
     const words = path.replace(/^\//, '').split(/(?<=\w+)\//);
     console.log(`words:${words}`);
     // 提取路径单词
     return `/${words
-      .map((word: string) =>
-        word.toLowerCase().replace(word[0], word[0].toUpperCase()),
-      )
+      .map((word: string) => {
+        if (!word) return '';
+        return word.toLowerCase().replace(word[0], word[0].toUpperCase());
+      })
+      .filter(Boolean)
       .join('/')}`;
   }
 

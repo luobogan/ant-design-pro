@@ -408,7 +408,7 @@ const UserPage: React.FC = () => {
               />
             }
             loading={deptLoading}
-            bodyStyle={{ padding: '12px', minHeight: '600px' }}
+            styles={{ body: { padding: '12px', minHeight: '600px' } }}
           >
             <Input
               placeholder="输入关键字进行过滤"

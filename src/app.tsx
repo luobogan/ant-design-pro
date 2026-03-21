@@ -18,10 +18,9 @@ import {
 import { errorConfig } from '@/requestErrorConfig';
 import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
 import { dynamicRoutes, dynamicButtons } from '@/services/system/menu';
-import { setButtons } from '@/utils/authority';
+import { setButtons, getButtons } from '@/utils/authority';
 import Func from '@/utils/Func';
 import { formatRoutes } from '@/utils/utils';
-import { loadComponent } from '@/utils/componentLoader';
 import defaultSettings from '../config/defaultSettings';
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -35,6 +34,11 @@ interface MenuItem {
   menuID: number | string;
   page?: string;
   children?: MenuItem[];
+  category?: number;
+  isComponent?: number;
+  path?: string;
+  name?: string;
+  id?: number | string;
 }
 interface RouteItem {
   path?: string;
@@ -47,6 +51,8 @@ interface RouteItem {
 }
 
 let extraRoutes: any[] = [];
+
+
 export function patchClientRoutes({ routes }: { routes: any }) {
   const routerIndex = routes.findIndex((item: RouteItem) => item.path === '/');
   const parentId = routes[routerIndex].id;
@@ -69,20 +75,55 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
       
       if (pathParts.length >= 2) {
         const [module, page] = [pathParts[0], pathParts[pathParts.length - 1]];
-        const componentPath = `./pages/${module}/${page}/${page}.tsx`;
-        console.log(`组件路径   23123：${componentPath}`);
         
-        Component = React.lazy(
-          () =>
-            new Promise((resolve, _reject) => {
-              import(`./pages/${module}/${page}/${page}.tsx`)
-                .then((mod) => resolve(mod))
-                .catch((error) => {
-                  console.error('组件导入错误:', error);
-                  import('./pages/404.tsx').then((mod) => resolve(mod));
-                });
-            }),
-        );
+        // 从 localStorage 获取按钮数据
+        const buttonsData = getButtons();
+        console.log('从 localStorage 获取按钮数据:', buttonsData);
+        
+        // 根据菜单项的 id 找到对应的按钮数据
+        const relatedButtons = buttonsData.filter(button => button.children && button.children.some(child => child.parentId === item.id));
+        console.log(`与菜单 ${item.name} (id: ${item.id}) 关联的按钮：`, relatedButtons);
+        relatedButtons.forEach((button) => {
+          button.children?.flatMap((item1) => {
+              const formattedPath1 = Func.formatRoutePath(item1.path);
+                    const pathParts1 = formattedPath1.split('/').filter(Boolean);
+                      //  const [module1, page1] = [pathParts1[0], pathParts1[pathParts1.length - 1]];
+                 // 检查是否为按钮类型且需要生成组件
+                if (item1.category === 2 && item1.isComponent === 1) {
+                  // 按钮类型的组件映射规则
+                  const lastSegment = pathParts1[pathParts1.length - 1];
+                  const componentName = `${page}${lastSegment}`;
+                  console.log(`按钮组件路径：./pages/${module}/${page}/${componentName}.tsx`);
+                  
+                  Component = React.lazy(
+                    () =>
+                      new Promise((resolve, _reject) => {
+                        import(`./pages/${module}/${page}/${componentName}.tsx`)
+                          .then((mod) => resolve(mod))
+                          .catch((error) => {
+                            console.error('组件导入错误:', error);
+                            import('./pages/404.tsx').then((mod) => resolve(mod));
+                          });
+                      }),
+                  );
+                }
+              });
+        });
+          // 普通页面的组件映射规则
+          const componentPath = `./pages/${module}/${page}/${page}.tsx`;
+          console.log(`组件路径：${componentPath}`);
+          
+          Component = React.lazy(
+            () =>
+              new Promise((resolve, _reject) => {
+                import(`./pages/${module}/${page}/${page}.tsx`)
+                  .then((mod) => resolve(mod))
+                  .catch((error) => {
+                    console.error('组件导入错误:', error);
+                    import('./pages/404.tsx').then((mod) => resolve(mod));
+                  });
+              }),
+          );
       }
     }
     
@@ -221,9 +262,11 @@ export async function getInitialState(): Promise<{
       const response = await dynamicButtons();
       console.log('按钮权限 API 响应:', response);
       const buttonsData = response.data || [];
+
       setButtons(buttonsData);
       console.log('按钮权限已加载:', buttonsData);
       console.log('按钮权限存储到 localStorage:', JSON.stringify(buttonsData));
+
       return buttonsData;
     } catch (error) {
       console.error('获取按钮权限失败:', error);
