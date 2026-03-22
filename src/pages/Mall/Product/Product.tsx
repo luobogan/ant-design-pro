@@ -162,7 +162,7 @@ const ProductList: React.FC = () => {
   const fetchProductStats = async () => {
     try {
       const statsData = await getProductStats();
-      setStats(statsData?.data || null);
+      setStats(statsData || null);
     } catch (error) {
       console.error('获取统计数据失败:', error);
     }
@@ -180,16 +180,16 @@ const ProductList: React.FC = () => {
 
       const result = await getProductList(params);
 
-      if (result && result.success && result.data) {
-        setData(result.data.list || []);
+      if (result) {
+        setData(result.list || []);
         setPagination({
-          current: result.data.current || page,
-          pageSize: result.data.pageSize || pageSize,
-          total: result.data.total || 0,
+          current: result.current || page,
+          pageSize: result.pageSize || pageSize,
+          total: result.total || 0,
         });
       }
     } catch (error: any) {
-      message.error(error.message || '获取商品列表失败');
+      console.error('获取商品列表失败:', error);
     } finally {
       setLoading(false);
     }

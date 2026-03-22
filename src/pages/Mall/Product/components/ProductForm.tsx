@@ -301,7 +301,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
         isPreview: product.isPreview,
         isOnSale: product.status === 'active',
         isNew: product.isNew,
-        isRecommend: product.isFeatured,
+        isRecommend: product.isRecommend,
         isHot: product.isHot,
         serviceIds: product.serviceIds,
         promotionType: product.promotionType,
@@ -1012,8 +1012,8 @@ const ProductForm: React.FC<ProductFormProps> = ({
         detailDescription: productDetail,
         // 映射字段名称以匹配 ProductFormData 类型
         status: combinedValues.isOnSale ? 'active' : 'inactive',
-        isFeatured: combinedValues.isRecommend,
-        isNew: combinedValues.isNew || false,
+        isRecommend: combinedValues.isRecommend ? 1 : 0,
+        isNew: combinedValues.isNew ? 1 : 0,
       };
 
       console.log('=== 完整的 productData 准备发送到后端 ===');

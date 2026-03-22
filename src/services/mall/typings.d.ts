@@ -22,9 +22,9 @@ export interface Product {
   giftGrowth?: number;
   usePointLimit?: number;
   status: 'active' | 'inactive';
-  isFeatured: boolean;
-  isNew: boolean;
-  isHot?: boolean;
+  isRecommend: number;
+  isNew: number;
+  isHot?: number;
   rating: number;
   reviews: number;
   sales: number;
@@ -65,9 +65,9 @@ export interface ProductFormData {
   giftGrowth?: number;
   usePointLimit?: number;
   status: 'active' | 'inactive';
-  isFeatured: boolean;
-  isNew: boolean;
-  isHot?: boolean;
+  isRecommend: number;
+  isNew: number;
+  isHot?: number;
   attributeValues?: Array<{
     attributeId: number;
     value: string;
