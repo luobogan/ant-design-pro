@@ -1,16 +1,319 @@
+import React, { useEffect, useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
-import { Card, Empty } from 'antd';
-import React from 'react';
+import {
+  Table,
+  Space,
+  Button,
+  Modal,
+  Form,
+  Input,
+  InputNumber,
+  Switch,
+  Select,
+  message,
+  Card,
+  Popconfirm,
+  Upload,
+  Image,
+} from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, UploadOutlined, ReloadOutlined } from '@ant-design/icons';
+import type { ColumnsType } from 'antd';
+import type { UploadProps } from 'antd/es/upload/interface';
+import { brandApi } from '@/services/mall/brand';
+import { usePageButtons } from '@/hooks/usePageButtons';
+import type { Brand, BrandFormData } from '@/services/mall/typings';
 
 /**
- * 品牌管理页面（占位）
+ * 品牌管理页面
  */
 const BrandList: React.FC = () => {
+  const [modalVisible, setModalVisible] = useState(false);
+  const [currentBrand, setCurrentBrand] = useState<Brand | null>(null);
+  const [form] = Form.useForm();
+  const [imageUrl, setImageUrl] = useState<string>('');
+  const [data, setData] = useState<Brand[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [pagination, setPagination] = useState({
+    current: 1,
+    pageSize: 10,
+    total: 0,
+  });
+  const { buttons } = usePageButtons('brand');
+
+  const fetchData = async (page: number = 1, pageSize: number = 10) => {
+    setLoading(true);
+    try {
+      const response = await brandApi.getList({ page, pageSize });
+      setData(response.list || []);
+      setPagination({
+        current: response.current || 1,
+        pageSize: response.pageSize || 10,
+        total: response.total || 0,
+      });
+    } catch (error) {
+      message.error('获取品牌列表失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const columns: ColumnsType<Brand> = [
+    {
+      title: 'ID',
+      dataIndex: 'id',
+      width: 80,
+    },
+    {
+      title: '品牌名称',
+      dataIndex: 'name',
+      width: 150,
+    },
+    {
+      title: '品牌LOGO',
+      dataIndex: 'logo',
+      width: 100,
+      render: (logo: string) =>
+        logo ? (
+          <img
+            src={logo}
+            alt="品牌LOGO"
+            style={{ width: 50, height: 50, objectFit: 'contain' }}
+          />
+        ) : (
+          <span style={{ color: '#999' }}>暂无图片</span>
+        ),
+    },
+    {
+      title: '描述',
+      dataIndex: 'description',
+      ellipsis: true,
+    },
+    {
+      title: '排序',
+      dataIndex: 'sort',
+      width: 80,
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      width: 80,
+      render: (status: number) => (
+        <span style={{ color: status === 1 ? '#52c41a' : '#ff4d4f' }}>
+          {status === 1 ? '启用' : '禁用'}
+        </span>
+      ),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 180,
+      fixed: 'right',
+      render: (_: unknown, record: Brand) => (
+        <Space size="small">
+          {buttons.some((btn: any) => btn.code === 'brand_edit') && (
+            <Button
+              type="link"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(record)}
+            >
+              编辑
+            </Button>
+          )}
+          {buttons.some((btn: any) => btn.code === 'brand_delete') && (
+            <Popconfirm
+              title="确认删除"
+              description="确定要删除该品牌吗？"
+              onConfirm={() => handleDelete(record.id)}
+              okText="确认"
+              cancelText="取消"
+            >
+              <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+                删除
+              </Button>
+            </Popconfirm>
+          )}
+        </Space>
+      ),
+    },
+  ];
+
+  const handleAdd = () => {
+    setCurrentBrand(null);
+    setImageUrl('');
+    form.resetFields();
+    form.setFieldsValue({
+      status: 1,
+      sort: 0,
+    });
+    setModalVisible(true);
+  };
+
+  const handleUpload: UploadProps['onChange'] = async (info) => {
+    if (info.file.status === 'uploading') {
+      return;
+    }
+    if (info.file.status === 'done') {
+      if (info.file.response && info.file.response.data) {
+        const url = info.file.response.data;
+        setImageUrl(url);
+        form.setFieldsValue({ logo: url });
+        message.success('上传成功');
+      } else {
+        message.error('上传失败，请重试');
+      }
+    } else if (info.file.status === 'error') {
+      message.error('上传失败，请重试');
+    }
+  };
+
+  const handleEdit = (brand: Brand) => {
+    setCurrentBrand(brand);
+    setImageUrl(brand.logo || '');
+    form.setFieldsValue({
+      name: brand.name,
+      description: brand.description,
+      logo: brand.logo,
+      status: brand.status,
+      sort: brand.sort,
+    });
+    setModalVisible(true);
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await brandApi.delete(id);
+      message.success('删除成功');
+      fetchData(pagination.current, pagination.pageSize);
+    } catch (error) {
+      message.error('删除失败');
+    }
+  };
+
+  const handleSubmit = async () => {
+    try {
+      const values = await form.validateFields();
+      const formData: BrandFormData = values;
+
+      if (currentBrand) {
+        await brandApi.update(currentBrand.id, formData);
+        message.success('更新成功');
+      } else {
+        await brandApi.create(formData);
+        message.success('创建成功');
+      }
+
+      setModalVisible(false);
+      fetchData(pagination.current, pagination.pageSize);
+    } catch (error) {
+      message.error('操作失败');
+    }
+  };
+
   return (
     <PageContainer>
-      <Card title="品牌管理">
-        <Empty description="品牌管理页面开发中..." />
+      <Card
+        title="品牌管理"
+        extra={
+          <Space>
+            <Button icon={<ReloadOutlined />} onClick={() => fetchData(pagination.current, pagination.pageSize)}>
+              刷新
+            </Button>
+            {buttons.some((btn: any) => btn.code === 'brand_add') && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+                新增品牌
+              </Button>
+            )}
+          </Space>
+        }
+      >
+        <Table
+          rowKey="id"
+          columns={columns}
+          dataSource={data}
+          loading={loading}
+          pagination={{
+            current: pagination.current,
+            pageSize: pagination.pageSize,
+            total: pagination.total,
+            showSizeChanger: true,
+            showQuickJumper: true,
+            showTotal: (total) => `共 ${total} 条`,
+            onChange: (page, pageSize) => {
+              fetchData(page, pageSize);
+            },
+          }}
+          scroll={{ x: 1200 }}
+        />
       </Card>
+
+      <Modal
+        title={currentBrand ? '编辑品牌' : '新增品牌'}
+        open={modalVisible}
+        onOk={handleSubmit}
+        onCancel={() => setModalVisible(false)}
+        width={600}
+        okText="确认"
+        cancelText="取消"
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item
+            label="品牌名称"
+            name="name"
+            rules={[{ required: true, message: '请输入品牌名称' }]}
+          >
+            <Input placeholder="请输入品牌名称" />
+          </Form.Item>
+
+          <Form.Item label="品牌LOGO" name="logo">
+            <div>
+              {imageUrl && (
+                <div style={{ marginBottom: 8 }}>
+                  <Image src={imageUrl} width={100} height={100} style={{ objectFit: 'contain' }} />
+                </div>
+              )}
+              <Upload
+                name="file"
+                action="/api/blade-mall/upload"
+                onChange={handleUpload}
+                showUploadList={false}
+                maxCount={1}
+              >
+                <Button icon={<UploadOutlined />}>
+                  {imageUrl ? '更换图片' : '上传图片'}
+                </Button>
+              </Upload>
+            </div>
+          </Form.Item>
+
+          <Form.Item label="描述" name="description">
+            <Input.TextArea rows={4} placeholder="请输入品牌描述" />
+          </Form.Item>
+
+          <Form.Item
+            label="排序"
+            name="sort"
+            rules={[{ required: true, message: '请输入排序' }]}
+          >
+            <InputNumber min={0} style={{ width: '100%' }} placeholder="请输入排序" />
+          </Form.Item>
+
+          <Form.Item
+            label="状态"
+            name="status"
+            rules={[{ required: true, message: '请选择状态' }]}
+          >
+            <Select>
+              <Select.Option value={1}>启用</Select.Option>
+              <Select.Option value={0}>禁用</Select.Option>
+            </Select>
+          </Form.Item>
+        </Form>
+      </Modal>
     </PageContainer>
   );
 };
