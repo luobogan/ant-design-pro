@@ -18,4 +18,9 @@ export interface ImageUploaderProps {
   required?: boolean;
   loading?: boolean;
   useLocalUpload?: boolean;
+  /**
+   * 是否将 base64 图片原样返回（用于后端处理）
+   * 为 true 时，上传后返回 base64 数据，由后端转换为文件路径
+   */
+  returnBase64?: boolean;
 }

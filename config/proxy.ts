@@ -21,6 +21,18 @@ export default {
       changeOrigin: true,
       // 重写路径，移除 /api 前缀
       pathRewrite: { '^/api': '' },
+      // 配置代理选项
+      onProxyReq: (proxyReq, req, res) => {
+        // 确保请求头中的 Content-Type 包含 UTF-8 编码
+        if (proxyReq.getHeader('content-type')?.includes('application/json')) {
+          proxyReq.setHeader('content-type', 'application/json;charset=utf-8');
+        }
+      },
+    },
+    // 代理上传的静态资源
+    '/uploads/': {
+      target: 'http://127.0.0.1:8085/',
+      changeOrigin: true,
     },
   },
   /**

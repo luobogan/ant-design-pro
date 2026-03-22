@@ -22,6 +22,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
   required = false,
   loading = false,
   useLocalUpload = false,
+  returnBase64 = true,
 }) => {
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [uploadLoading, setUploadLoading] = useState(false);
@@ -31,19 +32,21 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
   useEffect(() => {
     if (value) {
       if (Array.isArray(value)) {
-        const files: UploadFile[] = value.map((url, index) => ({
-          uid: `existing-${index}-${Date.now()}`,
-          name: `image-${index}.jpg`,
-          status: 'done',
-          url,
-        }));
+        const files: UploadFile[] = value
+          .filter((url) => url != null)
+          .map((url, index) => ({
+            uid: `existing-${index}-${Date.now()}`,
+            name: `image-${index}.jpg`,
+            status: 'done',
+            url: String(url),
+          }));
         setFileList(files);
       } else {
         const file: UploadFile = {
           uid: `existing-${Date.now()}`,
           name: 'image.jpg',
           status: 'done',
-          url: value,
+          url: String(value),
         };
         setFileList([file]);
       }
@@ -116,9 +119,22 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
         const result = await response.json();
 
         if (result.success && result.data) {
-          const fileUrl = result.data?.link || result.data?.url || result.data;
-          message.success('图片上传成功！');
-          onSuccess?.({ url: fileUrl, data: fileUrl });
+          let fileUrl: string;
+          if (typeof result.data === 'string') {
+            fileUrl = result.data;
+          } else {
+            fileUrl = result.data.link || result.data.url || '';
+            if (!fileUrl && typeof result.data === 'object') {
+              fileUrl = JSON.stringify(result.data);
+            }
+          }
+          if (fileUrl) {
+            message.success('图片上传成功！');
+            onSuccess?.({ url: fileUrl, data: fileUrl });
+          } else {
+            message.error('图片上传失败！');
+            onError?.(new Error('上传失败'));
+          }
         } else {
           message.error(result.msg || '图片上传失败！');
           onError?.(new Error('上传失败'));
@@ -136,13 +152,18 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
     const processedFileList = info.fileList.map((file) => {
       if (file.status === 'done') {
         if (!file.url && file.response && file.response.data) {
-          return {
-            ...file,
-            url:
-              file.response.data?.link ||
-              file.response.data?.url ||
-              file.response.data,
-          };
+          let fileUrl: string;
+          if (typeof file.response.data === 'string') {
+            fileUrl = file.response.data;
+          } else {
+            fileUrl = file.response.data.link || file.response.data.url || '';
+          }
+          if (fileUrl) {
+            return {
+              ...file,
+              url: fileUrl,
+            };
+          }
         }
       }
       return file;
