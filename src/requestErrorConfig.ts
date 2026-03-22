@@ -1,6 +1,5 @@
 import { history } from '@@/core/history';
 import type { RequestConfig, RequestOptions } from '@@/plugin-request/request';
-import { message, notification } from 'antd';
 import hash from 'hash.js';
 // @ts-expect-error
 import qs from 'qs';
@@ -40,10 +39,7 @@ const checkStatus = (response: any) => {
     return response;
   }
   const errortext = codeMessage[response.status] || response.statusText;
-  notification.error({
-    message: `请求错误 ${response.status}: ${response.url}`,
-    description: errortext,
-  });
+  console.error(`请求错误 ${response.status}: ${response.url}`, errortext);
   const error = new Error(errortext);
   error.name = response.status;
   (error as any).response = response;
@@ -58,24 +54,16 @@ const checkServerCode = (response: any) => {
     return response;
   }
   if (response.code === 400) {
-    notification.error({
-      message: response.msg || codeMessage[response.code],
-    });
+    console.error(response.msg || codeMessage[response.code]);
   } else if (response.code === 401) {
     if (window.location.pathname === '/user/login') return false;
-    notification.error({
-      message: response.msg || codeMessage[response.code],
-    });
+    console.error(response.msg || codeMessage[response.code]);
     removeAll();
     history.push('/user/login');
   } else if (response.code === 404) {
-    notification.error({
-      message: response.msg || codeMessage[response.code],
-    });
+    console.error(response.msg || codeMessage[response.code]);
   } else if (response.code === 500) {
-    notification.error({
-      message: response.msg || codeMessage[response.code],
-    });
+    console.error(response.msg || codeMessage[response.code]);
   }
   return response;
 };
@@ -287,7 +275,7 @@ export const errorConfig: RequestConfig = {
 
       // 处理 success 字段（兼容 Pro 默认格式）
       if (data?.success === false) {
-        message.error(data.errorMessage || '请求失败！');
+        console.error(data.errorMessage || '请求失败！');
       }
 
       // 直接返回 response

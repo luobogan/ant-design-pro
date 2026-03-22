@@ -141,7 +141,17 @@ const ProductList: React.FC = () => {
         categoryApi.getTree(),
         brandApi.getList({ page: 1, pageSize: 100 }),
       ]);
-      setCategories(categoryRes || []);
+      
+      // 将分类数据转换为TreeSelect需要的格式
+      const formatCategories = (categories: Category[]): any[] => {
+        return categories.map(category => ({
+          value: category.id,
+          title: category.name,
+          children: category.children ? formatCategories(category.children) : undefined
+        }));
+      };
+      
+      setCategories(formatCategories(categoryRes || []));
       setBrands(brandRes?.list || []);
     } catch (error) {
       console.error('获取分类和品牌失败:', error);
@@ -650,14 +660,14 @@ const ProductList: React.FC = () => {
             <Statistic
               title="商品总数"
               value={stats?.totalProducts || 0}
-              valueStyle={{ color: '#1890ff' }}
+              styles={{ content: { color: '#1890ff' } }}
             />
           </Col>
           <Col xs={12} sm={8} md={6}>
             <Statistic
               title="上架商品"
               value={stats?.activeProducts || 0}
-              valueStyle={{ color: '#52c41a' }}
+              styles={{ content: { color: '#52c41a' } }}
               prefix={<CheckOutlined />}
             />
           </Col>
@@ -665,14 +675,14 @@ const ProductList: React.FC = () => {
             <Statistic
               title="推荐商品"
               value={stats?.recommendProducts || 0}
-              valueStyle={{ color: '#1890ff' }}
+              styles={{ content: { color: '#1890ff' } }}
             />
           </Col>
           <Col xs={12} sm={8} md={6}>
             <Statistic
               title="库存预警"
               value={stats?.lowStockProducts || 0}
-              valueStyle={{ color: '#faad14' }}
+              styles={{ content: { color: '#faad14' } }}
               prefix={<WarningOutlined />}
             />
           </Col>
@@ -864,7 +874,7 @@ const ProductList: React.FC = () => {
       <Drawer
         title={`SKU 管理 - ${currentProductForSku?.name}`}
         placement="right"
-        width={1000}
+        size={1000}
         open={skuDrawerVisible}
         onClose={() => setSkuDrawerVisible(false)}
       >
