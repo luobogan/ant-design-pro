@@ -140,6 +140,14 @@ export default defineConfig({
    */
   access: {},
   /**
+   * @name <head> 中额外的 meta 标签
+   * @description 配置 <head> 中额外的 meta 标签
+   */
+  metas: [
+    { charset: 'utf-8' },
+    { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+  ],
+  /**
    * @name <head> 中额外的 script
    * @description 配置 <head> 中额外的 script
    */

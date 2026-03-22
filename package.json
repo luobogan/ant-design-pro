@@ -63,6 +63,7 @@
     "react-copy-to-clipboard": "^5.1.0",
     "react-dom": "^19.2.4",
     "react-draft-wysiwyg": "^1.15.0",
+    "react-quill-new": "^3.8.3",
     "recharts": "^3.8.0",
     "sm-crypto": "^0.3.13",
     "swagger-ui-dist": "^5.31.0"

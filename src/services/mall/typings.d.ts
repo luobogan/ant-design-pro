@@ -21,7 +21,7 @@ export interface Product {
   giftPoint?: number;
   giftGrowth?: number;
   usePointLimit?: number;
-  status: 'active' | 'inactive';
+  status: number;
   isRecommend: number;
   isNew: number;
   isHot?: number;
@@ -68,6 +68,14 @@ export interface ProductFormData {
   isRecommend: number;
   isNew: number;
   isHot?: number;
+  isPreview?: number;
+  promotionType?: number;
+  promotionId?: number;
+  serviceIds?: number[];
+  detailTitle?: string;
+  detailDesc?: string;
+  keywords?: string;
+  note?: string;
   attributeValues?: Array<{
     attributeId: number;
     value: string;

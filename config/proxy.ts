@@ -27,6 +27,30 @@ export default {
         if (proxyReq.getHeader('content-type')?.includes('application/json')) {
           proxyReq.setHeader('content-type', 'application/json;charset=utf-8');
         }
+        
+        // 调试：记录请求体
+        console.log('=== 代理请求调试 ===');
+        console.log('请求 URL:', req.url);
+        console.log('请求方法:', req.method);
+        console.log('请求头:', JSON.stringify(proxyReq.getHeaders(), null, 2));
+        
+        // 捕获请求体
+        let body = '';
+        req.on('data', (chunk) => {
+          body += chunk;
+        });
+        req.on('end', () => {
+          if (body) {
+            console.log('请求体 (前500字符):', body.substring(0, 500));
+            // 检查请求体是否包含无效字符
+            for (let i = 0; i < body.length; i++) {
+              const charCode = body.charCodeAt(i);
+              if (charCode > 0x10FFFF || (charCode >= 0xD800 && charCode <= 0xDFFF)) {
+                console.error(`代理请求中发现无效字符在位置 ${i}: 字符码 ${charCode}`);
+              }
+            }
+          }
+        });
       },
     },
     // 代理上传的静态资源

@@ -178,21 +178,22 @@ export const errorConfig: RequestConfig = {
         config.method === 'PUT' ||
         config.method === 'DELETE'
       ) {
+        let requestData = config.body || config.data;
         if (
-          config.body &&
-          typeof config.body === 'object' &&
-          !(config.body instanceof FormData)
+          requestData &&
+          typeof requestData === 'object' &&
+          !(requestData instanceof FormData)
         ) {
           // 如果是 application/x-www-form-urlencoded 格式,将对象转换为 URL 编码字符串
           if (
             config.headers['Content-Type'] ===
             'application/x-www-form-urlencoded'
           ) {
-            const encodedData = qs.stringify(config.body);
-            console.log('URL编码前的body:', config.body);
-            console.log('URL编码后的data:', encodedData);
+            const encodedData = qs.stringify(requestData);
+            console.log('URL编码前的数据:', requestData);
+            console.log('URL编码后的数据:', encodedData);
             config.data = encodedData;
-            delete config.body;
+            if (config.body) delete config.body;
           } else {
             // 默认使用 JSON 格式
             config.headers = {
@@ -200,11 +201,112 @@ export const errorConfig: RequestConfig = {
               'Content-Type': 'application/json;charset=utf-8',
               ...config.headers,
             };
-            // 确保 body 被正确设置为 data
-            if (!config.data) {
-              config.data = config.body;
-              delete config.body;
+            
+            // 转换 HTML 实体为实际的 Unicode 字符
+            const decodeHtmlEntities = (str: string): string => {
+              const htmlEntities: { [key: string]: string } = {
+                '&nbsp;': '\u00A0',
+                '&amp;': '\u0026',
+                '&lt;': '\u003C',
+                '&gt;': '\u003E',
+                '&quot;': '\u0022',
+                '&apos;': '\u0027',
+                '&copy;': '\u00A9',
+                '&reg;': '\u00AE',
+                '&trade;': '\u2122',
+                '&euro;': '\u20AC',
+                '&pound;': '\u00A3',
+                '&yen;': '\u00A5',
+                '&cent;': '\u00A2',
+                '&sect;': '\u00A7',
+                '&laquo;': '\u00AB',
+                '&raquo;': '\u00BB',
+                '&mdash;': '\u2014',
+                '&ndash;': '\u2013',
+                '&hellip;': '\u2026',
+                '&ldquo;': '\u201C',
+                '&rdquo;': '\u201D',
+                '&lsquo;': '\u2018',
+                '&rsquo;': '\u2019',
+              };
+
+              let result = str;
+              for (const [entity, char] of Object.entries(htmlEntities)) {
+                result = result.replace(new RegExp(entity, 'g'), char);
+              }
+              return result;
+            };
+
+            // 验证并修复 UTF-8 字符串
+            const validateAndFixUtf8 = (str: string): string => {
+              let result = '';
+              for (let i = 0; i < str.length; i++) {
+                const charCode = str.charCodeAt(i);
+                // 检查是否为有效的 Unicode 字符
+                if (charCode <= 0x10FFFF && !(charCode >= 0xD800 && charCode <= 0xDFFF)) {
+                  result += str[i];
+                } else {
+                  // 替换无效字符
+                  console.warn(`发现无效字符在位置 ${i}: 字符码 ${charCode}, 已被替换`);
+                  result += '\uFFFD'; // 替换字符
+                }
+              }
+              return result;
+            };
+
+            // 清理数据，移除无效字符
+            const cleanData = (obj: any): any => {
+              if (obj === null || obj === undefined) {
+                return obj;
+              }
+              
+              if (typeof obj === 'string') {
+                // 只清理真正的无效字符，不进行 HTML 实体转换
+                let cleaned = obj;
+                // 清理字符串中的控制字符（保留换行符和制表符）
+                cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+                return cleaned;
+              }
+              
+              if (Array.isArray(obj)) {
+                return obj.map(cleanData);
+              }
+              
+              if (typeof obj === 'object') {
+                const cleaned: any = {};
+                for (const key in obj) {
+                  if (obj.hasOwnProperty(key)) {
+                    cleaned[key] = cleanData(obj[key]);
+                  }
+                }
+                return cleaned;
+              }
+              
+              return obj;
+            };
+            
+            // 清理数据
+            // const cleanedData = cleanData(requestData);
+            const cleanedData = requestData;
+            
+            // 验证数据是否可以正确序列化为 JSON
+            let jsonString: string;
+            try {
+              jsonString = JSON.stringify(cleanedData);
+              console.log('JSON 序列化成功，数据长度:', jsonString.length);
+              console.log('JSON 数据预览 (前500字符):', jsonString.substring(0, 500));
+              
+              // 重新解析以确保数据有效
+              JSON.parse(jsonString);
+            } catch (error) {
+              console.error('JSON 序列化失败:', error);
+              console.error('数据内容:', cleanedData);
+              throw new Error('数据格式错误，无法序列化为 JSON');
             }
+            
+            // 确保数据被正确设置为 data
+            config.data = cleanedData;
+            if (config.body) delete config.body;
           }
         }
       }

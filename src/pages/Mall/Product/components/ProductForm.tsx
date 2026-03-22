@@ -43,6 +43,7 @@ import type {
   ProductFormData,
   Promotion,
 } from '@/services/mall/typings';
+import RichTextEditor from '@/components/RichTextEditor';
 
 const { Step } = Steps;
 const { TextArea } = Input;
@@ -299,7 +300,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
         giftGrowth: product.giftGrowth,
         usePointLimit: product.usePointLimit,
         isPreview: product.isPreview,
-        isOnSale: product.status === 'active',
+        isOnSale: product.status === 1,
         isNew: product.isNew,
         isRecommend: product.isRecommend,
         isHot: product.isHot,
@@ -1011,15 +1012,52 @@ const ProductForm: React.FC<ProductFormProps> = ({
         specAttributes: specAttributesArray,
         detailDescription: productDetail,
         // 映射字段名称以匹配 ProductFormData 类型
-        status: combinedValues.isOnSale ? 'active' : 'inactive',
+        status: combinedValues.isOnSale ? 1 : 0,
         isRecommend: combinedValues.isRecommend ? 1 : 0,
         isNew: combinedValues.isNew ? 1 : 0,
+        isHot: combinedValues.isHot ? 1 : 0,
+        isPreview: combinedValues.isPreview ? 1 : 0,
       };
+
+      // 特别清理 description 字段
+      if (productData.description && typeof productData.description === 'string') {
+        console.log('=== 前端清理 description 字段 ===');
+        console.log('原始 description:', productData.description);
+        // 清理无效字符
+        productData.description = productData.description
+          .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+          .replace(/[\uD800-\uDFFF]/g, ''); // 移除无效的UTF-16代理对
+        console.log('清理后 description:', productData.description);
+      }
 
       console.log('=== 完整的 productData 准备发送到后端 ===');
       console.log('productData:', productData);
       console.log('productData.attributeValues:', productData.attributeValues);
       console.log('productData.paramValues:', productData.paramValues);
+      console.log('productData.detailDescription:', productData.detailDescription);
+      console.log('productData.description:', productData.description);
+
+      // 检查是否有特殊字符
+      const checkForInvalidCharacters = (obj: any, path: string = '') => {
+        for (const key in obj) {
+          const currentPath = path ? `${path}.${key}` : key;
+          const value = obj[key];
+          
+          if (typeof value === 'string') {
+            // 检查字符串中是否包含无效的 UTF-8 字节
+            for (let i = 0; i < value.length; i++) {
+              const charCode = value.charCodeAt(i);
+              if (charCode > 0x10FFFF || (charCode >= 0xD800 && charCode <= 0xDFFF)) {
+                console.warn(`发现无效字符在 ${currentPath}[${i}]: 字符码 ${charCode}`);
+              }
+            }
+          } else if (typeof value === 'object' && value !== null) {
+            checkForInvalidCharacters(value, currentPath);
+          }
+        }
+      };
+
+      checkForInvalidCharacters(productData);
 
       await onSubmit(productData);
     } catch (error: any) {
@@ -2233,12 +2271,11 @@ const ProductForm: React.FC<ProductFormProps> = ({
       </Card>
 
       <Card title="商品详情" size="small" style={{ marginTop: 24 }}>
-        <TextArea
+        <RichTextEditor
           placeholder="请输入商品详情"
           value={productDetail}
-          onChange={(e) => setProductDetail(e.target.value)}
-          rows={20}
-          style={{ width: '100%' }}
+          onChange={setProductDetail}
+          height={400}
         />
       </Card>
     </div>
