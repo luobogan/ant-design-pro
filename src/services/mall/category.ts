@@ -11,11 +11,19 @@ import type {
 const CATEGORY_BASE_URL = `${API_MALL_BASE_PATH}/categories`;
 const CATEGORY_ATTRIBUTE_BASE_URL = `${API_MALL_BASE_PATH}/category-attributes`;
 
+// SpringBlade 响应格式
+interface BladeResponse<T> {
+  code: number;
+  data: T;
+  msg: string;
+}
+
 export const categoryApi = {
   getTree: async (): Promise<Category[]> => {
-    return request(`${CATEGORY_BASE_URL}/tree`, {
+    const response = await request<BladeResponse<Category[]>>(`${CATEGORY_BASE_URL}/tree`, {
       method: 'GET',
     });
+    return response.data;
   },
 
   getList: async (params?: { page?: number; pageSize?: number }) => {
@@ -26,23 +34,26 @@ export const categoryApi = {
   },
 
   getById: async (id: number): Promise<Category> => {
-    return request(`${CATEGORY_BASE_URL}/${id}`, {
+    const response = await request<BladeResponse<Category>>(`${CATEGORY_BASE_URL}/${id}`, {
       method: 'GET',
     });
+    return response.data;
   },
 
   create: async (data: CategoryFormData): Promise<Category> => {
-    return request(CATEGORY_BASE_URL, {
+    const response = await request<BladeResponse<Category>>(CATEGORY_BASE_URL, {
       method: 'POST',
       data,
     });
+    return response.data;
   },
 
   update: async (id: number, data: CategoryFormData): Promise<Category> => {
-    return request(`${CATEGORY_BASE_URL}/${id}`, {
+    const response = await request<BladeResponse<Category>>(`${CATEGORY_BASE_URL}/${id}`, {
       method: 'PUT',
       data,
     });
+    return response.data;
   },
 
   delete: async (id: number): Promise<void> => {
@@ -61,20 +72,22 @@ export const categoryApi = {
 
 export const categoryAttributeApi = {
   create: async (data: CategoryAttributeFormData): Promise<CategoryAttribute> => {
-    return request(CATEGORY_ATTRIBUTE_BASE_URL, {
+    const response = await request<BladeResponse<CategoryAttribute>>(CATEGORY_ATTRIBUTE_BASE_URL, {
       method: 'POST',
       data,
     });
+    return response.data;
   },
 
   update: async (
     id: number,
     data: Partial<CategoryAttributeFormData>,
   ): Promise<CategoryAttribute> => {
-    return request(`${CATEGORY_ATTRIBUTE_BASE_URL}/${id}`, {
+    const response = await request<BladeResponse<CategoryAttribute>>(`${CATEGORY_ATTRIBUTE_BASE_URL}/${id}`, {
       method: 'PUT',
       data,
     });
+    return response.data;
   },
 
   delete: async (id: number): Promise<void> => {
@@ -84,9 +97,10 @@ export const categoryAttributeApi = {
   },
 
   getByCategoryId: async (categoryId: number): Promise<CategoryAttribute[]> => {
-    return request(`${CATEGORY_ATTRIBUTE_BASE_URL}/category/${categoryId}`, {
+    const response = await request<BladeResponse<CategoryAttribute[]>>(`${CATEGORY_ATTRIBUTE_BASE_URL}/category/${categoryId}`, {
       method: 'GET',
     });
+    return response.data;
   },
 
   getPage: async (params?: {
@@ -100,13 +114,6 @@ export const categoryAttributeApi = {
     });
   },
 
-  addValue: async (data: CategoryAttributeValueFormData): Promise<void> => {
-    return request(`${CATEGORY_ATTRIBUTE_BASE_URL}/values`, {
-      method: 'POST',
-      data,
-    });
-  },
-
   batchAddValues: async (
     attributeId: number,
     values: CategoryAttributeValueFormData[],
@@ -116,22 +123,4 @@ export const categoryAttributeApi = {
       data: values,
     });
   },
-
-  deleteValue: async (id: number): Promise<void> => {
-    return request(`${CATEGORY_ATTRIBUTE_BASE_URL}/values/${id}`, {
-      method: 'DELETE',
-    });
-  },
-
-  copy: async (data: {
-    sourceCategoryId: number;
-    targetCategoryIds: number[];
-  }): Promise<void> => {
-    return request(`${CATEGORY_ATTRIBUTE_BASE_URL}/copy`, {
-      method: 'POST',
-      data,
-    });
-  },
 };
-
-export default categoryApi;

@@ -17,4 +17,5 @@ export interface ImageUploaderProps {
   height?: string | number;
   required?: boolean;
   loading?: boolean;
+  useLocalUpload?: boolean;
 }

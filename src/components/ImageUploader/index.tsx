@@ -21,6 +21,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
   height = 120,
   required = false,
   loading = false,
+  useLocalUpload = false,
 }) => {
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [uploadLoading, setUploadLoading] = useState(false);
@@ -85,29 +86,43 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
     setUploadLoading(true);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file as any);
-
-      const token = localStorage.getItem('sword-token') || '';
-
-      const response = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: {
-          Authorization: `Basic c2FiZXI6c2FiZXJfc2VjcmV0`,
-          'Blade-Auth': `bearer ${token}`,
-        },
-        body: formData,
-      });
-
-      const result = await response.json();
-
-      if (result.success && result.data) {
-        const fileUrl = result.data.link || result.data.url || result.data;
-        message.success('图片上传成功！');
-        onSuccess?.({ url: fileUrl, data: fileUrl });
+      if (useLocalUpload) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const fileUrl = reader.result as string;
+          message.success('图片上传成功！');
+          onSuccess?.({ url: fileUrl, data: fileUrl });
+        };
+        reader.onerror = () => {
+          message.error('图片读取失败！');
+          onError?.(new Error('文件读取失败'));
+        };
+        reader.readAsDataURL(file as any);
       } else {
-        message.error(result.msg || '图片上传失败！');
-        onError?.(new Error('上传失败'));
+        const formData = new FormData();
+        formData.append('file', file as any);
+
+        const token = localStorage.getItem('sword-token') || '';
+
+        const response = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Basic c2FiZXI6c2FiZXJfc2VjcmV0`,
+            'Blade-Auth': `bearer ${token}`,
+          },
+          body: formData,
+        });
+
+        const result = await response.json();
+
+        if (result.success && result.data) {
+          const fileUrl = result.data?.link || result.data?.url || result.data;
+          message.success('图片上传成功！');
+          onSuccess?.({ url: fileUrl, data: fileUrl });
+        } else {
+          message.error(result.msg || '图片上传失败！');
+          onError?.(new Error('上传失败'));
+        }
       }
     } catch (error) {
       message.error('图片上传失败！');
@@ -124,8 +139,8 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
           return {
             ...file,
             url:
-              file.response.data.link ||
-              file.response.data.url ||
+              file.response.data?.link ||
+              file.response.data?.url ||
               file.response.data,
           };
         }

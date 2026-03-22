@@ -6,6 +6,13 @@ const PRODUCT_BASE_URL = `${API_MALL_BASE_PATH}/products`;
 const SKU_BASE_URL = `${API_MALL_BASE_PATH}/skus`;
 const PRODUCT_RELATION_BASE_URL = `${API_MALL_BASE_PATH}/product-relations`;
 
+// SpringBlade 响应格式
+interface BladeResponse<T> {
+  code: number;
+  data: T;
+  msg: string;
+}
+
 /**
  * 商品 API
  */
@@ -14,49 +21,54 @@ export const productApi = {
    * 获取商品列表
    */
   getList: async (params: any) => {
-    return request(PRODUCT_BASE_URL, {
+    const response = await request<BladeResponse<any>>(PRODUCT_BASE_URL, {
       method: 'GET',
       params,
     });
+    return response.data;
   },
 
   /**
    * 获取商品详情
    */
   getById: async (id: number) => {
-    return request(`${PRODUCT_BASE_URL}/${id}`, {
+    const response = await request<BladeResponse<Product>>(`${PRODUCT_BASE_URL}/${id}`, {
       method: 'GET',
     });
+    return response.data;
   },
 
   /**
    * 创建商品
    */
   create: async (data: ProductFormData) => {
-    return request(PRODUCT_BASE_URL, {
+    const response = await request<BladeResponse<Product>>(PRODUCT_BASE_URL, {
       method: 'POST',
       data,
     });
+    return response.data;
   },
 
   /**
    * 更新商品
    */
   update: async (id: number, data: ProductFormData) => {
-    return request(`${PRODUCT_BASE_URL}/${id}`, {
+    const response = await request<BladeResponse<Product>>(`${PRODUCT_BASE_URL}/${id}`, {
       method: 'PUT',
       data,
     });
+    return response.data;
   },
 
   /**
    * 更新商品（带确认）
    */
   updateWithConfirm: async (id: number, data: ProductFormData, confirm: boolean) => {
-    return request(`${PRODUCT_BASE_URL}/${id}`, {
+    const response = await request<BladeResponse<Product>>(`${PRODUCT_BASE_URL}/${id}`, {
       method: 'PUT',
       data: { ...data, confirm },
     });
+    return response.data;
   },
 
   /**
@@ -92,104 +104,115 @@ export const productApi = {
    * 商品上架
    */
   publish: async (id: number) => {
-    return request(`${PRODUCT_BASE_URL}/${id}/publish`, {
+    const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/publish`, {
       method: 'POST',
     });
+    return response.data;
   },
 
   /**
    * 商品下架
    */
   unpublish: async (id: number) => {
-    return request(`${PRODUCT_BASE_URL}/${id}/unpublish`, {
+    const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/unpublish`, {
       method: 'POST',
     });
+    return response.data;
   },
 
   /**
    * 设为推荐
    */
   setRecommend: async (id: number, recommend: boolean) => {
-    return request(`${PRODUCT_BASE_URL}/${id}/recommend`, {
+    const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/recommend`, {
       method: 'POST',
       data: { recommend },
     });
+    return response.data;
   },
 
   /**
    * 设为新品
    */
   setNew: async (id: number, isNew: boolean) => {
-    return request(`${PRODUCT_BASE_URL}/${id}/new`, {
+    const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/new`, {
       method: 'POST',
       data: { isNew },
     });
+    return response.data;
   },
 
   /**
    * 设为热销
    */
   setHot: async (id: number, isHot: boolean) => {
-    return request(`${PRODUCT_BASE_URL}/${id}/hot`, {
+    const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/hot`, {
       method: 'POST',
       data: { isHot },
     });
+    return response.data;
   },
 
   /**
    * 获取商品统计
    */
   getStats: async () => {
-    return request(`${PRODUCT_BASE_URL}/stats`, {
+    const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/stats`, {
       method: 'GET',
     });
+    return response.data;
   },
 
   /**
    * 获取回收站列表
    */
   getRecycleList: async () => {
-    return request(`${PRODUCT_BASE_URL}/recycle`, {
+    const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/recycle`, {
       method: 'GET',
     });
+    return response.data;
   },
 
   /**
    * 恢复商品
    */
   restore: async (id: number) => {
-    return request(`${PRODUCT_BASE_URL}/${id}/restore`, {
+    const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/restore`, {
       method: 'POST',
     });
+    return response.data;
   },
 
   /**
    * 获取 SKU 列表
    */
   getSkus: async (productId: number) => {
-    return request(`${PRODUCT_BASE_URL}/${productId}/skus`, {
+    const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${productId}/skus`, {
       method: 'GET',
     });
+    return response.data;
   },
 
   /**
    * 创建 SKU
    */
   createSku: async (productId: number, data: ProductSkuFormData) => {
-    return request(`${PRODUCT_BASE_URL}/${productId}/skus`, {
+    const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${productId}/skus`, {
       method: 'POST',
       data,
     });
+    return response.data;
   },
 
   /**
    * 更新 SKU
    */
   updateSku: async (id: number, data: ProductSkuFormData) => {
-    return request(`${SKU_BASE_URL}/${id}`, {
+    const response = await request<BladeResponse<any>>(`${SKU_BASE_URL}/${id}`, {
       method: 'PUT',
       data,
     });
+    return response.data;
   },
 
   /**
@@ -205,66 +228,73 @@ export const productApi = {
    * 生成 SKU 矩阵
    */
   generateSkuMatrix: async (data: SkuMatrixGenerateData) => {
-    return request(`${PRODUCT_BASE_URL}/skus/matrix`, {
+    const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/skus/matrix`, {
       method: 'POST',
       data,
     });
+    return response.data;
   },
 
   /**
    * 获取规格属性
    */
   getSpecAttributes: async (productId: number) => {
-    return request(`${PRODUCT_BASE_URL}/${productId}/spec-attributes`, {
+    const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${productId}/spec-attributes`, {
       method: 'GET',
     });
+    return response.data;
   },
 
   /**
    * 获取 SKU 库存日志
    */
   getSkuStockLogs: async (skuId: number) => {
-    return request(`${SKU_BASE_URL}/${skuId}/stock-logs`, {
+    const response = await request<BladeResponse<any>>(`${SKU_BASE_URL}/${skuId}/stock-logs`, {
       method: 'GET',
     });
+    return response.data;
   },
 
   /**
    * 调整 SKU 库存
    */
   adjustSkuStock: async (skuId: number, quantity: number, type: number, remark?: string) => {
-    return request(`${SKU_BASE_URL}/${skuId}/stock`, {
+    const response = await request<BladeResponse<any>>(`${SKU_BASE_URL}/${skuId}/stock`, {
       method: 'POST',
       data: { quantity, type, remark },
     });
+    return response.data;
   },
 
   /**
    * 获取商品统计（带分类和品牌）
    */
   getStatsDetailed: async () => {
-    return request(`${PRODUCT_BASE_URL}/stats/detailed`, {
+    const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/stats/detailed`, {
       method: 'GET',
     });
+    return response.data;
   },
 
   /**
    * 添加商品关联
    */
   addRelation: async (data: ProductRelationFormData) => {
-    return request(PRODUCT_RELATION_BASE_URL, {
+    const response = await request<BladeResponse<any>>(PRODUCT_RELATION_BASE_URL, {
       method: 'POST',
       data,
     });
+    return response.data;
   },
 
   /**
    * 获取商品关联列表
    */
   getRelations: async (productId: number) => {
-    return request(`${PRODUCT_BASE_URL}/${productId}/relations`, {
+    const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${productId}/relations`, {
       method: 'GET',
     });
+    return response.data;
   },
 
   /**
@@ -346,24 +376,8 @@ export async function getProductSkus(productId: number) {
   return productApi.getSkus(productId);
 }
 
-export async function createSku(productId: number, data: ProductSkuFormData) {
-  return productApi.createSku(productId, data);
-}
-
-export async function updateSku(id: number, data: ProductSkuFormData) {
-  return productApi.updateSku(id, data);
-}
-
 export async function deleteSku(id: number) {
   return productApi.deleteSku(id);
-}
-
-export async function generateSkuMatrix(data: SkuMatrixGenerateData) {
-  return productApi.generateSkuMatrix(data);
-}
-
-export async function getSpecAttributes(productId: number) {
-  return productApi.getSpecAttributes(productId);
 }
 
 export async function getSkuStockLogs(skuId: number) {
@@ -372,20 +386,4 @@ export async function getSkuStockLogs(skuId: number) {
 
 export async function adjustSkuStock(skuId: number, quantity: number, type: number, remark?: string) {
   return productApi.adjustSkuStock(skuId, quantity, type, remark);
-}
-
-export async function getProductStatsDetailed() {
-  return productApi.getStatsDetailed();
-}
-
-export async function addProductRelation(data: ProductRelationFormData) {
-  return productApi.addRelation(data);
-}
-
-export async function getProductRelations(productId: number) {
-  return productApi.getRelations(productId);
-}
-
-export async function deleteProductRelation(id: number) {
-  return productApi.deleteRelation(id);
 }

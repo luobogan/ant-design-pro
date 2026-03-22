@@ -99,6 +99,9 @@ const ProductForm: React.FC<ProductFormProps> = ({
   const [mainImageFiles, setMainImageFiles] = useState<any[]>([]);
   const [albumFiles, setAlbumFiles] = useState<any[]>([]);
 
+  // 本地上传配置
+  const [useLocalUpload] = useState(true);
+
   // 分类属性相关状态
   const [categoryAttributes, setCategoryAttributes] = useState<
     CategoryAttribute[]
@@ -1228,7 +1231,25 @@ const ProductForm: React.FC<ProductFormProps> = ({
       message.error('图片大小不能超过 10MB!');
       return false;
     }
+    if (useLocalUpload) {
+      return false;
+    }
     return true;
+  };
+
+  // 本地上传处理函数
+  const handleLocalUpload = (file: any, onSuccess: any, onError: any) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const fileUrl = reader.result as string;
+      onSuccess({ url: fileUrl, data: fileUrl });
+      message.success('图片上传成功');
+    };
+    reader.onerror = () => {
+      onError(new Error('文件读取失败'));
+      message.error('图片上传失败');
+    };
+    reader.readAsDataURL(file);
   };
 
   const renderStep1 = () => (
@@ -1373,10 +1394,15 @@ const ProductForm: React.FC<ProductFormProps> = ({
           listType="picture-card"
           maxCount={1}
           beforeUpload={beforeUpload}
-          action="/api/admin/upload/file"
-          headers={{
-            Authorization: `Bearer ${localStorage.getItem('admin_token') || ''}`,
-          }}
+          customRequest={useLocalUpload ? (options) => handleLocalUpload(options.file, options.onSuccess, options.onError) : undefined}
+          action={useLocalUpload ? undefined : "/api/admin/upload/file"}
+          headers={
+            useLocalUpload
+              ? undefined
+              : {
+                  Authorization: `Bearer ${localStorage.getItem('admin_token') || ''}`,
+                }
+          }
           fileList={mainImageFiles}
           onPreview={handlePreview}
           onChange={(info) => {
@@ -1386,16 +1412,23 @@ const ProductForm: React.FC<ProductFormProps> = ({
             } else if (info.file.status === 'done') {
               console.log('上传成功, 完整文件对象:', info.file);
               console.log('上传成功, response:', info.file.response);
-              if (info.file.response && info.file.response.success) {
-                const fileUrl = info.file.response.data;
-                // 使用相对路径，让请求通过代理转发到后端
-                const relativeUrl = fileUrl.startsWith('http')
-                  ? fileUrl
-                  : fileUrl;
-                info.file.url = relativeUrl;
-                info.file.thumbUrl = relativeUrl;
-                console.log('设置文件URL:', relativeUrl);
-                message.success('上传成功');
+              if (useLocalUpload) {
+                if (info.file.response && info.file.response.url) {
+                  info.file.url = info.file.response.url;
+                  info.file.thumbUrl = info.file.response.url;
+                  console.log('设置文件URL:', info.file.response.url);
+                }
+              } else {
+                if (info.file.response && info.file.response.success) {
+                  const fileUrl = info.file.response.data;
+                  const relativeUrl = fileUrl.startsWith('http')
+                    ? fileUrl
+                    : fileUrl;
+                  info.file.url = relativeUrl;
+                  info.file.thumbUrl = relativeUrl;
+                  console.log('设置文件URL:', relativeUrl);
+                  message.success('上传成功');
+                }
               }
             } else if (info.file.status === 'error') {
               console.log('上传失败:', info.file.error);
@@ -1416,10 +1449,15 @@ const ProductForm: React.FC<ProductFormProps> = ({
           listType="picture-card"
           multiple
           beforeUpload={beforeUpload}
-          action="/api/admin/upload/file"
-          headers={{
-            Authorization: `Bearer ${localStorage.getItem('admin_token') || ''}`,
-          }}
+          customRequest={useLocalUpload ? (options) => handleLocalUpload(options.file, options.onSuccess, options.onError) : undefined}
+          action={useLocalUpload ? undefined : "/api/admin/upload/file"}
+          headers={
+            useLocalUpload
+              ? undefined
+              : {
+                  Authorization: `Bearer ${localStorage.getItem('admin_token') || ''}`,
+                }
+          }
           fileList={albumFiles}
           onPreview={handlePreview}
           onChange={(info) => {
@@ -1429,16 +1467,23 @@ const ProductForm: React.FC<ProductFormProps> = ({
             } else if (info.file.status === 'done') {
               console.log('上传成功, 完整文件对象:', info.file);
               console.log('上传成功, response:', info.file.response);
-              if (info.file.response && info.file.response.success) {
-                const fileUrl = info.file.response.data;
-                // 使用相对路径，让请求通过代理转发到后端
-                const relativeUrl = fileUrl.startsWith('http')
-                  ? fileUrl
-                  : fileUrl;
-                info.file.url = relativeUrl;
-                info.file.thumbUrl = relativeUrl;
-                console.log('设置文件URL:', relativeUrl);
-                message.success('上传成功');
+              if (useLocalUpload) {
+                if (info.file.response && info.file.response.url) {
+                  info.file.url = info.file.response.url;
+                  info.file.thumbUrl = info.file.response.url;
+                  console.log('设置文件URL:', info.file.response.url);
+                }
+              } else {
+                if (info.file.response && info.file.response.success) {
+                  const fileUrl = info.file.response.data;
+                  const relativeUrl = fileUrl.startsWith('http')
+                    ? fileUrl
+                    : fileUrl;
+                  info.file.url = relativeUrl;
+                  info.file.thumbUrl = relativeUrl;
+                  console.log('设置文件URL:', relativeUrl);
+                  message.success('上传成功');
+                }
               }
             } else if (info.file.status === 'error') {
               console.log('上传失败:', info.file.error);
@@ -1852,27 +1897,41 @@ const ProductForm: React.FC<ProductFormProps> = ({
                             listType="picture-card"
                             maxCount={1}
                             beforeUpload={beforeUpload}
-                            action="/api/admin/upload/file"
-                            headers={{
-                              Authorization: `Bearer ${localStorage.getItem('admin_token') || ''}`,
-                            }}
+                            customRequest={useLocalUpload ? (options) => handleLocalUpload(options.file, options.onSuccess, options.onError) : undefined}
+                            action={useLocalUpload ? undefined : "/api/admin/upload/file"}
+                            headers={
+                              useLocalUpload
+                                ? undefined
+                                : {
+                                    Authorization: `Bearer ${localStorage.getItem('admin_token') || ''}`,
+                                  }
+                            }
                             fileList={attributeImages[value]?.mainImage || []}
                             onPreview={handlePreview}
                             onChange={(info) => {
-                              if (
-                                info.file.status === 'done' &&
-                                info.file.response &&
-                                info.file.response.success
-                              ) {
-                                const fileUrl = info.file.response.data;
-                                const relativeUrl = fileUrl.startsWith('http')
-                                  ? fileUrl
-                                  : fileUrl;
-                                info.file.url = relativeUrl;
-                                info.file.thumbUrl = relativeUrl;
-                                message.success('上传成功');
-                              } else if (info.file.status === 'error') {
-                                message.error('上传失败');
+                              if (info.file.status === 'done') {
+                                if (useLocalUpload) {
+                                  if (info.file.response && info.file.response.url) {
+                                    info.file.url = info.file.response.url;
+                                    info.file.thumbUrl = info.file.response.url;
+                                    message.success('上传成功');
+                                  }
+                                } else {
+                                  if (
+                                    info.file.response &&
+                                    info.file.response.success
+                                  ) {
+                                    const fileUrl = info.file.response.data;
+                                    const relativeUrl = fileUrl.startsWith('http')
+                                      ? fileUrl
+                                      : fileUrl;
+                                    info.file.url = relativeUrl;
+                                    info.file.thumbUrl = relativeUrl;
+                                    message.success('上传成功');
+                                  } else if (info.file.status === 'error') {
+                                    message.error('上传失败');
+                                  }
+                                }
                               }
                               setAttributeImages({
                                 ...attributeImages,
@@ -1897,10 +1956,15 @@ const ProductForm: React.FC<ProductFormProps> = ({
                             listType="picture-card"
                             multiple
                             beforeUpload={beforeUpload}
-                            action="/api/admin/upload/file"
-                            headers={{
-                              Authorization: `Bearer ${localStorage.getItem('admin_token') || ''}`,
-                            }}
+                            customRequest={useLocalUpload ? (options) => handleLocalUpload(options.file, options.onSuccess, options.onError) : undefined}
+                            action={useLocalUpload ? undefined : "/api/admin/upload/file"}
+                            headers={
+                              useLocalUpload
+                                ? undefined
+                                : {
+                                    Authorization: `Bearer ${localStorage.getItem('admin_token') || ''}`,
+                                  }
+                            }
                             fileList={attributeImages[value]?.albumImages || []}
                             onPreview={handlePreview}
                             onChange={(info) => {
@@ -1911,32 +1975,41 @@ const ProductForm: React.FC<ProductFormProps> = ({
                                   '上传完成，response:',
                                   info.file.response,
                                 );
-                                if (
-                                  info.file.response &&
-                                  info.file.response.success
-                                ) {
-                                  const fileUrl = info.file.response.data;
-                                  console.log('上传成功，fileUrl:', fileUrl);
-                                  const relativeUrl = fileUrl.startsWith('http')
-                                    ? fileUrl
-                                    : fileUrl;
-                                  console.log(
-                                    '上传成功，relativeUrl:',
-                                    relativeUrl,
-                                  );
-                                  info.file.url = relativeUrl;
-                                  info.file.thumbUrl = relativeUrl;
-                                  console.log(
-                                    '上传成功，更新后的文件对象:',
-                                    info.file,
-                                  );
-                                  message.success('上传成功');
+                                if (useLocalUpload) {
+                                  if (info.file.response && info.file.response.url) {
+                                    info.file.url = info.file.response.url;
+                                    info.file.thumbUrl = info.file.response.url;
+                                    console.log('上传成功，更新后的文件对象:', info.file);
+                                    message.success('上传成功');
+                                  }
                                 } else {
-                                  console.log(
-                                    '上传失败，response:',
-                                    info.file.response,
-                                  );
-                                  message.error('上传失败');
+                                  if (
+                                    info.file.response &&
+                                    info.file.response.success
+                                  ) {
+                                    const fileUrl = info.file.response.data;
+                                    console.log('上传成功，fileUrl:', fileUrl);
+                                    const relativeUrl = fileUrl.startsWith('http')
+                                      ? fileUrl
+                                      : fileUrl;
+                                    console.log(
+                                      '上传成功，relativeUrl:',
+                                      relativeUrl,
+                                    );
+                                    info.file.url = relativeUrl;
+                                    info.file.thumbUrl = relativeUrl;
+                                    console.log(
+                                      '上传成功，更新后的文件对象:',
+                                      info.file,
+                                    );
+                                    message.success('上传成功');
+                                  } else {
+                                    console.log(
+                                      '上传失败，response:',
+                                      info.file.response,
+                                    );
+                                    message.error('上传失败');
+                                  }
                                 }
                               } else if (info.file.status === 'error') {
                                 console.log('上传失败:', info.file.error);

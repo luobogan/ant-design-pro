@@ -340,7 +340,7 @@ const CategoryList: React.FC = () => {
     setEditingAttrId(attr.id);
     setCurrentAttributeType(attr.type);
 
-    const formValues = {
+    const formValues: any = {
       name: attr.name,
       type: attr.type,
       isRequired: attr.isRequired === 1,
@@ -625,6 +625,7 @@ const CategoryList: React.FC = () => {
             showPreview={true}
             showProgress={true}
             height={120}
+            useLocalUpload={true}
           />
 
           <Form.Item label="分类描述" name="description">
@@ -675,11 +676,15 @@ const CategoryList: React.FC = () => {
                 </Form.Item>
 
                 {(currentAttributeType === 1 || currentAttributeType === 2) && (
-                  <Form.Item label="属性选项值" name="values" required={false}>
+                  <Form.Item
+                    label="属性选项值"
+                    name="values"
+                    required={false}
+                    help="仅单选和多选类型需要填写选项值"
+                  >
                     <TextArea
                       rows={3}
                       placeholder="多个选项值用顿号分隔，如：红色、蓝色、绿色"
-                      help="仅单选和多选类型需要填写选项值"
                     />
                   </Form.Item>
                 )}
@@ -798,21 +803,20 @@ const CategoryList: React.FC = () => {
         width={700}
         confirmLoading={brandLoading}
       >
-        <Transfer
-          dataSource={allBrands.map((b) => ({
-            key: b.id,
+        {(Transfer as any)({
+          dataSource: allBrands.map((b) => ({
+            key: String(b.id),
             title: b.name,
             description: b.description || '',
-          }))}
-          titles={['可选品牌', '已选品牌']}
-          targetKeys={selectedBrandIds}
-          onChange={(targetKeys) =>
-            setSelectedBrandIds(targetKeys as number[])
-          }
-          render={(item) => item.title}
-          listStyle={{ width: 300, height: 400 }}
-          loading={brandLoading}
-        />
+          })),
+          titles: ['可选品牌', '已选品牌'],
+          targetKeys: selectedBrandIds.map(String),
+          onChange: (targetKeys: string[]) =>
+            setSelectedBrandIds(targetKeys.map(Number)),
+          render: (item: any) => item.title,
+          listStyle: { width: 300, height: 400 },
+          loading: brandLoading,
+        })}
       </Modal>
 
       <Modal
