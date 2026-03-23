@@ -99,8 +99,23 @@ const ProductForm: React.FC<ProductFormProps> = ({
   // 商品图片状态
   const [mainImageFiles, setMainImageFiles] = useState<any[]>([]);
   const [albumFiles, setAlbumFiles] = useState<any[]>([]);
+  
+  // 使用 ref 保存文件列表，用于 handleLocalUpload 中访问
+  const mainImageFilesRef = useRef<any[]>([]);
+  const albumFilesRef = useRef<any[]>([]);
+  
+  // 同步 ref 和 state
+  useEffect(() => {
+    mainImageFilesRef.current = mainImageFiles;
+    console.log('=== mainImageFiles 变化 ===');
+    console.log('mainImageFiles:', mainImageFiles);
+  }, [mainImageFiles]);
+  
+  useEffect(() => {
+    albumFilesRef.current = albumFiles;
+  }, [albumFiles]);
 
-  // 本地上传配置
+  // 图片上传配置
   const [useLocalUpload] = useState(true);
 
   // 分类属性相关状态
@@ -782,23 +797,31 @@ const ProductForm: React.FC<ProductFormProps> = ({
   // 辅助函数：从文件对象数组中提取 URL
   const extractImageUrls = (files: any[]): string[] => {
     if (!files || !Array.isArray(files)) return [];
-    return files
+    console.log('extractImageUrls输入:', files);
+    const result = files
       .map((file: any) => {
+        console.log('处理文件:', file);
         let url: string | null = null;
         if (typeof file === 'string') {
           url = file;
+          console.log('文件是字符串:', url);
         } else if (file.url) {
           url = file.url;
+          console.log('文件有url字段:', url);
         } else if (file.response && file.response.data) {
           url = file.response.data;
+          console.log('文件有response.data:', url);
         }
         if (url) {
           const relativePath = getRelativePath(url);
+          console.log('相对路径:', relativePath);
           return relativePath || null;
         }
         return null;
       })
       .filter((url: string | null) => url !== null) as string[];
+    console.log('extractImageUrls结果:', result);
+    return result;
   };
 
   // 辅助函数：从文件对象数组中提取单个 URL
@@ -838,17 +861,35 @@ const ProductForm: React.FC<ProductFormProps> = ({
         }
       }
 
+      // 验证商品图片
+      console.log('=== 图片上传状态调试 ===');
+      console.log('mainImageFiles:', mainImageFiles);
+      console.log('albumFiles:', albumFiles);
+      
+      if (mainImageFiles.length === 0) {
+        throw new Error('请上传商品主图');
+      }
+      if (albumFiles.length === 0) {
+        throw new Error('请上传商品相册');
+      }
+
       // 合并所有步骤的表单值
       const combinedValues = { ...formValuesRef.current, ...allValues };
 
       // 从文件对象中提取 URL
       const mainImage = extractSingleImageUrl(mainImageFiles) || '';
-      const albumImages = extractImageUrls(albumFiles) || [];
+      const images = extractImageUrls(albumFiles) || [];
+      
+      console.log('提取的mainImage:', mainImage);
+      console.log('提取的images:', images);
 
       // 构建属性图片的相册数据
       const attributeAlbumImages: any[] = [];
       console.log('=== 构建属性图片的相册数据 ===');
       console.log('attributeImages:', attributeImages);
+
+      // 避免字段名冲突，删除可能存在的image和album字段
+      const { image, album, ...restValues } = combinedValues;
 
       Object.entries(attributeImages).forEach(([specValue, images]) => {
         console.log(`处理属性值: ${specValue}`);
@@ -895,10 +936,10 @@ const ProductForm: React.FC<ProductFormProps> = ({
       console.log('=== 表单数据收集调试 ===');
       console.log('productAttributeValues:', productAttributeValues);
       console.log('productParamValues:', productParamValues);
-      console.log('表单图片数据:', mainImage, albumImages);
+      console.log('表单图片数据:', mainImage, images);
 
       console.log('提取后的主图:', mainImage);
-      console.log('提取后的相册:', albumImages);
+      console.log('提取后的相册:', images);
       console.log('属性相册图片:', attributeAlbumImages);
 
       // 构建属性值数组
@@ -992,10 +1033,10 @@ const ProductForm: React.FC<ProductFormProps> = ({
       console.log('=== 属性图片数据 ===', attributeImages);
 
       const productData: ProductFormData = {
-        ...combinedValues,
+        ...restValues,
         // 从文件对象中提取 URL
         mainImage: mainImage,
-        images: albumImages,
+        images: images,
         albumImages: attributeAlbumImages,
         skus: convertedSkus,
         relatedProducts,
@@ -1006,11 +1047,11 @@ const ProductForm: React.FC<ProductFormProps> = ({
         specAttributes: specAttributesArray,
         detailDescription: productDetail,
         // 映射字段名称以匹配 ProductFormData 类型
-        status: combinedValues.isOnSale ? 1 : 0,
-        isRecommend: combinedValues.isRecommend ? 1 : 0,
-        isNew: combinedValues.isNew ? 1 : 0,
-        isHot: combinedValues.isHot ? 1 : 0,
-        isPreview: combinedValues.isPreview ? 1 : 0,
+        status: restValues.isOnSale ? 1 : 0,
+        isRecommend: restValues.isRecommend ? 1 : 0,
+        isNew: restValues.isNew ? 1 : 0,
+        isHot: restValues.isHot ? 1 : 0,
+        isPreview: restValues.isPreview ? 1 : 0,
       };
 
       console.log('=== 完整的 productData 准备发送到后端 ===');
@@ -1252,21 +1293,48 @@ const ProductForm: React.FC<ProductFormProps> = ({
       message.error('图片大小不能超过 10MB!');
       return false;
     }
-    if (useLocalUpload) {
-      return false;
-    }
+    // 返回 true，让 Upload 组件调用 customRequest
     return true;
   };
 
   // 本地上传处理函数
-  const handleLocalUpload = (file: any, onSuccess: any, onError: any) => {
+  const handleLocalUpload = (file: any, onSuccess: any, onError: any, setFileList: any, getFileListRef: any, isMultiple: boolean = false) => {
+    console.log('=== handleLocalUpload 被调用 ===');
+    console.log('file:', file);
+    console.log('onSuccess:', typeof onSuccess);
+    console.log('onError:', typeof onError);
+    console.log('setFileList:', typeof setFileList);
+    console.log('getFileListRef:', typeof getFileListRef);
+    console.log('isMultiple:', isMultiple);
+    
     const reader = new FileReader();
     reader.onload = () => {
+      console.log('=== reader.onload 回调被调用 ===');
       const fileUrl = reader.result as string;
-      onSuccess({ url: fileUrl, data: fileUrl });
+      console.log('fileUrl:', fileUrl);
+      const newFile = {
+        ...file,
+        url: fileUrl,
+        thumbUrl: fileUrl,
+        status: 'done',
+        response: { success: true, data: fileUrl },
+      };
+      console.log('newFile:', newFile);
+      // 先调用 onSuccess，让 Upload 组件知道上传完成
+      onSuccess({ url: fileUrl, data: fileUrl, response: { success: true, data: fileUrl } });
+      // 然后更新文件列表
+      if (setFileList && getFileListRef) {
+        const currentFiles = getFileListRef();
+        console.log('currentFiles:', currentFiles);
+        const newFileList = isMultiple ? [...currentFiles, newFile] : [newFile];
+        console.log('newFileList:', newFileList);
+        setFileList(newFileList);
+        console.log('setFileList 调用后，mainImageFiles:', mainImageFiles);
+      }
       message.success('图片上传成功');
     };
     reader.onerror = () => {
+      console.log('=== reader.onerror 回调被调用 ===');
       onError(new Error('文件读取失败'));
       message.error('图片上传失败');
     };
@@ -1415,7 +1483,12 @@ const ProductForm: React.FC<ProductFormProps> = ({
           listType="picture-card"
           maxCount={1}
           beforeUpload={beforeUpload}
-          customRequest={useLocalUpload ? (options) => handleLocalUpload(options.file, options.onSuccess, options.onError) : undefined}
+          customRequest={useLocalUpload ? (options) => {
+            console.log('=== customRequest 被调用 ===');
+            console.log('options:', options);
+            console.log('options.file:', options.file);
+            handleLocalUpload(options.file, options.onSuccess, options.onError, setMainImageFiles, () => mainImageFilesRef.current, false);
+          } : undefined}
           action={useLocalUpload ? undefined : "/api/blade-mall/admin/upload/file"}
           headers={
             useLocalUpload
@@ -1427,18 +1500,31 @@ const ProductForm: React.FC<ProductFormProps> = ({
           fileList={mainImageFiles}
           onPreview={handlePreview}
           onChange={(info) => {
-            console.log('Upload onChange:', info);
+            console.log('=== Upload onChange 被调用 ===');
+            console.log('info:', info);
+            console.log('info.file:', info.file);
+            console.log('info.file.status:', info.file.status);
+            console.log('info.fileList:', info.fileList);
             if (info.file.status === 'uploading') {
               console.log('上传中...');
             } else if (info.file.status === 'done') {
               console.log('上传成功, 完整文件对象:', info.file);
               console.log('上传成功, response:', info.file.response);
               if (useLocalUpload) {
-                if (info.file.response && info.file.response.url) {
+                // 处理 customRequest 传递的数据
+                if (info.file.url) {
+                  info.file.thumbUrl = info.file.url;
+                  console.log('使用 customRequest 设置的 URL:', info.file.url);
+                } else if (info.file.response && info.file.response.url) {
                   info.file.url = info.file.response.url;
                   info.file.thumbUrl = info.file.response.url;
-                  console.log('设置文件URL:', info.file.response.url);
+                  console.log('使用 response 设置的 URL:', info.file.response.url);
+                } else if (info.file.response && info.file.response.data) {
+                  info.file.url = info.file.response.data;
+                  info.file.thumbUrl = info.file.response.data;
+                  console.log('使用 response.data 设置的 URL:', info.file.response.data);
                 }
+                // 使用本地上传时，handleLocalUpload 已经负责更新 fileList，这里不需要再更新
               } else {
                 if (info.file.response && info.file.response.success) {
                   const fileUrl = info.file.response.data;
@@ -1447,15 +1533,16 @@ const ProductForm: React.FC<ProductFormProps> = ({
                     : fileUrl;
                   info.file.url = relativeUrl;
                   info.file.thumbUrl = relativeUrl;
-                  console.log('设置文件URL:', relativeUrl);
+                  console.log('设置文件 URL:', relativeUrl);
                   message.success('上传成功');
                 }
+                // 非本地上传时，使用 info.fileList 更新 fileList
+                setMainImageFiles(info.fileList);
               }
             } else if (info.file.status === 'error') {
               console.log('上传失败:', info.file.error);
               message.error('上传失败');
             }
-            setMainImageFiles(info.fileList);
           }}
         >
           <div>
@@ -1470,7 +1557,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
           listType="picture-card"
           multiple
           beforeUpload={beforeUpload}
-          customRequest={useLocalUpload ? (options) => handleLocalUpload(options.file, options.onSuccess, options.onError) : undefined}
+          customRequest={useLocalUpload ? (options) => handleLocalUpload(options.file, options.onSuccess, options.onError, setAlbumFiles, () => albumFilesRef.current, true) : undefined}
           action={useLocalUpload ? undefined : "/api/blade-mall/admin/upload/file"}
           headers={
             useLocalUpload
@@ -1483,17 +1570,27 @@ const ProductForm: React.FC<ProductFormProps> = ({
           onPreview={handlePreview}
           onChange={(info) => {
             console.log('Upload onChange:', info);
+            console.log('Upload onChange fileList:', info.fileList);
             if (info.file.status === 'uploading') {
               console.log('上传中...');
             } else if (info.file.status === 'done') {
               console.log('上传成功, 完整文件对象:', info.file);
               console.log('上传成功, response:', info.file.response);
               if (useLocalUpload) {
-                if (info.file.response && info.file.response.url) {
+                // 处理 customRequest 传递的数据
+                if (info.file.url) {
+                  info.file.thumbUrl = info.file.url;
+                  console.log('使用 customRequest 设置的 URL:', info.file.url);
+                } else if (info.file.response && info.file.response.url) {
                   info.file.url = info.file.response.url;
                   info.file.thumbUrl = info.file.response.url;
-                  console.log('设置文件URL:', info.file.response.url);
+                  console.log('使用 response 设置的 URL:', info.file.response.url);
+                } else if (info.file.response && info.file.response.data) {
+                  info.file.url = info.file.response.data;
+                  info.file.thumbUrl = info.file.response.data;
+                  console.log('使用 response.data 设置的 URL:', info.file.response.data);
                 }
+                // 使用本地上传时，handleLocalUpload 已经负责更新 fileList，这里不需要再更新
               } else {
                 if (info.file.response && info.file.response.success) {
                   const fileUrl = info.file.response.data;
@@ -1502,15 +1599,16 @@ const ProductForm: React.FC<ProductFormProps> = ({
                     : fileUrl;
                   info.file.url = relativeUrl;
                   info.file.thumbUrl = relativeUrl;
-                  console.log('设置文件URL:', relativeUrl);
+                  console.log('设置文件 URL:', relativeUrl);
                   message.success('上传成功');
                 }
+                // 非本地上传时，使用 info.fileList 更新 fileList
+                setAlbumFiles(info.fileList);
               }
             } else if (info.file.status === 'error') {
               console.log('上传失败:', info.file.error);
               message.error('上传失败');
             }
-            setAlbumFiles(info.fileList);
           }}
         >
           <div>
