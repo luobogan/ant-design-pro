@@ -196,87 +196,34 @@ export const errorConfig: RequestConfig = {
             if (config.body) delete config.body;
           } else {
             // 默认使用 JSON 格式
-            config.headers = {
-              Accept: 'application/json',
-              'Content-Type': 'application/json;charset=utf-8',
-              ...config.headers,
-            };
+            // 手动序列化JSON，确保格式正确
             
-            // 转换 HTML 实体为实际的 Unicode 字符
-            const decodeHtmlEntities = (str: string): string => {
-              const htmlEntities: { [key: string]: string } = {
-                '&nbsp;': '\u00A0',
-                '&amp;': '\u0026',
-                '&lt;': '\u003C',
-                '&gt;': '\u003E',
-                '&quot;': '\u0022',
-                '&apos;': '\u0027',
-                '&copy;': '\u00A9',
-                '&reg;': '\u00AE',
-                '&trade;': '\u2122',
-                '&euro;': '\u20AC',
-                '&pound;': '\u00A3',
-                '&yen;': '\u00A5',
-                '&cent;': '\u00A2',
-                '&sect;': '\u00A7',
-                '&laquo;': '\u00AB',
-                '&raquo;': '\u00BB',
-                '&mdash;': '\u2014',
-                '&ndash;': '\u2013',
-                '&hellip;': '\u2026',
-                '&ldquo;': '\u201C',
-                '&rdquo;': '\u201D',
-                '&lsquo;': '\u2018',
-                '&rsquo;': '\u2019',
-              };
-
-              let result = str;
-              for (const [entity, char] of Object.entries(htmlEntities)) {
-                result = result.replace(new RegExp(entity, 'g'), char);
-              }
-              return result;
-            };
-
-            // 验证并修复 UTF-8 字符串
-            const validateAndFixUtf8 = (str: string): string => {
-              let result = '';
-              for (let i = 0; i < str.length; i++) {
-                const charCode = str.charCodeAt(i);
-                // 检查是否为有效的 Unicode 字符
-                if (charCode <= 0x10FFFF && !(charCode >= 0xD800 && charCode <= 0xDFFF)) {
-                  result += str[i];
-                } else {
-                  // 替换无效字符
-                  console.warn(`发现无效字符在位置 ${i}: 字符码 ${charCode}, 已被替换`);
-                  result += '\uFFFD'; // 替换字符
-                }
-              }
-              return result;
-            };
-
-            // 清理数据，移除无效字符
-            const cleanData = (obj: any): any => {
+            // 清理富文本内容中的base64图片数据
+            const cleanRichTextContent = (obj: any): any => {
               if (obj === null || obj === undefined) {
                 return obj;
               }
               
               if (typeof obj === 'string') {
-                // 只清理真正的无效字符，不进行 HTML 实体转换
-                let cleaned = obj;
-                // 清理字符串中的控制字符（保留换行符和制表符）
-                cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
-                return cleaned;
+                // 清理富文本内容中的base64图片数据
+                return obj.replace(/data:image\/[^;]+;base64,[^"'\s]*/g, (match) => {
+                  // 限制base64数据的长度，避免JSON过大
+                  if (match.length > 1000) {
+                    return match.substring(0, 1000) + '...';
+                  }
+                  return match;
+                });
               }
               
               if (Array.isArray(obj)) {
-                return obj.map(cleanData);
+                return obj.map(cleanRichTextContent);
               }
               
               if (typeof obj === 'object') {
                 const cleaned: any = {};
                 for (const key in obj) {
                   if (obj.hasOwnProperty(key)) {
-                    cleaned[key] = cleanData(obj[key]);
+                    cleaned[key] = cleanRichTextContent(obj[key]);
                   }
                 }
                 return cleaned;
@@ -286,26 +233,27 @@ export const errorConfig: RequestConfig = {
             };
             
             // 清理数据
-            // const cleanedData = cleanData(requestData);
-            const cleanedData = requestData;
+            const cleanedData = cleanRichTextContent(requestData);
             
-            // 验证数据是否可以正确序列化为 JSON
             let jsonString: string;
             try {
               jsonString = JSON.stringify(cleanedData);
               console.log('JSON 序列化成功，数据长度:', jsonString.length);
               console.log('JSON 数据预览 (前500字符):', jsonString.substring(0, 500));
-              
-              // 重新解析以确保数据有效
-              JSON.parse(jsonString);
             } catch (error) {
               console.error('JSON 序列化失败:', error);
               console.error('数据内容:', cleanedData);
               throw new Error('数据格式错误，无法序列化为 JSON');
             }
             
+            config.headers = {
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+              ...config.headers,
+            };
+            
             // 确保数据被正确设置为 data
-            config.data = cleanedData;
+            config.data = jsonString;
             if (config.body) delete config.body;
           }
         }

@@ -1019,17 +1019,6 @@ const ProductForm: React.FC<ProductFormProps> = ({
         isPreview: combinedValues.isPreview ? 1 : 0,
       };
 
-      // 特别清理 description 字段
-      if (productData.description && typeof productData.description === 'string') {
-        console.log('=== 前端清理 description 字段 ===');
-        console.log('原始 description:', productData.description);
-        // 清理无效字符
-        productData.description = productData.description
-          .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
-          .replace(/[\uD800-\uDFFF]/g, ''); // 移除无效的UTF-16代理对
-        console.log('清理后 description:', productData.description);
-      }
-
       console.log('=== 完整的 productData 准备发送到后端 ===');
       console.log('productData:', productData);
       console.log('productData.attributeValues:', productData.attributeValues);
