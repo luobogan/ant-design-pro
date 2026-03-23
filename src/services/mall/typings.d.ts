@@ -53,6 +53,12 @@ export interface ProductFormData {
   costPrice?: number;
   mainImage: string;
   images?: string[];
+  albumImages?: Array<{
+    url: string;
+    sort: number;
+    isMain: boolean;
+    color?: string;
+  }>;
   categoryId: number;
   brandId: number;
   stock?: number;
@@ -85,6 +91,15 @@ export interface ProductFormData {
     value: string;
   }>;
   skus?: any[];
+  relatedProducts?: number[];
+  bundleProducts?: number[];
+  recommendProducts?: number[];
+  specAttributes?: Array<{
+    name: string;
+    values: Array<{
+      value: string;
+    }>;
+  }>;
 }
 
 export interface ProductSku {
