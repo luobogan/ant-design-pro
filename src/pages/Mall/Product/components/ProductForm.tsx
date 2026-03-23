@@ -156,7 +156,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
 
   const fetchBrands = async () => {
     try {
-      const result = await brandApi.getList({ current: 1, pageSize: 1000 });
+      const result = await brandApi.getList({ current: 1, size: 1000 });
       setBrands(result.list || []);
     } catch (error: any) {
       message.error('获取品牌失败');
@@ -174,7 +174,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
 
   const fetchAllProducts = async () => {
     try {
-      const result = await productApi.getList({ current: 1, pageSize: 1000 });
+      const result = await productApi.getList({ current: 1, size: 1000 });
       setAllProducts(result.list || []);
     } catch (error: any) {
       message.error('获取商品列表失败');
@@ -772,18 +772,11 @@ const ProductForm: React.FC<ProductFormProps> = ({
     }
   };
 
-  // 辅助函数：从完整 URL 中提取相对路径
+  // 辅助函数：处理图片 URL，确保返回完整 URL
   const getRelativePath = (url: string): string => {
     if (!url) return '';
-    // 如果已经是相对路径，直接返回
-    if (!url.startsWith('http')) return url;
-    // 否则，提取路径部分
-    try {
-      const urlObj = new URL(url);
-      return urlObj.pathname;
-    } catch {
-      return url;
-    }
+    // 直接返回完整 URL，不做路径提取
+    return url;
   };
 
   // 辅助函数：从文件对象数组中提取 URL
@@ -800,7 +793,8 @@ const ProductForm: React.FC<ProductFormProps> = ({
           url = file.response.data;
         }
         if (url) {
-          return getRelativePath(url);
+          const relativePath = getRelativePath(url);
+          return relativePath || null;
         }
         return null;
       })
@@ -848,8 +842,8 @@ const ProductForm: React.FC<ProductFormProps> = ({
       const combinedValues = { ...formValuesRef.current, ...allValues };
 
       // 从文件对象中提取 URL
-      const mainImage = extractSingleImageUrl(mainImageFiles);
-      const albumImages = extractImageUrls(albumFiles);
+      const mainImage = extractSingleImageUrl(mainImageFiles) || '';
+      const albumImages = extractImageUrls(albumFiles) || [];
 
       // 构建属性图片的相册数据
       const attributeAlbumImages: any[] = [];
@@ -1000,7 +994,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
       const productData: ProductFormData = {
         ...combinedValues,
         // 从文件对象中提取 URL
-        image: mainImage,
+        mainImage: mainImage,
         images: albumImages,
         albumImages: attributeAlbumImages,
         skus: convertedSkus,
@@ -1422,12 +1416,12 @@ const ProductForm: React.FC<ProductFormProps> = ({
           maxCount={1}
           beforeUpload={beforeUpload}
           customRequest={useLocalUpload ? (options) => handleLocalUpload(options.file, options.onSuccess, options.onError) : undefined}
-          action={useLocalUpload ? undefined : "/api/admin/upload/file"}
+          action={useLocalUpload ? undefined : "/api/blade-mall/admin/upload/file"}
           headers={
             useLocalUpload
               ? undefined
               : {
-                  Authorization: `Bearer ${localStorage.getItem('admin_token') || ''}`,
+                  'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`,
                 }
           }
           fileList={mainImageFiles}
@@ -1477,12 +1471,12 @@ const ProductForm: React.FC<ProductFormProps> = ({
           multiple
           beforeUpload={beforeUpload}
           customRequest={useLocalUpload ? (options) => handleLocalUpload(options.file, options.onSuccess, options.onError) : undefined}
-          action={useLocalUpload ? undefined : "/api/admin/upload/file"}
+          action={useLocalUpload ? undefined : "/api/blade-mall/admin/upload/file"}
           headers={
             useLocalUpload
               ? undefined
               : {
-                  Authorization: `Bearer ${localStorage.getItem('admin_token') || ''}`,
+                  'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`,
                 }
           }
           fileList={albumFiles}
@@ -1925,12 +1919,12 @@ const ProductForm: React.FC<ProductFormProps> = ({
                             maxCount={1}
                             beforeUpload={beforeUpload}
                             customRequest={useLocalUpload ? (options) => handleLocalUpload(options.file, options.onSuccess, options.onError) : undefined}
-                            action={useLocalUpload ? undefined : "/api/admin/upload/file"}
+                            action={useLocalUpload ? undefined : "/api/blade-mall/admin/upload/file"}
                             headers={
                               useLocalUpload
                                 ? undefined
                                 : {
-                                    Authorization: `Bearer ${localStorage.getItem('admin_token') || ''}`,
+                                    'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`,
                                   }
                             }
                             fileList={attributeImages[value]?.mainImage || []}
@@ -1984,12 +1978,12 @@ const ProductForm: React.FC<ProductFormProps> = ({
                             multiple
                             beforeUpload={beforeUpload}
                             customRequest={useLocalUpload ? (options) => handleLocalUpload(options.file, options.onSuccess, options.onError) : undefined}
-                            action={useLocalUpload ? undefined : "/api/admin/upload/file"}
+                            action={useLocalUpload ? undefined : "/api/blade-mall/admin/upload/file"}
                             headers={
                               useLocalUpload
                                 ? undefined
                                 : {
-                                    Authorization: `Bearer ${localStorage.getItem('admin_token') || ''}`,
+                                    'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`,
                                   }
                             }
                             fileList={attributeImages[value]?.albumImages || []}

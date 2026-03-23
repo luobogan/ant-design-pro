@@ -51,7 +51,7 @@ export interface ProductFormData {
   price: number;
   originalPrice?: number;
   costPrice?: number;
-  image: string;
+  mainImage: string;
   images?: string[];
   categoryId: number;
   brandId: number;

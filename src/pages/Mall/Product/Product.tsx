@@ -500,7 +500,7 @@ const ProductList: React.FC = () => {
       render: (_, record) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <img
-            src={record.image || null}
+            src={record.image || record.mainImage || null}
             alt={record.name}
             style={{
               width: 64,
