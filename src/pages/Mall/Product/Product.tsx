@@ -391,7 +391,7 @@ const ProductList: React.FC = () => {
   const fetchStockLogs = async (skuId: number) => {
     try {
       const result = await getSkuStockLogs(skuId);
-      setStockLogs(result?.data || []);
+      setStockLogs(result || []);
     } catch (error: any) {
       message.error(error.message || '获取库存日志失败');
     }

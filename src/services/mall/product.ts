@@ -3,7 +3,7 @@ import type { Product, ProductFormData, ProductSkuFormData, SkuMatrixGenerateDat
 import { API_MALL_BASE_PATH } from '@/constants';
 
 const PRODUCT_BASE_URL = `${API_MALL_BASE_PATH}/products`;
-const SKU_BASE_URL = `${API_MALL_BASE_PATH}/skus`;
+const SKU_BASE_URL = `${PRODUCT_BASE_URL}/skus`;
 const PRODUCT_RELATION_BASE_URL = `${API_MALL_BASE_PATH}/product-relations`;
 
 // SpringBlade 响应格式
@@ -263,21 +263,47 @@ export const productApi = {
    * 获取 SKU 库存日志
    */
   getSkuStockLogs: async (skuId: number) => {
-    const response = await request<BladeResponse<any>>(`${SKU_BASE_URL}/${skuId}/stock-logs`, {
+    const response = await request<BladeResponse<any> | { success: boolean; message: string; data: any }>(`${SKU_BASE_URL}/${skuId}/stock-logs`, {
       method: 'GET',
     });
-    return response.data;
+    
+    const data = response.data;
+    
+    // 处理 success 格式的响应
+    if (data?.success !== undefined) {
+      if (data.success) {
+        return data.data;
+      } else {
+        throw new Error(data.message || '获取 SKU 库存日志失败');
+      }
+    }
+    
+    // 处理传统 code 格式的响应
+    return data;
   },
 
   /**
    * 调整 SKU 库存
    */
   adjustSkuStock: async (skuId: number, quantity: number, type: number, remark?: string) => {
-    const response = await request<BladeResponse<any>>(`${SKU_BASE_URL}/${skuId}/stock`, {
+    const response = await request<BladeResponse<any> | { success: boolean; message: string; data: any }>(`${SKU_BASE_URL}/${skuId}/stock`, {
       method: 'POST',
       data: { quantity, type, remark },
     });
-    return response.data;
+    
+    const data = response.data;
+    
+    // 处理 success 格式的响应
+    if (data?.success !== undefined) {
+      if (data.success) {
+        return data.data;
+      } else {
+        throw new Error(data.message || '调整 SKU 库存失败');
+      }
+    }
+    
+    // 处理传统 code 格式的响应
+    return data;
   },
 
   /**
