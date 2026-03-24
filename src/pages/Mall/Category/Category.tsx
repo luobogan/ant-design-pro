@@ -620,12 +620,15 @@ const CategoryList: React.FC = () => {
             onChange={(value) => form.setFieldsValue({ banner: value })}
             maxCount={1}
             accept=".jpg,.jpeg,.png"
-            maxSize={2}
+            maxSize={10}
+            uploadUrl="/api/blade-mall/admin/upload/image"
             supportDrag={true}
             showPreview={true}
             showProgress={true}
             height={120}
-            useLocalUpload={true}
+            useLocalUpload={false}
+            returnBase64={false}
+            uploadParams={{ type: 'category' }}
           />
 
           <Form.Item label="分类描述" name="description">

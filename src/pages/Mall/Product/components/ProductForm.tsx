@@ -99,24 +99,6 @@ const ProductForm: React.FC<ProductFormProps> = ({
   // 商品图片状态
   const [mainImageFiles, setMainImageFiles] = useState<any[]>([]);
   const [albumFiles, setAlbumFiles] = useState<any[]>([]);
-  
-  // 使用 ref 保存文件列表，用于 handleLocalUpload 中访问
-  const mainImageFilesRef = useRef<any[]>([]);
-  const albumFilesRef = useRef<any[]>([]);
-  
-  // 同步 ref 和 state
-  useEffect(() => {
-    mainImageFilesRef.current = mainImageFiles;
-    console.log('=== mainImageFiles 变化 ===');
-    console.log('mainImageFiles:', mainImageFiles);
-  }, [mainImageFiles]);
-  
-  useEffect(() => {
-    albumFilesRef.current = albumFiles;
-  }, [albumFiles]);
-
-  // 图片上传配置
-  const [useLocalUpload] = useState(true);
 
   // 分类属性相关状态
   const [categoryAttributes, setCategoryAttributes] = useState<
@@ -813,7 +795,9 @@ const ProductForm: React.FC<ProductFormProps> = ({
           console.log('文件有response.data:', url);
         }
         if (url) {
-          const relativePath = getRelativePath(url);
+          // 去除 URL 中的反引号和空格
+          const cleanUrl = url.trim().replace(/[`]/g, '');
+          const relativePath = getRelativePath(cleanUrl);
           console.log('相对路径:', relativePath);
           return relativePath || null;
         }
@@ -1293,53 +1277,10 @@ const ProductForm: React.FC<ProductFormProps> = ({
       message.error('图片大小不能超过 10MB!');
       return false;
     }
-    // 返回 true，让 Upload 组件调用 customRequest
     return true;
   };
 
-  // 本地上传处理函数
-  const handleLocalUpload = (file: any, onSuccess: any, onError: any, setFileList: any, getFileListRef: any, isMultiple: boolean = false) => {
-    console.log('=== handleLocalUpload 被调用 ===');
-    console.log('file:', file);
-    console.log('onSuccess:', typeof onSuccess);
-    console.log('onError:', typeof onError);
-    console.log('setFileList:', typeof setFileList);
-    console.log('getFileListRef:', typeof getFileListRef);
-    console.log('isMultiple:', isMultiple);
-    
-    const reader = new FileReader();
-    reader.onload = () => {
-      console.log('=== reader.onload 回调被调用 ===');
-      const fileUrl = reader.result as string;
-      console.log('fileUrl:', fileUrl);
-      const newFile = {
-        ...file,
-        url: fileUrl,
-        thumbUrl: fileUrl,
-        status: 'done',
-        response: { success: true, data: fileUrl },
-      };
-      console.log('newFile:', newFile);
-      // 先调用 onSuccess，让 Upload 组件知道上传完成
-      onSuccess({ url: fileUrl, data: fileUrl, response: { success: true, data: fileUrl } });
-      // 然后更新文件列表
-      if (setFileList && getFileListRef) {
-        const currentFiles = getFileListRef();
-        console.log('currentFiles:', currentFiles);
-        const newFileList = isMultiple ? [...currentFiles, newFile] : [newFile];
-        console.log('newFileList:', newFileList);
-        setFileList(newFileList);
-        console.log('setFileList 调用后，mainImageFiles:', mainImageFiles);
-      }
-      message.success('图片上传成功');
-    };
-    reader.onerror = () => {
-      console.log('=== reader.onerror 回调被调用 ===');
-      onError(new Error('文件读取失败'));
-      message.error('图片上传失败');
-    };
-    reader.readAsDataURL(file);
-  };
+
 
   const renderStep1 = () => (
     <Form form={form} layout="vertical" initialValues={formValuesRef.current}>
@@ -1479,70 +1420,37 @@ const ProductForm: React.FC<ProductFormProps> = ({
         name="image"
         rules={[{ required: true, message: '请上传商品主图' }]}
       >
-        <Upload
-          listType="picture-card"
-          maxCount={1}
-          beforeUpload={beforeUpload}
-          customRequest={useLocalUpload ? (options) => {
-            console.log('=== customRequest 被调用 ===');
-            console.log('options:', options);
-            console.log('options.file:', options.file);
-            handleLocalUpload(options.file, options.onSuccess, options.onError, setMainImageFiles, () => mainImageFilesRef.current, false);
-          } : undefined}
-          action={useLocalUpload ? undefined : "/api/blade-mall/admin/upload/file"}
-          headers={
-            useLocalUpload
-              ? undefined
-              : {
-                  'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`,
-                }
-          }
+        <Upload 
+          listType="picture-card" 
+          maxCount={1} 
+          beforeUpload={beforeUpload} 
+          action="/api/blade-mall/admin/upload/image"
+          headers={{
+            'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`
+          }}
           fileList={mainImageFiles}
           onPreview={handlePreview}
           onChange={(info) => {
-            console.log('=== Upload onChange 被调用 ===');
-            console.log('info:', info);
-            console.log('info.file:', info.file);
-            console.log('info.file.status:', info.file.status);
-            console.log('info.fileList:', info.fileList);
+            console.log('Upload onChange:', info);
             if (info.file.status === 'uploading') {
               console.log('上传中...');
             } else if (info.file.status === 'done') {
               console.log('上传成功, 完整文件对象:', info.file);
               console.log('上传成功, response:', info.file.response);
-              if (useLocalUpload) {
-                // 处理 customRequest 传递的数据
-                if (info.file.url) {
-                  info.file.thumbUrl = info.file.url;
-                  console.log('使用 customRequest 设置的 URL:', info.file.url);
-                } else if (info.file.response && info.file.response.url) {
-                  info.file.url = info.file.response.url;
-                  info.file.thumbUrl = info.file.response.url;
-                  console.log('使用 response 设置的 URL:', info.file.response.url);
-                } else if (info.file.response && info.file.response.data) {
-                  info.file.url = info.file.response.data;
-                  info.file.thumbUrl = info.file.response.data;
-                  console.log('使用 response.data 设置的 URL:', info.file.response.data);
-                }
-                // 使用本地上传时，handleLocalUpload 已经负责更新 fileList，这里不需要再更新
-              } else {
-                if (info.file.response && info.file.response.success) {
-                  const fileUrl = info.file.response.data;
-                  const relativeUrl = fileUrl.startsWith('http')
-                    ? fileUrl
-                    : fileUrl;
-                  info.file.url = relativeUrl;
-                  info.file.thumbUrl = relativeUrl;
-                  console.log('设置文件 URL:', relativeUrl);
-                  message.success('上传成功');
-                }
-                // 非本地上传时，使用 info.fileList 更新 fileList
-                setMainImageFiles(info.fileList);
+              if (info.file.response && info.file.response.success) {
+                const fileUrl = info.file.response.data;
+                // 确保 URL 格式正确
+                const relativeUrl = fileUrl.startsWith('http') ? fileUrl : fileUrl;
+                info.file.url = relativeUrl;
+                info.file.thumbUrl = relativeUrl;
+                console.log('设置文件URL:', relativeUrl);
+                message.success('上传成功');
               }
             } else if (info.file.status === 'error') {
               console.log('上传失败:', info.file.error);
               message.error('上传失败');
             }
+            setMainImageFiles(info.fileList);
           }}
         >
           <div>
@@ -1552,63 +1460,41 @@ const ProductForm: React.FC<ProductFormProps> = ({
         </Upload>
       </Form.Item>
 
-      <Form.Item label="商品相册" name="album">
-        <Upload
-          listType="picture-card"
-          multiple
-          beforeUpload={beforeUpload}
-          customRequest={useLocalUpload ? (options) => handleLocalUpload(options.file, options.onSuccess, options.onError, setAlbumFiles, () => albumFilesRef.current, true) : undefined}
-          action={useLocalUpload ? undefined : "/api/blade-mall/admin/upload/file"}
-          headers={
-            useLocalUpload
-              ? undefined
-              : {
-                  'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`,
-                }
-          }
+      <Form.Item 
+        label="商品相册" 
+        name="album"
+      >
+        <Upload 
+          listType="picture-card" 
+          multiple 
+          beforeUpload={beforeUpload} 
+          action="/api/blade-mall/admin/upload/image"
+          headers={{
+            'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`
+          }}
           fileList={albumFiles}
           onPreview={handlePreview}
           onChange={(info) => {
             console.log('Upload onChange:', info);
-            console.log('Upload onChange fileList:', info.fileList);
             if (info.file.status === 'uploading') {
               console.log('上传中...');
             } else if (info.file.status === 'done') {
               console.log('上传成功, 完整文件对象:', info.file);
               console.log('上传成功, response:', info.file.response);
-              if (useLocalUpload) {
-                // 处理 customRequest 传递的数据
-                if (info.file.url) {
-                  info.file.thumbUrl = info.file.url;
-                  console.log('使用 customRequest 设置的 URL:', info.file.url);
-                } else if (info.file.response && info.file.response.url) {
-                  info.file.url = info.file.response.url;
-                  info.file.thumbUrl = info.file.response.url;
-                  console.log('使用 response 设置的 URL:', info.file.response.url);
-                } else if (info.file.response && info.file.response.data) {
-                  info.file.url = info.file.response.data;
-                  info.file.thumbUrl = info.file.response.data;
-                  console.log('使用 response.data 设置的 URL:', info.file.response.data);
-                }
-                // 使用本地上传时，handleLocalUpload 已经负责更新 fileList，这里不需要再更新
-              } else {
-                if (info.file.response && info.file.response.success) {
-                  const fileUrl = info.file.response.data;
-                  const relativeUrl = fileUrl.startsWith('http')
-                    ? fileUrl
-                    : fileUrl;
-                  info.file.url = relativeUrl;
-                  info.file.thumbUrl = relativeUrl;
-                  console.log('设置文件 URL:', relativeUrl);
-                  message.success('上传成功');
-                }
-                // 非本地上传时，使用 info.fileList 更新 fileList
-                setAlbumFiles(info.fileList);
+              if (info.file.response && info.file.response.success) {
+                const fileUrl = info.file.response.data;
+                // 确保 URL 格式正确
+                const relativeUrl = fileUrl.startsWith('http') ? fileUrl : fileUrl;
+                info.file.url = relativeUrl;
+                info.file.thumbUrl = relativeUrl;
+                console.log('设置文件URL:', relativeUrl);
+                message.success('上传成功');
               }
             } else if (info.file.status === 'error') {
               console.log('上传失败:', info.file.error);
               message.error('上传失败');
             }
+            setAlbumFiles(info.fileList);
           }}
         >
           <div>
@@ -2016,41 +1902,24 @@ const ProductForm: React.FC<ProductFormProps> = ({
                             listType="picture-card"
                             maxCount={1}
                             beforeUpload={beforeUpload}
-                            customRequest={useLocalUpload ? (options) => handleLocalUpload(options.file, options.onSuccess, options.onError) : undefined}
-                            action={useLocalUpload ? undefined : "/api/blade-mall/admin/upload/file"}
-                            headers={
-                              useLocalUpload
-                                ? undefined
-                                : {
-                                    'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`,
-                                  }
-                            }
+                            action="/api/blade-mall/admin/upload/image"
+                            headers={{
+                              'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`
+                            }}
                             fileList={attributeImages[value]?.mainImage || []}
                             onPreview={handlePreview}
                             onChange={(info) => {
+                              console.log('Upload onChange:', info);
                               if (info.file.status === 'done') {
-                                if (useLocalUpload) {
-                                  if (info.file.response && info.file.response.url) {
-                                    info.file.url = info.file.response.url;
-                                    info.file.thumbUrl = info.file.response.url;
-                                    message.success('上传成功');
-                                  }
-                                } else {
-                                  if (
-                                    info.file.response &&
-                                    info.file.response.success
-                                  ) {
-                                    const fileUrl = info.file.response.data;
-                                    const relativeUrl = fileUrl.startsWith('http')
-                                      ? fileUrl
-                                      : fileUrl;
-                                    info.file.url = relativeUrl;
-                                    info.file.thumbUrl = relativeUrl;
-                                    message.success('上传成功');
-                                  } else if (info.file.status === 'error') {
-                                    message.error('上传失败');
-                                  }
+                                if (info.file.response && info.file.response.success) {
+                                  const fileUrl = info.file.response.data;
+                                  const relativeUrl = fileUrl.startsWith('http') ? fileUrl : fileUrl;
+                                  info.file.url = relativeUrl;
+                                  info.file.thumbUrl = relativeUrl;
+                                  message.success('上传成功');
                                 }
+                              } else if (info.file.status === 'error') {
+                                message.error('上传失败');
                               }
                               setAttributeImages({
                                 ...attributeImages,
@@ -2075,78 +1944,26 @@ const ProductForm: React.FC<ProductFormProps> = ({
                             listType="picture-card"
                             multiple
                             beforeUpload={beforeUpload}
-                            customRequest={useLocalUpload ? (options) => handleLocalUpload(options.file, options.onSuccess, options.onError) : undefined}
-                            action={useLocalUpload ? undefined : "/api/blade-mall/admin/upload/file"}
-                            headers={
-                              useLocalUpload
-                                ? undefined
-                                : {
-                                    'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`,
-                                  }
-                            }
+                            action="/api/blade-mall/admin/upload/image"
+                            headers={{
+                              'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`
+                            }}
                             fileList={attributeImages[value]?.albumImages || []}
                             onPreview={handlePreview}
                             onChange={(info) => {
-                              console.log('相册图片上传 onChange:', info);
+                              console.log('Upload onChange:', info);
                               if (info.file.status === 'done') {
-                                console.log('上传完成，文件信息:', info.file);
-                                console.log(
-                                  '上传完成，response:',
-                                  info.file.response,
-                                );
-                                if (useLocalUpload) {
-                                  if (info.file.response && info.file.response.url) {
-                                    info.file.url = info.file.response.url;
-                                    info.file.thumbUrl = info.file.response.url;
-                                    console.log('上传成功，更新后的文件对象:', info.file);
-                                    message.success('上传成功');
-                                  }
-                                } else {
-                                  if (
-                                    info.file.response &&
-                                    info.file.response.success
-                                  ) {
-                                    const fileUrl = info.file.response.data;
-                                    console.log('上传成功，fileUrl:', fileUrl);
-                                    const relativeUrl = fileUrl.startsWith('http')
-                                      ? fileUrl
-                                      : fileUrl;
-                                    console.log(
-                                      '上传成功，relativeUrl:',
-                                      relativeUrl,
-                                    );
-                                    info.file.url = relativeUrl;
-                                    info.file.thumbUrl = relativeUrl;
-                                    console.log(
-                                      '上传成功，更新后的文件对象:',
-                                      info.file,
-                                    );
-                                    message.success('上传成功');
-                                  } else {
-                                    console.log(
-                                      '上传失败，response:',
-                                      info.file.response,
-                                    );
-                                    message.error('上传失败');
-                                  }
+                                if (info.file.response && info.file.response.success) {
+                                  const fileUrl = info.file.response.data;
+                                  const relativeUrl = fileUrl.startsWith('http') ? fileUrl : fileUrl;
+                                  info.file.url = relativeUrl;
+                                  info.file.thumbUrl = relativeUrl;
+                                  message.success('上传成功');
                                 }
                               } else if (info.file.status === 'error') {
-                                console.log('上传失败:', info.file.error);
                                 message.error('上传失败');
                               }
-                              console.log(
-                                '更新前的 attributeImages:',
-                                attributeImages,
-                              );
-                              console.log('更新后的 fileList:', info.fileList);
                               setAttributeImages({
-                                ...attributeImages,
-                                [value]: {
-                                  ...attributeImages[value],
-                                  albumImages: info.fileList,
-                                },
-                              });
-                              console.log('更新后的 attributeImages:', {
                                 ...attributeImages,
                                 [value]: {
                                   ...attributeImages[value],
@@ -2549,6 +2366,6 @@ const ProductForm: React.FC<ProductFormProps> = ({
       </Modal>
     </div>
   );
-};
+}
 
 export default ProductForm;

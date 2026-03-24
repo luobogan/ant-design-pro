@@ -23,6 +23,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
   loading = false,
   useLocalUpload = false,
   returnBase64 = true,
+  uploadParams,
 }) => {
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [uploadLoading, setUploadLoading] = useState(false);
@@ -104,6 +105,13 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
       } else {
         const formData = new FormData();
         formData.append('file', file as any);
+
+        // 添加上传参数
+        if (uploadParams) {
+          Object.entries(uploadParams).forEach(([key, value]) => {
+            formData.append(key, value);
+          });
+        }
 
         const token = localStorage.getItem('sword-token') || '';
 

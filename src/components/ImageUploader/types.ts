@@ -23,4 +23,8 @@ export interface ImageUploaderProps {
    * 为 true 时，上传后返回 base64 数据，由后端转换为文件路径
    */
   returnBase64?: boolean;
+  /**
+   * 上传参数
+   */
+  uploadParams?: Record<string, any>;
 }
