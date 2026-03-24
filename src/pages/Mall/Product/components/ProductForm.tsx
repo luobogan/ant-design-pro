@@ -43,7 +43,7 @@ import type {
   ProductFormData,
   Promotion,
 } from '@/services/mall/typings';
-import RichTextEditor from '@/components/RichTextEditor';
+import RichTextEditor from '@/components/RichTextEditor/index';
 
 const { Step } = Steps;
 const { TextArea } = Input;
@@ -682,6 +682,14 @@ const ProductForm: React.FC<ProductFormProps> = ({
 
       // 设置商品详情
       if (product.detailDescription) {
+        console.log('=== 加载商品详情调试 ===');
+        console.log('product.detailDescription 类型:', typeof product.detailDescription);
+        console.log('product.detailDescription 长度:', product.detailDescription.length);
+        console.log('product.detailDescription 前200字符:', product.detailDescription.substring(0, 200));
+        console.log('product.detailDescription 是否包含 <html:', product.detailDescription.includes('<html'));
+        console.log('product.detailDescription 是否包含 <body:', product.detailDescription.includes('<body'));
+        console.log('product.detailDescription 是否包含 <p:', product.detailDescription.includes('<p'));
+        console.log('product.detailDescription 是否包含 <div:', product.detailDescription.includes('<div'));
         setProductDetail(product.detailDescription);
       }
 
@@ -1066,6 +1074,15 @@ const ProductForm: React.FC<ProductFormProps> = ({
       };
 
       checkForInvalidCharacters(productData);
+
+      console.log('=== 富文本内容调试 ===');
+      console.log('productData.detailDescription 类型:', typeof productData.detailDescription);
+      console.log('productData.detailDescription 长度:', productData.detailDescription?.length);
+      console.log('productData.detailDescription 前200字符:', productData.detailDescription?.substring(0, 200));
+      console.log('productData.detailDescription 是否包含 <html:', productData.detailDescription?.includes('<html'));
+      console.log('productData.detailDescription 是否包含 <body:', productData.detailDescription?.includes('<body'));
+      console.log('productData.detailDescription 是否包含 <p:', productData.detailDescription?.includes('<p'));
+      console.log('productData.detailDescription 是否包含 <div:', productData.detailDescription?.includes('<div'));
 
       await onSubmit(productData);
     } catch (error: any) {

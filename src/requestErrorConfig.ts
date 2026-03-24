@@ -197,52 +197,14 @@ export const errorConfig: RequestConfig = {
           } else {
             // 默认使用 JSON 格式
             // 手动序列化JSON，确保格式正确
-            
-            // 清理富文本内容中的base64图片数据
-            const cleanRichTextContent = (obj: any): any => {
-              if (obj === null || obj === undefined) {
-                return obj;
-              }
-              
-              if (typeof obj === 'string') {
-                // 清理富文本内容中的base64图片数据
-                return obj.replace(/data:image\/[^;]+;base64,[^"'\s]*/g, (match) => {
-                  // 限制base64数据的长度，避免JSON过大
-                  if (match.length > 1000) {
-                    return match.substring(0, 1000) + '...';
-                  }
-                  return match;
-                });
-              }
-              
-              if (Array.isArray(obj)) {
-                return obj.map(cleanRichTextContent);
-              }
-              
-              if (typeof obj === 'object') {
-                const cleaned: any = {};
-                for (const key in obj) {
-                  if (obj.hasOwnProperty(key)) {
-                    cleaned[key] = cleanRichTextContent(obj[key]);
-                  }
-                }
-                return cleaned;
-              }
-              
-              return obj;
-            };
-            
-            // 清理数据
-            const cleanedData = cleanRichTextContent(requestData);
-            
             let jsonString: string;
             try {
-              jsonString = JSON.stringify(cleanedData);
+              jsonString = JSON.stringify(requestData);
               console.log('JSON 序列化成功，数据长度:', jsonString.length);
               console.log('JSON 数据预览 (前500字符):', jsonString.substring(0, 500));
             } catch (error) {
               console.error('JSON 序列化失败:', error);
-              console.error('数据内容:', cleanedData);
+              console.error('数据内容:', requestData);
               throw new Error('数据格式错误，无法序列化为 JSON');
             }
             
@@ -275,6 +237,25 @@ export const errorConfig: RequestConfig = {
         data: config.data,
       });
 
+      // 调试：检查富文本内容
+      if (config.url?.includes('/products') && (config.method === 'POST' || config.method === 'PUT')) {
+        try {
+          const requestData = typeof config.data === 'string' ? JSON.parse(config.data) : config.data;
+          if (requestData?.detailDescription) {
+            console.log('=== 富文本内容调试 ===');
+            console.log('发送的 detailDescription 类型:', typeof requestData.detailDescription);
+            console.log('发送的 detailDescription 长度:', requestData.detailDescription.length);
+            console.log('发送的 detailDescription 前200字符:', requestData.detailDescription.substring(0, 200));
+            console.log('发送的 detailDescription 是否包含 <html:', requestData.detailDescription.includes('<html'));
+            console.log('发送的 detailDescription 是否包含 <body:', requestData.detailDescription.includes('<body'));
+            console.log('发送的 detailDescription 是否包含 <p:', requestData.detailDescription.includes('<p'));
+            console.log('发送的 detailDescription 是否包含 <div:', requestData.detailDescription.includes('<div'));
+          }
+        } catch (e) {
+          console.warn('解析请求数据失败:', e);
+        }
+      }
+
       return config;
     },
   ],
@@ -306,6 +287,18 @@ export const errorConfig: RequestConfig = {
       const data = response.data;
 
       console.log('响应拦截器 - 解析后的数据:', data);
+
+      // 调试：检查富文本内容
+      if (data?.data?.detailDescription) {
+        console.log('=== 响应富文本内容调试 ===');
+        console.log('返回的 detailDescription 类型:', typeof data.data.detailDescription);
+        console.log('返回的 detailDescription 长度:', data.data.detailDescription.length);
+        console.log('返回的 detailDescription 前200字符:', data.data.detailDescription.substring(0, 200));
+        console.log('返回的 detailDescription 是否包含 <html:', data.data.detailDescription.includes('<html'));
+        console.log('返回的 detailDescription 是否包含 <body:', data.data.detailDescription.includes('<body'));
+        console.log('返回的 detailDescription 是否包含 <p:', data.data.detailDescription.includes('<p'));
+        console.log('返回的 detailDescription 是否包含 <div:', data.data.detailDescription.includes('<div'));
+      }
 
       // 处理后端业务状态码
       if (data?.code !== undefined) {
