@@ -326,9 +326,21 @@ export const errorConfig: RequestConfig = {
         }
       }
 
-      // 处理 success 字段（兼容 Pro 默认格式）
-      if (data?.success === false) {
-        console.error(data.errorMessage || '请求失败！');
+      // 处理 success 字段（兼容其他后端格式）
+      if (data?.success !== undefined) {
+        if (data.success === false) {
+          console.error(data.message || data.errorMessage || '请求失败！');
+          // 特殊处理401未授权错误
+          if (data.message?.includes('未授权')) {
+            console.error('认证失败:', data.message);
+            // 清除所有登录信息
+            removeAll();
+            // 跳转到登录页
+            if (window.location.pathname !== '/user/login') {
+              history.push('/user/login');
+            }
+          }
+        }
       }
 
       // 直接返回 response

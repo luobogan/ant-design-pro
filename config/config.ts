@@ -115,7 +115,6 @@ export default defineConfig({
    * @doc https://umijs.org/docs/max/antd#antd
    */
   antd: {
-    appConfig: {},
     // 启用暗黑主题
     dark: false,
     configProvider: {

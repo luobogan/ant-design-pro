@@ -319,6 +319,10 @@ const MenuPage: React.FC = () => {
   const handleEdit = (record: MenuItem) => {
     setCurrentMenu(record);
     setSelectedIcon(record.source || '');
+    // 初始化 menuType 状态
+    setMenuType(typeof record.category === 'string' 
+      ? parseInt(record.category, 10) 
+      : record.category);
     form.setFieldsValue({
     id: record.id,
     parentId: record.parentId,

@@ -106,7 +106,7 @@ export const productApi = {
    */
   publish: async (id: number) => {
     const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/publish`, {
-      method: 'POST',
+      method: 'PUT',
     });
     return response.data;
   },
@@ -116,7 +116,7 @@ export const productApi = {
    */
   unpublish: async (id: number) => {
     const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/unpublish`, {
-      method: 'POST',
+      method: 'PUT',
     });
     return response.data;
   },
@@ -126,7 +126,7 @@ export const productApi = {
    */
   setRecommend: async (id: number, recommend: boolean) => {
     const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/recommend`, {
-      method: 'POST',
+      method: 'PUT',
       data: { recommend },
     });
     return response.data;
@@ -137,7 +137,7 @@ export const productApi = {
    */
   setNew: async (id: number, isNew: boolean) => {
     const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/new`, {
-      method: 'POST',
+      method: 'PUT',
       data: { isNew },
     });
     return response.data;
@@ -148,7 +148,7 @@ export const productApi = {
    */
   setHot: async (id: number, isHot: boolean) => {
     const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/hot`, {
-      method: 'POST',
+      method: 'PUT',
       data: { isHot },
     });
     return response.data;
@@ -188,10 +188,23 @@ export const productApi = {
    * 获取 SKU 列表
    */
   getSkus: async (productId: number) => {
-    const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${productId}/skus`, {
+    const response = await request<BladeResponse<any> | { success: boolean; message: string; data: any }>(`${PRODUCT_BASE_URL}/${productId}/skus`, {
       method: 'GET',
     });
-    return response.data;
+    
+    const data = response.data;
+    
+    // 处理 success 格式的响应
+    if (data?.success !== undefined) {
+      if (data.success) {
+        return data.data;
+      } else {
+        throw new Error(data.message || '获取 SKU 列表失败');
+      }
+    }
+    
+    // 处理传统 code 格式的响应
+    return data;
   },
 
   /**

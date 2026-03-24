@@ -363,7 +363,7 @@ const ProductList: React.FC = () => {
   const fetchSkuData = async (productId: number) => {
     try {
       const result = await getProductSkus(productId);
-      setSkuData(result?.data || []);
+      setSkuData(result || []);
     } catch (error: any) {
       message.error(error.message || '获取 SKU 数据失败');
     }

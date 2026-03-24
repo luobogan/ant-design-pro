@@ -50,19 +50,38 @@ const PermissionConfig: React.FC<PermissionConfigProps> = ({
   );
   const [checkedApiKeys, setCheckedApiKeys] = useState<React.Key[]>([]);
 
+  // 检查键是否在树中存在
+  const isKeyInTree = (key: React.Key, tree: any[]): boolean => {
+    for (const node of tree) {
+      if (node.id === key || node.key === key || node.code === key) {
+        return true;
+      }
+      if (node.children && node.children.length > 0) {
+        if (isKeyInTree(key, node.children)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
   // 初始化选中的权限
   useEffect(() => {
     if (visible) {
-      setCheckedMenuKeys(initialMenuKeys || []);
+      // 过滤掉不在菜单树中的键
+      const validMenuKeys = (initialMenuKeys || []).filter(key => isKeyInTree(key, menuTreeData));
+      setCheckedMenuKeys(validMenuKeys);
       // 数据权限：过滤掉可能包含的分组key，只保留实际ID
       const validDataScopeKeys = (initialDataScopeKeys || []).filter((key) => {
         const keyStr = String(key);
         return !keyStr.startsWith('menu-');
       });
       setCheckedDataScopeKeys(validDataScopeKeys);
-      setCheckedApiKeys(initialApiKeys || []);
+      // 过滤掉不在接口树中的键
+      const validApiKeys = (initialApiKeys || []).filter(key => isKeyInTree(key, apiTreeData));
+      setCheckedApiKeys(validApiKeys);
     }
-  }, [visible, initialMenuKeys, initialDataScopeKeys, initialApiKeys]);
+  }, [visible, initialMenuKeys, initialDataScopeKeys, initialApiKeys, menuTreeData, apiTreeData]);
 
   // 构建菜单树
   const menuTree = useMemo(() => {
