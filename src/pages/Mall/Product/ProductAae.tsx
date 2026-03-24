@@ -1,7 +1,7 @@
 import { ArrowLeftOutlined, LoadingOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { history, useLocation, useSearchParams } from '@umijs/max';
-import { Button, Card, message, Spin } from 'antd';
+import { Button, Card, message, Modal, Spin } from 'antd';
 import React, { useEffect, useState } from 'react';
 import { productApi } from '@/services/mall';
 import type { Product, ProductFormData } from '@/services/mall/typings';
@@ -51,7 +51,28 @@ const ProductAae: React.FC = () => {
       }
       history.push('/mall/product');
     } catch (error: any) {
-      message.error(error.message || (isEditMode ? '更新商品失败' : '创建商品失败'));
+      if (isEditMode && error.message?.includes('商品已上架，编辑需要二次确认')) {
+        Modal.confirm({
+          title: '编辑确认',
+          content: '该商品已上架，编辑可能会影响在线销售，确定要继续编辑吗？',
+          okText: '确认编辑',
+          cancelText: '取消',
+          onOk: async () => {
+            try {
+              if (!productId) return;
+              await productApi.updateWithConfirm(Number(productId), data, true);
+              message.success('商品更新成功');
+              history.push('/mall/product');
+            } catch (error: any) {
+              message.error(error.message || '更新失败');
+            } finally {
+              setSubmitting(false);
+            }
+          },
+        });
+      } else {
+        message.error(error.message || (isEditMode ? '更新商品失败' : '创建商品失败'));
+      }
     } finally {
       setSubmitting(false);
     }
