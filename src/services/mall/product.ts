@@ -66,7 +66,8 @@ export const productApi = {
   updateWithConfirm: async (id: number, data: ProductFormData, confirm: boolean) => {
     const response = await request<BladeResponse<Product>>(`${PRODUCT_BASE_URL}/${id}`, {
       method: 'PUT',
-      data: { ...data, confirm },
+      params: { confirmEdit: confirm },
+      data,
     });
     return response.data;
   },

@@ -311,6 +311,16 @@ export const errorConfig: RequestConfig = {
           if (window.location.pathname !== '/user/login') {
             history.push('/user/login');
           }
+        } else if (data.code === 400) {
+          // 检查是否是"商品已上架，编辑需要二次确认"异常
+          if (data.msg?.includes('商品已上架，编辑需要二次确认')) {
+            console.error('商品已上架异常:', data.msg);
+            const error = new Error(data.msg);
+            error.name = 'ProductAlreadyOnShelf';
+            (error as any).response = data;
+            throw error;
+          }
+          checkServerCode(data);
         } else {
           checkServerCode(data);
         }
