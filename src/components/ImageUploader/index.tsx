@@ -34,7 +34,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
     if (value) {
       if (Array.isArray(value)) {
         const files: UploadFile[] = value
-          .filter((url) => url != null)
+          .filter((url) => url != null && url !== '')
           .map((url, index) => ({
             uid: `existing-${index}-${Date.now()}`,
             name: `image-${index}.jpg`,
@@ -42,7 +42,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
             url: String(url),
           }));
         setFileList(files);
-      } else {
+      } else if (value !== '') {
         const file: UploadFile = {
           uid: `existing-${Date.now()}`,
           name: 'image.jpg',
@@ -50,6 +50,8 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
           url: String(value),
         };
         setFileList([file]);
+      } else {
+        setFileList([]);
       }
     } else {
       setFileList([]);
@@ -247,61 +249,27 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
 
   return (
     <div>
-      {label && (
-        <Form.Item
-          label={label}
-          name={name}
-          rules={
-            required ? [{ required: true, message: `请上传${label}` }] : []
-          }
-        >
-          <Upload
-            name="file"
-            listType="picture-card"
-            className="avatar-uploader"
-            showUploadList={{
-              showPreviewIcon: true,
-              showRemoveIcon: true,
-              showDownloadIcon: false,
-            }}
-            customRequest={handleUpload}
-            onChange={handleChange}
-            onPreview={handlePreview}
-            onRemove={handleRemove}
-            multiple={multiple}
-            maxCount={maxCount}
-            accept={accept}
-            fileList={fileList}
-            disabled={loading}
-          >
-            {fileList.length < maxCount && uploadButton}
-          </Upload>
-        </Form.Item>
-      )}
-
-      {!label && (
-        <Upload
-          name="file"
-          listType="picture-card"
-          className="avatar-uploader"
-          showUploadList={{
-            showPreviewIcon: true,
-            showRemoveIcon: true,
-            showDownloadIcon: false,
-          }}
-          customRequest={handleUpload}
-          onChange={handleChange}
-          onPreview={handlePreview}
-          onRemove={handleRemove}
-          multiple={multiple}
-          maxCount={maxCount}
-          accept={accept}
-          fileList={fileList}
-          disabled={loading}
-        >
-          {fileList.length < maxCount && uploadButton}
-        </Upload>
-      )}
+      <Upload
+        name="file"
+        listType="picture-card"
+        className="avatar-uploader"
+        showUploadList={{
+          showPreviewIcon: true,
+          showRemoveIcon: true,
+          showDownloadIcon: false,
+        }}
+        customRequest={handleUpload}
+        onChange={handleChange}
+        onPreview={handlePreview}
+        onRemove={handleRemove}
+        multiple={multiple}
+        maxCount={maxCount}
+        accept={accept}
+        fileList={fileList}
+        disabled={loading}
+      >
+        {fileList.length < maxCount && uploadButton}
+      </Upload>
 
       <Modal
         open={previewVisible}

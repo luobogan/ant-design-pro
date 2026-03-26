@@ -349,11 +349,13 @@ const CategoryList: React.FC = () => {
     };
 
     if (
-      (attr.type === 1 || attr.type === 2) &&
-      attr.values &&
-      attr.values.length > 0
+      (attr.type === 1 || attr.type === 2)
     ) {
-      formValues.values = attr.values.map((val: any) => val.value).join('、');
+      if (attr.values && attr.values.length > 0) {
+        formValues.values = attr.values.map((val: any) => val.value).join('、');
+      } else {
+        formValues.values = '';
+      }
     }
 
     attrForm.setFieldsValue(formValues);
@@ -614,9 +616,8 @@ const CategoryList: React.FC = () => {
           </Form.Item>
 
           <ImageUploader
-            name="banner"
             label="分类图片"
-            value={form.getFieldValue('banner')}
+            value={currentCategory?.banner || ''}
             onChange={(value) => form.setFieldsValue({ banner: value })}
             maxCount={1}
             accept=".jpg,.jpeg,.png"
