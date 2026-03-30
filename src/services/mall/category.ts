@@ -120,7 +120,9 @@ export const categoryAttributeApi = {
   ): Promise<void> => {
     return request(`${CATEGORY_ATTRIBUTE_BASE_URL}/${attributeId}/values/batch`, {
       method: 'POST',
-      data: values,
+      data: {
+        values: values
+      },
     });
   },
 };

@@ -72,6 +72,7 @@ const CategoryList: React.FC = () => {
   const [editingAttrId, setEditingAttrId] = useState<number | null>(null);
   const [attrLoading, setAttrLoading] = useState(false);
   const [currentAttributeType, setCurrentAttributeType] = useState<number>(1);
+  const [optionValues, setOptionValues] = useState<string[]>([]);
 
   const [brandModalVisible, setBrandModalVisible] = useState(false);
   const [currentCategoryForBrand, setCurrentCategoryForBrand] =
@@ -315,6 +316,8 @@ const CategoryList: React.FC = () => {
     }
     attrForm.resetFields();
     setEditingAttrId(null);
+    setOptionValues([]);
+    setCurrentAttributeType(1);
   };
 
   const fetchAttributes = async (categoryId: number) => {
@@ -332,6 +335,7 @@ const CategoryList: React.FC = () => {
   const handleAddAttribute = () => {
     setEditingAttrId(null);
     setCurrentAttributeType(1);
+    setOptionValues([]);
     attrForm.resetFields();
     attrForm.setFieldsValue({ type: 1, isRequired: 0, isSearchable: 0, sortOrder: 0 });
   };
@@ -352,10 +356,15 @@ const CategoryList: React.FC = () => {
       (attr.type === 1 || attr.type === 2)
     ) {
       if (attr.values && attr.values.length > 0) {
-        formValues.values = attr.values.map((val: any) => val.value).join('、');
+        const valuesArray = attr.values.map((val: any) => val.value);
+        setOptionValues(valuesArray);
+        formValues.values = valuesArray.join('、');
       } else {
+        setOptionValues([]);
         formValues.values = '';
       }
+    } else {
+      setOptionValues([]);
     }
 
     attrForm.setFieldsValue(formValues);
@@ -371,6 +380,26 @@ const CategoryList: React.FC = () => {
     } catch (error: any) {
       message.error(error.message || '删除失败');
     }
+  };
+
+  const handleAddOptionValue = () => {
+    setOptionValues([...optionValues, '']);
+  };
+
+  const handleRemoveOptionValue = (index: number) => {
+    const newValues = [...optionValues];
+    newValues.splice(index, 1);
+    setOptionValues(newValues);
+    // 更新表单中的values字段
+    attrForm.setFieldsValue({ values: newValues.join('、') });
+  };
+
+  const handleUpdateOptionValue = (index: number, value: string) => {
+    const newValues = [...optionValues];
+    newValues[index] = value;
+    setOptionValues(newValues);
+    // 更新表单中的values字段
+    attrForm.setFieldsValue({ values: newValues.join('、') });
   };
 
   const handleSaveAttribute = async () => {
@@ -405,22 +434,20 @@ const CategoryList: React.FC = () => {
           }
 
           // 再添加新的属性值
-          if (values.values) {
-            const valueList = values.values.split('、').filter((v: string) => v.trim());
-            if (valueList.length > 0) {
-              const valueDataList = valueList.map(
-                (value: string, index: number) => ({
-                  attributeId: editingAttrId,
-                  value: value.trim(),
-                  sortOrder: index,
-                }),
-              );
-              await categoryAttributeApi.batchAddValues(
-                editingAttrId,
-                valueDataList,
-              );
-              message.success('属性值更新成功');
-            }
+          const valueList = optionValues.filter((v: string) => v.trim());
+          if (valueList.length > 0) {
+            const valueDataList = valueList.map(
+              (value: string, index: number) => ({
+                attributeId: editingAttrId,
+                value: value.trim(),
+                sortOrder: index,
+              }),
+            );
+            await categoryAttributeApi.batchAddValues(
+              editingAttrId,
+              valueDataList,
+            );
+            message.success('属性值更新成功');
           }
         }
       } else {
@@ -429,29 +456,30 @@ const CategoryList: React.FC = () => {
         message.success('属性创建成功');
 
         // 如果是单选或多选类型，保存选项值
-        if ((values.type === 1 || values.type === 2) && values.values) {
-          const valueList = values.values.split('、').filter((v: string) => v.trim());
-          if (valueList.length > 0) {
-            const valueDataList = valueList.map(
-              (value: string, index: number) => ({
-                attributeId: savedAttr.id,
-                value: value.trim(),
-                sortOrder: index,
-              }),
-            );
-            await categoryAttributeApi.batchAddValues(
-              savedAttr.id,
-              valueDataList,
-            );
-            message.success('属性值添加成功');
+          if ((values.type === 1 || values.type === 2)) {
+            const valueList = optionValues.filter((v: string) => v.trim());
+            if (valueList.length > 0) {
+              const valueDataList = valueList.map(
+                (value: string, index: number) => ({
+                  attributeId: savedAttr.id,
+                  value: value.trim(),
+                  sortOrder: index,
+                }),
+              );
+              await categoryAttributeApi.batchAddValues(
+                savedAttr.id,
+                valueDataList,
+              );
+              message.success('属性值添加成功');
+            }
           }
-        }
       }
 
       await fetchAttributes(currentCategoryForAttr.id);
       attrForm.resetFields();
       setEditingAttrId(null);
       setCurrentAttributeType(1);
+      setOptionValues([]);
     } catch (error: any) {
       message.error(error.message || '保存失败');
     }
@@ -676,7 +704,13 @@ const CategoryList: React.FC = () => {
       <Modal
         title={`属性管理 - ${currentCategoryForAttr?.name}`}
         open={attrModalVisible}
-        onCancel={() => setAttrModalVisible(false)}
+        onCancel={() => {
+          setAttrModalVisible(false);
+          setOptionValues([]);
+          setEditingAttrId(null);
+          setCurrentAttributeType(1);
+          attrForm.resetFields();
+        }}
         width={900}
         footer={null}
       >
@@ -721,10 +755,31 @@ const CategoryList: React.FC = () => {
                     required={false}
                     help="仅单选和多选类型需要填写选项值"
                   >
-                    <TextArea
-                      rows={3}
-                      placeholder="多个选项值用顿号分隔，如：红色、蓝色、绿色"
-                    />
+                    <div>
+                      {optionValues.map((value, index) => (
+                        <div key={index} style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                          <Input
+                            value={value}
+                            onChange={(e) => handleUpdateOptionValue(index, e.target.value)}
+                            placeholder={`选项${index + 1}`}
+                            style={{ flex: 1, marginRight: 8 }}
+                          />
+                          <Button
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => handleRemoveOptionValue(index)}
+                          />
+                        </div>
+                      ))}
+                      <Button
+                        type="dashed"
+                        icon={<PlusOutlined />}
+                        onClick={handleAddOptionValue}
+                        style={{ width: '100%' }}
+                      >
+                        添加选项值
+                      </Button>
+                    </div>
                   </Form.Item>
                 )}
 
