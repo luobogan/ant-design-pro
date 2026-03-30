@@ -423,8 +423,17 @@ const CategoryList: React.FC = () => {
 
         // 如果是单选或多选类型，更新选项值
         if ((values.type === 1 || values.type === 2)) {
-          // 先删除旧的属性值
-          const oldValues = attributes.find(attr => attr.id === editingAttrId)?.values || [];
+          // 先获取最新的属性值
+          let oldValues: any[] = [];
+          try {
+            const attrValues = await categoryAttributeApi.getAttributeValues(editingAttrId);
+            oldValues = attrValues || [];
+          } catch (error) {
+            // 如果获取失败，从attributes数组中尝试获取
+            oldValues = attributes.find(attr => attr.id === editingAttrId)?.values || [];
+          }
+          
+          // 删除旧的属性值
           for (const oldValue of oldValues) {
             try {
               await categoryAttributeApi.deleteAttributeValue(oldValue.id);
@@ -456,23 +465,23 @@ const CategoryList: React.FC = () => {
         message.success('属性创建成功');
 
         // 如果是单选或多选类型，保存选项值
-          if ((values.type === 1 || values.type === 2)) {
-            const valueList = optionValues.filter((v: string) => v.trim());
-            if (valueList.length > 0) {
-              const valueDataList = valueList.map(
-                (value: string, index: number) => ({
-                  attributeId: savedAttr.id,
-                  value: value.trim(),
-                  sortOrder: index,
-                }),
-              );
-              await categoryAttributeApi.batchAddValues(
-                savedAttr.id,
-                valueDataList,
-              );
-              message.success('属性值添加成功');
-            }
+        if ((values.type === 1 || values.type === 2)) {
+          const valueList = optionValues.filter((v: string) => v.trim());
+          if (valueList.length > 0) {
+            const valueDataList = valueList.map(
+              (value: string, index: number) => ({
+                attributeId: savedAttr.id,
+                value: value.trim(),
+                sortOrder: index,
+              }),
+            );
+            await categoryAttributeApi.batchAddValues(
+              savedAttr.id,
+              valueDataList,
+            );
+            message.success('属性值添加成功');
           }
+        }
       }
 
       await fetchAttributes(currentCategoryForAttr.id);
@@ -738,7 +747,13 @@ const CategoryList: React.FC = () => {
                 >
                   <Select
                     placeholder="请选择属性类型"
-                    onChange={(value) => setCurrentAttributeType(value)}
+                    onChange={(value) => {
+                      setCurrentAttributeType(value);
+                      // 如果切换到非单选/多选类型，清空选项值
+                      if (value !== 1 && value !== 2) {
+                        setOptionValues([]);
+                      }
+                    }}
                   >
                     {attributeTypes.map((type) => (
                       <Option key={type.value} value={type.value}>

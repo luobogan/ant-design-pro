@@ -125,4 +125,17 @@ export const categoryAttributeApi = {
       },
     });
   },
+
+  getAttributeValues: async (attributeId: number): Promise<any[]> => {
+    const response = await request<BladeResponse<any[]>>(`${CATEGORY_ATTRIBUTE_BASE_URL}/${attributeId}/values`, {
+      method: 'GET',
+    });
+    return response.data;
+  },
+
+  deleteAttributeValue: async (id: number): Promise<void> => {
+    return request(`${CATEGORY_ATTRIBUTE_BASE_URL}/values/${id}`, {
+      method: 'DELETE',
+    });
+  },
 };
