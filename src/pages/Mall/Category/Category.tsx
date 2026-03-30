@@ -388,12 +388,47 @@ const CategoryList: React.FC = () => {
       };
 
       if (editingAttrId) {
+        // 更新属性
         await categoryAttributeApi.update(editingAttrId, attrData);
         message.success('属性更新成功');
+
+        // 如果是单选或多选类型，更新选项值
+        if ((values.type === 1 || values.type === 2)) {
+          // 先删除旧的属性值
+          const oldValues = attributes.find(attr => attr.id === editingAttrId)?.values || [];
+          for (const oldValue of oldValues) {
+            try {
+              await categoryAttributeApi.deleteAttributeValue(oldValue.id);
+            } catch (error) {
+              // 忽略删除错误
+            }
+          }
+
+          // 再添加新的属性值
+          if (values.values) {
+            const valueList = values.values.split('、').filter((v: string) => v.trim());
+            if (valueList.length > 0) {
+              const valueDataList = valueList.map(
+                (value: string, index: number) => ({
+                  attributeId: editingAttrId,
+                  value: value.trim(),
+                  sortOrder: index,
+                }),
+              );
+              await categoryAttributeApi.batchAddValues(
+                editingAttrId,
+                valueDataList,
+              );
+              message.success('属性值更新成功');
+            }
+          }
+        }
       } else {
+        // 创建新属性
         const savedAttr = await categoryAttributeApi.create(attrData);
         message.success('属性创建成功');
 
+        // 如果是单选或多选类型，保存选项值
         if ((values.type === 1 || values.type === 2) && values.values) {
           const valueList = values.values.split('、').filter((v: string) => v.trim());
           if (valueList.length > 0) {

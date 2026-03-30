@@ -12,6 +12,7 @@ import {
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
+  SettingOutlined,
   ShoppingOutlined,
   StarOutlined,
   UndoOutlined,
