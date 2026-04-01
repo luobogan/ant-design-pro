@@ -137,6 +137,9 @@ const CategoryList: React.FC = () => {
               </span>
             )}
             <span>{cat.name}</span>
+            <Tag style={{ marginLeft: '8px' }} color={cat.status === 1 ? 'green' : 'red'}>
+              {cat.status === 1 ? '启用' : '禁用'}
+            </Tag>
           </div>
           <Space size="small">
             {!!cat.parentId && (
@@ -271,6 +274,7 @@ const CategoryList: React.FC = () => {
       banner: category.banner,
       parentId: category.parentId,
       sort: category.sort,
+      status: category.status === 1,
     });
     setModalVisible(true);
   };
@@ -288,11 +292,16 @@ const CategoryList: React.FC = () => {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      // 将布尔值转换为1或0
+      const submitValues = {
+        ...values,
+        status: values.status ? 1 : 0,
+      };
       if (currentCategory) {
-        await categoryApi.update(currentCategory.id, values);
+        await categoryApi.update(currentCategory.id, submitValues);
         message.success('更新成功');
       } else {
-        await categoryApi.create(values);
+        await categoryApi.create(submitValues);
         message.success('创建成功');
       }
       setModalVisible(false);
@@ -432,7 +441,7 @@ const CategoryList: React.FC = () => {
             // 如果获取失败，从attributes数组中尝试获取
             oldValues = attributes.find(attr => attr.id === editingAttrId)?.values || [];
           }
-          
+
           // 删除旧的属性值
           for (const oldValue of oldValues) {
             try {
@@ -649,7 +658,10 @@ const CategoryList: React.FC = () => {
         title={currentCategory ? '编辑分类' : '新增分类'}
         open={modalVisible}
         onOk={handleSubmit}
-        onCancel={() => setModalVisible(false)}
+        onCancel={() => {
+          setModalVisible(false);
+          setCurrentCategory(null);
+        }}
         width={600}
       >
         <Form form={form} layout="vertical">
@@ -687,25 +699,36 @@ const CategoryList: React.FC = () => {
             <EmojiPicker placeholder="选择分类图标" />
           </Form.Item>
 
-          <ImageUploader
-            label="分类图片"
-            value={currentCategory?.banner || ''}
-            onChange={(value) => form.setFieldsValue({ banner: value })}
-            maxCount={1}
-            accept=".jpg,.jpeg,.png"
-            maxSize={10}
-            uploadUrl="/api/blade-mall/admin/upload/image"
-            supportDrag={true}
-            showPreview={true}
-            showProgress={true}
-            height={120}
-            useLocalUpload={false}
-            returnBase64={false}
-            uploadParams={{ type: 'category' }}
-          />
+          <Form.Item label="分类图片" name="banner">
+            <ImageUploader
+              name="banner"
+              value={form.getFieldValue('banner') || ''}
+              onChange={(value) => form.setFieldsValue({ banner: value })}
+              maxCount={1}
+              accept=".jpg,.jpeg,.png"
+              maxSize={10}
+              uploadUrl="/api/blade-mall/admin/upload/image"
+              supportDrag={true}
+              showPreview={true}
+              showProgress={true}
+              height={120}
+              useLocalUpload={false}
+              returnBase64={false}
+              uploadParams={{ type: 'category' }}
+            />
+          </Form.Item>
 
           <Form.Item label="分类描述" name="description">
             <TextArea rows={4} placeholder="请输入分类描述" />
+          </Form.Item>
+
+          <Form.Item
+            label="状态"
+            name="status"
+            valuePropName="checked"
+            initialValue={true}
+          >
+            <Switch checkedChildren="启用" unCheckedChildren="禁用" />
           </Form.Item>
         </Form>
       </Modal>

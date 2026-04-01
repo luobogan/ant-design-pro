@@ -426,6 +426,7 @@ export interface CategoryFormData {
   banner?: string;
   parentId?: number;
   sort: number;
+  status: number;
 }
 
 export interface CategoryAttribute {
