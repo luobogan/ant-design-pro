@@ -1024,6 +1024,23 @@ const ProductForm: React.FC<ProductFormProps> = ({
       console.log('=== 转换后的 SKU 数据 ===', convertedSkus);
       console.log('=== 属性图片数据 ===', attributeImages);
 
+      // 从SKU列表中找到促销价最低的商品
+      let minPromotionPrice = Infinity;
+      let minPriceProduct = null;
+      
+      for (const sku of convertedSkus) {
+        if (sku.promotionPrice && sku.promotionPrice < minPromotionPrice) {
+          minPromotionPrice = sku.promotionPrice;
+          minPriceProduct = sku;
+        }
+      }
+
+      // 如果找到最低促销价的商品，更新商品的市场价和售价
+      if (minPriceProduct) {
+        restValues.originalPrice = minPriceProduct.promotionPrice;
+        restValues.price = minPriceProduct.price;
+      }
+
       const productData: ProductFormData = {
         ...restValues,
         // 从文件对象中提取 URL
