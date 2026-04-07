@@ -31,17 +31,51 @@ export const brandApi = {
   },
 
   create: async (data: BrandFormData): Promise<Brand> => {
+    console.log('Brand create data:', data);
+    const formData = new FormData();
+    formData.append('name', data.name);
+    if (data.description) {
+      formData.append('description', data.description);
+    }
+    if (data.logo) {
+      formData.append('logo', data.logo);
+    }
+    formData.append('sort', data.sort.toString());
+    if (data.status !== undefined) {
+      formData.append('status', data.status.toString());
+    }
+
     const response = await request<BladeResponse<Brand>>(BRAND_BASE_URL, {
       method: 'POST',
-      data,
+      data: formData,
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
     });
     return response.data;
   },
 
   update: async (id: number, data: BrandFormData): Promise<Brand> => {
+    console.log('Brand update data:', data);
+    const formData = new FormData();
+    formData.append('name', data.name);
+    if (data.description) {
+      formData.append('description', data.description);
+    }
+    if (data.logo) {
+      formData.append('logo', data.logo);
+    }
+    formData.append('sort', data.sort.toString());
+    if (data.status !== undefined) {
+      formData.append('status', data.status.toString());
+    }
+
     const response = await request<BladeResponse<Brand>>(`${BRAND_BASE_URL}/${id}`, {
       method: 'PUT',
-      data,
+      data: formData,
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
     });
     return response.data;
   },

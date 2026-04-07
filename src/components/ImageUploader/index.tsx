@@ -56,7 +56,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
     } else {
       setFileList([]);
     }
-  }, [value]);
+  }, []); // 只在组件挂载时初始化，不再监听 value 变化
 
   const validateFile = (file: UploadFile) => {
     const isLtMaxSize = file.size ? file.size / 1024 / 1024 < maxSize : true;

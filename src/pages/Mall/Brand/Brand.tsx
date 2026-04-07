@@ -13,15 +13,13 @@ import {
   message,
   Card,
   Popconfirm,
-  Upload,
-  Image,
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, UploadOutlined, ReloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd';
-import type { UploadProps } from 'antd/es/upload/interface';
 import { brandApi } from '@/services/mall/brand';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import type { Brand, BrandFormData } from '@/services/mall/typings';
+import ImageUploader from '@/components/ImageUploader';
 
 /**
  * 品牌管理页面
@@ -30,7 +28,7 @@ const BrandList: React.FC = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [currentBrand, setCurrentBrand] = useState<Brand | null>(null);
   const [form] = Form.useForm();
-  const [imageUrl, setImageUrl] = useState<string>('');
+  const [logoUrl, setLogoUrl] = useState<string>('');
   const [data, setData] = useState<Brand[]>([]);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({
@@ -114,7 +112,6 @@ const BrandList: React.FC = () => {
       fixed: 'right',
       render: (_: unknown, record: Brand) => (
         <Space size="small">
-          {buttons.some((btn: any) => btn.code === 'brand_edit') && (
             <Button
               type="link"
               size="small"
@@ -123,7 +120,6 @@ const BrandList: React.FC = () => {
             >
               编辑
             </Button>
-          )}
           {buttons.some((btn: any) => btn.code === 'brand_delete') && (
             <Popconfirm
               title="确认删除"
@@ -144,7 +140,7 @@ const BrandList: React.FC = () => {
 
   const handleAdd = () => {
     setCurrentBrand(null);
-    setImageUrl('');
+    setLogoUrl('');
     form.resetFields();
     form.setFieldsValue({
       status: 1,
@@ -153,27 +149,9 @@ const BrandList: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleUpload: UploadProps['onChange'] = async (info) => {
-    if (info.file.status === 'uploading') {
-      return;
-    }
-    if (info.file.status === 'done') {
-      if (info.file.response && info.file.response.data) {
-        const url = info.file.response.data;
-        setImageUrl(url);
-        form.setFieldsValue({ logo: url });
-        message.success('上传成功');
-      } else {
-        message.error('上传失败，请重试');
-      }
-    } else if (info.file.status === 'error') {
-      message.error('上传失败，请重试');
-    }
-  };
-
   const handleEdit = (brand: Brand) => {
     setCurrentBrand(brand);
-    setImageUrl(brand.logo || '');
+    setLogoUrl(brand.logo || '');
     form.setFieldsValue({
       name: brand.name,
       description: brand.description,
@@ -197,7 +175,9 @@ const BrandList: React.FC = () => {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      console.log('Form values:', values);
       const formData: BrandFormData = values;
+      console.log('Form data:', formData);
 
       if (currentBrand) {
         await brandApi.update(currentBrand.id, formData);
@@ -210,6 +190,7 @@ const BrandList: React.FC = () => {
       setModalVisible(false);
       fetchData(pagination.current, pagination.pageSize);
     } catch (error) {
+      console.error('Submit error:', error);
       message.error('操作失败');
     }
   };
@@ -223,11 +204,9 @@ const BrandList: React.FC = () => {
             <Button icon={<ReloadOutlined />} onClick={() => fetchData(pagination.current, pagination.pageSize)}>
               刷新
             </Button>
-            {buttons.some((btn: any) => btn.code === 'brand_add') && (
               <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
                 新增品牌
               </Button>
-            )}
           </Space>
         }
       >
@@ -270,24 +249,25 @@ const BrandList: React.FC = () => {
           </Form.Item>
 
           <Form.Item label="品牌LOGO" name="logo">
-            <div>
-              {imageUrl && (
-                <div style={{ marginBottom: 8 }}>
-                  <Image src={imageUrl} width={100} height={100} style={{ objectFit: 'contain' }} />
-                </div>
-              )}
-              <Upload
-                name="file"
-                action="/api/blade-mall/upload"
-                onChange={handleUpload}
-                showUploadList={false}
-                maxCount={1}
-              >
-                <Button icon={<UploadOutlined />}>
-                  {imageUrl ? '更换图片' : '上传图片'}
-                </Button>
-              </Upload>
-            </div>
+            <ImageUploader
+              name="logo"
+              value={logoUrl}
+              onChange={(value) => {
+                setLogoUrl(value);
+                form.setFieldsValue({ logo: value });
+              }}
+              maxCount={1}
+              accept=".jpg,.jpeg,.png"
+              maxSize={10}
+              uploadUrl="/api/blade-mall/admin/upload/image"
+              supportDrag={true}
+              showPreview={true}
+              showProgress={true}
+              height={120}
+              useLocalUpload={false}
+              returnBase64={false}
+              uploadParams={{ type: 'brand' }}
+            />
           </Form.Item>
 
           <Form.Item label="描述" name="description">
