@@ -89,6 +89,14 @@ export function getUserInfo<T = Record<string, any>>(): T | null {
 }
 
 /**
+ * 获取当前租户ID
+ */
+export function getTenantId(): string | null {
+  const userInfo = getUserInfo();
+  return userInfo?.tenantId || null;
+}
+
+/**
  * 设置用户信息
  */
 export function setUserInfo<T = Record<string, any>>(userInfo: T): void {

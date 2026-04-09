@@ -4,7 +4,7 @@ import hash from 'hash.js';
 // @ts-expect-error
 import qs from 'qs';
 import { getBasicAuth } from '@/utils/auth';
-import { getCaptchaKey, getToken, removeAll } from '@/utils/authority';
+import { getCaptchaKey, getTenantId, getToken, removeAll } from '@/utils/authority';
 import Settings from '../config/defaultSettings';
 
 // 后端状态码消息映射
@@ -170,6 +170,16 @@ export const errorConfig: RequestConfig = {
         );
       } else {
         console.warn('未找到 Token，请求可能无法通过认证');
+      }
+
+      // 添加租户 ID 头
+      const tenantId = getTenantId();
+      if (tenantId) {
+        config.headers['Tenant-Id'] = tenantId;
+        console.log('已添加 Tenant-Id:', tenantId);
+      } else {
+        console.warn('未找到租户 ID，使用默认值');
+        config.headers['Tenant-Id'] = '000000'; // 默认租户 ID
       }
 
       // 处理请求体

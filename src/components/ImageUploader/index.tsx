@@ -31,7 +31,18 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
   const [previewImage, setPreviewImage] = useState('');
 
   useEffect(() => {
-    if (value) {
+    // 只有当 value 不为空且与当前 fileList 中的 url 不同时才重新初始化
+    // 这样可以避免在上传过程中覆盖正在处理的文件
+    const currentUrls = fileList
+      .filter((file) => file.status === 'done' && file.url)
+      .map((file) => file.url as string);
+
+    const shouldUpdate = value !== '' && (
+      (Array.isArray(value) && JSON.stringify(value) !== JSON.stringify(currentUrls)) ||
+      (!Array.isArray(value) && value !== currentUrls[0])
+    );
+
+    if (shouldUpdate) {
       if (Array.isArray(value)) {
         const files: UploadFile[] = value
           .filter((url) => url != null && url !== '')
@@ -53,10 +64,8 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
       } else {
         setFileList([]);
       }
-    } else {
-      setFileList([]);
     }
-  }, []); // 只在组件挂载时初始化，不再监听 value 变化
+  }, [value, fileList]); // 监听 value 和 fileList 变化
 
   const validateFile = (file: UploadFile) => {
     const isLtMaxSize = file.size ? file.size / 1024 / 1024 < maxSize : true;
