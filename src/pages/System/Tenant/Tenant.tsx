@@ -9,7 +9,8 @@ import {
 import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { useRequest } from '@umijs/max';
-import { Button, Form, Input, Modal, message, Select, Space, Tag } from 'antd';
+import { Button, Form, Input, Modal, message, Select, Space, Tag, DatePicker } from 'antd';
+import dayjs from 'dayjs';
 import React, { useMemo, useState, useEffect } from 'react';
 import * as tenantApi from '@/services/system/tenant';
 import { getButton } from '@/utils/authority';
@@ -27,6 +28,7 @@ interface Tenant {
   accountNumber: number;
   expireTime: string;
   bindDomain: string;
+  address: string;
   status: number;
   createTime: string;
 }
@@ -42,6 +44,7 @@ const TenantPage: React.FC = () => {
 
   useEffect(() => {
     const btns = getButton('tenant');
+    console.log("  tenanttenanttenant  "+btns);
     setButtons(btns || []);
   }, []);
 
@@ -59,15 +62,17 @@ const TenantPage: React.FC = () => {
     const records = Array.isArray(tenantData)
       ? tenantData
       : tenantData?.records || tenantData?.data || [];
+    console.log('原始租户数据:', records);
     return records.map((tenant: any) => ({
       ...tenant,
       tenantId: tenant.tenantId || tenant.id || '',
       tenantName: tenant.tenantName || tenant.name || '',
-      contactPerson: tenant.contactPerson || tenant.contact || '',
-      contactPhone: tenant.contactPhone || tenant.phone || '',
+      contactPerson: tenant.contactPerson || tenant.contact || tenant.linkman || '',
+      contactPhone: tenant.contactPhone || tenant.phone || tenant.contactNumber || '',
       accountNumber: tenant.accountNumber || 0,
-      expireTime: tenant.expireTime || '',
-      bindDomain: tenant.bindDomain || '',
+      expireTime: tenant.expireTime || tenant.expires || tenant.expire || '',
+      bindDomain: tenant.bindDomain || tenant.domain || '',
+      address: tenant.address || '',
     }));
   }, [tenantData]);
 
@@ -135,7 +140,7 @@ const TenantPage: React.FC = () => {
       width: 280,
       render: (_: any, record: Tenant) => (
         <Space>
-          {buttons.some(btn => btn.code === 'tenant:view') && (
+          {buttons.some(btn => btn.code === 'tenant_view') && (
             <Button
               type="link"
               icon={<EyeOutlined />}
@@ -144,7 +149,7 @@ const TenantPage: React.FC = () => {
               查看
             </Button>
           )}
-          {buttons.some(btn => btn.code === 'tenant:edit') && (
+          {buttons.some(btn => btn.code === 'tenant_edit') && (
             <Button
               type="link"
               icon={<EditOutlined />}
@@ -153,7 +158,7 @@ const TenantPage: React.FC = () => {
               编辑
             </Button>
           )}
-          {buttons.some(btn => btn.code === 'tenant:delete') && (
+          {buttons.some(btn => btn.code === 'tenant_delete') && (
             <Button
               type="link"
               danger
@@ -163,12 +168,12 @@ const TenantPage: React.FC = () => {
               删除
             </Button>
           )}
-          {buttons.some(btn => btn.code === 'tenant:datasource') && (
+          {buttons.some(btn => btn.code === 'tenant_datasource') && (
             <Button type="link" icon={<DatabaseOutlined />}>
               数据源
             </Button>
           )}
-          {buttons.some(btn => btn.code === 'tenant:package') && (
+          {buttons.some(btn => btn.code === 'tenant_package') && (
             <Button type="link" icon={<SettingOutlined />}>
               产品包
             </Button>
@@ -211,11 +216,27 @@ const TenantPage: React.FC = () => {
   const handleAddOk = async () => {
     try {
       const values = await form.validateFields();
-      await tenantApi.submit(values);
+      // 处理日期格式，将 dayjs 对象转换为字符串
+      const submitValues = {
+        tenantId: values.tenantId,
+        tenantName: values.tenantName,
+        linkman: values.contactPerson,
+        contactNumber: values.contactPhone,
+        accountNumber: values.accountNumber,
+        domain: values.bindDomain,
+        address: values.address,
+      };
+      // 只有当选择了日期时，才包含 expireTime 字段
+      if (values.expireTime) {
+        submitValues.expireTime = values.expireTime.format('YYYY-MM-DD');
+      }
+      console.log('提交的租户数据:', submitValues);
+      await tenantApi.submit(submitValues);
       message.success('添加成功');
       setAddModalVisible(false);
       refresh();
-    } catch (_error) {
+    } catch (error) {
+      console.error('添加失败:', error);
       message.error('添加失败');
     }
   };
@@ -223,11 +244,28 @@ const TenantPage: React.FC = () => {
   const handleEditOk = async () => {
     try {
       const values = await form.validateFields();
-      await tenantApi.submit({ ...values, id: currentTenant?.id });
+      // 处理日期格式，将 dayjs 对象转换为字符串
+      const submitValues = {
+        id: currentTenant?.id,
+        tenantId: values.tenantId,
+        tenantName: values.tenantName,
+        linkman: values.contactPerson,
+        contactNumber: values.contactPhone,
+        accountNumber: values.accountNumber,
+        domain: values.bindDomain,
+        address: values.address,
+      };
+      // 只有当选择了日期时，才包含 expireTime 字段
+      if (values.expireTime) {
+        submitValues.expireTime = values.expireTime.format('YYYY-MM-DD');
+      }
+      console.log('编辑的租户数据:', submitValues);
+      await tenantApi.submit(submitValues);
       message.success('编辑成功');
       setEditModalVisible(false);
       refresh();
-    } catch (_error) {
+    } catch (error) {
+      console.error('编辑失败:', error);
       message.error('编辑失败');
     }
   };
@@ -245,8 +283,9 @@ const TenantPage: React.FC = () => {
       contactPerson: record.contactPerson,
       contactPhone: record.contactPhone,
       accountNumber: record.accountNumber,
-      expireTime: record.expireTime,
+      expireTime: record.expireTime ? dayjs(record.expireTime) : null,
       bindDomain: record.bindDomain,
+      address: record.address,
     });
     setEditModalVisible(true);
   };
@@ -267,7 +306,7 @@ const TenantPage: React.FC = () => {
           onChange: (keys) => setSelectedRowKeys(keys),
         }}
         toolBarRender={() => [
-          buttons.some(btn => btn.code === 'tenant:add') && (
+          buttons.some(btn => btn.code === 'tenant_add') && (
             <Button
               key="add"
               type="primary"
@@ -277,7 +316,7 @@ const TenantPage: React.FC = () => {
               新增
             </Button>
           ),
-          buttons.some(btn => btn.code === 'tenant:delete') && (
+          buttons.some(btn => btn.code === 'tenant_delete') && (
             <Button
               key="delete"
               danger
@@ -344,10 +383,17 @@ const TenantPage: React.FC = () => {
             <Input type="number" placeholder="请输入账号额度" />
           </Form.Item>
           <Form.Item name="expireTime" label="过期时间">
-            <Input placeholder="请输入过期时间，留空表示不限期" />
+            <DatePicker
+              style={{ width: '100%' }}
+              placeholder="请选择过期时间，留空表示不限期"
+              format="YYYY-MM-DD"
+            />
           </Form.Item>
           <Form.Item name="bindDomain" label="绑定域名">
             <Input placeholder="请输入绑定域名" />
+          </Form.Item>
+          <Form.Item name="address" label="联系地址">
+            <TextArea style={{ minHeight: 32 }} rows={3} placeholder="请输入联系地址" />
           </Form.Item>
         </Form>
       </Modal>
@@ -394,6 +440,10 @@ const TenantPage: React.FC = () => {
               <p>
                 <strong>绑定域名：</strong>
                 {currentTenant.bindDomain || '-'}
+              </p>
+              <p>
+                <strong>联系地址：</strong>
+                {currentTenant.address || '-'}
               </p>
             </div>
           )}

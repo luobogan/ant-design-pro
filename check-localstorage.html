@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Check LocalStorage</title>
+</head>
+<body>
+    <h1>LocalStorage 数据检查</h1>
+    <div id="result"></div>
+    <script>
+        const resultDiv = document.getElementById('result');
+        const buttons = localStorage.getItem('sword-buttons');
+        const token = localStorage.getItem('sword-token');
+        const userInfo = localStorage.getItem('sword-user-info');
+        
+        resultDiv.innerHTML = `
+            <h2>Token: ${token ? '存在' : '不存在'}</h2>
+            <h2>User Info: ${userInfo ? '存在' : '不存在'}</h2>
+            <h2>Buttons:</h2>
+            <pre>${buttons ? JSON.stringify(JSON.parse(buttons), null, 2) : '不存在'}</pre>
+        `;
+    </script>
+</body>
+</html>

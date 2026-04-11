@@ -15,9 +15,9 @@ export async function tree(params: any) {
 
 // 删除部门
 export async function remove(params: any) {
-  return request('/api/blade-system/dept/remove', {
+  const ids = Array.isArray(params.ids) ? params.ids.join(',') : params.ids;
+  return request(`/api/blade-system/dept/remove?ids=${ids}`, {
     method: 'POST',
-    data: params,
   });
 }
 

@@ -12,9 +12,11 @@ import {
   Space,
   TreeSelect,
 } from 'antd';
+import { useRequest } from '@umijs/max';
 import moment from 'moment';
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import * as userApi from '@/services/system/user';
+import * as tenantApi from '@/services/system/tenant';
 
 interface UserAddProps {
   onOk: () => void;
@@ -33,6 +35,20 @@ const UserAdd: React.FC<UserAddProps> = ({
 }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState<boolean>(false);
+
+  // 动态获取租户列表
+  const { data: tenantData } = useRequest(() => tenantApi.list({}));
+
+  // 转换租户数据为 Select 选项格式
+  const tenantOptions = useMemo(() => {
+    const records = Array.isArray(tenantData)
+      ? tenantData
+      : tenantData?.records || tenantData?.data || [];
+    return records.map((tenant: any) => ({
+      label: tenant.tenantName || tenant.name || tenant.id,
+      value: tenant.tenantId || tenant.id,
+    }));
+  }, [tenantData]);
 
   const handleSubmit = async (values: any) => {
     setLoading(true);
@@ -113,11 +129,7 @@ const UserAdd: React.FC<UserAddProps> = ({
             >
               <Select
                 placeholder="请选择所属租户"
-                options={[
-                  { label: '默认租户', value: '000000' },
-                  { label: '租户 1', value: '000001' },
-                  { label: '租户 2', value: '000002' },
-                ]}
+                options={tenantOptions}
               />
             </Form.Item>
           </Col>

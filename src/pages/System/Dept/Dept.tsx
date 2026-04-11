@@ -3,12 +3,15 @@ import {
   EditOutlined,
   EyeOutlined,
   PlusOutlined,
+  ReloadOutlined,
+  SearchOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { useRequest } from '@umijs/max';
-import { Button, Form, Input, InputNumber, Modal, message, Select } from 'antd';
-import React, { useState, useEffect } from 'react';
+import { Button, Card, Col, Form, Input, InputNumber, Modal, message, Row, Select, Tree } from 'antd';
+import type { DataNode } from 'antd/es/tree';
+import React, { useState, useEffect, useMemo } from 'react';
 import * as deptApi from '@/services/system/dept';
 import { getButton } from '@/utils/authority';
 import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
@@ -23,6 +26,15 @@ interface Dept {
   status: string;
   remark: string;
   createTime: string;
+  children?: Dept[];
+}
+
+interface DeptTreeNode {
+  id: string;
+  parentId: string;
+  title: string;
+  key: string;
+  children?: DeptTreeNode[];
 }
 
 const { Option } = Select;
@@ -37,6 +49,9 @@ const Dept: React.FC = () => {
   const [addForm] = Form.useForm();
   const [editForm] = Form.useForm();
   const [buttons, setButtons] = useState<ButtonConfig[]>([]);
+  const [selectedDeptId, setSelectedDeptId] = useState<string>('');
+  const [searchValue, setSearchValue] = useState<string>('');
+  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
 
   useEffect(() => {
     const btns = getButton('dept');
@@ -45,17 +60,136 @@ const Dept: React.FC = () => {
 
   // 获取部门列表
   const {
-    data: depts,
+    data: deptData,
     loading,
     refresh,
   } = useRequest(() => {
     return deptApi.list({});
+  }, {
+    refreshDeps: [selectedDeptId],
   });
 
-  // 获取部门树
-  const { data: deptTree } = useRequest(() => {
-    return deptApi.tree({});
-  });
+  // 转换部门数据，适配后端字段
+  const depts = useMemo(() => {
+    const records = Array.isArray(deptData)
+      ? deptData
+      : deptData?.records || deptData?.data || [];
+    
+    // 根据选择的部门过滤数据
+    let filteredRecords = records;
+    if (selectedDeptId) {
+      // 如果选择了某个部门，显示该部门及其所有子部门
+      const getDescendantIds = (deptId: string): string[] => {
+        const ids: string[] = [deptId];
+        const children = records.filter((d: any) => String(d.parentId) === String(deptId));
+        children.forEach((child: any) => {
+          ids.push(...getDescendantIds(String(child.id)));
+        });
+        return ids;
+      };
+      const descendantIds = getDescendantIds(selectedDeptId);
+      filteredRecords = records.filter((d: any) => descendantIds.includes(String(d.id)));
+    }
+
+    return filteredRecords.map((dept: any) => ({
+      ...dept,
+      id: dept.id || '',
+      name: dept.deptName || dept.name || '',
+      code: dept.code || '-',
+      parentId: dept.parentId || '',
+      parentName: dept.parentName || '-',
+      sort: dept.sort || 0,
+      status: dept.status !== undefined ? dept.status : '启用',
+      remark: dept.remark || '',
+      createTime: dept.createTime || '',
+    }));
+  }, [deptData, selectedDeptId]);
+
+  // 构建树形数据
+  const deptTreeData = useMemo(() => {
+    const records = Array.isArray(deptData)
+      ? deptData
+      : deptData?.records || deptData?.data || [];
+    
+    const deptMap = new Map<string, DeptTreeNode>();
+    const rootNodes: DeptTreeNode[] = [];
+
+    records.forEach((dept: any) => {
+      const node: DeptTreeNode = {
+        id: String(dept.id),
+        parentId: String(dept.parentId || 0),
+        title: dept.deptName || dept.name || dept.id,
+        key: String(dept.id),
+        children: [],
+      };
+      deptMap.set(node.id, node);
+    });
+
+    deptMap.forEach((node) => {
+      if (node.parentId === '0' || !deptMap.has(node.parentId)) {
+        rootNodes.push(node);
+      } else {
+        const parent = deptMap.get(node.parentId);
+        if (parent) {
+          if (!parent.children) {
+            parent.children = [];
+          }
+          parent.children.push(node);
+        }
+      }
+    });
+
+    const sortNodes = (nodes: DeptTreeNode[]): DeptTreeNode[] => {
+      return nodes.sort((a, b) => {
+        const aSort = records.find((r: any) => String(r.id) === a.id)?.sort || 0;
+        const bSort = records.find((r: any) => String(r.id) === b.id)?.sort || 0;
+        return aSort - bSort;
+      }).map(node => ({
+        ...node,
+        children: node.children ? sortNodes(node.children) : undefined,
+      }));
+    };
+
+    return sortNodes(rootNodes);
+  }, [deptData]);
+
+  // 获取所有部门ID用于默认展开
+  useEffect(() => {
+    const getAllKeys = (data: DeptTreeNode[]): string[] => {
+      let keys: string[] = [];
+      data.forEach((item) => {
+        keys.push(item.id);
+        if (item.children) {
+          keys = keys.concat(getAllKeys(item.children));
+        }
+      });
+      return keys;
+    };
+    setExpandedKeys(getAllKeys(deptTreeData));
+  }, [deptTreeData]);
+
+  // 构建树形数据结构
+  const buildTreeData = (data: DeptTreeNode[]): DataNode[] => {
+    return data.map((item) => ({
+      key: item.id,
+      title: item.title,
+      children: item.children ? buildTreeData(item.children) : undefined,
+    }));
+  };
+
+  // 处理部门选择
+  const handleDeptSelect = (selectedKeys: React.Key[], _info: any) => {
+    if (selectedKeys.length > 0) {
+      setSelectedDeptId(selectedKeys[0] as string);
+    } else {
+      setSelectedDeptId('');
+    }
+  };
+
+  // 处理展开/折叠
+  const handleExpand = (expandedKeys: React.Key[]) => {
+    setExpandedKeys(expandedKeys);
+  };
 
   const columns: ProColumns<Dept>[] = [
     {
@@ -125,7 +259,7 @@ const Dept: React.FC = () => {
       width: 150,
       render: (_: any, record: Dept) => (
         <>
-          {buttons.some(btn => btn.code === 'dept:view') && (
+          {buttons.some(btn => btn.code === 'dept_view') && (
             <Button
               type="text"
               icon={<EyeOutlined />}
@@ -135,7 +269,7 @@ const Dept: React.FC = () => {
               查看
             </Button>
           )}
-          {buttons.some(btn => btn.code === 'dept:edit') && (
+          {buttons.some(btn => btn.code === 'dept_edit') && (
             <Button
               type="text"
               icon={<EditOutlined />}
@@ -145,7 +279,7 @@ const Dept: React.FC = () => {
               编辑
             </Button>
           )}
-          {buttons.some(btn => btn.code === 'dept:delete') && (
+          {buttons.some(btn => btn.code === 'dept_delete') && (
             <Button
               type="text"
               danger
@@ -231,18 +365,59 @@ const Dept: React.FC = () => {
         </Button>
       ))}
     >
-      <ProTable
-        columns={columns}
-        dataSource={depts || []}
-        loading={loading}
-        rowKey="id"
-        pagination={{ pageSize: 10 }}
-        rowSelection={{
-          selectedRowKeys,
-          onChange: (keys) => setSelectedRowKeys(keys),
-        }}
-        toolBarRender={false}
-      />
+      <Row gutter={16}>
+        {/* 左侧部门树 */}
+        <Col span={5}>
+          <Card
+            title="部门结构"
+            extra={
+              <Button
+                type="text"
+                icon={<ReloadOutlined />}
+                onClick={() => refresh()}
+                size="small"
+              />
+            }
+            loading={loading}
+            styles={{ body: { padding: '12px', minHeight: '600px' } }}
+          >
+            <Input
+              placeholder="输入关键字进行过滤"
+              prefix={<SearchOutlined />}
+              value={searchValue}
+              onChange={(e) => setSearchValue(e.target.value)}
+              style={{ marginBottom: 12 }}
+            />
+            <Tree
+              treeData={buildTreeData(deptTreeData)}
+              onSelect={handleDeptSelect}
+              expandedKeys={expandedKeys}
+              onExpand={handleExpand}
+              selectable
+              showLine
+              showIcon={false}
+              style={{ maxHeight: '500px', overflow: 'auto' }}
+              defaultSelectedKeys={selectedDeptId ? [selectedDeptId] : []}
+            />
+          </Card>
+        </Col>
+
+        {/* 右侧部门列表 */}
+        <Col span={19}>
+          <ProTable
+            columns={columns}
+            dataSource={depts || []}
+            loading={loading}
+            rowKey="id"
+            pagination={{ pageSize: 10 }}
+            rowSelection={{
+              selectedRowKeys,
+              onChange: (keys) => setSelectedRowKeys(keys),
+            }}
+            toolBarRender={false}
+          />
+        </Col>
+      </Row>
 
       {/* 添加部门弹窗 */}
       <Modal
@@ -278,9 +453,9 @@ const Dept: React.FC = () => {
           <Form.Item name="parentId" label="上级部门">
             <Select placeholder="请选择上级部门">
               <Option value="0">无</Option>
-              {deptTree?.data?.map((dept: any) => (
+              {deptTreeData?.map((dept: any) => (
                 <Option key={dept.id} value={dept.id}>
-                  {dept.name}
+                  {dept.title}
                 </Option>
               ))}
             </Select>
@@ -345,9 +520,9 @@ const Dept: React.FC = () => {
           <Form.Item name="parentId" label="上级部门">
             <Select placeholder="请选择上级部门">
               <Option value="0">无</Option>
-              {deptTree?.data?.map((dept: any) => (
+              {deptTreeData?.map((dept: any) => (
                 <Option key={dept.id} value={dept.id}>
-                  {dept.name}
+                  {dept.title}
                 </Option>
               ))}
             </Select>

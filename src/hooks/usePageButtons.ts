@@ -15,21 +15,21 @@ export const getMenuCodeFromPath = (pathname: string): string => {
 
 /**
  * 动态获取当前页面按钮权限的自定义 Hook
- * 
+ *
  * @example
  * ```tsx
  * // 基础用法 - 自动从路由获取
  * const { buttons, loading } = usePageButtons();
- * 
+ *
  * // 指定菜单 code
  * const { buttons } = usePageButtons('user');
- * 
+ *
  * // 在组件中使用
  * useEffect(() => {
  *   console.log('页面按钮:', buttons);
  * }, [buttons]);
  * ```
- * 
+ *
  * @param menuCode 可选，指定菜单 code，不传则自动从路由提取
  * @returns 按钮权限数组和加载状态
  */
@@ -40,16 +40,16 @@ export const usePageButtons = (menuCode?: string) => {
 
   useEffect(() => {
     setLoading(true);
-    
+
     // 如果没有传入 menuCode，则从路由路径自动提取
     const code = menuCode || getMenuCodeFromPath(location.pathname);
-    
+
     console.log('当前路由路径:', location.pathname);
     console.log('使用的菜单 code:', code);
-    
+
     const btns = getButton(code);
     console.log('获取到的按钮权限:', btns);
-    
+
     setButtons(btns || []);
     setLoading(false);
   }, [menuCode, location.pathname]);
