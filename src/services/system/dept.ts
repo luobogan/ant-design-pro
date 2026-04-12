@@ -33,3 +33,8 @@ export async function submit(params: any) {
 export async function detail(params: any) {
   return request(`/api/blade-system/dept/detail?${stringify(params)}`);
 }
+
+// 根据ID获取部门
+export async function getById(id: string) {
+  return request(`/api/blade-system/dept/detail?id=${id}`);
+}

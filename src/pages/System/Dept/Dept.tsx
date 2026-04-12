@@ -3,21 +3,18 @@ import {
   EditOutlined,
   EyeOutlined,
   PlusOutlined,
-  ReloadOutlined,
-  SearchOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { useRequest } from '@umijs/max';
-import { Button, Card, Col, Form, Input, InputNumber, Modal, message, Row, Select, Tree } from 'antd';
-import type { DataNode } from 'antd/es/tree';
-import React, { useState, useEffect, useMemo } from 'react';
+import { usePageButtons } from '@/hooks/usePageButtons';
+import { Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, TreeSelect, message } from 'antd';
+import React, { useState, useMemo } from 'react';
 import * as deptApi from '@/services/system/dept';
-import { getButton } from '@/utils/authority';
-import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
 
 interface Dept {
   id: string;
+  tenantId: string;
   name: string;
   code: string;
   parentId: string;
@@ -29,18 +26,12 @@ interface Dept {
   children?: Dept[];
 }
 
-interface DeptTreeNode {
-  id: string;
-  parentId: string;
-  title: string;
-  key: string;
-  children?: DeptTreeNode[];
-}
-
 const { Option } = Select;
 const { TextArea } = Input;
 
 const Dept: React.FC = () => {
+  const { buttons } = usePageButtons();
+
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [addModalVisible, setAddModalVisible] = useState<boolean>(false);
   const [editModalVisible, setEditModalVisible] = useState<boolean>(false);
@@ -48,15 +39,6 @@ const Dept: React.FC = () => {
   const [currentDept, setCurrentDept] = useState<Dept | null>(null);
   const [addForm] = Form.useForm();
   const [editForm] = Form.useForm();
-  const [buttons, setButtons] = useState<ButtonConfig[]>([]);
-  const [selectedDeptId, setSelectedDeptId] = useState<string>('');
-  const [searchValue, setSearchValue] = useState<string>('');
-  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
-
-  useEffect(() => {
-    const btns = getButton('dept');
-    setButtons(btns || []);
-  }, []);
 
   // 获取部门列表
   const {
@@ -65,131 +47,115 @@ const Dept: React.FC = () => {
     refresh,
   } = useRequest(() => {
     return deptApi.list({});
-  }, {
-    refreshDeps: [selectedDeptId],
   });
 
-  // 转换部门数据，适配后端字段
+  // 转换部门数据为树形结构
   const depts = useMemo(() => {
     const records = Array.isArray(deptData)
       ? deptData
       : deptData?.records || deptData?.data || [];
-    
-    // 根据选择的部门过滤数据
-    let filteredRecords = records;
-    if (selectedDeptId) {
-      // 如果选择了某个部门，显示该部门及其所有子部门
-      const getDescendantIds = (deptId: string): string[] => {
-        const ids: string[] = [deptId];
-        const children = records.filter((d: any) => String(d.parentId) === String(deptId));
-        children.forEach((child: any) => {
-          ids.push(...getDescendantIds(String(child.id)));
-        });
-        return ids;
-      };
-      const descendantIds = getDescendantIds(selectedDeptId);
-      filteredRecords = records.filter((d: any) => descendantIds.includes(String(d.id)));
-    }
 
-    return filteredRecords.map((dept: any) => ({
+    const mappedRecords = records.map((dept: any) => ({
       ...dept,
-      id: dept.id || '',
+      id: String(dept.id || ''),
+      key: String(dept.id || ''),
+      tenantId: dept.tenantId || '-',
       name: dept.deptName || dept.name || '',
       code: dept.code || '-',
-      parentId: dept.parentId || '',
+      parentId: String(dept.parentId || '0'),
       parentName: dept.parentName || '-',
       sort: dept.sort || 0,
       status: dept.status !== undefined ? dept.status : '启用',
       remark: dept.remark || '',
       createTime: dept.createTime || '',
     }));
-  }, [deptData, selectedDeptId]);
 
-  // 构建树形数据
-  const deptTreeData = useMemo(() => {
-    const records = Array.isArray(deptData)
-      ? deptData
-      : deptData?.records || deptData?.data || [];
-    
-    const deptMap = new Map<string, DeptTreeNode>();
-    const rootNodes: DeptTreeNode[] = [];
+    // 构建树形结构
+    const deptMap = new Map<string, typeof mappedRecords[0]>();
+    const rootNodes: typeof mappedRecords = [];
 
-    records.forEach((dept: any) => {
-      const node: DeptTreeNode = {
-        id: String(dept.id),
-        parentId: String(dept.parentId || 0),
-        title: dept.deptName || dept.name || dept.id,
-        key: String(dept.id),
-        children: [],
-      };
-      deptMap.set(node.id, node);
+    mappedRecords.forEach((dept) => {
+      deptMap.set(dept.id, { ...dept });
     });
 
-    deptMap.forEach((node) => {
-      if (node.parentId === '0' || !deptMap.has(node.parentId)) {
-        rootNodes.push(node);
+    deptMap.forEach((dept) => {
+      if (dept.parentId === '0' || !deptMap.has(dept.parentId)) {
+        rootNodes.push(dept);
       } else {
-        const parent = deptMap.get(node.parentId);
+        const parent = deptMap.get(dept.parentId);
         if (parent) {
           if (!parent.children) {
-            parent.children = [];
+            parent.children = [] as typeof mappedRecords;
           }
-          parent.children.push(node);
+          parent.children.push(dept);
         }
       }
     });
 
-    const sortNodes = (nodes: DeptTreeNode[]): DeptTreeNode[] => {
-      return nodes.sort((a, b) => {
-        const aSort = records.find((r: any) => String(r.id) === a.id)?.sort || 0;
-        const bSort = records.find((r: any) => String(r.id) === b.id)?.sort || 0;
-        return aSort - bSort;
-      }).map(node => ({
-        ...node,
-        children: node.children ? sortNodes(node.children) : undefined,
-      }));
+    // 按排序字段排序，只有当有子节点时才保留 children 字段
+    const sortNodes = (nodes: typeof mappedRecords): typeof mappedRecords => {
+      return nodes.sort((a, b) => (a.sort || 0) - (b.sort || 0)).map(node => {
+        if (node.children && node.children.length > 0) {
+          return {
+            ...node,
+            children: sortNodes(node.children),
+          };
+        }
+        const { children, ...rest } = node;
+        return rest;
+      });
     };
 
     return sortNodes(rootNodes);
   }, [deptData]);
 
-  // 获取所有部门ID用于默认展开
-  useEffect(() => {
-    const getAllKeys = (data: DeptTreeNode[]): string[] => {
-      let keys: string[] = [];
-      data.forEach((item) => {
-        keys.push(item.id);
-        if (item.children) {
-          keys = keys.concat(getAllKeys(item.children));
-        }
+  const deptTreeData = useMemo(() => {
+    const records = Array.isArray(deptData)
+      ? deptData
+      : deptData?.records || deptData?.data || [];
+
+    const deptMap = new Map<string, any>();
+    const rootNodes: any[] = [];
+
+    records.forEach((dept: any) => {
+      deptMap.set(String(dept.id), {
+        value: String(dept.id),
+        title: dept.deptName || dept.name || dept.id,
+        children: [],
       });
-      return keys;
+    });
+
+    deptMap.forEach((dept, id) => {
+      const parentId = records.find((r: any) => String(r.id) === id)?.parentId;
+      if (!parentId || parentId === '0' || !deptMap.has(String(parentId))) {
+        rootNodes.push(dept);
+      } else {
+        const parent = deptMap.get(String(parentId));
+        if (parent) {
+          parent.children.push(dept);
+        }
+      }
+    });
+
+    const removeEmptyChildren = (nodes: any[]): any[] => {
+      return nodes.map(node => {
+        if (node.children && node.children.length > 0) {
+          return {
+            ...node,
+            children: removeEmptyChildren(node.children),
+          };
+        }
+        const { children, ...rest } = node;
+        return rest;
+      });
     };
-    setExpandedKeys(getAllKeys(deptTreeData));
-  }, [deptTreeData]);
 
-  // 构建树形数据结构
-  const buildTreeData = (data: DeptTreeNode[]): DataNode[] => {
-    return data.map((item) => ({
-      key: item.id,
-      title: item.title,
-      children: item.children ? buildTreeData(item.children) : undefined,
-    }));
-  };
-
-  // 处理部门选择
-  const handleDeptSelect = (selectedKeys: React.Key[], _info: any) => {
-    if (selectedKeys.length > 0) {
-      setSelectedDeptId(selectedKeys[0] as string);
-    } else {
-      setSelectedDeptId('');
-    }
-  };
-
-  // 处理展开/折叠
-  const handleExpand = (expandedKeys: React.Key[]) => {
-    setExpandedKeys(expandedKeys);
-  };
+    return [{
+      value: '0',
+      title: '无',
+      children: removeEmptyChildren(rootNodes),
+    }];
+  }, [deptData]);
 
   const columns: ProColumns<Dept>[] = [
     {
@@ -197,6 +163,13 @@ const Dept: React.FC = () => {
       dataIndex: 'id',
       key: 'id',
       width: 80,
+      hideInTable: true,
+    },
+    {
+      title: '租户ID',
+      dataIndex: 'tenantId',
+      key: 'tenantId',
+      width: 100,
     },
     {
       title: '部门名称',
@@ -256,46 +229,43 @@ const Dept: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 150,
-      render: (_: any, record: Dept) => (
-        <>
+      width: 200,
+      render: (_: unknown, record: Dept) => (
+        <Space size="small">
           {buttons.some(btn => btn.code === 'dept_view') && (
             <Button
-              type="text"
+              type="link"
+              size="small"
               icon={<EyeOutlined />}
               onClick={() => handleView(record)}
-              style={{ marginRight: 8 }}
             >
               查看
             </Button>
           )}
           {buttons.some(btn => btn.code === 'dept_edit') && (
             <Button
-              type="text"
+              type="link"
+              size="small"
               icon={<EditOutlined />}
               onClick={() => handleEdit(record)}
-              style={{ marginRight: 8 }}
             >
               编辑
             </Button>
           )}
           {buttons.some(btn => btn.code === 'dept_delete') && (
-            <Button
-              type="text"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={() => {
-                Modal.confirm({
-                  title: '确认删除',
-                  content: `确定要删除部门 ${record.name} 吗？`,
-                  onOk: () => handleDelete(record.id),
-                });
-              }}
+            <Popconfirm
+              title="确认删除"
+              description={`确定要删除部门 ${record.name} 吗？`}
+              onConfirm={() => handleDelete(record.id)}
+              okText="确认"
+              cancelText="取消"
             >
-              删除
-            </Button>
+              <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+                删除
+              </Button>
+            </Popconfirm>
           )}
-        </>
+        </Space>
       ),
     },
   ];
@@ -308,7 +278,12 @@ const Dept: React.FC = () => {
   const handleAddOk = async () => {
     try {
       const values = await addForm.validateFields();
-      await deptApi.submit(values);
+      const submitData = {
+        ...values,
+        deptName: values.name,
+      };
+      delete submitData.name;
+      await deptApi.submit(submitData);
       message.success('添加成功');
       setAddModalVisible(false);
       refresh();
@@ -320,7 +295,12 @@ const Dept: React.FC = () => {
   const handleEditOk = async () => {
     try {
       const values = await editForm.validateFields();
-      await deptApi.submit(values);
+      const submitData = {
+        ...values,
+        deptName: values.name,
+      };
+      delete submitData.name;
+      await deptApi.submit(submitData);
       message.success('编辑成功');
       setEditModalVisible(false);
       refresh();
@@ -346,7 +326,15 @@ const Dept: React.FC = () => {
 
   const handleEdit = (record: Dept) => {
     setCurrentDept(record);
-    editForm.setFieldsValue(record);
+    editForm.setFieldsValue({
+      id: record.id,
+      name: record.name,
+      code: record.code,
+      parentId: record.parentId || '0',
+      sort: record.sort,
+      status: record.status,
+      remark: record.remark,
+    });
     setEditModalVisible(true);
   };
 
@@ -354,77 +342,38 @@ const Dept: React.FC = () => {
     <PageContainer
       title="部门管理"
       subTitle="管理系统部门，包括添加、编辑、删除部门等操作"
-      extra={buttons.filter(btn => btn.action === 1 || btn.action === 3).map(btn => (
-        <Button
-          key={btn.code}
-          type={btn.alias === 'add' ? 'primary' : 'default'}
-          icon={btn.source ? <span>{btn.source}</span> : undefined}
-          onClick={handleAdd}
-        >
-          {btn.name}
-        </Button>
-      ))}
+      extra={
+        <Space>
+          {buttons.some(btn => btn.code === 'dept_add') && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+              新增部门
+            </Button>
+          )}
+        </Space>
+      }
     >
-      <Row gutter={16}>
-        {/* 左侧部门树 */}
-        <Col span={5}>
-          <Card
-            title="部门结构"
-            extra={
-              <Button
-                type="text"
-                icon={<ReloadOutlined />}
-                onClick={() => refresh()}
-                size="small"
-              />
-            }
-            loading={loading}
-            styles={{ body: { padding: '12px', minHeight: '600px' } }}
-          >
-            <Input
-              placeholder="输入关键字进行过滤"
-              prefix={<SearchOutlined />}
-              value={searchValue}
-              onChange={(e) => setSearchValue(e.target.value)}
-              style={{ marginBottom: 12 }}
-            />
-            <Tree
-              treeData={buildTreeData(deptTreeData)}
-              onSelect={handleDeptSelect}
-              expandedKeys={expandedKeys}
-              onExpand={handleExpand}
-              selectable
-              showLine
-              showIcon={false}
-              style={{ maxHeight: '500px', overflow: 'auto' }}
-              defaultSelectedKeys={selectedDeptId ? [selectedDeptId] : []}
-            />
-          </Card>
-        </Col>
-
-        {/* 右侧部门列表 */}
-        <Col span={19}>
-          <ProTable
-            columns={columns}
-            dataSource={depts || []}
-            loading={loading}
-            rowKey="id"
-            pagination={{ pageSize: 10 }}
-            rowSelection={{
-              selectedRowKeys,
-              onChange: (keys) => setSelectedRowKeys(keys),
-            }}
-            toolBarRender={false}
-          />
-        </Col>
-      </Row>
+      <Card title="部门列表">
+        <ProTable
+          columns={columns}
+          dataSource={depts || []}
+          loading={loading}
+          rowKey="id"
+          pagination={{ pageSize: 10 }}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys),
+          }}
+          toolBarRender={false}
+          treeData
+          childrenColumnName="children"
+        />
+      </Card>
 
       {/* 添加部门弹窗 */}
       <Modal
         title="添加部门"
         open={addModalVisible}
         onCancel={() => setAddModalVisible(false)}
-        onOk={handleAddOk}
         footer={[
           <Button key="cancel" onClick={() => setAddModalVisible(false)}>
             取消
@@ -451,14 +400,11 @@ const Dept: React.FC = () => {
             <Input placeholder="请输入部门编码" />
           </Form.Item>
           <Form.Item name="parentId" label="上级部门">
-            <Select placeholder="请选择上级部门">
-              <Option value="0">无</Option>
-              {deptTreeData?.map((dept: any) => (
-                <Option key={dept.id} value={dept.id}>
-                  {dept.title}
-                </Option>
-              ))}
-            </Select>
+            <TreeSelect
+              placeholder="请选择上级部门"
+              treeData={deptTreeData}
+              treeDefaultExpandAll
+            />
           </Form.Item>
           <Form.Item
             name="sort"
@@ -488,7 +434,6 @@ const Dept: React.FC = () => {
         title="编辑部门"
         open={editModalVisible}
         onCancel={() => setEditModalVisible(false)}
-        onOk={handleEditOk}
         footer={[
           <Button key="cancel" onClick={() => setEditModalVisible(false)}>
             取消
@@ -518,14 +463,11 @@ const Dept: React.FC = () => {
             <Input placeholder="请输入部门编码" />
           </Form.Item>
           <Form.Item name="parentId" label="上级部门">
-            <Select placeholder="请选择上级部门">
-              <Option value="0">无</Option>
-              {deptTreeData?.map((dept: any) => (
-                <Option key={dept.id} value={dept.id}>
-                  {dept.title}
-                </Option>
-              ))}
-            </Select>
+            <TreeSelect
+              placeholder="请选择上级部门"
+              treeData={deptTreeData}
+              treeDefaultExpandAll
+            />
           </Form.Item>
           <Form.Item
             name="sort"
