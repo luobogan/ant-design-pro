@@ -28,9 +28,9 @@ export async function grant(params: any) {
 
 // 删除角色
 export async function remove(params: any) {
-  return request('/api/blade-system/role/remove', {
+  const ids = Array.isArray(params.ids) ? params.ids.join(',') : params.ids;
+  return request(`/api/blade-system/role/remove?ids=${ids}`, {
     method: 'POST',
-    data: params,
   });
 }
 

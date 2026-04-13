@@ -60,6 +60,7 @@ const Dept: React.FC = () => {
       id: String(dept.id || ''),
       key: String(dept.id || ''),
       tenantId: dept.tenantId || '-',
+      tenantName: dept.tenantName || '-',
       name: dept.deptName || dept.name || '',
       code: dept.code || '-',
       parentId: String(dept.parentId || '0'),
@@ -170,6 +171,14 @@ const Dept: React.FC = () => {
       dataIndex: 'tenantId',
       key: 'tenantId',
       width: 100,
+    },
+    {
+      title: '租户名称',
+      dataIndex: 'tenantName',
+      key: 'tenantName',
+      width: 120,
+      search: true,
+      sorter: true,
     },
     {
       title: '部门名称',

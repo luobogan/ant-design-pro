@@ -17,7 +17,7 @@ sort: number;
 }
 
 interface DeptData {
-: string;
+  id: string;
   deptName: string;
   code: string;
   parentId: string;
