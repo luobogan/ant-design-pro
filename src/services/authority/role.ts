@@ -46,3 +46,24 @@ export async function submit(params: any) {
 export async function detail(params: any) {
   return request(`/api/blade-system/role/detail?${stringify(params)}`);
 }
+
+// 获取角色下的用户列表
+export async function getUsersByRoleId(roleId: string | number) {
+  return request(`/api/blade-system/role/users?roleId=${roleId}`);
+}
+
+// 授权用户到角色
+export async function grantUser(params: { roleId: string | number; userIds: (string | number)[] }) {
+  return request('/api/blade-system/role/grant-user', {
+    method: 'POST',
+    data: params,
+  });
+}
+
+// 取消用户的角色授权
+export async function revokeUser(params: { roleId: string | number; userIds: (string | number)[] }) {
+  return request('/api/blade-system/role/revoke-user', {
+    method: 'POST',
+    data: params,
+  });
+}

@@ -4,10 +4,13 @@ import {
   EyeOutlined,
   PlusOutlined,
   SettingOutlined,
+  UserOutlined,
+  SearchOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { useRequest } from '@umijs/max';
+import React, { useMemo, useState } from 'react';
 import {
   Button,
   Form,
@@ -19,12 +22,25 @@ import {
   Select,
   Space,
   Tag,
+  Table,
+  Checkbox,
+  TableProps,
 } from 'antd';
-import React, { useMemo, useState } from 'react';
+import type { ColumnType } from 'antd/es/table';
 import * as dataScopeApi from '@/services/authority/dataPermission';
 import * as roleApi from '@/services/authority/role';
 import * as menuApi from '@/services/system/menu';
+import * as userApi from '@/services/system/user';
 import PermissionConfig from './components/PermissionConfig';
+
+interface User {
+  id: string;
+  account: string;
+  name: string;
+  realName: string;
+  email: string;
+  phone: string;
+}
 
 interface Role {
   id: string;
@@ -45,7 +61,13 @@ const RolePage: React.FC = () => {
   const [viewModalVisible, setViewModalVisible] = useState<boolean>(false);
   const [permissionModalVisible, setPermissionModalVisible] =
     useState<boolean>(false);
+  const [userModalVisible, setUserModalVisible] = useState<boolean>(false);
+  const [addUserModalVisible, setAddUserModalVisible] = useState<boolean>(false);
   const [currentRole, setCurrentRole] = useState<Role | null>(null);
+  const [currentRoleUsers, setCurrentRoleUsers] = useState<User[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [selectedUsersToAdd, setSelectedUsersToAdd] = useState<React.Key[]>([]);
+  const [searchKeyword, setSearchKeyword] = useState<string>('');
   const [form] = Form.useForm();
 
   // 权限配置相关状态
@@ -92,6 +114,7 @@ const RolePage: React.FC = () => {
       : roleData?.records || [];
     return records.map((role: any) => ({
       ...role,
+      id: role.id || role.roleId || role.ID || '',
       roleName: role.roleName || role.name || '',
       roleAlias: role.roleAlias || role.alias || '',
       tenantName: role.tenantName || '管理组',
@@ -221,6 +244,94 @@ const RolePage: React.FC = () => {
     }
   };
 
+  // 打开人员管理弹窗
+  const handleOpenUserModal = async (role: Role) => {
+    setCurrentRole(role);
+    await loadRoleUsers(role.id);
+    setUserModalVisible(true);
+  };
+
+  // 加载角色下的用户列表
+  const loadRoleUsers = async (roleId: string) => {
+    try {
+      const response = await roleApi.getUsersByRoleId(roleId);
+      const users = Array.isArray(response) ? response : response?.data || [];
+      setCurrentRoleUsers(users);
+    } catch (error) {
+      console.error('Error loading role users:', error);
+      message.error('获取角色用户失败');
+      setCurrentRoleUsers([]);
+    }
+  };
+
+  // 打开添加用户弹窗
+  const handleOpenAddUserModal = async () => {
+    try {
+      const response = await userApi.list({});
+      const users = Array.isArray(response) ? response : response?.data?.records || [];
+      const roleUserIds = currentRoleUsers.map((u) => u.id);
+      const availableUsers = users.filter((u: User) => !roleUserIds.includes(u.id));
+      setAllUsers(availableUsers);
+      setSelectedUsersToAdd([]);
+      setAddUserModalVisible(true);
+    } catch (error) {
+      console.error('Error loading all users:', error);
+      message.error('获取用户列表失败');
+    }
+  };
+
+  // 添加用户到角色
+  const handleAddUsers = async () => {
+    if (!currentRole || selectedUsersToAdd.length === 0) return;
+    try {
+      await roleApi.grantUser({
+        roleId: currentRole.id,
+        userIds: selectedUsersToAdd,
+      });
+      message.success('添加用户成功');
+      setAddUserModalVisible(false);
+      setSelectedUsersToAdd([]);
+      await loadRoleUsers(currentRole.id);
+    } catch (error) {
+      console.error('Error adding users:', error);
+      message.error('添加用户失败');
+    }
+  };
+
+  // 从角色移除用户
+  const handleRemoveUser = async (userId: string) => {
+    if (!currentRole) return;
+    Modal.confirm({
+      title: '确认移除',
+      content: `确定要将该用户从角色中移除吗？`,
+      onOk: async () => {
+        try {
+          await roleApi.revokeUser({
+            roleId: currentRole.id,
+            userIds: [userId],
+          });
+          message.success('移除用户成功');
+          await loadRoleUsers(currentRole.id);
+        } catch (error) {
+          console.error('Error removing user:', error);
+          message.error('移除用户失败');
+        }
+      },
+    });
+  };
+
+  // 搜索过滤用户
+  const filteredUsers = useMemo(() => {
+    if (!searchKeyword) return allUsers;
+    const keyword = searchKeyword.toLowerCase();
+    return allUsers.filter(
+      (user) =>
+        user.account.toLowerCase().includes(keyword) ||
+        user.realName.toLowerCase().includes(keyword) ||
+        user.email.toLowerCase().includes(keyword),
+    );
+  }, [allUsers, searchKeyword]);
+
   const columns: ProColumns<Role>[] = [
     {
       title: '角色名称',
@@ -288,6 +399,13 @@ const RolePage: React.FC = () => {
             onClick={() => handleOpenPermission(record)}
           >
             权限设置
+          </Button>
+          <Button
+            type="link"
+            icon={<UserOutlined />}
+            onClick={() => handleOpenUserModal(record)}
+          >
+            人员管理
           </Button>
         </Space>
       ),
@@ -601,6 +719,106 @@ const RolePage: React.FC = () => {
         onSave={handleSavePermission}
         loading={permissionLoading || menuTreeLoading}
       />
+
+      {/* 人员管理弹窗 */}
+      <Modal
+        title={`${currentRole?.roleName} - 人员管理`}
+        open={userModalVisible}
+        onCancel={() => setUserModalVisible(false)}
+        footer={[
+          <Button key="add" type="primary" onClick={handleOpenAddUserModal}>
+            添加用户
+          </Button>,
+          <Button key="close" onClick={() => setUserModalVisible(false)}>
+            关闭
+          </Button>,
+        ]}
+        width={800}
+      >
+        <Table
+          dataSource={currentRoleUsers}
+          rowKey="id"
+          pagination={false}
+          bordered
+          columns={[
+            { title: '账号', dataIndex: 'account', key: 'account' },
+            { title: '姓名', dataIndex: 'realName', key: 'realName' },
+            { title: '邮箱', dataIndex: 'email', key: 'email' },
+            { title: '电话', dataIndex: 'phone', key: 'phone' },
+            {
+              title: '操作',
+              key: 'action',
+              render: (_: any, record: User) => (
+                <Button
+                  type="link"
+                  danger
+                  onClick={() => handleRemoveUser(record.id)}
+                >
+                  移除
+                </Button>
+              ),
+            },
+          ]}
+        />
+        {currentRoleUsers.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '40px' }}>
+            <p>该角色暂无用户，点击"添加用户"按钮添加</p>
+          </div>
+        )}
+      </Modal>
+
+      {/* 添加用户弹窗 */}
+      <Modal
+        title="选择用户"
+        open={addUserModalVisible}
+        onCancel={() => {
+          setAddUserModalVisible(false);
+          setSelectedUsersToAdd([]);
+        }}
+        footer={[
+          <Button key="confirm" type="primary" onClick={handleAddUsers}>
+            确认添加
+          </Button>,
+          <Button key="close" onClick={() => {
+            setAddUserModalVisible(false);
+            setSelectedUsersToAdd([]);
+          }}>
+            取消
+          </Button>,
+        ]}
+        width={800}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Input
+            placeholder="搜索账号、姓名或邮箱"
+            prefix={<SearchOutlined />}
+            value={searchKeyword}
+            onChange={(e) => setSearchKeyword(e.target.value)}
+          />
+        </div>
+        <Table
+          dataSource={filteredUsers}
+          rowKey="id"
+          bordered
+          pagination={{ pageSize: 10 }}
+          rowSelection={{
+            type: 'checkbox',
+            selectedRowKeys: selectedUsersToAdd,
+            onChange: (keys) => setSelectedUsersToAdd(keys),
+          }}
+          columns={[
+            { title: '账号', dataIndex: 'account', key: 'account' },
+            { title: '姓名', dataIndex: 'realName', key: 'realName' },
+            { title: '邮箱', dataIndex: 'email', key: 'email' },
+            { title: '电话', dataIndex: 'phone', key: 'phone' },
+          ]}
+        />
+        {filteredUsers.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '40px' }}>
+            <p>没有找到符合条件的用户</p>
+          </div>
+        )}
+      </Modal>
     </PageContainer>
   );
 };
