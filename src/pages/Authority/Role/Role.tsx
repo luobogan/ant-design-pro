@@ -46,6 +46,7 @@ interface Role {
   id: string;
   roleName: string;
   tenantName: string;
+  tenantId: string;
   roleAlias: string;
   sort: number;
   parentId: string;
@@ -118,6 +119,7 @@ const RolePage: React.FC = () => {
       roleName: role.roleName || role.name || '',
       roleAlias: role.roleAlias || role.alias || '',
       tenantName: role.tenantName || '管理组',
+      tenantId: role.tenantId || '',
       parentName: role.parentName || '无',
     }));
   }, [roleData]);
@@ -385,14 +387,16 @@ const RolePage: React.FC = () => {
           >
             编辑
           </Button>
-          <Button
-            type="link"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => handleDelete([record.id])}
-          >
-            删除
-          </Button>
+          {!(record.tenantId === '000000' && record.roleName === '超级管理员') && (
+            <Button
+              type="link"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDelete([record.id])}
+            >
+              删除
+            </Button>
+          )}
           <Button
             type="link"
             icon={<SettingOutlined />}
@@ -492,6 +496,9 @@ const RolePage: React.FC = () => {
         rowSelection={{
           selectedRowKeys,
           onChange: (keys) => setSelectedRowKeys(keys),
+          getCheckboxProps: (record) => ({
+            disabled: record.tenantId === '000000' && record.roleName === '超级管理员',
+          }),
         }}
         toolBarRender={() => [
           <Button
@@ -748,15 +755,21 @@ const RolePage: React.FC = () => {
             {
               title: '操作',
               key: 'action',
-              render: (_: any, record: User) => (
-                <Button
-                  type="link"
-                  danger
-                  onClick={() => handleRemoveUser(record.id)}
-                >
-                  移除
-                </Button>
-              ),
+              render: (_: any, record: User) => {
+                const isProtectedUser = 
+                  currentRole?.tenantId === '000000' && 
+                  currentRole?.roleName === '超级管理员' && 
+                  record.id === '1123598821738675201';
+                return !isProtectedUser && (
+                  <Button
+                    type="link"
+                    danger
+                    onClick={() => handleRemoveUser(record.id)}
+                  >
+                    移除
+                  </Button>
+                );
+              },
             },
           ]}
         />

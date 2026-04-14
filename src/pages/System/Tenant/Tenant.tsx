@@ -158,7 +158,7 @@ const TenantPage: React.FC = () => {
               编辑
             </Button>
           )}
-          {buttons.some(btn => btn.code === 'tenant_delete') && (
+          {buttons.some(btn => btn.code === 'tenant_delete') && record.tenantId !== '000000' && (
             <Button
               type="link"
               danger
@@ -304,6 +304,9 @@ const TenantPage: React.FC = () => {
         rowSelection={{
           selectedRowKeys,
           onChange: (keys) => setSelectedRowKeys(keys),
+          getCheckboxProps: (record) => ({
+            disabled: record.tenantId === '000000',
+          }),
         }}
         toolBarRender={() => [
           buttons.some(btn => btn.code === 'tenant_add') && (

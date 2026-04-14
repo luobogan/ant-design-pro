@@ -28,9 +28,9 @@ export async function detail(params: any) {
 
 // 删除租户
 export async function remove(params: any) {
-  return request('/api/blade-system/tenant/remove', {
+  const ids = Array.isArray(params.ids) ? params.ids.join(',') : params.ids;
+  return request(`/api/blade-system/tenant/remove?ids=${ids}`, {
     method: 'POST',
-    data: params,
   });
 }
 
