@@ -6,12 +6,13 @@ import {
   PlusOutlined,
   GiftOutlined,
   BoxPlotOutlined,
+  ToolOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 // @ts-expect-error useRequest 由 @umijs/max 的 request 插件在运行时提供
 import { useRequest } from '@umijs/max';
-import { Button, Form, Input, Modal, message, Select, Space, Tag, DatePicker, Tree, Checkbox } from 'antd';
+import { Button, Form, Input, Modal, message, Select, Space, Tag, DatePicker, Tree, Checkbox, Spin } from 'antd';
 import dayjs from 'dayjs';
 import React, { useMemo, useState, useEffect } from 'react';
 import * as tenantApi from '@/services/system/tenant';
@@ -60,6 +61,7 @@ const TenantPage: React.FC = () => {
   const [packageModalVisible, setPackageModalVisible] = useState<boolean>(false);
   const [packages, setPackages] = useState<TenantPackage[]>([]);
   const [selectedPackageId, setSelectedPackageId] = useState<number | null>(null);
+  const [previewMenuTree, setPreviewMenuTree] = useState<MenuTree[]>([]);
   const [grantingTenantId, setGrantingTenantId] = useState<string>('');
   const [grantingTenantName, setGrantingTenantName] = useState<string>('');
 
@@ -72,6 +74,9 @@ const TenantPage: React.FC = () => {
   const [editingPackage, setEditingPackage] = useState<TenantPackage | null>(null);
   const [selectedPackageIds, setSelectedPackageIds] = useState<React.Key[]>([]);
   const [nodeChecked, setNodeChecked] = useState(false);
+  const [diagnoseModalVisible, setDiagnoseModalVisible] = useState(false);
+  const [diagnoseData, setDiagnoseData] = useState<any>(null);
+  const [diagnosingTenantId, setDiagnosingTenantId] = useState<string>('');
 
   useEffect(() => {
     const btns = getButton('tenant');
@@ -223,6 +228,15 @@ const TenantPage: React.FC = () => {
               分配产品包
             </Button>
           )}
+          {isSuperAdmin && record.tenantId !== '000000' && (
+            <Button
+              type="link"
+              icon={<ToolOutlined />}
+              onClick={() => handleDiagnoseAndFix(record)}
+            >
+              诊断修复
+            </Button>
+          )}
         </Space>
       ),
     },
@@ -232,10 +246,14 @@ const TenantPage: React.FC = () => {
     setGrantingTenantId(record.tenantId);
     setGrantingTenantName(record.tenantName);
     setSelectedPackageId(record.packageId || null);
+    setPreviewMenuTree([]);
     try {
       const result = await tenantApi.packageSelect();
       if (result.success && result.data) {
         setPackages(result.data);
+      }
+      if (record.packageId) {
+        await loadPreviewMenuTree(record.packageId);
       }
     } catch (error) {
       console.error('获取产品包列表失败:', error);
@@ -243,6 +261,80 @@ const TenantPage: React.FC = () => {
       return;
     }
     setPackageModalVisible(true);
+  };
+
+  const loadPreviewMenuTree = async (packageId: number) => {
+    try {
+      const result = await tenantApi.tenantPackageApi.packageMenuTree(packageId);
+      if (result.success && result.data) {
+        setPreviewMenuTree(formatMenuTree(result.data));
+      } else {
+        setPreviewMenuTree([]);
+      }
+    } catch (error) {
+      console.error('加载菜单预览失败:', error);
+      setPreviewMenuTree([]);
+    }
+  };
+
+  const handlePackageSelectChange = async (value: number) => {
+    setSelectedPackageId(value);
+    if (value) {
+      await loadPreviewMenuTree(value);
+    } else {
+      setPreviewMenuTree([]);
+    }
+  };
+
+  const handleDiagnoseAndFix = async (record: Tenant) => {
+    setDiagnosingTenantId(record.tenantId);
+    setDiagnoseData(null);
+    setDiagnoseModalVisible(true);
+
+    try {
+      const result = await tenantApi.diagnose(record.tenantId);
+      setDiagnoseData(result.data || null);
+    } catch (error) {
+      console.error('诊断失败:', error);
+      message.error('诊断请求失败');
+    }
+  };
+
+  const handleAutoFix = async () => {
+    if (!diagnosingTenantId) return;
+
+    try {
+      const result = await tenantApi.autoFix(diagnosingTenantId);
+      if (result.success) {
+        const data = result.data || {};
+        Modal.success({
+          title: '修复完成',
+          content: (
+            <div>
+              <div style={{ marginBottom: 8, fontWeight: 'bold' }}>{data.conclusion}</div>
+              {(data.actions || []).map((action: string, i: number) => (
+                <div key={i} style={{ lineHeight: '22px', fontSize: 13 }}>{action}</div>
+              ))}
+              {data.fixedUserCount > 0 && (
+                <div style={{ marginTop: 8, color: '#fa8c16', fontSize: 12 }}>
+                  ⚠️ 被修复的用户需要重新登录后才能生效
+                </div>
+              )}
+            </div>
+          ),
+          okText: '知道了',
+          onOk: () => {
+            setDiagnoseModalVisible(false);
+            refresh();
+          },
+        });
+      } else {
+        message.error(result.msg || '修复失败');
+      }
+    } catch (error) {
+      console.error('修复失败:', error);
+      message.error('修复请求失败');
+    }
   };
 
   const handlePackageAssignOk = async () => {
@@ -253,7 +345,29 @@ const TenantPage: React.FC = () => {
     try {
       const result = await tenantApi.assignPackage(grantingTenantId, selectedPackageId);
       if (result.success) {
-        message.success('产品包分配成功');
+        const data = result.data || {};
+        const lines = [
+          `✅ 产品包【${data.packageName || '未知'}】分配成功`,
+          data.menuCount != null ? `📁 菜单权限: ${data.menuCount} 个` : '',
+          data.buttonCount != null ? `🔘 按钮权限: ${data.buttonCount} 个` : '',
+          data.roleCount != null ? `👥 关联角色: ${data.roleCount} 个` : '',
+          data.fixedUserCount > 0 ? `🔧 自动修复用户: ${data.fixedUserCount} 个（roleId为空已补全）` : '',
+        ].filter(Boolean);
+
+        Modal.success({
+          title: '分配完成',
+          content: (
+            <div>
+              {lines.map((line, i) => (
+                <div key={i} style={{ lineHeight: '24px' }}>{line}</div>
+              ))}
+              <div style={{ marginTop: 12, color: '#888', fontSize: 12 }}>
+                提示：租户用户需要重新登录后才能看到新的菜单和权限
+              </div>
+            </div>
+          ),
+          okText: '知道了',
+        });
         setPackageModalVisible(false);
         refresh();
       } else {
@@ -411,6 +525,17 @@ const TenantPage: React.FC = () => {
       title: menu.title || menu.name || '---',
       children: menu.children ? formatMenuTree(menu.children) : undefined,
     }));
+  };
+
+  const countMenuNodes = (tree: MenuTree[]): number => {
+    let count = 0;
+    for (const node of tree) {
+      count++;
+      if (node.children && node.children.length > 0) {
+        count += countMenuNodes(node.children);
+      }
+    }
+    return count;
   };
 
   const handleEditPackage = async (pkg: TenantPackage) => {
@@ -782,15 +907,15 @@ const TenantPage: React.FC = () => {
         open={packageModalVisible}
         onCancel={() => setPackageModalVisible(false)}
         onOk={handlePackageAssignOk}
-        width={500}
+        width={560}
       >
-        <div style={{ padding: '24px' }}>
-          <Form.Item label="选择产品包">
+        <div style={{ padding: '16px 24px' }}>
+          <Form.Item label="选择产品包" style={{ marginBottom: 12 }}>
             <Select
               style={{ width: '100%' }}
               placeholder="请选择产品包"
               value={selectedPackageId}
-              onChange={(value) => setSelectedPackageId(value)}
+              onChange={handlePackageSelectChange}
             >
               {packages.map(pkg => (
                 <Select.Option key={pkg.id} value={pkg.id}>
@@ -799,6 +924,27 @@ const TenantPage: React.FC = () => {
               ))}
             </Select>
           </Form.Item>
+
+          {previewMenuTree.length > 0 ? (
+            <div>
+              <div style={{ marginBottom: 8, fontSize: 13, color: '#666' }}>
+                📦 产品包包含以下菜单（共 {countMenuNodes(previewMenuTree)} 个）：
+              </div>
+              <Tree
+                treeData={previewMenuTree}
+                defaultExpandAll
+                style={{ background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 6, padding: '8px 0', maxHeight: 320, overflowY: 'auto' }}
+              />
+            </div>
+          ) : selectedPackageId ? (
+            <div style={{ textAlign: 'center', padding: 20, color: '#999' }}>
+              该产品包暂未配置任何菜单权限
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: 20, color: '#bbb' }}>
+              👆 请先选择一个产品包
+            </div>
+          )}
         </div>
       </Modal>
 
@@ -896,6 +1042,111 @@ const TenantPage: React.FC = () => {
             style={{ maxHeight: 300, overflowY: 'auto' }}
           />
         </Form>
+      </Modal>
+
+      <Modal
+        title={`租户诊断 - ${diagnosingTenantId}`}
+        open={diagnoseModalVisible}
+        onCancel={() => setDiagnoseModalVisible(false)}
+        width={700}
+        footer={
+          diagnoseData ? [
+            <Button key="close" onClick={() => setDiagnoseModalVisible(false)}>
+              关闭
+            </Button>,
+            <Button key="fix" type="primary" icon={<ToolOutlined />} onClick={handleAutoFix}>
+              一键修复
+            </Button>,
+          ] : [
+            <Button key="close" onClick={() => setDiagnoseModalVisible(false)}>
+              关闭
+            </Button>,
+          ]
+        }
+      >
+        <div style={{ padding: '8px 0' }}>
+          {!diagnoseData ? (
+            <div style={{ textAlign: 'center', padding: 40 }}>
+              <Spin tip="正在诊断..." />
+            </div>
+          ) : (
+            <div>
+              {diagnoseData.tenant && (
+                <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f5f5f5', borderRadius: 4 }}>
+                  <strong>租户:</strong> {diagnoseData.tenant.tenantName} (ID: {diagnoseData.tenantId})
+                  {diagnoseData.tenant.packageId && (
+                    <span style={{ marginLeft: 16 }}>产品包ID: {diagnoseData.tenant.packageId}</span>
+                  )}
+                </div>
+              )}
+
+              {(diagnoseData.issues || []).length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontWeight: 'bold', color: '#ff4d4f', marginBottom: 4 }}>发现问题：</div>
+                  {(diagnoseData.issues || []).map((issue: string, i: number) => (
+                    <div key={i} style={{ lineHeight: '22px', fontSize: 13, color: '#ff4d4f' }}>{issue}</div>
+                  ))}
+                </div>
+              )}
+
+              {(diagnoseData.warnings || []).length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontWeight: 'bold', color: '#fa8c16', marginBottom: 4 }}>警告信息：</div>
+                  {(diagnoseData.warnings || []).map((w: string, i: number) => (
+                    <div key={i} style={{ lineHeight: '22px', fontSize: 13, color: '#fa8c16' }}>{w}</div>
+                  ))}
+                </div>
+              )}
+
+              {diagnoseData.roles && diagnoseData.roles.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontWeight: 'bold', marginBottom: 4 }}>角色权限（共{diagnoseData.roleCount}个）：</div>
+                  {(diagnoseData.roles || []).map((role: any, i: number) => (
+                    <div key={i} style={{
+                      lineHeight: '20px',
+                      fontSize: 12,
+                      color: role.issue ? '#ff4d4f' : role.warning ? '#fa8c16' : '#52c41a',
+                      paddingLeft: 8,
+                    }}>
+                      • {role.roleName}({role.roleAlias}): {role.menuCount || 0} 个菜单
+                      {role.issue ? ` — ${role.issue}` : ''}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {diagnoseData.users && diagnoseData.users.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontWeight: 'bold', marginBottom: 4 }}>用户状态（共{diagnoseData.userCount}个）：</div>
+                  {(diagnoseData.users || []).map((user: any, i: number) => (
+                    <div key={i} style={{
+                      lineHeight: '20px',
+                      fontSize: 12,
+                      color: user.issue ? '#ff4d4f' : '#52c41a',
+                      paddingLeft: 8,
+                    }}>
+                      • {user.name || user.account}: roleId={user.roleId || '(空)'}
+                      {user.assignedMenuCount != null ? ` → ${user.assignedMenuCount}个菜单` : ''}
+                      {user.issue ? ` ⚠ ${user.issue}` : user.assignedMenuCount != null ? ' ✅' : ''}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{
+                marginTop: 12,
+                padding: '8px 12px',
+                borderRadius: 4,
+                background: diagnoseData.hasError ? '#fff2f0' : '#f6ffed',
+                border: `1px solid ${diagnoseData.hasError ? '#ffccc7' : '#b7eb8f'}`,
+              }}>
+                <strong style={{ color: diagnoseData.hasError ? '#ff4d4f' : '#52c41a' }}>
+                  {diagnoseData.conclusion}
+                </strong>
+              </div>
+            </div>
+          )}
+        </div>
       </Modal>
     </PageContainer>
   );

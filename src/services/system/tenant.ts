@@ -56,6 +56,18 @@ export async function assignPackage(tenantId: string, packageId: number) {
   });
 }
 
+// 诊断租户权限配置
+export async function diagnose(tenantId: string) {
+  return request(`/api/blade-system/tenant/diagnose?tenantId=${tenantId}`);
+}
+
+// 一键修复租户权限
+export async function autoFix(tenantId: string) {
+  return request(`/api/blade-system/tenant/auto-fix?tenantId=${tenantId}`, {
+    method: 'POST',
+  });
+}
+
 // =====================产品包管理===========================
 
 export const tenantPackageApi = {
@@ -86,6 +98,9 @@ export const tenantPackageApi = {
   
   // 获取产品包已分配的菜单权限
   packageMenuKeys: (packageId: number) => request(`/api/blade-system/tenant-package/package-menu-keys?packageId=${packageId}`),
+
+  // 获取产品包关联的菜单树（预览用）
+  packageMenuTree: (packageId: number) => request(`/api/blade-system/tenant-package/package-menu-tree?packageId=${packageId}`),
   
   // 为产品包分配菜单权限
   grantMenu: (packageId: number, menuIds: string[]) => request(`/api/blade-system/tenant-package/grant-menu?packageId=${packageId}`, {
