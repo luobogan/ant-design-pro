@@ -88,7 +88,7 @@ export const tenantPackageApi = {
   packageMenuKeys: (packageId: number) => request(`/api/blade-system/tenant-package/package-menu-keys?packageId=${packageId}`),
   
   // 为产品包分配菜单权限
-  grantMenu: (packageId: number, menuIds: number[]) => request(`/api/blade-system/tenant-package/grant-menu?packageId=${packageId}`, {
+  grantMenu: (packageId: number, menuIds: string[]) => request(`/api/blade-system/tenant-package/grant-menu?packageId=${packageId}`, {
     method: 'POST',
     data: { menuIds },
   }),

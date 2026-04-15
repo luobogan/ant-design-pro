@@ -427,34 +427,38 @@ const TenantPage: React.FC = () => {
     
     const result = await tenantApi.tenantPackageApi.packageMenuKeys(pkg.id);
     console.log('packageMenuKeys result:', result);
-    
+
+    // 兼容后端返回的多种数据格式
+    let rawCheckedKeys: any[] = [];
     if (result.success && result.data) {
-      const checkedKeys = result.data.menu?.checkedKeys || [];
-      console.log('checkedKeys from API:', checkedKeys);
-      
-      const validKeys = menuData.length > 0 ? filterValidKeys(checkedKeys, menuData) : [];
-      console.log('validKeys after filter:', validKeys);
-      
-      setCheckedMenuKeys(validKeys);
-    } else {
-      console.log('API call failed or no data');
-      setCheckedMenuKeys([]);
+      rawCheckedKeys = result.data?.menu?.checkedKeys || result.data?.checkedKeys || result.data || [];
+      console.log('rawCheckedKeys from API:', rawCheckedKeys, typeof rawCheckedKeys);
     }
+    
+    // 统一转为字符串，确保与 MenuTree 的 key 类型匹配
+    const checkedKeys = rawCheckedKeys.map((k: any) => String(k));
+    
+    const validKeys = menuData.length > 0 ? filterValidKeys(checkedKeys, menuData) : checkedKeys;
+    console.log('validKeys after filter:', validKeys);
+
+    setCheckedMenuKeys(validKeys);
     setPackageEditModalVisible(true);
   };
 
   const filterValidKeys = (keys: string[], tree: MenuTree[]): string[] => {
+    // 如果 tree 为空，不过滤直接返回
+    if (!tree || tree.length === 0) return keys;
     const validKeySet = new Set<string>();
     const collectKeys = (nodes: MenuTree[]) => {
       nodes.forEach(node => {
-        validKeySet.add(node.key);
+        validKeySet.add(String(node.key));
         if (node.children) {
           collectKeys(node.children);
         }
       });
     };
     collectKeys(tree);
-    return keys.filter(key => validKeySet.has(key));
+    return keys.filter(key => key != null && validKeySet.has(String(key)));
   };
 
   const handleDeletePackage = async (id: number) => {
@@ -524,7 +528,9 @@ const TenantPage: React.FC = () => {
       }
 
       if (checkedMenuKeys.length > 0 && pkgId) {
-        await tenantApi.tenantPackageApi.grantMenu(pkgId, checkedMenuKeys.map(k => Number(k)));
+        // 直接传递字符串数组，避免 Number() 导致 JavaScript 大数(Long)精度丢失
+        // 后端 Jackson 会自动将字符串解析为 Long
+        await tenantApi.tenantPackageApi.grantMenu(pkgId, checkedMenuKeys);
       }
 
       await fetchPackages();
@@ -878,8 +884,12 @@ const TenantPage: React.FC = () => {
             checkable
             treeData={menuTree}
             checkedKeys={checkedMenuKeys}
-            onCheck={(checkedKeys) => {
-              setCheckedMenuKeys(checkedKeys as string[]);
+            onCheck={(keys) => {
+              // 兼容 Antd Tree 返回的多种格式：
+              // - checkStrictly=true 时返回 string[] | number[]
+              // - checkStrictly=false 时返回 { checked, halfChecked }
+              const newKeys = Array.isArray(keys) ? keys : (keys as any).checked || [];
+              setCheckedMenuKeys(newKeys.map((k: any) => String(k)));
             }}
             checkStrictly={!nodeChecked}
             defaultExpandAll
