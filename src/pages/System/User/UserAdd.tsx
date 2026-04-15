@@ -12,9 +12,9 @@ import {
   Space,
   TreeSelect,
 } from 'antd';
-import { useRequest } from '@umijs/max';
+import { useModel, useRequest } from '@umijs/max';
 import moment from 'moment';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import * as userApi from '@/services/system/user';
 import * as tenantApi from '@/services/system/tenant';
 
@@ -36,10 +36,29 @@ const UserAdd: React.FC<UserAddProps> = ({
   const [form] = Form.useForm();
   const [loading, setLoading] = useState<boolean>(false);
 
-  // 动态获取租户列表
+  const { initialState } = useModel('@@initialState');
+
+  let currentTenantId = '000000';
+  if (initialState?.user?.tenantId) {
+    currentTenantId = initialState.user.tenantId;
+  } else if (initialState?.user?.tenant_id) {
+    currentTenantId = initialState.user.tenant_id;
+  } else {
+    try {
+      const userInfoStr = localStorage.getItem('sword-user-info');
+      if (userInfoStr) {
+        const userInfo = JSON.parse(userInfoStr);
+        currentTenantId = userInfo.tenantId || userInfo.tenant_id || '000000';
+      }
+    } catch (e) {
+      currentTenantId = '000000';
+    }
+  }
+
+  const isSuperAdmin = currentTenantId === '000000';
+
   const { data: tenantData } = useRequest(() => tenantApi.list({}));
 
-  // 转换租户数据为 Select 选项格式
   const tenantOptions = useMemo(() => {
     const records = Array.isArray(tenantData)
       ? tenantData
@@ -50,20 +69,23 @@ const UserAdd: React.FC<UserAddProps> = ({
     }));
   }, [tenantData]);
 
+  useEffect(() => {
+    if (!isSuperAdmin && currentTenantId && currentTenantId !== '000000') {
+      form.setFieldsValue({ tenantId: currentTenantId });
+    }
+  }, [form, isSuperAdmin, currentTenantId]);
+
   const handleSubmit = async (values: any) => {
     setLoading(true);
     try {
-      // 移除确认密码字段，因为后端不需要这个字段
       const { confirmPassword, ...submitValues } = values;
 
-      // 处理生日字段，转换为字符串格式
       if (submitValues.birthday) {
         submitValues.birthday = moment(submitValues.birthday).format(
           'YYYY-MM-DD HH:mm:ss',
         );
       }
 
-      // 处理 TreeSelect 返回的数组，转换为逗号分隔的字符串
       if (Array.isArray(submitValues.roleId)) {
         submitValues.roleId = submitValues.roleId.join(',');
       }
@@ -74,7 +96,6 @@ const UserAdd: React.FC<UserAddProps> = ({
         submitValues.positionId = submitValues.positionId.join(',');
       }
 
-      // 只保留后端 User 实体中存在的字段
       const filteredValues: any = {
         tenantId: submitValues.tenantId,
         account: submitValues.account,
@@ -101,6 +122,8 @@ const UserAdd: React.FC<UserAddProps> = ({
     }
   };
 
+  const currentTenantLabel = tenantOptions.find(t => t.value === currentTenantId)?.label || currentTenantId;
+
   return (
     <Form
       form={form}
@@ -108,7 +131,6 @@ const UserAdd: React.FC<UserAddProps> = ({
       onFinish={handleSubmit}
       style={{ padding: '24px' }}
     >
-      {/* 基础信息部分 */}
       <div style={{ marginBottom: 24 }}>
         <div
           style={{
@@ -127,10 +149,14 @@ const UserAdd: React.FC<UserAddProps> = ({
               label="所属租户"
               rules={[{ required: true, message: '请选择所属租户' }]}
             >
-              <Select
-                placeholder="请选择所属租户"
-                options={tenantOptions}
-              />
+              {isSuperAdmin ? (
+                <Select
+                  placeholder="请选择所属租户"
+                  options={tenantOptions}
+                />
+              ) : (
+                <Input disabled value={currentTenantLabel} />
+              )}
             </Form.Item>
           </Col>
           <Col span={12}>
@@ -176,7 +202,6 @@ const UserAdd: React.FC<UserAddProps> = ({
 
       <Divider />
 
-      {/* 详细信息部分 */}
       <div style={{ marginBottom: 24 }}>
         <div
           style={{
@@ -253,7 +278,6 @@ const UserAdd: React.FC<UserAddProps> = ({
 
       <Divider />
 
-      {/* 职责信息部分 */}
       <div style={{ marginBottom: 24 }}>
         <div
           style={{

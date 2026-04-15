@@ -12,7 +12,7 @@ import {
   Space,
   TreeSelect,
 } from 'antd';
-import { useRequest } from '@umijs/max';
+import { useModel, useRequest } from '@umijs/max';
 import moment from 'moment';
 import React, { useEffect, useState, useMemo } from 'react';
 import * as userApi from '@/services/system/user';
@@ -59,10 +59,29 @@ const UserEdit: React.FC<UserEditProps> = ({
   const [form] = Form.useForm();
   const [loading, setLoading] = useState<boolean>(false);
 
-  // 动态获取租户列表
+  const { initialState } = useModel('@@initialState');
+  
+  let currentTenantId = '000000';
+  if (initialState?.user?.tenantId) {
+    currentTenantId = initialState.user.tenantId;
+  } else if (initialState?.user?.tenant_id) {
+    currentTenantId = initialState.user.tenant_id;
+  } else {
+    try {
+      const userInfoStr = localStorage.getItem('sword-user-info');
+      if (userInfoStr) {
+        const userInfo = JSON.parse(userInfoStr);
+        currentTenantId = userInfo.tenantId || userInfo.tenant_id || '000000';
+      }
+    } catch (e) {
+      currentTenantId = '000000';
+    }
+  }
+  
+  const isSuperAdmin = currentTenantId === '000000';
+
   const { data: tenantData } = useRequest(() => tenantApi.list({}));
 
-  // 转换租户数据为 Select 选项格式
   const tenantOptions = useMemo(() => {
     const records = Array.isArray(tenantData)
       ? tenantData
@@ -75,8 +94,9 @@ const UserEdit: React.FC<UserEditProps> = ({
 
   useEffect(() => {
     if (user) {
+      const tenantIdValue = isSuperAdmin ? (user.tenantId || '000000') : currentTenantId;
       form.setFieldsValue({
-        tenantId: user.tenantId || '000000',
+        tenantId: tenantIdValue,
         account: user.account,
         name: user.name,
         realName: user.realName,
@@ -84,7 +104,6 @@ const UserEdit: React.FC<UserEditProps> = ({
         email: user.email,
         sex: user.sex ?? 0,
         birthday: user.birthday ? moment(user.birthday) : null,
-        // 将逗号分隔的字符串转为数组，用于 TreeSelect 回显
         roleId: user.roleId
           ? typeof user.roleId === 'string'
             ? user.roleId.split(',')
@@ -102,21 +121,19 @@ const UserEdit: React.FC<UserEditProps> = ({
           : undefined,
       });
     }
-  }, [user, form]);
+  }, [user, form, isSuperAdmin, currentTenantId]);
 
   const handleSubmit = async (values: any) => {
     setLoading(true);
     try {
       const submitValues = { ...values };
 
-      // 处理生日字段，转换为字符串格式
       if (submitValues.birthday) {
         submitValues.birthday = moment(submitValues.birthday).format(
           'YYYY-MM-DD HH:mm:ss',
         );
       }
 
-      // 处理 TreeSelect 返回的数组，转换为逗号分隔的字符串
       if (Array.isArray(submitValues.roleId)) {
         submitValues.roleId = submitValues.roleId.join(',');
       }
@@ -127,7 +144,6 @@ const UserEdit: React.FC<UserEditProps> = ({
         submitValues.positionId = submitValues.positionId.join(',');
       }
 
-      // 只保留后端 User 实体中存在的字段
       const filteredValues: any = {
         id: user.id,
         tenantId: submitValues.tenantId,
@@ -153,6 +169,8 @@ const UserEdit: React.FC<UserEditProps> = ({
     }
   };
 
+  const currentTenantLabel = tenantOptions.find(t => t.value === currentTenantId)?.label || currentTenantId;
+
   return (
     <Form
       form={form}
@@ -160,7 +178,6 @@ const UserEdit: React.FC<UserEditProps> = ({
       onFinish={handleSubmit}
       style={{ padding: '24px' }}
     >
-      {/* 基础信息部分 */}
       <div style={{ marginBottom: 24 }}>
         <div
           style={{
@@ -179,10 +196,14 @@ const UserEdit: React.FC<UserEditProps> = ({
               label="所属租户"
               rules={[{ required: true, message: '请选择所属租户' }]}
             >
-              <Select
-                placeholder="请选择所属租户"
-                options={tenantOptions}
-              />
+              {isSuperAdmin ? (
+                <Select
+                  placeholder="请选择所属租户"
+                  options={tenantOptions}
+                />
+              ) : (
+                <Input disabled value={currentTenantLabel} />
+              )}
             </Form.Item>
           </Col>
           <Col span={12}>
@@ -199,7 +220,6 @@ const UserEdit: React.FC<UserEditProps> = ({
 
       <Divider />
 
-      {/* 详细信息部分 */}
       <div style={{ marginBottom: 24 }}>
         <div
           style={{
@@ -276,7 +296,6 @@ const UserEdit: React.FC<UserEditProps> = ({
 
       <Divider />
 
-      {/* 职责信息部分 */}
       <div style={{ marginBottom: 24 }}>
         <div
           style={{
@@ -335,6 +354,7 @@ const UserEdit: React.FC<UserEditProps> = ({
                 style={{ width: '100%' }}
               />
             </Form.Item>
+
           </Col>
         </Row>
       </div>

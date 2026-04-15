@@ -153,6 +153,7 @@ export const errorConfig: RequestConfig = {
 
       // 添加 Blade-Auth Token 头
       // 后端要求使用 bearer token 格式，格式为: "bearer <token>" (小写)
+      // 注意：请求头名称必须是 'blade-auth'（小写），与后端保持一致
       if (token) {
         // 检查是否已经包含 bearer 或 crypto 前缀（不区分大小写）
         const lowerToken = token.toLowerCase();
@@ -160,13 +161,13 @@ export const errorConfig: RequestConfig = {
           !lowerToken.startsWith('bearer ') &&
           !lowerToken.startsWith('crypto ')
         ) {
-          config.headers['Blade-Auth'] = `bearer ${token}`; // 使用小写 'bearer '
+          config.headers['blade-auth'] = `bearer ${token}`; // 使用小写 'bearer ' 和 'blade-auth'
         } else {
-          config.headers['Blade-Auth'] = token;
+          config.headers['blade-auth'] = token;
         }
         console.log(
-          '已添加 Blade-Auth Token:',
-          `${config.headers['Blade-Auth'].substring(0, 30)}...`,
+          '已添加 blade-auth Token:',
+          `${config.headers['blade-auth'].substring(0, 30)}...`,
         );
       } else {
         console.warn('未找到 Token，请求可能无法通过认证');

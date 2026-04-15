@@ -50,6 +50,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import * as menuApi from '@/services/system/menu';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
+import { useModel } from '@umijs/max';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -108,6 +109,7 @@ interface MenuItem {
   isComponent: number;
   remark: string;
   createTime: string;
+  tenantId: string;
   children?: MenuItem[];
 }
 
@@ -120,6 +122,33 @@ const MenuPage: React.FC = () => {
   const [selectedIcon, setSelectedIcon] = useState<string>('');
   const [form] = Form.useForm();
   const [menuType, setMenuType] = useState<number>(1); // 菜单类型状态，用于控制条件渲染
+
+  // 获取全局状态
+  const { initialState } = useModel('@@initialState');
+
+  // 获取当前租户ID
+  const getCurrentTenantId = (): string => {
+    let tenantId = '000000';
+    if (initialState?.user?.tenantId) {
+      tenantId = initialState.user.tenantId;
+    } else if (initialState?.user?.tenant_id) {
+      tenantId = initialState.user.tenant_id;
+    } else {
+      try {
+        const userInfoStr = localStorage.getItem('sword-user-info');
+        if (userInfoStr) {
+          const userInfo = JSON.parse(userInfoStr);
+          tenantId = userInfo.tenantId || userInfo.tenant_id || '000000';
+        }
+      } catch (e) {
+        tenantId = '000000';
+      }
+    }
+    return tenantId;
+  };
+
+  const currentTenantId = getCurrentTenantId();
+  const isSuperAdmin = currentTenantId === '000000';
 
   // 获取页面按钮权限（自动从路由提取菜单 code）
   const { buttons } = usePageButtons();
@@ -214,6 +243,13 @@ const MenuPage: React.FC = () => {
       width: 100,
       align: 'center',
     },
+    {
+      title: '租户ID',
+      dataIndex: 'tenantId',
+      key: 'tenantId',
+      width: 120,
+      search: true,
+    },
 
     {
       title: '操作',
@@ -283,6 +319,7 @@ const MenuPage: React.FC = () => {
     form.resetFields();
     setSelectedIcon('');
     setCurrentMenu(null);
+    form.setFieldsValue({ tenantId: currentTenantId });
     setAddModalVisible(true);
   };
 
@@ -290,7 +327,10 @@ const MenuPage: React.FC = () => {
     form.resetFields();
     setSelectedIcon('');
     setCurrentMenu(record);
-    form.setFieldsValue({ parentId: record.id });
+    form.setFieldsValue({
+      parentId: record.id,
+      tenantId: currentTenantId
+    });
     setAddModalVisible(true);
   };
 
@@ -320,8 +360,8 @@ const MenuPage: React.FC = () => {
     setCurrentMenu(record);
     setSelectedIcon(record.source || '');
     // 初始化 menuType 状态
-    setMenuType(typeof record.category === 'string' 
-      ? parseInt(record.category, 10) 
+    setMenuType(typeof record.category === 'string'
+      ? parseInt(record.category, 10)
       : record.category);
     form.setFieldsValue({
     id: record.id,
@@ -331,13 +371,14 @@ const MenuPage: React.FC = () => {
     alias: record.alias,
     path: record.path,
     sort: record.sort,
+    tenantId: record.tenantId,
     // 确保 category 是数字类型
-    category: typeof record.category === 'string' 
-      ? parseInt(record.category, 10) 
+    category: typeof record.category === 'string'
+      ? parseInt(record.category, 10)
       : record.category,
     // 确保 isOpen 是数字类型
-    isOpen: typeof record.isOpen === 'string' 
-      ? parseInt(record.isOpen, 10) 
+    isOpen: typeof record.isOpen === 'string'
+      ? parseInt(record.isOpen, 10)
       : record.isOpen,
     // 确保 isComponent 是布尔类型
     is_component: record.isComponent === 1,
@@ -351,7 +392,7 @@ const MenuPage: React.FC = () => {
       const values = await form.validateFields();
       // 确保 source 是字符串
       const iconValue = typeof selectedIcon === 'string' ? selectedIcon : '';
-      
+
       // 确保 category 和 isOpen 是数字类型
       const submitData = {
         ...values,
@@ -362,9 +403,9 @@ const MenuPage: React.FC = () => {
         // 确保 isComponent 是数字类型
         isComponent: values.is_component ? 1 : 0,
       };
-      
+
       console.log('提交数据:', submitData);
-      
+
       await menuApi.submit(submitData);
       message.success('编辑成功');
       setEditModalVisible(false);
@@ -616,6 +657,18 @@ const MenuPage: React.FC = () => {
                 <Input type="number" placeholder="请输入菜单排序" />
               </Form.Item>
             </Col>
+            <Col span={12}>
+              <Form.Item
+                name="tenantId"
+                label="租户ID"
+                rules={[{ required: true, message: '请输入租户ID' }]}
+              >
+                <Input
+                  placeholder="请输入租户ID"
+                  disabled={!isSuperAdmin}
+                />
+              </Form.Item>
+            </Col>
           </Row>
 
           <Form.Item name="remark" label="菜单备注">
@@ -678,6 +731,10 @@ const MenuPage: React.FC = () => {
               <p>
                 <strong>是否生成组件：</strong>
                 {currentMenu.isComponent === 1 ? '是' : '否'}
+              </p>
+              <p>
+                <strong>租户ID：</strong>
+                {currentMenu.tenantId || '-'}
               </p>
               <p>
                 <strong>备注：</strong>
