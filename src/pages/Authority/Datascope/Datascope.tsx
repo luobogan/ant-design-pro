@@ -4,6 +4,7 @@ import {
   EyeOutlined,
   PlusOutlined,
   SettingOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
@@ -23,6 +24,7 @@ import {
 import React, { useEffect, useMemo, useState } from 'react';
 import * as dataPermissionApi from '@/services/authority/dataPermission';
 import * as menuApi from '@/services/system/menu';
+import { useModel } from '@umijs/max';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -49,6 +51,7 @@ interface DataPermission {
   visibleField: string;
   remark: string;
   createTime: string;
+  tenantId: string;
 }
 
 const DataPermissionPage: React.FC = () => {
@@ -62,6 +65,33 @@ const DataPermissionPage: React.FC = () => {
     useState<DataPermission | null>(null);
   const [form] = Form.useForm();
 
+  // 获取全局状态
+  const { initialState } = useModel('@@initialState');
+
+  // 获取当前租户ID
+  const getCurrentTenantId = (): string => {
+    let tenantId = '000000';
+    if (initialState?.user?.tenantId) {
+      tenantId = initialState.user.tenantId;
+    } else if (initialState?.user?.tenant_id) {
+      tenantId = initialState.user.tenant_id;
+    } else {
+      try {
+        const userInfoStr = localStorage.getItem('sword-user-info');
+        if (userInfoStr) {
+          const userInfo = JSON.parse(userInfoStr);
+          tenantId = userInfo.tenantId || userInfo.tenant_id || '000000';
+        }
+      } catch (e) {
+        tenantId = '000000';
+      }
+    }
+    return tenantId;
+  };
+
+  const currentTenantId = getCurrentTenantId();
+  const isSuperAdmin = currentTenantId === '000000';
+
   // 新增弹窗打开时预填充表单
   useEffect(() => {
     if (addModalVisible && currentMenu) {
@@ -70,9 +100,10 @@ const DataPermissionPage: React.FC = () => {
         resourceCode: currentMenu.code,
         scopeColumn: '-',
         visibleField: '*',
+        tenantId: currentTenantId,
       });
     }
-  }, [addModalVisible, currentMenu, form]);
+  }, [addModalVisible, currentMenu, form, currentTenantId]);
 
   // 获取菜单列表
   const {
@@ -132,6 +163,7 @@ const DataPermissionPage: React.FC = () => {
       scopeType: item.scopeType || item.type || '',
       scopeClass: item.scopeClass || item.className || '',
       visibleField: item.visibleField || item.column || '*',
+      tenantId: item.tenantId || item.tenant_id || '',
       scopeTypeName: getScopeTypeName(item.scopeType || item.type),
     }));
   }, [dataPermissionData]);
@@ -223,6 +255,13 @@ const DataPermissionPage: React.FC = () => {
       render: (_, __, index) => index + 1,
     },
     {
+      title: '租户ID',
+      dataIndex: 'tenantId',
+      key: 'tenantId',
+      width: 120,
+      render: (tenantId) => <Tag color="blue">{tenantId || '-'}</Tag>,
+    },
+    {
       title: '权限名称',
       dataIndex: 'scopeName',
       key: 'scopeName',
@@ -266,6 +305,7 @@ const DataPermissionPage: React.FC = () => {
             type="link"
             icon={<EditOutlined />}
             onClick={() => handleEdit(record)}
+            disabled={!isSuperAdmin && record.tenantId !== currentTenantId}
           >
             编辑
           </Button>
@@ -274,6 +314,7 @@ const DataPermissionPage: React.FC = () => {
             danger
             icon={<DeleteOutlined />}
             onClick={() => handleDelete([record.id])}
+            disabled={!isSuperAdmin && record.tenantId !== currentTenantId}
           >
             删除
           </Button>
@@ -338,6 +379,7 @@ const DataPermissionPage: React.FC = () => {
         visibleField: values.visibleField,
         remark: values.remark,
         menuId: currentMenu?.id,
+        tenantId: values.tenantId || currentTenantId,
       };
       await dataPermissionApi.submit(submitData);
       message.success('添加成功');
@@ -362,6 +404,7 @@ const DataPermissionPage: React.FC = () => {
         visibleField: values.visibleField,
         remark: values.remark,
         menuId: currentMenu?.id,
+        tenantId: values.tenantId || currentTenantId,
       };
       await dataPermissionApi.submit(submitData);
       message.success('编辑成功');
@@ -533,6 +576,18 @@ const DataPermissionPage: React.FC = () => {
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
+                name="tenantId"
+                label="租户ID"
+                rules={[{ required: true, message: '请输入租户ID' }]}
+              >
+                <Input
+                  placeholder="请输入租户ID"
+                  disabled={!isSuperAdmin}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
                 name="visibleField"
                 label="可见字段"
                 rules={[{ required: true, message: '请输入可见字段' }]}
@@ -540,6 +595,8 @@ const DataPermissionPage: React.FC = () => {
                 <Input placeholder="请输入可见字段" />
               </Form.Item>
             </Col>
+          </Row>
+          <Row gutter={16}>
             <Col span={12}>
               <Form.Item
                 name="scopeClass"
@@ -671,38 +728,46 @@ const DataPermissionPage: React.FC = () => {
               <Row gutter={16} style={{ marginBottom: 16 }}>
                 <Col span={12}>
                   <p>
+                    <strong>租户ID：</strong>
+                    {currentDataPermission.tenantId || '-'}
+                  </p>
+                </Col>
+                <Col span={12}>
+                  <p>
                     <strong>权限名称：</strong>
                     {currentDataPermission.scopeName}
                   </p>
                 </Col>
+              </Row>
+              <Row gutter={16} style={{ marginBottom: 16 }}>
                 <Col span={12}>
                   <p>
                     <strong>权限编号：</strong>
                     {currentDataPermission.resourceCode}
                   </p>
                 </Col>
-              </Row>
-              <Row gutter={16} style={{ marginBottom: 16 }}>
                 <Col span={12}>
                   <p>
                     <strong>权限字段：</strong>
                     {currentDataPermission.scopeColumn}
                   </p>
                 </Col>
+              </Row>
+              <Row gutter={16} style={{ marginBottom: 16 }}>
                 <Col span={12}>
                   <p>
                     <strong>规则类型：</strong>
                     {getScopeTypeName(currentDataPermission.scopeType)}
                   </p>
                 </Col>
-              </Row>
-              <Row gutter={16} style={{ marginBottom: 16 }}>
                 <Col span={12}>
                   <p>
                     <strong>可见字段：</strong>
                     {currentDataPermission.visibleField}
                   </p>
                 </Col>
+              </Row>
+              <Row gutter={16} style={{ marginBottom: 16 }}>
                 <Col span={12}>
                   <p>
                     <strong>权限类名：</strong>

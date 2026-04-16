@@ -51,6 +51,7 @@ import * as menuApi from '@/services/system/menu';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
 import { useModel } from '@umijs/max';
+import {递归删除} from '@/services/system/menu';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -201,6 +202,12 @@ const MenuPage: React.FC = () => {
   }, [menus]);
 
   const columns: ProColumns<MenuItem>[] = [
+     {
+      title: 'id',
+      dataIndex: 'id',
+      key: 'id',
+      width: 180,
+    },
     {
       title: '菜单名称',
       dataIndex: 'name',
@@ -293,15 +300,22 @@ const MenuPage: React.FC = () => {
   const handleDelete = (ids: React.Key[]) => {
     Modal.confirm({
       title: '确认删除',
-      content: `确定要删除选中的 ${ids.length} 个菜单吗？`,
+      content: (
+        <div>
+          <p>确定要删除选中的 {ids.length} 个菜单吗？</p>
+          <p style={{ color: 'orange', marginTop: '10px' }}>
+            ⚠️ 注意：此操作将递归删除所有子菜单，并清空相关角色的菜单权限配置！
+          </p>
+        </div>
+      ),
       onOk: async () => {
         try {
-          await menuApi.remove({ ids });
-          message.success('删除成功');
+          await menuApi.removeRecursive({ ids });
+          message.success(`删除成功，共删除 ${ids.length} 个菜单及子菜单`);
           setSelectedRowKeys([]);
           refresh();
-        } catch (_error) {
-          message.error('删除失败');
+        } catch (error: any) {
+          message.error(error.message || '删除失败');
         }
       },
     });

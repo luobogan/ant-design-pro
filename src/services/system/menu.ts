@@ -70,6 +70,14 @@ export async function remove(params: any) {
   });
 }
 
+// 递归删除菜单（包括子菜单和角色权限）
+export async function removeRecursive(params: any) {
+  return request(`${MENU_BASE_URL}/remove-recursive`, {
+    method: 'POST',
+    data: RequestForm.buildFormDataWithArray(params),
+  });
+}
+
 // 提交菜单信息
 export async function submit(params: any) {
   // 清理数据，确保所有字段都是可序列化的

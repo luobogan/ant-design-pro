@@ -204,9 +204,11 @@ const RolePage: React.FC = () => {
         (permissionResp && (permissionResp as any).data) ||
         permissionResp ||
         {};
-      const menuIds = checkedTree.menu || [];
-      const dataScopeIds = checkedTree.dataScope || [];
-      const apiIds = checkedTree.apiScope || [];
+      
+      // 正确解析 CheckedTreeVO 结构：menu.dataScope.apiScope 都是 TreeKeys 对象，包含 checkedKeys
+      const menuIds = checkedTree.menu?.checkedKeys || [];
+      const dataScopeIds = checkedTree.dataScope?.checkedKeys || [];
+      const apiIds = checkedTree.apiScope?.checkedKeys || [];
 
       console.log('Extracted permissions:', { menuIds, dataScopeIds, apiIds });
 

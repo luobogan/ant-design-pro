@@ -69,16 +69,16 @@ const PermissionConfig: React.FC<PermissionConfigProps> = ({
   useEffect(() => {
     if (visible) {
       // 过滤掉不在菜单树中的键
-      const validMenuKeys = (initialMenuKeys || []).filter(key => isKeyInTree(key, menuTreeData));
+      const validMenuKeys = (Array.isArray(initialMenuKeys) ? initialMenuKeys : []).filter(key => isKeyInTree(key, menuTreeData));
       setCheckedMenuKeys(validMenuKeys);
       // 数据权限：过滤掉可能包含的分组key，只保留实际ID
-      const validDataScopeKeys = (initialDataScopeKeys || []).filter((key) => {
+      const validDataScopeKeys = (Array.isArray(initialDataScopeKeys) ? initialDataScopeKeys : []).filter((key) => {
         const keyStr = String(key);
         return !keyStr.startsWith('menu-');
       });
       setCheckedDataScopeKeys(validDataScopeKeys);
       // 过滤掉不在接口树中的键
-      const validApiKeys = (initialApiKeys || []).filter(key => isKeyInTree(key, apiTreeData));
+      const validApiKeys = (Array.isArray(initialApiKeys) ? initialApiKeys : []).filter(key => isKeyInTree(key, apiTreeData));
       setCheckedApiKeys(validApiKeys);
     }
   }, [visible, initialMenuKeys, initialDataScopeKeys, initialApiKeys, menuTreeData, apiTreeData]);
