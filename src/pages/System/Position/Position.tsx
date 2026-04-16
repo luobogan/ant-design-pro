@@ -6,6 +6,7 @@ import {
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
+// @ts-expect-error useRequest 由 @umijs/max 的 request 插件在运行时提供
 import { useRequest } from '@umijs/max';
 import { Button, Form, Input, InputNumber, Modal, message, Select } from 'antd';
 import React, { useState, useEffect } from 'react';

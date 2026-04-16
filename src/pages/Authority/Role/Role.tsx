@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
+// @ts-expect-error useRequest 由 @umijs/max 的 request 插件在运行时提供
 import { useRequest } from '@umijs/max';
 import React, { useMemo, useState } from 'react';
 import {
@@ -86,20 +87,28 @@ const RolePage: React.FC = () => {
   const { data: roleTreeData } = useRequest(roleApi.tree);
 
   // 获取菜单树（用于权限配置）
-  const {
-    data: menuTreeData,
-    loading: menuTreeLoading,
-    runAsync: refreshMenuTree,
-  } = useRequest(menuApi.grantTree, {
-    onSuccess: (data) => {
-      console.log('Menu tree data received:', data);
-      console.log('Menu data structure:', data?.data?.menu);
-    },
-    onError: (error) => {
+  const [menuTreeData, setMenuTreeData] = useState<any>(null);
+  const [menuTreeLoading, setMenuTreeLoading] = useState<boolean>(false);
+
+  // 刷新菜单树
+  const refreshMenuTree = async (params: any) => {
+    setMenuTreeLoading(true);
+    try {
+      console.log('Calling grant-tree API with params:', params);
+      const response = await menuApi.grantTree(params);
+      console.log('Menu tree data received:', response);
+      console.log('Menu data structure:', response?.data?.menu);
+      setMenuTreeData(response);
+      return response;
+    } catch (error) {
       console.error('Failed to get menu tree:', error);
       message.error('获取菜单树失败');
-    },
-  });
+      setMenuTreeData(null);
+      throw error;
+    } finally {
+      setMenuTreeLoading(false);
+    }
+  };
 
   // 获取数据权限列表（用于权限配置）
   const { data: dataScopeListData } = useRequest(() => dataScopeApi.list({}), {
@@ -195,6 +204,8 @@ const RolePage: React.FC = () => {
     setPermissionLoading(true);
     try {
       console.log('Opening permission config for role:', role);
+      // 刷新菜单树，传递角色 ID
+      await refreshMenuTree({ roleId: role.id });
       // 获取角色已有的权限配置
       const permissionResp = await menuApi.roleTreeKeys({ roleIds: role.id });
       console.log('Permission data received:', permissionResp);
@@ -204,7 +215,7 @@ const RolePage: React.FC = () => {
         (permissionResp && (permissionResp as any).data) ||
         permissionResp ||
         {};
-      
+
       // 正确解析 CheckedTreeVO 结构：menu.dataScope.apiScope 都是 TreeKeys 对象，包含 checkedKeys
       const menuIds = checkedTree.menu?.checkedKeys || [];
       const dataScopeIds = checkedTree.dataScope?.checkedKeys || [];
@@ -758,9 +769,9 @@ const RolePage: React.FC = () => {
               title: '操作',
               key: 'action',
               render: (_: any, record: User) => {
-                const isProtectedUser = 
-                  currentRole?.tenantId === '000000' && 
-                  currentRole?.roleName === '超级管理员' && 
+                const isProtectedUser =
+                  currentRole?.tenantId === '000000' &&
+                  currentRole?.roleName === '超级管理员' &&
                   record.id === '1123598821738675201';
                 return !isProtectedUser && (
                   <Button

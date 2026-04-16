@@ -30,6 +30,7 @@ import {
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
+// @ts-expect-error useRequest 由 @umijs/max 的 request 插件在运行时提供
 import { useRequest } from '@umijs/max';
 import {
   Button,
@@ -46,12 +47,15 @@ import {
   Space,
   TreeSelect,
 } from 'antd';
+// @ts-expect-error history 由 @umijs/max 的 request 插件在运行时提供
+import { history } from '@umijs/max';
 import React, { useMemo, useState, useEffect } from 'react';
 import * as menuApi from '@/services/system/menu';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
+// @ts-expect-error useModel 由 @umijs/max 的 request 插件在运行时提供
 import { useModel } from '@umijs/max';
-import {递归删除} from '@/services/system/menu';
+import { removeRecursive } from '@/services/system/menu';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -129,27 +133,56 @@ const MenuPage: React.FC = () => {
 
   // 获取当前租户ID
   const getCurrentTenantId = (): string => {
-    let tenantId = '000000';
     if (initialState?.user?.tenantId) {
-      tenantId = initialState.user.tenantId;
-    } else if (initialState?.user?.tenant_id) {
-      tenantId = initialState.user.tenant_id;
-    } else {
-      try {
-        const userInfoStr = localStorage.getItem('sword-user-info');
-        if (userInfoStr) {
-          const userInfo = JSON.parse(userInfoStr);
-          tenantId = userInfo.tenantId || userInfo.tenant_id || '000000';
-        }
-      } catch (e) {
-        tenantId = '000000';
-      }
+      return initialState.user.tenantId;
     }
-    return tenantId;
+    if (initialState?.user?.tenant_id) {
+      return initialState.user.tenant_id;
+    }
+    try {
+      const userInfoStr = localStorage.getItem('sword-user-info');
+      if (userInfoStr) {
+        const userInfo = JSON.parse(userInfoStr);
+        return userInfo.tenantId || userInfo.tenant_id || '000000';
+      }
+    } catch (e) {
+      console.error('Failed to get tenantId:', e);
+    }
+    return '000000';
   };
 
   const currentTenantId = getCurrentTenantId();
   const isSuperAdmin = currentTenantId === '000000';
+
+  // 权限检查：非超级管理员不能访问菜单管理页面
+  useEffect(() => {
+    if (!isSuperAdmin) {
+      // 延迟重定向，确保用户体验
+      const timer = setTimeout(() => {
+        history.push('/403');
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isSuperAdmin, history]);
+
+  // 如果不是超级管理员，显示加载状态
+  if (!isSuperAdmin) {
+    return (
+      <div style={{
+        minHeight: '80vh',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: '24px'
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ marginBottom: '16px', fontSize: '16px', color: '#1890ff' }}>
+            正在验证权限...
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // 获取页面按钮权限（自动从路由提取菜单 code）
   const { buttons } = usePageButtons();
@@ -228,7 +261,7 @@ const MenuPage: React.FC = () => {
       key: 'source',
       width: 100,
       align: 'center',
-      render: (icon) => getIconByString(icon || ''),
+      render: (icon: any) => getIconByString(String(icon) || ''),
     },
     {
       title: '菜单编号',
