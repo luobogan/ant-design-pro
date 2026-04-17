@@ -1067,7 +1067,7 @@ const TenantPage: React.FC = () => {
         <div style={{ padding: '8px 0' }}>
           {!diagnoseData ? (
             <div style={{ textAlign: 'center', padding: 40 }}>
-              <Spin tip="正在诊断..." />
+              <Spin description="正在诊断..." />
             </div>
           ) : (
             <div>

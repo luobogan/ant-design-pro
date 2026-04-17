@@ -27,9 +27,80 @@ const codeMessage: Record<number, string> = {
 };
 
 /**
+ * 保存表单数据到 sessionStorage
+ * 用于会话超时时保存用户提交的数据，以便登录后恢复
+ */
+const saveFormData = (config: RequestOptions) => {
+  if (
+    config.method === 'POST' ||
+    config.method === 'PUT' ||
+    config.method === 'DELETE'
+  ) {
+    const requestData = config.body || config.data;
+    if (
+      requestData &&
+      typeof requestData === 'object' &&
+      !(requestData instanceof FormData)
+    ) {
+      const formDataKey = 'blade_pending_form_data';
+      const formData = {
+        url: config.url,
+        method: config.method,
+        data: requestData,
+        timestamp: Date.now(),
+      };
+      sessionStorage.setItem(formDataKey, JSON.stringify(formData));
+      console.log('保存表单数据到 sessionStorage:', formData);
+    }
+  }
+};
+
+/**
+ * 清除保存的表单数据
+ */
+export const clearFormData = () => {
+  sessionStorage.removeItem('blade_pending_form_data');
+};
+
+/**
+ * 恢复保存的表单数据
+ */
+export const getSavedFormData = () => {
+  const formDataKey = 'blade_pending_form_data';
+  const formDataStr = sessionStorage.getItem(formDataKey);
+  if (formDataStr) {
+    try {
+      const formData = JSON.parse(formDataStr);
+      // 检查数据是否过期（30分钟内有效）
+      const isValid = Date.now() - formData.timestamp < 30 * 60 * 1000;
+      if (isValid) {
+        console.log('恢复保存的表单数据:', formData);
+        return formData;
+      } else {
+        sessionStorage.removeItem(formDataKey);
+      }
+    } catch (e) {
+      console.error('解析保存的表单数据失败:', e);
+      sessionStorage.removeItem(formDataKey);
+    }
+  }
+  return null;
+};
+
+/**
  * 检查响应状态
  */
 const checkStatus = (response: any) => {
+  // 处理 401 未授权状态码
+  if (response.status === 401) {
+    console.error('认证失败，会话已过期:', response.url);
+    const errortext = codeMessage[401] || response.statusText;
+    const error = new Error(errortext);
+    error.name = 401;
+    (error as any).response = response;
+    throw error;
+  }
+
   if (
     (response.status >= 200 && response.status < 300) ||
     // 针对于要显示后端返回自定义详细信息的status, 配置跳过
@@ -190,6 +261,16 @@ export const errorConfig: RequestConfig = {
         config.method === 'DELETE'
       ) {
         let requestData = config.body || config.data;
+
+        // 保存表单数据到 sessionStorage（在序列化之前保存原始数据）
+        if (
+          requestData &&
+          typeof requestData === 'object' &&
+          !(requestData instanceof FormData)
+        ) {
+          saveFormData(config);
+        }
+
         if (
           requestData &&
           typeof requestData === 'object' &&
@@ -218,13 +299,13 @@ export const errorConfig: RequestConfig = {
               console.error('数据内容:', requestData);
               throw new Error('数据格式错误，无法序列化为 JSON');
             }
-            
+
             config.headers = {
               Accept: 'application/json',
               'Content-Type': 'application/json',
               ...config.headers,
             };
-            
+
             // 确保数据被正确设置为 data
             config.data = jsonString;
             if (config.body) delete config.body;
@@ -340,7 +421,8 @@ export const errorConfig: RequestConfig = {
       // 处理 success 字段（兼容其他后端格式）
       if (data?.success !== undefined) {
         if (data.success === false) {
-          console.error(data.message || data.errorMessage || '请求失败！');
+          const errorMsg = data.message || data.errorMessage || '请求失败！';
+          console.error(errorMsg);
           // 特殊处理401未授权错误
           if (data.message?.includes('未授权')) {
             console.error('认证失败:', data.message);
@@ -351,6 +433,10 @@ export const errorConfig: RequestConfig = {
               history.push('/user/login');
             }
           }
+          // 抛出异常，让前端的 try-catch 可以捕获
+          const error = new Error(errorMsg);
+          (error as any).response = data;
+          throw error;
         }
       }
 
@@ -359,4 +445,33 @@ export const errorConfig: RequestConfig = {
       return response;
     },
   ],
+
+  // 错误处理
+  errorHandler: (error: any) => {
+    console.error('请求错误:', error);
+
+    // 处理 401 认证失败
+    if (error.name === 401 || error.response?.status === 401) {
+      console.error('会话已过期，跳转到登录页');
+      // 清除所有登录信息
+      removeAll();
+      // 跳转到登录页
+      if (window.location.pathname !== '/user/login') {
+        history.push('/user/login');
+      }
+      return Promise.reject(error);
+    }
+
+    // 其他错误
+    const { response } = error;
+    if (response && response.data) {
+      const { status, statusText } = response;
+      const errortext = codeMessage[status] || statusText;
+      console.error(`请求错误 ${status}: ${errortext}`);
+    } else {
+      console.error('请求失败:', error.message);
+    }
+
+    return Promise.reject(error);
+  },
 };

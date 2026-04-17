@@ -15,7 +15,7 @@ import {
   AvatarDropdown,
   AvatarName,
 } from '@/components/RightContent/AvatarDropdown';
-import { errorConfig } from '@/requestErrorConfig';
+import { errorConfig, getSavedFormData } from '@/requestErrorConfig';
 import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
 import { dynamicRoutes, dynamicButtons } from '@/services/system/menu';
 import { setButtons, getButtons } from '@/utils/authority';
@@ -74,32 +74,53 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
   return menus.flatMap((item) => {
     let Component: React.ComponentType<any> | null = null;
     const buttonRoutes: RouteItem[] = [];
-    
+
     if (item.path) {
       const formattedPath = Func.formatRoutePath(item.path);
       const pathParts = formattedPath.split('/').filter(Boolean);
-      
+
       if (pathParts.length >= 2) {
         const [module, page] = [pathParts[0], pathParts[pathParts.length - 1]];
-        
+
         // 从 localStorage 获取按钮数据
         const buttonsData = getButtons();
         console.log('从 localStorage 获取按钮数据:', buttonsData);
-        
-        // 根据菜单项的 id 找到对应的按钮数据
-        const relatedButtons = buttonsData.filter(button => button.children && button.children.some(child => child.parentId === item.id));
+
+        // 递归查找当前菜单项对应的按钮数据（支持嵌套结构如 mall > product > buttons）
+        const findButtonItems = (list: any[], targetId: string): any[] => {
+          const results: any[] = [];
+          for (const btn of list) {
+            if (btn.children) {
+              // 检查直接子项是否有 parentId 匹配
+              const matched = btn.children.filter((child: any) => child.parentId === targetId);
+              if (matched.length > 0) results.push({ ...btn, children: matched });
+              // 递归查找更深层级
+              results.push(...findButtonItems(btn.children, targetId));
+            }
+          }
+          return results;
+        };
+        const relatedButtons = findButtonItems(buttonsData, item.id);
         console.log(`与菜单 ${item.name} (id: ${item.id}) 关联的按钮：`, relatedButtons);
-        
-        // 处理按钮组件路由
+
+        // 收集所有需要注册为路由的按钮组件（扁平化）
+        const componentButtons: any[] = [];
         relatedButtons.forEach((button) => {
-          button.children?.forEach((item1) => {
+          button.children?.forEach((item1: any) => {
             if (item1.category === 2 && item1.isComponent === 1 && item1.path) {
+              componentButtons.push(item1);
+            }
+          });
+        });
+
+        // 处理按钮组件路由
+        componentButtons.forEach((item1) => {
               const formattedPath1 = Func.formatRoutePath(item1.path);
               const pathParts1 = formattedPath1.split('/').filter(Boolean);
               const lastSegment = pathParts1[pathParts1.length - 1];
               const componentName = `${toPascalCase(page)}${toPascalCase(lastSegment)}`;
               console.log(`按钮组件路径：./pages/${module}/${page}/${componentName}.tsx`);
-              
+
               const ButtonComponent = React.lazy(
                 () =>
                   new Promise((resolve, _reject) => {
@@ -111,7 +132,7 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
                       });
                   }),
               );
-              
+
               // 将按钮路由添加到列表中
               buttonRoutes.push({
                 path: item1.path,
@@ -133,7 +154,7 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
                         }}
                       >
                         <div style={{ marginBottom: '16px' }}>
-                          <Spin size="large" tip="加载中..." />
+                          <Spin size="large" description="加载中..." />
                         </div>
                         <p style={{ fontSize: '14px', color: '#666', marginTop: '16px' }}>
                           正在加载页面，请稍候...
@@ -145,15 +166,13 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
                   </React.Suspense>
                 ),
               });
-            }
-          });
         });
-        
+
         // 普通页面的组件映射规则
         const pageComponentName = toPascalCase(page);
         const componentPath = `./pages/${module}/${page}/${pageComponentName}.tsx`;
         console.log(`组件路径：${componentPath}`);
-        
+
         Component = React.lazy(
           () =>
             new Promise((resolve, _reject) => {
@@ -167,7 +186,7 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
         );
       }
     }
-    
+
     if (item.children) {
       console.log(item.children[0]);
       return [
@@ -209,7 +228,7 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
                   }}
                 >
                   <div style={{ marginBottom: '16px' }}>
-                    <Spin size="large" tip="加载中..." />
+                    <Spin size="large" description="加载中..." />
                   </div>
                   <p
                     style={{
@@ -317,6 +336,14 @@ export async function getInitialState(): Promise<{
   };
 
   const { location } = history;
+
+  // 检查是否有保存的表单数据
+  const savedFormData = getSavedFormData();
+  if (savedFormData) {
+    console.log('检测到保存的表单数据:', savedFormData);
+    // 可以在这里添加逻辑来提示用户有未完成的操作
+  }
+
   if (location.pathname !== loginPath) {
     const [currentUser, buttons] = await Promise.all([
       fetchUserInfo(),
@@ -332,7 +359,7 @@ export async function getInitialState(): Promise<{
   return {
     fetchUserInfo,
     settings: defaultSettings as Partial<LayoutSettings>,
-  };      
+  };
 }
 // 映射菜单对应的图标
 const loopMenuItem1 = (menus: MenuDataItem[]): MenuDataItem[] =>
@@ -340,7 +367,7 @@ const loopMenuItem1 = (menus: MenuDataItem[]): MenuDataItem[] =>
     ...item,
     icon: icon && <Icon component={icons[icon]} />,
     routes: routes && loopMenuItem1(routes),
-  }));  
+  }));
 // ProLayout 支持的api https://procomponents.ant.design/components/layout
 export const layout: RunTimeLayoutConfig = ({
   initialState,

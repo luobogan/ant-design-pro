@@ -138,16 +138,25 @@ export function getButtons(): any[] {
 }
 
 /**
- * 获取指定代码的按钮权限
+ * 获取指定代码的按钮权限（支持递归查找嵌套菜单）
  */
 export function getButton(code: string): any[] {
   const buttons = getButtons();
-  const data = buttons.filter((d: any) => {
-    return d.code === code;
-  });
-  // 菜单项的按钮可能存储在 children 或 buttons 字段中
-  if (data.length === 0) return [];
-  const item = data[0];
+
+  // 递归查找匹配的菜单项
+  const findItem = (list: any[], targetCode: string): any => {
+    for (const item of list) {
+      if (item.code === targetCode) return item;
+      if (item.children?.length) {
+        const found = findItem(item.children, targetCode);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const item = findItem(buttons, code);
+  if (!item) return [];
   return item.children || item.buttons || [];
 }
 

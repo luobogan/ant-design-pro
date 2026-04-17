@@ -30,6 +30,7 @@ import {
   setToken,
   setUserInfo,
 } from '@/utils/authority';
+import { clearFormData, getSavedFormData } from '@/requestErrorConfig';
 import Crypto from '@/utils/crypto';
 import { getQueryString, getTopUrl, validateNull } from '@/utils/utils';
 import { dynamicButtons, dynamicRoutes } from '@/services/system/menu';
@@ -216,6 +217,13 @@ const Login: React.FC = () => {
       console.log('Response data:', data);
 
       if (data.code === 200 && data.data && data.data.accessToken) {
+        // 清除之前保存的表单数据（因为用户已经重新登录成功）
+        const savedFormData = getSavedFormData();
+        if (savedFormData) {
+          message.info('检测到您有未完成的操作，登录后将自动恢复表单数据');
+        }
+        clearFormData();
+
         // 设置token到localStorage
         setToken(data.data.accessToken);
         setAccessToken(data.data.accessToken);

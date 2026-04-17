@@ -142,7 +142,7 @@ const ProductList: React.FC = () => {
         categoryApi.getTree(),
         brandApi.getList({ page: 1, pageSize: 100 }),
       ]);
-      
+
       // 将分类数据转换为TreeSelect需要的格式
       const formatCategories = (categories: Category[]): any[] => {
         return categories.map(category => ({
@@ -151,7 +151,7 @@ const ProductList: React.FC = () => {
           children: category.children ? formatCategories(category.children) : undefined
         }));
       };
-      
+
       setCategories(formatCategories(categoryRes || []));
       setBrands(brandRes?.list || []);
     } catch (error) {
