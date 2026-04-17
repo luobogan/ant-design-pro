@@ -10,23 +10,23 @@ import ProductForm from './components/ProductForm';
 const ProductAae: React.FC = () => {
   const [searchParams] = useSearchParams();
   const location = useLocation();
-  
+
   const mode = searchParams.get('mode') || 'add';
   const productId = searchParams.get('id');
-  
+
   const [product, setProduct] = useState<Product | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  
+
   const isEditMode = mode === 'edit' && productId;
-  
+
   useEffect(() => {
     if (isEditMode && productId) {
-      loadProductData(Number(productId));
+      loadProductData(productId);
     }
   }, [productId, isEditMode]);
-  
-  const loadProductData = async (id: number) => {
+
+  const loadProductData = async (id: string) => {
     setLoading(true);
     try {
       const data = await productApi.getById(id);
@@ -38,12 +38,12 @@ const ProductAae: React.FC = () => {
       setLoading(false);
     }
   };
-  
+
   const handleSubmit = async (data: ProductFormData) => {
     try {
       setSubmitting(true);
       if (isEditMode && productId) {
-        await productApi.update(Number(productId), data);
+        await productApi.update(productId, data);
         message.success('商品更新成功');
       } else {
         await productApi.create(data);
@@ -60,7 +60,7 @@ const ProductAae: React.FC = () => {
           onOk: async () => {
             try {
               if (!productId) return;
-              await productApi.updateWithConfirm(Number(productId), data, true);
+              await productApi.updateWithConfirm(productId, data, true);
               message.success('商品更新成功');
               history.push('/mall/product');
             } catch (error: any) {
@@ -77,22 +77,22 @@ const ProductAae: React.FC = () => {
       setSubmitting(false);
     }
   };
-  
+
   const handleCancel = () => {
     history.push('/mall/product');
   };
-  
+
   const getPageTitle = () => {
     return isEditMode ? '编辑商品' : '新增商品';
   };
-  
+
   const getBreadcrumb = () => {
     return [
       { name: '商品管理', path: '/mall/product' },
       { name: getPageTitle() },
     ];
   };
-  
+
   if (loading) {
     return (
       <PageContainer>
@@ -105,7 +105,7 @@ const ProductAae: React.FC = () => {
       </PageContainer>
     );
   }
-  
+
   return (
     <PageContainer
       title={getPageTitle()}

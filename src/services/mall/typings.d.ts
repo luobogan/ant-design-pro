@@ -1,6 +1,6 @@
 // 商品相关类型
 export interface Product {
-  id: number;
+  id: string;
   name: string;
   subtitle?: string;
   description: string;
@@ -9,9 +9,9 @@ export interface Product {
   originalPrice?: number;
   image: string;
   images?: string[];
-  categoryId: number;
+  categoryId: string;
   categoryName?: string;
-  brandId: number;
+  brandId: string;
   brandName?: string;
   stock: number;
   productSn?: string;
@@ -33,7 +33,7 @@ export interface Product {
   isRecommend?: boolean;
   totalSkuStock?: number;
   attributeValues?: Array<{
-    attributeId: number;
+    attributeId: string;
     value: string;
   }>;
   paramValues?: Array<{
@@ -59,8 +59,8 @@ export interface ProductFormData {
     isMain: boolean;
     color?: string;
   }>;
-  categoryId: number;
-  brandId: number;
+  categoryId: string;
+  brandId: string;
   stock?: number;
   stockWarning?: number;
   productSn?: string;
@@ -76,14 +76,14 @@ export interface ProductFormData {
   isHot?: number;
   isPreview?: number;
   promotionType?: number;
-  promotionId?: number;
-  serviceIds?: number[];
+  promotionId?: string;
+  serviceIds?: string[];
   detailTitle?: string;
   detailDesc?: string;
   keywords?: string;
   note?: string;
   attributeValues?: Array<{
-    attributeId: number;
+    attributeId: string;
     value: string;
   }>;
   paramValues?: Array<{
@@ -91,9 +91,9 @@ export interface ProductFormData {
     value: string;
   }>;
   skus?: any[];
-  relatedProducts?: number[];
-  bundleProducts?: number[];
-  recommendProducts?: number[];
+  relatedProducts?: string[];
+  bundleProducts?: string[];
+  recommendProducts?: string[];
   specAttributes?: Array<{
     name: string;
     values: Array<{
@@ -103,8 +103,8 @@ export interface ProductFormData {
 }
 
 export interface ProductSku {
-  id: number;
-  productId: number;
+  id: string;
+  productId: string;
   skuCode: string;
   skuName: string;
   spec1?: string;
@@ -121,7 +121,7 @@ export interface ProductSku {
 }
 
 export interface ProductSkuFormData {
-  id?: number;
+  id?: string;
   skuCode?: string;
   skuName: string;
   spec1?: string;
@@ -136,7 +136,7 @@ export interface ProductSkuFormData {
 }
 
 export interface SkuMatrixGenerateData {
-  productId: number;
+  productId: string;
   attributes: Array<{
     name: string;
     values: Array<{
@@ -150,9 +150,9 @@ export interface SkuMatrixGenerateData {
 }
 
 export interface ProductRelation {
-  id: number;
-  productId: number;
-  relatedProductId: number;
+  id: string;
+  productId: string;
+  relatedProductId: string;
   relatedProduct?: Product;
   type: number;
   typeText?: string;
@@ -161,23 +161,23 @@ export interface ProductRelation {
 }
 
 export interface ProductRelationFormData {
-  id?: number;
-  productId?: number;
-  relatedProductId: number;
+  id?: string;
+  productId?: string;
+  relatedProductId: string;
   type: number;
   sortOrder?: number;
 }
 
 export interface SkuStockLog {
-  id: number;
-  skuId: number;
-  productId: number;
+  id: string;
+  skuId: string;
+  productId: string;
   type: number;
   typeText?: string;
   quantity: number;
   beforeStock: number;
   afterStock: number;
-  operatorId?: number;
+  operatorId?: string;
   operatorName?: string;
   remark?: string;
   createdAt: string;
@@ -185,9 +185,9 @@ export interface SkuStockLog {
 
 // 订单相关类型
 export interface Order {
-  id: number;
+  id: string;
   orderNo: string;
-  userId: number;
+  userId: string;
   username?: string;
   userEmail?: string;
   items: OrderItem[];
@@ -209,8 +209,8 @@ export interface Order {
 }
 
 export interface OrderItem {
-  id: number;
-  productId: number;
+  id: string;
+  productId: string;
   productName: string;
   productImage: string;
   price: number;
@@ -220,7 +220,7 @@ export interface OrderItem {
 }
 
 export interface Address {
-  id: number;
+  id: string;
   name: string;
   phone: string;
   province: string;
@@ -232,13 +232,13 @@ export interface Address {
 
 // 会员相关类型
 export interface Member {
-  userId: number;
+  userId: string;
   username: string;
   email: string;
   phone?: string;
   avatar?: string;
   nickname?: string;
-  levelId: number;
+  levelId: string;
   levelName?: string;
   levelValue?: number;
   points: number;
@@ -255,7 +255,7 @@ export interface Member {
 }
 
 export interface MemberLevel {
-  id: number;
+  id: string;
   name: string;
   levelValue: number;
   minGrowth: number;
@@ -273,8 +273,8 @@ export interface MemberLevel {
 }
 
 export interface MemberBenefit {
-  id: number;
-  levelId: number;
+  id: string;
+  levelId: string;
   levelName?: string;
   name: string;
   type: number;
@@ -289,8 +289,8 @@ export interface MemberBenefit {
 }
 
 export interface PointsLog {
-  id: number;
-  userId: number;
+  id: string;
+  userId: string;
   username?: string;
   pointsValue: number;
   type: number;
@@ -298,7 +298,7 @@ export interface PointsLog {
   subType?: number;
   subTypeText?: string;
   sourceType?: string;
-  sourceId?: number;
+  sourceId?: string;
   beforePoints: number;
   afterPoints: number;
   description?: string;
@@ -307,14 +307,14 @@ export interface PointsLog {
 }
 
 export interface GrowthLog {
-  id: number;
-  userId: number;
+  id: string;
+  userId: string;
   username?: string;
   growthValue: number;
   type: number;
   typeText?: string;
   sourceType?: string;
-  sourceId?: number;
+  sourceId?: string;
   beforeGrowth: number;
   afterGrowth: number;
   description?: string;
@@ -324,12 +324,12 @@ export interface GrowthLog {
 
 // 分类相关类型
 export interface Category {
-  id: number;
+  id: string;
   name: string;
   description?: string;
   icon?: string;
   banner?: string;
-  parentId?: number;
+  parentId?: string;
   level?: number;
   sort: number;
   status: number;
@@ -340,7 +340,7 @@ export interface Category {
 
 // 品牌相关类型
 export interface Brand {
-  id: number;
+  id: string;
   name: string;
   description?: string;
   logo?: string;
@@ -350,7 +350,7 @@ export interface Brand {
 
 // 优惠券相关类型
 export interface Coupon {
-  id: number;
+  id: string;
   name: string;
   description?: string;
   type: number;

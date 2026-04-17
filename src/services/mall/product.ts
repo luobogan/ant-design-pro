@@ -31,7 +31,7 @@ export const productApi = {
   /**
    * 获取商品详情
    */
-  getById: async (id: number) => {
+  getById: async (id: string) => {
     const response = await request<BladeResponse<Product>>(`${PRODUCT_BASE_URL}/${id}`, {
       method: 'GET',
     });
@@ -52,7 +52,7 @@ export const productApi = {
   /**
    * 更新商品
    */
-  update: async (id: number, data: ProductFormData) => {
+  update: async (id: string, data: ProductFormData) => {
     const response = await request<BladeResponse<Product>>(`${PRODUCT_BASE_URL}/${id}`, {
       method: 'PUT',
       data,
@@ -63,7 +63,7 @@ export const productApi = {
   /**
    * 更新商品（带确认）
    */
-  updateWithConfirm: async (id: number, data: ProductFormData, confirm: boolean) => {
+  updateWithConfirm: async (id: string, data: ProductFormData, confirm: boolean) => {
     const response = await request<BladeResponse<Product>>(`${PRODUCT_BASE_URL}/${id}`, {
       method: 'PUT',
       params: { confirmEdit: confirm },
@@ -75,7 +75,7 @@ export const productApi = {
   /**
    * 删除商品
    */
-  delete: async (id: number) => {
+  delete: async (id: string) => {
     return request(`${PRODUCT_BASE_URL}/${id}`, {
       method: 'DELETE',
     });
@@ -84,7 +84,7 @@ export const productApi = {
   /**
    * 批量删除商品
    */
-  batchDelete: async (ids: number[]) => {
+  batchDelete: async (ids: string[]) => {
     return request(`${PRODUCT_BASE_URL}/batch-delete`, {
       method: 'POST',
       data: { ids },
@@ -94,7 +94,7 @@ export const productApi = {
   /**
    * 批量更新状态
    */
-  batchUpdateStatus: async (ids: number[], status: 'active' | 'inactive') => {
+  batchUpdateStatus: async (ids: string[], status: 'active' | 'inactive') => {
     return request(`${PRODUCT_BASE_URL}/batch-status`, {
       method: 'POST',
       data: { ids, status },
@@ -104,7 +104,7 @@ export const productApi = {
   /**
    * 商品上架
    */
-  publish: async (id: number) => {
+  publish: async (id: string) => {
     const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/publish`, {
       method: 'PUT',
     });
@@ -114,7 +114,7 @@ export const productApi = {
   /**
    * 商品下架
    */
-  unpublish: async (id: number) => {
+  unpublish: async (id: string) => {
     const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/unpublish`, {
       method: 'PUT',
     });
@@ -124,7 +124,7 @@ export const productApi = {
   /**
    * 设为推荐
    */
-  setRecommend: async (id: number, recommend: boolean) => {
+  setRecommend: async (id: string, recommend: boolean) => {
     const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/recommend`, {
       method: 'PUT',
       data: { recommend },
@@ -135,7 +135,7 @@ export const productApi = {
   /**
    * 设为新品
    */
-  setNew: async (id: number, isNew: boolean) => {
+  setNew: async (id: string, isNew: boolean) => {
     const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/new`, {
       method: 'PUT',
       data: { isNew },
@@ -146,7 +146,7 @@ export const productApi = {
   /**
    * 设为热销
    */
-  setHot: async (id: number, isHot: boolean) => {
+  setHot: async (id: string, isHot: boolean) => {
     const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/hot`, {
       method: 'PUT',
       data: { isHot },
@@ -177,7 +177,7 @@ export const productApi = {
   /**
    * 恢复商品
    */
-  restore: async (id: number) => {
+  restore: async (id: string) => {
     const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${id}/restore`, {
       method: 'POST',
     });
@@ -187,13 +187,13 @@ export const productApi = {
   /**
    * 获取 SKU 列表
    */
-  getSkus: async (productId: number) => {
+  getSkus: async (productId: string) => {
     const response = await request<BladeResponse<any> | { success: boolean; message: string; data: any }>(`${PRODUCT_BASE_URL}/${productId}/skus`, {
       method: 'GET',
     });
-    
+
     const data = response.data;
-    
+
     // 处理 success 格式的响应
     if (data?.success !== undefined) {
       if (data.success) {
@@ -202,7 +202,7 @@ export const productApi = {
         throw new Error(data.message || '获取 SKU 列表失败');
       }
     }
-    
+
     // 处理传统 code 格式的响应
     return data;
   },
@@ -210,7 +210,7 @@ export const productApi = {
   /**
    * 创建 SKU
    */
-  createSku: async (productId: number, data: ProductSkuFormData) => {
+  createSku: async (productId: string, data: ProductSkuFormData) => {
     const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${productId}/skus`, {
       method: 'POST',
       data,
@@ -221,7 +221,7 @@ export const productApi = {
   /**
    * 更新 SKU
    */
-  updateSku: async (id: number, data: ProductSkuFormData) => {
+  updateSku: async (id: string, data: ProductSkuFormData) => {
     const response = await request<BladeResponse<any>>(`${SKU_BASE_URL}/${id}`, {
       method: 'PUT',
       data,
@@ -232,7 +232,7 @@ export const productApi = {
   /**
    * 删除 SKU
    */
-  deleteSku: async (id: number) => {
+  deleteSku: async (id: string) => {
     return request(`${SKU_BASE_URL}/${id}`, {
       method: 'DELETE',
     });
@@ -252,7 +252,7 @@ export const productApi = {
   /**
    * 获取规格属性
    */
-  getSpecAttributes: async (productId: number) => {
+  getSpecAttributes: async (productId: string) => {
     const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${productId}/spec-attributes`, {
       method: 'GET',
     });
@@ -262,13 +262,13 @@ export const productApi = {
   /**
    * 获取 SKU 库存日志
    */
-  getSkuStockLogs: async (skuId: number) => {
+  getSkuStockLogs: async (skuId: string) => {
     const response = await request<BladeResponse<any> | { success: boolean; message: string; data: any }>(`${SKU_BASE_URL}/${skuId}/stock-logs`, {
       method: 'GET',
     });
-    
+
     const data = response.data;
-    
+
     // 处理 success 格式的响应
     if (data?.success !== undefined) {
       if (data.success) {
@@ -277,7 +277,7 @@ export const productApi = {
         throw new Error(data.message || '获取 SKU 库存日志失败');
       }
     }
-    
+
     // 处理传统 code 格式的响应
     return data;
   },
@@ -285,14 +285,14 @@ export const productApi = {
   /**
    * 调整 SKU 库存
    */
-  adjustSkuStock: async (skuId: number, quantity: number, type: number, remark?: string) => {
+  adjustSkuStock: async (skuId: string, quantity: number, type: number, remark?: string) => {
     const response = await request<BladeResponse<any> | { success: boolean; message: string; data: any }>(`${SKU_BASE_URL}/${skuId}/stock`, {
       method: 'POST',
       data: { quantity, type, remark },
     });
-    
+
     const data = response.data;
-    
+
     // 处理 success 格式的响应
     if (data?.success !== undefined) {
       if (data.success) {
@@ -301,7 +301,7 @@ export const productApi = {
         throw new Error(data.message || '调整 SKU 库存失败');
       }
     }
-    
+
     // 处理传统 code 格式的响应
     return data;
   },
@@ -330,7 +330,7 @@ export const productApi = {
   /**
    * 获取商品关联列表
    */
-  getRelations: async (productId: number) => {
+  getRelations: async (productId: string) => {
     const response = await request<BladeResponse<any>>(`${PRODUCT_BASE_URL}/${productId}/relations`, {
       method: 'GET',
     });
@@ -340,7 +340,7 @@ export const productApi = {
   /**
    * 删除商品关联
    */
-  deleteRelation: async (id: number) => {
+  deleteRelation: async (id: string) => {
     return request(`${PRODUCT_RELATION_BASE_URL}/${id}`, {
       method: 'DELETE',
     });
@@ -352,7 +352,7 @@ export async function getProductList(params: any) {
   return productApi.getList(params);
 }
 
-export async function getProductById(id: number) {
+export async function getProductById(id: string) {
   return productApi.getById(id);
 }
 
@@ -360,43 +360,43 @@ export async function createProduct(data: ProductFormData) {
   return productApi.create(data);
 }
 
-export async function updateProduct(id: number, data: ProductFormData) {
+export async function updateProduct(id: string, data: ProductFormData) {
   return productApi.update(id, data);
 }
 
-export async function updateProductWithConfirm(id: number, data: ProductFormData, confirm: boolean) {
+export async function updateProductWithConfirm(id: string, data: ProductFormData, confirm: boolean) {
   return productApi.updateWithConfirm(id, data, confirm);
 }
 
-export async function deleteProduct(id: number) {
+export async function deleteProduct(id: string) {
   return productApi.delete(id);
 }
 
-export async function batchDeleteProducts(ids: number[]) {
+export async function batchDeleteProducts(ids: string[]) {
   return productApi.batchDelete(ids);
 }
 
-export async function batchUpdateStatus(ids: number[], status: 'active' | 'inactive') {
+export async function batchUpdateStatus(ids: string[], status: 'active' | 'inactive') {
   return productApi.batchUpdateStatus(ids, status);
 }
 
-export async function publishProduct(id: number) {
+export async function publishProduct(id: string) {
   return productApi.publish(id);
 }
 
-export async function unpublishProduct(id: number) {
+export async function unpublishProduct(id: string) {
   return productApi.unpublish(id);
 }
 
-export async function setRecommend(id: number, recommend: boolean) {
+export async function setRecommend(id: string, recommend: boolean) {
   return productApi.setRecommend(id, recommend);
 }
 
-export async function setNew(id: number, isNew: boolean) {
+export async function setNew(id: string, isNew: boolean) {
   return productApi.setNew(id, isNew);
 }
 
-export async function setHot(id: number, isHot: boolean) {
+export async function setHot(id: string, isHot: boolean) {
   return productApi.setHot(id, isHot);
 }
 
@@ -408,22 +408,22 @@ export async function getRecycleList() {
   return productApi.getRecycleList();
 }
 
-export async function restoreProduct(id: number) {
+export async function restoreProduct(id: string) {
   return productApi.restore(id);
 }
 
-export async function getProductSkus(productId: number) {
+export async function getProductSkus(productId: string) {
   return productApi.getSkus(productId);
 }
 
-export async function deleteSku(id: number) {
+export async function deleteSku(id: string) {
   return productApi.deleteSku(id);
 }
 
-export async function getSkuStockLogs(skuId: number) {
+export async function getSkuStockLogs(skuId: string) {
   return productApi.getSkuStockLogs(skuId);
 }
 
-export async function adjustSkuStock(skuId: number, quantity: number, type: number, remark?: string) {
+export async function adjustSkuStock(skuId: string, quantity: number, type: number, remark?: string) {
   return productApi.adjustSkuStock(skuId, quantity, type, remark);
 }

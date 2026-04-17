@@ -937,7 +937,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
       // 构建属性值数组
       const attributeValuesArray = Object.entries(productAttributeValues).map(
         ([attributeId, value]) => ({
-          attributeId: parseInt(attributeId),
+          attributeId: attributeId,
           value,
         }),
       );
@@ -946,7 +946,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
       // 构建参数值数组
       const paramValuesArray = Object.entries(productParamValues).map(
         ([paramId, value]) => {
-          const param = categoryParams.find((p) => p.id === parseInt(paramId));
+          const param = categoryParams.find((p) => p.id === paramId);
           return {
             paramName: param ? param.name : `参数${paramId}`,
             value,
