@@ -5,12 +5,14 @@ import {
   PlusOutlined,
   SettingOutlined,
   UserOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { useRequest } from '@umijs/max';
 import {
   Button,
+  Card,
   Col,
   Form,
   Input,
@@ -20,10 +22,12 @@ import {
   Select,
   Space,
   Tag,
+  Tree,
 } from 'antd';
 import React, { useEffect, useMemo, useState } from 'react';
 import * as dataPermissionApi from '@/services/authority/dataPermission';
 import * as menuApi from '@/services/system/menu';
+import * as tenantApi from '@/services/system/tenant';
 import { useModel } from '@umijs/max';
 
 const { Option } = Select;
@@ -54,6 +58,13 @@ interface DataPermission {
   tenantId: string;
 }
 
+interface Tenant {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  children?: Tenant[];
+}
+
 const DataPermissionPage: React.FC = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [configModalVisible, setConfigModalVisible] = useState<boolean>(false);
@@ -63,6 +74,8 @@ const DataPermissionPage: React.FC = () => {
   const [currentMenu, setCurrentMenu] = useState<Menu | null>(null);
   const [currentDataPermission, setCurrentDataPermission] =
     useState<DataPermission | null>(null);
+  const [selectedTenantId, setSelectedTenantId] = useState<string>('000000');
+  const [tenantTree, setTenantTree] = useState<any[]>([]);
   const [form] = Form.useForm();
 
   // 获取全局状态
@@ -105,13 +118,42 @@ const DataPermissionPage: React.FC = () => {
     }
   }, [addModalVisible, currentMenu, form, currentTenantId]);
 
+  // 获取租户列表
+  const {
+    data: tenantData,
+    loading: tenantLoading,
+    refresh: refreshTenant,
+  } = useRequest(tenantApi.select, {
+    onSuccess: (data) => {
+      const tenants = Array.isArray(data) ? data : data?.data || [];
+      const tree = buildTenantTree(tenants);
+      setTenantTree(tree);
+    },
+  });
+
+  // 构建租户树
+  const buildTenantTree = (tenants: any[]): any[] => {
+    return tenants.map((tenant) => ({
+      title: (
+        <span>
+          <TeamOutlined style={{ marginRight: 4 }} />
+          {tenant.tenantName} ({tenant.tenantId})
+        </span>
+      ),
+      value: tenant.tenantId,
+      key: tenant.tenantId,
+    }));
+  };
+
   // 获取菜单列表
   const {
     data: menuData,
     loading: menuLoading,
     refresh: refreshMenu,
   } = useRequest(() => {
-    return menuApi.list({});
+    return menuApi.list({ tenantId: selectedTenantId });
+  }, {
+    refreshDeps: [selectedTenantId],
   });
 
   // 转换菜单数据
@@ -446,24 +488,49 @@ const DataPermissionPage: React.FC = () => {
 
   return (
     <PageContainer title="数据权限管理" subTitle="基于菜单的数据权限配置管理">
-      {/* 菜单列表 */}
-      <ProTable
-        columns={menuColumns}
-        dataSource={menus}
-        loading={menuLoading}
-        rowKey="id"
-        pagination={{ pageSize: 10 }}
-        search={{
-          labelWidth: 'auto',
-          defaultCollapsed: false,
-          span: 8,
-        }}
-        toolBarRender={() => [
-          <Button key="refresh" onClick={refreshMenu}>
-            刷新
-          </Button>,
-        ]}
-      />
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col span={6}>
+          <Card title="租户选择" bordered={true} style={{ height: 'calc(100vh - 200px)' }}>
+            <Tree
+              showLine
+              defaultExpandAll
+              treeData={tenantTree}
+              selectedKeys={[selectedTenantId]}
+              onSelect={(keys) => {
+                if (keys.length > 0) {
+                  setSelectedTenantId(keys[0]);
+                }
+              }}
+              style={{ maxHeight: 'calc(100% - 40px)', overflow: 'auto' }}
+            />
+            <div style={{ marginTop: 16, textAlign: 'center' }}>
+              <Button type="link" onClick={refreshTenant}>
+                刷新租户列表
+              </Button>
+            </div>
+          </Card>
+        </Col>
+        <Col span={18}>
+          {/* 菜单列表 */}
+          <ProTable
+            columns={menuColumns}
+            dataSource={menus}
+            loading={menuLoading}
+            rowKey="id"
+            pagination={{ pageSize: 10 }}
+            search={{
+              labelWidth: 'auto',
+              defaultCollapsed: false,
+              span: 8,
+            }}
+            toolBarRender={() => [
+              <Button key="refresh" onClick={refreshMenu}>
+                刷新
+              </Button>,
+            ]}
+          />
+        </Col>
+      </Row>
 
       {/* 数据权限配置弹窗 */}
       <Modal

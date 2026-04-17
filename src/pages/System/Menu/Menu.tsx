@@ -17,7 +17,9 @@ import {
   FolderOutlined,
   FormOutlined,
   HomeOutlined,
+  InfoCircleOutlined,
   MenuOutlined,
+  TeamOutlined,
   MonitorOutlined,
   PlusCircleOutlined,
   PlusOutlined,
@@ -33,6 +35,7 @@ import { PageContainer, ProTable } from '@ant-design/pro-components';
 // @ts-expect-error useRequest 由 @umijs/max 的 request 插件在运行时提供
 import { useRequest } from '@umijs/max';
 import {
+  Alert,
   Button,
   Card,
   Checkbox,
@@ -40,17 +43,19 @@ import {
   Form,
   Input,
   Modal,
-  message,
   Radio,
   Row,
   Select,
   Space,
+  Tag,
+  Tree,
   TreeSelect,
 } from 'antd';
 // @ts-expect-error history 由 @umijs/max 的 request 插件在运行时提供
 import { history } from '@umijs/max';
 import React, { useMemo, useState, useEffect } from 'react';
 import * as menuApi from '@/services/system/menu';
+import * as tenantApi from '@/services/system/tenant';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
 // @ts-expect-error useModel 由 @umijs/max 的 request 插件在运行时提供
@@ -118,6 +123,13 @@ interface MenuItem {
   children?: MenuItem[];
 }
 
+interface Tenant {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  children?: Tenant[];
+}
+
 const MenuPage: React.FC = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [addModalVisible, setAddModalVisible] = useState<boolean>(false);
@@ -127,6 +139,8 @@ const MenuPage: React.FC = () => {
   const [selectedIcon, setSelectedIcon] = useState<string>('');
   const [form] = Form.useForm();
   const [menuType, setMenuType] = useState<number>(1); // 菜单类型状态，用于控制条件渲染
+  const [selectedTenantId, setSelectedTenantId] = useState<string>('000000');
+  const [tenantTree, setTenantTree] = useState<any[]>([]);
 
   // 获取全局状态
   const { initialState } = useModel('@@initialState');
@@ -153,6 +167,33 @@ const MenuPage: React.FC = () => {
 
   const currentTenantId = getCurrentTenantId();
   const isSuperAdmin = currentTenantId === '000000';
+
+  // 获取租户列表
+  const {
+    data: tenantData,
+    loading: tenantLoading,
+    refresh: refreshTenant,
+  } = useRequest(tenantApi.select, {
+    onSuccess: (data) => {
+      const tenants = Array.isArray(data) ? data : data?.data || [];
+      const tree = buildTenantTree(tenants);
+      setTenantTree(tree);
+    },
+  });
+
+  // 构建租户树
+  const buildTenantTree = (tenants: any[]): any[] => {
+    return tenants.map((tenant) => ({
+      title: (
+        <span>
+          <TeamOutlined style={{ marginRight: 4 }} />
+          {tenant.tenantName} ({tenant.tenantId})
+        </span>
+      ),
+      value: tenant.tenantId,
+      key: tenant.tenantId,
+    }));
+  };
 
   // 权限检查：非超级管理员不能访问菜单管理页面
   useEffect(() => {
@@ -187,8 +228,12 @@ const MenuPage: React.FC = () => {
   // 获取页面按钮权限（自动从路由提取菜单 code）
   const { buttons } = usePageButtons();
 
-  // 获取菜单数据
-  const { data, loading, refresh } = useRequest(menuApi.list);
+  // 获取菜单列表
+  const { data, loading, refresh } = useRequest(() => {
+    return menuApi.list({ tenantId: selectedTenantId });
+  }, {
+    refreshDeps: [selectedTenantId],
+  });
 
   // 递归转换数据结构
   const transformMenuData = (menuList: any[]): any[] => {
@@ -235,12 +280,12 @@ const MenuPage: React.FC = () => {
   }, [menus]);
 
   const columns: ProColumns<MenuItem>[] = [
-     {
-      title: 'id',
-      dataIndex: 'id',
-      key: 'id',
-      width: 180,
-    },
+    //  {
+    //   title: 'id',
+    //   dataIndex: 'id',
+    //   key: 'id',
+    //   width: 180,
+    // },
     {
       title: '菜单名称',
       dataIndex: 'name',
@@ -366,7 +411,7 @@ const MenuPage: React.FC = () => {
     form.resetFields();
     setSelectedIcon('');
     setCurrentMenu(null);
-    form.setFieldsValue({ tenantId: currentTenantId });
+    form.setFieldsValue({ tenantId: selectedTenantId });
     setAddModalVisible(true);
   };
 
@@ -376,7 +421,7 @@ const MenuPage: React.FC = () => {
     setCurrentMenu(record);
     form.setFieldsValue({
       parentId: record.id,
-      tenantId: currentTenantId
+      tenantId: selectedTenantId
     });
     setAddModalVisible(true);
   };
@@ -515,52 +560,93 @@ const MenuPage: React.FC = () => {
       title="菜单管理"
       subTitle="管理系统菜单，包括添加、编辑、删除菜单等操作"
     >
-      <ProTable
-        columns={columns}
-        dataSource={menus}
-        loading={loading}
-        rowKey="id"
-        pagination={false}
-        rowSelection={{
-          selectedRowKeys,
-          onChange: (keys) => setSelectedRowKeys(keys),
-        }}
-        toolBarRender={() => [
-          buttons.some(btn => btn.code === 'menu_add') && (
-            <Button
-              key="add"
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={handleAdd}
-            >
-              新增
-            </Button>
-          ),
-          buttons.some(btn => btn.code === 'menu_delete') && (
-            <Button
-              key="delete"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={handleBatchDelete}
-              disabled={selectedRowKeys.length === 0}
-            >
-              删除
-            </Button>
-          ),
-        ].filter(Boolean)}
-        search={{
-          labelWidth: 'auto',
-          defaultCollapsed: false,
-          span: 8,
-        }}
-        expandable={{
-          defaultExpandAllRows: true,
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col span={6}>
+          <Card title="租户选择" bordered={true} style={{ height: 'calc(100vh - 200px)' }}>
+            <Tree
+              showLine
+              defaultExpandAll
+              treeData={tenantTree}
+              selectedKeys={[selectedTenantId]}
+              onSelect={(keys) => {
+                if (keys.length > 0) {
+                  setSelectedTenantId(keys[0]);
+                }
+              }}
+              style={{ maxHeight: 'calc(100% - 40px)', overflow: 'auto' }}
+            />
+            <div style={{ marginTop: 16, textAlign: 'center' }}>
+              <Button type="link" onClick={refreshTenant}>
+                刷新租户列表
+              </Button>
+            </div>
+          </Card>
+        </Col>
+        <Col span={18}>
+          <Alert
+            message={
+              <span>
+                {/* <InfoCircleOutlined style={{ marginRight: 8, color: '#1890ff' }} /> */}
+                <strong>功能权限说明：</strong>系统菜单的增删改功能仅对<strong>超级管理员</strong>开放。
+                租户如需调整菜单配置，必须通过高级管理员进行操作。
+              </span>
+            }
+            type="info"
+            showIcon
+            icon={<InfoCircleOutlined style={{ color: '#1890ff' }} />}
+            style={{ marginBottom: 16, backgroundColor: '#f0f5ff', borderColor: '#adc6ff' }}
+          />
+          <ProTable
+            columns={columns}
+            dataSource={menus}
+            loading={loading}
+            rowKey="id"
+            pagination={false}
+            rowSelection={{
+              selectedRowKeys,
+              onChange: (keys) => setSelectedRowKeys(keys),
+            }}
+            toolBarRender={() => [
+              buttons.some(btn => btn.code === 'menu_add') && (
+                <Button
+                  key="add"
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={handleAdd}
+                >
+                  新增
+                </Button>
+              ),
+              buttons.some(btn => btn.code === 'menu_delete') && (
+                <Button
+                  key="delete"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={handleBatchDelete}
+                  disabled={selectedRowKeys.length === 0}
+                >
+                  删除
+                </Button>
+              ),
+              <Button key="refresh" onClick={refresh}>
+                刷新
+              </Button>,
+            ].filter(Boolean)}
+            search={{
+              labelWidth: 'auto',
+              defaultCollapsed: false,
+              span: 8,
+            }}
+            expandable={{
+              defaultExpandAllRows: true,
           childrenColumnName: 'children',
         }}
         locale={{
           emptyText: '暂无菜单数据',
         }}
       />
+        </Col>
+      </Row>
 
       {/* 新增/编辑菜单弹窗 */}
       <Modal
