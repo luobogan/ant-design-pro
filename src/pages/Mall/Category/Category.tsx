@@ -89,6 +89,7 @@ const CategoryList: React.FC = () => {
   const [editingParamId, setEditingParamId] = useState<number | null>(null);
   const [paramLoading, setParamLoading] = useState(false);
   const [currentParamType, setCurrentParamType] = useState<number>(1);
+  const [paramOptionValues, setParamOptionValues] = useState<string[]>([]);
 
   const fetchCategories = async () => {
     setLoading(true);
@@ -570,15 +571,19 @@ const CategoryList: React.FC = () => {
     setCurrentParamType(1);
     paramForm.resetFields();
     paramForm.setFieldsValue({ type: 1, isRequired: 0, isSearchable: 0, sortOrder: 0 });
+    // 重置选项值
+    setParamOptionValues([]);
   };
 
   const handleEditParam = (param: CategoryParamTemplate) => {
     setEditingParamId(param.id);
     setCurrentParamType(param.type);
+    // 将字符串值转换为选项值数组
+    const optionValues = param.value ? param.value.split('、').map(v => v.trim()).filter(v => v) : [];
+    setParamOptionValues(optionValues);
     paramForm.setFieldsValue({
       name: param.name,
       type: param.type,
-      value: param.value,
       isRequired: param.isRequired === 1,
       isSearchable: param.isSearchable === 1,
       sortOrder: param.sortOrder,
@@ -599,15 +604,45 @@ const CategoryList: React.FC = () => {
     }
   };
 
+  // 参数选项值处理函数
+  const handleAddParamOptionValue = () => {
+    setParamOptionValues([...paramOptionValues, '']);
+  };
+
+  const handleRemoveParamOptionValue = (index: number) => {
+    const newValues = [...paramOptionValues];
+    newValues.splice(index, 1);
+    setParamOptionValues(newValues);
+  };
+
+  const handleUpdateParamOptionValue = (index: number, value: string) => {
+    const newValues = [...paramOptionValues];
+    newValues[index] = value;
+    setParamOptionValues(newValues);
+  };
+
   const handleSaveParam = async () => {
     if (!currentCategoryForParam) return;
     try {
+      // 将选项值数组转换为字符串，用顿号分隔
+      const paramValue = paramOptionValues.filter(v => v.trim()).join('、');
+
+      // 验证选项值
+      if ((currentParamType === 1 || currentParamType === 2) && paramValue === '') {
+        message.error('请至少添加一个选项值');
+        return;
+      }
+
+      // 设置隐藏字段的值，确保表单验证通过
+      paramForm.setFieldsValue({ value: paramValue });
+
       const values = await paramForm.validateFields();
+
       const paramData = {
         categoryId: currentCategoryForParam.id,
         name: values.name,
         type: values.type,
-        value: values.value,
+        value: paramValue,
         isRequired: values.isRequired ? 1 : 0,
         isSearchable: values.isSearchable ? 1 : 0,
         sortOrder: values.sortOrder || 0,
@@ -1009,13 +1044,45 @@ const CategoryList: React.FC = () => {
                 <Form.Item
                   label="参数选项值"
                   name="value"
-                  rules={[{ required: true, message: '请输入参数值' }]}
+                  rules={[{ required: false }]}
+                  hidden
                 >
-                  <TextArea
-                    rows={3}
-                    placeholder="多个选项值用顿号分隔，如：红色、蓝色、绿色"
-                  />
+                  <Input />
                 </Form.Item>
+
+                {(currentParamType === 1 || currentParamType === 2) && (
+                  <Form.Item
+                    label="参数选项值"
+                    required={true}
+                    help="仅单选和多选类型需要填写选项值"
+                  >
+                    <div>
+                      {paramOptionValues.map((value, index) => (
+                        <div key={index} style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                          <Input
+                            value={value}
+                            onChange={(e) => handleUpdateParamOptionValue(index, e.target.value)}
+                            placeholder={`选项${index + 1}`}
+                            style={{ flex: 1, marginRight: 8 }}
+                          />
+                          <Button
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => handleRemoveParamOptionValue(index)}
+                          />
+                        </div>
+                      ))}
+                      <Button
+                        type="dashed"
+                        icon={<PlusOutlined />}
+                        onClick={handleAddParamOptionValue}
+                        style={{ width: '100%' }}
+                      >
+                        添加选项值
+                      </Button>
+                    </div>
+                  </Form.Item>
+                )}
 
                 <Form.Item
                   label="是否必填"

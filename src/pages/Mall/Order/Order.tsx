@@ -241,7 +241,7 @@ const OrderList: React.FC = () => {
       <Drawer
         title="订单详情"
         placement="right"
-        width={800}
+        size={800}
         open={detailVisible}
         onClose={() => setDetailVisible(false)}
       >

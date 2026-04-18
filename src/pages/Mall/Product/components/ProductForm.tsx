@@ -296,11 +296,11 @@ const ProductForm: React.FC<ProductFormProps> = ({
         giftPoint: product.giftPoint,
         giftGrowth: product.giftGrowth,
         usePointLimit: product.usePointLimit,
-        isPreview: product.isPreview === 1,
-        isOnSale: product.status === 1,
-        isNew: product.isNew === 1,
-        isRecommend: product.isRecommend === 1,
-        isHot: product.isHot === 1,
+        isPreview: product.isPreview === true || product.isPreview === 1,
+        isOnSale: product.status === "active" || product.status === 1,
+        isNew: product.isNew === true || product.isNew === 1,
+        isRecommend: product.isRecommend === true || product.isRecommend === 1,
+        isHot: product.isHot === true || product.isHot === 1,
         serviceIds: product.serviceIds,
         promotionType: product.promotionType,
         promotionId: product.promotionId,
@@ -857,7 +857,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
       console.log('=== 图片上传状态调试 ===');
       console.log('mainImageFiles:', mainImageFiles);
       console.log('albumFiles:', albumFiles);
-      
+
       if (mainImageFiles.length === 0) {
         throw new Error('请上传商品主图');
       }
@@ -871,7 +871,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
       // 从文件对象中提取 URL
       const mainImage = extractSingleImageUrl(mainImageFiles) || '';
       const images = extractImageUrls(albumFiles) || [];
-      
+
       console.log('提取的mainImage:', mainImage);
       console.log('提取的images:', images);
 
@@ -1027,7 +1027,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
       // 从SKU列表中找到促销价最低的商品
       let minPromotionPrice = Infinity;
       let minPriceProduct = null;
-      
+
       for (const sku of convertedSkus) {
         if (sku.promotionPrice && sku.promotionPrice < minPromotionPrice) {
           minPromotionPrice = sku.promotionPrice;
@@ -1075,7 +1075,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
         for (const key in obj) {
           const currentPath = path ? `${path}.${key}` : key;
           const value = obj[key];
-          
+
           if (typeof value === 'string') {
             // 检查字符串中是否包含无效的 UTF-8 字节
             for (let i = 0; i < value.length; i++) {
@@ -1454,10 +1454,10 @@ const ProductForm: React.FC<ProductFormProps> = ({
         name="image"
         rules={[{ required: true, message: '请上传商品主图' }]}
       >
-        <Upload 
-          listType="picture-card" 
-          maxCount={1} 
-          beforeUpload={beforeUpload} 
+        <Upload
+          listType="picture-card"
+          maxCount={1}
+          beforeUpload={beforeUpload}
           action="/api/blade-mall/admin/upload/image"
           headers={{
             'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`
@@ -1494,14 +1494,14 @@ const ProductForm: React.FC<ProductFormProps> = ({
         </Upload>
       </Form.Item>
 
-      <Form.Item 
-        label="商品相册" 
+      <Form.Item
+        label="商品相册"
         name="album"
       >
-        <Upload 
-          listType="picture-card" 
-          multiple 
-          beforeUpload={beforeUpload} 
+        <Upload
+          listType="picture-card"
+          multiple
+          beforeUpload={beforeUpload}
           action="/api/blade-mall/admin/upload/image"
           headers={{
             'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`

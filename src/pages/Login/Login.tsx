@@ -380,19 +380,21 @@ const Login: React.FC = () => {
                   </Col>
                   <Col span={8}>
                     <Spin spinning={loading}>
-                      <img
-                        alt="验证码"
-                        src={captchaImage}
-                        style={{
-                          width: '100%',
-                          height: 32,
-                          cursor: 'pointer',
-                          border: '1px solid #d9d9d9',
-                          borderRadius: '4px',
-                        }}
-                        onClick={refreshCaptcha}
-                        title="点击刷新验证码"
-                      />
+                      {captchaImage && (
+                        <img
+                          alt="验证码"
+                          src={captchaImage}
+                          style={{
+                            width: '100%',
+                            height: 32,
+                            cursor: 'pointer',
+                            border: '1px solid #d9d9d9',
+                            borderRadius: '4px',
+                          }}
+                          onClick={refreshCaptcha}
+                          title="点击刷新验证码"
+                        />
+                      )}
                     </Spin>
                   </Col>
                 </Row>
