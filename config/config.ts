@@ -2,7 +2,6 @@
 
 import { join } from 'node:path';
 import { defineConfig } from '@umijs/max';
-import { theme } from 'antd';
 import defaultSettings from './defaultSettings';
 import proxy from './proxy';
 
@@ -18,6 +17,9 @@ const { UMI_ENV = 'dev' } = process.env;
 const PUBLIC_PATH: string = '/';
 
 export default defineConfig({
+  alias: {
+    '@root': join(__dirname, '..'),
+  },
   /**
    * @name 开启 hash 模式
    * @description 让 build 之后的产物包含 hash 后缀。通常用于增量发布和避免浏览器加载缓存。
@@ -68,6 +70,17 @@ export default defineConfig({
    * @description 一个不错的热更新组件，更新时可以保留 state
    */
   fastRefresh: true,
+  /**
+   * @name 路由预加载
+   * @description 预加载路由资源，提升页面切换速度
+   * @doc https://umijs.org/docs/api/config#routePrefetch
+   */
+  routePrefetch: {},
+  /**
+   * @name manifest 配置
+   * @description 生成资源清单，配合 routePrefetch 使用
+   */
+  manifest: {},
   //============== 以下都是max的插件配置 ===============
   /**
    * @name 数据流插件
@@ -96,7 +109,7 @@ export default defineConfig({
    */
   moment2dayjs: {
     preset: 'antd',
-    plugins: ['duration'],
+    plugins: ['duration', 'relativeTime'],
   },
   /**
    * @name 国际化插件
@@ -115,11 +128,10 @@ export default defineConfig({
    * @doc https://umijs.org/docs/max/antd#antd
    */
   antd: {
-    // 启用暗黑主题
-    dark: false,
+    appConfig: {},
     configProvider: {
+      variant: 'filled',
       theme: {
-        algorithm: theme.darkAlgorithm,
         token: {
           fontFamily: 'AlibabaSans, sans-serif',
         },
@@ -132,6 +144,12 @@ export default defineConfig({
    * @doc https://umijs.org/docs/max/request
    */
   request: {},
+  /**
+   * @name React Query 插件
+   * @description 使用 react-query 管理服务端状态
+   * @doc https://umijs.org/docs/max/react-query
+   */
+  reactQuery: {},
   /**
    * @name 权限插件
    * @description 基于 initialState 的权限插件，必须先打开 initialState
@@ -155,8 +173,10 @@ export default defineConfig({
     // { src: PUBLIC_PATH + 'scripts/loading.js', async: true },
     { src: join(PUBLIC_PATH, 'scripts/loading.js'), async: true },
   ],
+
   //================ pro 插件配置 =================
-  presets: ['umi-presets-pro'],
+  plugins: ['@umijs/max-plugin-openapi', '@umijs/request-record'],
+
   /**
    * @name openAPI 插件的配置
    * @description 基于 openapi 的规范生成serve 和mock，能减少很多样板代码
@@ -177,18 +197,20 @@ export default defineConfig({
       projectName: 'swagger',
     },
   ],
-  mock: false,
-  mako: {}, // 禁用 Mako，默认使用 Webpack 5
+
   // mock: {
-  //   include: ['mock/**/*', 'src/pages/**/_mock.ts'],
+  //   include: ['src/pages/**/_mock.ts'],
+  //   exclude: ['mock/requestRecord.mock.js'],
   // },
-  // utoopack: {
-  //   outputPath: 'src_umi'
-  // }, // 在 Windows 上可能导致路径拼接错误，已禁用以使用 Webpack
+  mock: false,
+  utoopack: {},
   requestRecord: {},
   exportStatic: {},
   define: {
     'process.env.CI': process.env.CI,
+    'process.env.COMMIT_HASH': process.env.COMMIT_HASH || '',
+    'process.env.CF_PAGES_COMMIT_SHA': process.env.CF_PAGES_COMMIT_SHA || '',
+    __APP_VERSION__: JSON.stringify(require('./../package.json').version),
   },
   esbuildMinifyIIFE: true,
 });

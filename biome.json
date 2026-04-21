@@ -1,5 +1,10 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
   "files": {
     "ignoreUnknown": true,
     "includes": [
@@ -15,7 +20,9 @@
       "!**/public",
       "!**/coverage",
       "!**/node_modules",
-      "!biome.json"
+      "!biome.json",
+      "!tailwind.css",
+      "!**/.worktrees"
     ]
   },
   "formatter": {
@@ -27,7 +34,8 @@
     "rules": {
       "recommended": true,
       "suspicious": {
-        "noExplicitAny": "off"
+        "noExplicitAny": "off",
+        "noUnknownAtRules": "off"
       },
       "correctness": {
         "useUniqueElementIds": "off",

@@ -28,6 +28,9 @@ package-lock.json
 functions/*
 .temp/**
 
+# claude code local settings
+.claude/settings.local.json
+
 # umi
 .umi
 .umi-production
@@ -39,3 +42,10 @@ screenshot
 .firebase
 
 build
+
+# worktrees
+.worktrees
+
+# cloudflare wrangler
+.wrangler
+requestRecord.mock.js

@@ -49,6 +49,7 @@ export default {
   'menu.editor.flow': '流程编辑器',
   'menu.editor.mind': '脑图编辑器',
   'menu.editor.koni': '拓扑编辑器',
+  'menu.chatbot': 'AI 助手',
   'menu.工作台': '工作台',
   'menu.工作台.通知公告': '通知公告',
   'menu.商城管理': '商城管理',

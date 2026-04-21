@@ -6,15 +6,31 @@ import type {
   MenuDataItem,
 } from '@ant-design/pro-components';
 import { SettingDrawer } from '@ant-design/pro-components';
+import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
+import { history, Link } from '@umijs/max';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
 import { history, Link, Navigate } from '@umijs/max';
 import { Spin } from 'antd';
 import { stringify } from 'qs';
 import React from 'react';
-import Footer from '@/components/Footer';
 import {
   AvatarDropdown,
   AvatarName,
-} from '@/components/RightContent/AvatarDropdown';
+  Footer,
+  Question,
+  SelectLang,
+} from '@/components';
+
+
+// Initialize dayjs plugins globally
+dayjs.extend(relativeTime);
+
+// import Footer from '@/components/Footer';
+// import {
+//   AvatarDropdown,
+//   AvatarName,
+// } from '@/components/RightContent/AvatarDropdown';
 import { errorConfig, getSavedFormData } from '@/requestErrorConfig';
 import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
 import { dynamicRoutes, dynamicButtons } from '@/services/system/menu';
@@ -22,9 +38,10 @@ import { setButtons, getButtons } from '@/utils/authority';
 import Func from '@/utils/Func';
 import { formatRoutes } from '@/utils/utils';
 import defaultSettings from '../config/defaultSettings';
+import { errorConfig } from './requestErrorConfig';
 
 const isDev = process.env.NODE_ENV === 'development';
-// const vConsole = new VConsole();
+const isDevOrTest = isDev || process.env.CI;
 const loginPath = '/user/login';
 
 interface MenuItem {
@@ -425,7 +442,7 @@ export const layout: RunTimeLayoutConfig = ({
         history.push(loginPath);
       }
     },
-    layoutBgImgList: [
+    bgLayoutImgList: [
       {
         src: 'https://mdn.alipayobjects.com/yuyan_qk0oxh/afts/img/D2LWSqNny4sAAAAAAAAAAAAAFl94AQBr',
         left: 85,
@@ -482,7 +499,7 @@ export const layout: RunTimeLayoutConfig = ({
 
 /**
  * @name request 配置，可以配置错误处理
- * 它基于 axios 和 ahooks 的 useRequest 提供了一套统一的网络请求和错误处理方案。
+ * 它基于 axios 提供了一套统一的网络请求和错误处理方案。
  * @doc https://umijs.org/docs/max/request#配置
  */
 export const request = {

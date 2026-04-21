@@ -34,10 +34,7 @@ let tableListDataSource = genList(1, 100);
 
 function getRule(req: Request, res: Response, u: string) {
   let realUrl = u;
-  if (
-    !realUrl ||
-    Object.prototype.toString.call(realUrl) !== '[object String]'
-  ) {
+  if (!realUrl || Object.prototype.toString.call(realUrl) !== '[object String]') {
     realUrl = req.url;
   }
   const { current = 1, pageSize = 10 } = req.query;
@@ -81,25 +78,21 @@ function getRule(req: Request, res: Response, u: string) {
     };
     if (Object.keys(filter).length > 0) {
       dataSource = dataSource.filter((item) => {
-        return (Object.keys(filter) as Array<keyof API.RuleListItem>).some(
-          (key) => {
-            if (!filter[key]) {
-              return true;
-            }
-            if (filter[key].includes(`${item[key]}`)) {
-              return true;
-            }
-            return false;
-          },
-        );
+        return (Object.keys(filter) as Array<keyof API.RuleListItem>).some((key) => {
+          if (!filter[key]) {
+            return true;
+          }
+          if (filter[key].includes(`${item[key]}`)) {
+            return true;
+          }
+          return false;
+        });
       });
     }
   }
 
   if (params.name) {
-    dataSource = dataSource.filter((data) =>
-      data?.name?.includes(params.name || ''),
-    );
+    dataSource = dataSource.filter((data) => data?.name?.includes(params.name || ''));
   }
   const result = {
     data: dataSource,
@@ -113,22 +106,12 @@ function getRule(req: Request, res: Response, u: string) {
 }
 
 function postRule(req: Request, res: Response, u: string, b: Request) {
-  let realUrl = u;
-  if (
-    !realUrl ||
-    Object.prototype.toString.call(realUrl) !== '[object String]'
-  ) {
-    realUrl = req.url;
-  }
-
   const body = b?.body || req.body;
   const { method, name, desc, key } = body;
 
   switch (method) {
     case 'delete':
-      tableListDataSource = tableListDataSource.filter(
-        (item) => key.indexOf(item.key) === -1,
-      );
+      tableListDataSource = tableListDataSource.filter((item) => key.indexOf(item.key) === -1);
       break;
     case 'post':
       (() => {

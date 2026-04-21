@@ -1,4 +1,4 @@
-import { configUmiAlias, createConfig } from '@umijs/max/test';
+import { configUmiAlias, createConfig } from '@umijs/max/test.js';
 
 export default async (): Promise<any> => {
   const config = await configUmiAlias({
@@ -8,6 +8,11 @@ export default async (): Promise<any> => {
   });
   return {
     ...config,
+    testPathIgnorePatterns: ['/node_modules/', '/.worktrees/'],
+    moduleNameMapper: {
+      ...(config.moduleNameMapper || {}),
+      '^mermaid$': '<rootDir>/tests/__mocks__/mermaid.js',
+    },
     testEnvironmentOptions: {
       ...(config?.testEnvironmentOptions || {}),
       url: 'http://localhost:8000',
@@ -16,6 +21,7 @@ export default async (): Promise<any> => {
     globals: {
       ...config.globals,
       localStorage: null,
+      __APP_VERSION__: 'test',
     },
   };
 };
