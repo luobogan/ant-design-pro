@@ -1,19 +1,15 @@
-import type { RunTimeLayoutConfig } from '@@/plugin-layout/types';
+import { LinkOutlined, SettingOutlined, UserOutlined, ToolOutlined, ApiOutlined, DashboardOutlined, DesktopOutlined, TeamOutlined, FileTextOutlined, DatabaseOutlined, Icon } from '@ant-design/icons';
 import * as icons from '@ant-design/icons';
-import Icon, { LinkOutlined } from '@ant-design/icons';
-import type {
-  Settings as LayoutSettings,
-  MenuDataItem,
-} from '@ant-design/pro-components';
+import type { Settings as LayoutSettings, MenuDataItem } from '@ant-design/pro-components';
 import { SettingDrawer } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
-import { history, Link } from '@umijs/max';
-import dayjs from 'dayjs';
-import relativeTime from 'dayjs/plugin/relativeTime';
 import { history, Link, Navigate } from '@umijs/max';
 import { Spin } from 'antd';
-import { stringify } from 'qs';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
 import React from 'react';
+import { stringify } from 'qs';
+
 import {
   AvatarDropdown,
   AvatarName,
@@ -21,24 +17,15 @@ import {
   Question,
   SelectLang,
 } from '@/components';
-
-
-// Initialize dayjs plugins globally
-dayjs.extend(relativeTime);
-
-// import Footer from '@/components/Footer';
-// import {
-//   AvatarDropdown,
-//   AvatarName,
-// } from '@/components/RightContent/AvatarDropdown';
-import { errorConfig, getSavedFormData } from '@/requestErrorConfig';
 import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
+import defaultSettings from '../config/defaultSettings';
+import { errorConfig, getSavedFormData } from '@/requestErrorConfig';
 import { dynamicRoutes, dynamicButtons } from '@/services/system/menu';
 import { setButtons, getButtons } from '@/utils/authority';
 import Func from '@/utils/Func';
 import { formatRoutes } from '@/utils/utils';
-import defaultSettings from '../config/defaultSettings';
-import { errorConfig } from './requestErrorConfig';
+
+dayjs.extend(relativeTime);
 
 const isDev = process.env.NODE_ENV === 'development';
 const isDevOrTest = isDev || process.env.CI;
@@ -99,19 +86,15 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
       if (pathParts.length >= 2) {
         const [module, page] = [pathParts[0], pathParts[pathParts.length - 1]];
 
-        // 从 localStorage 获取按钮数据
         const buttonsData = getButtons();
         console.log('从 localStorage 获取按钮数据:', buttonsData);
 
-        // 递归查找当前菜单项对应的按钮数据（支持嵌套结构如 mall > product > buttons）
         const findButtonItems = (list: any[], targetId: string): any[] => {
           const results: any[] = [];
           for (const btn of list) {
             if (btn.children) {
-              // 检查直接子项是否有 parentId 匹配
               const matched = btn.children.filter((child: any) => child.parentId === targetId);
               if (matched.length > 0) results.push({ ...btn, children: matched });
-              // 递归查找更深层级
               results.push(...findButtonItems(btn.children, targetId));
             }
           }
@@ -120,7 +103,6 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
         const relatedButtons = findButtonItems(buttonsData, item.id);
         console.log(`与菜单 ${item.name} (id: ${item.id}) 关联的按钮：`, relatedButtons);
 
-        // 收集所有需要注册为路由的按钮组件（扁平化）
         const componentButtons: any[] = [];
         relatedButtons.forEach((button) => {
           button.children?.forEach((item1: any) => {
@@ -130,7 +112,6 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
           });
         });
 
-        // 处理按钮组件路由
         componentButtons.forEach((item1) => {
               const formattedPath1 = Func.formatRoutePath(item1.path);
               const pathParts1 = formattedPath1.split('/').filter(Boolean);
@@ -150,7 +131,6 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
                   }),
               );
 
-              // 将按钮路由添加到列表中
               buttonRoutes.push({
                 path: item1.path,
                 name: item1.name,
@@ -185,7 +165,6 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
               });
         });
 
-        // 普通页面的组件映射规则
         const pageComponentName = toPascalCase(page);
         const componentPath = `./pages/${module}/${page}/${pageComponentName}.tsx`;
         console.log(`组件路径：${componentPath}`);
@@ -270,16 +249,10 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
 };
 
 export function render(oldRender: () => void) {
-  // fetchRouter().then((res: any) => {
-  //   extraRoutes = res
-  //
-  //   oldRender()
-  // })
   setTimeout(async () => {
     try {
       const menuData = await dynamicRoutes();
       extraRoutes = formatRoutes(menuData.data);
-      // extraRoutes=loopMenuItem1(menu1);
       const urlParams = new URL(window.location.href).searchParams;
       const redirect = urlParams.get('redirect');
       if (redirect) {
@@ -288,12 +261,8 @@ export function render(oldRender: () => void) {
       oldRender();
     } catch (_e) {
       const { search, pathname } = window.location;
-      // eslint-disable-next-line no-case-declarations
       const urlParams = new URL(window.location.href).searchParams;
-      /** 此方法会跳转到 redirect 参数所在的位置 */
-      // eslint-disable-next-line no-case-declarations
       const redirect = urlParams.get('redirect');
-      // Note: There may be security issues, please note
       if (window.location.pathname !== loginPath && !redirect) {
         history.replace({
           pathname: loginPath,
@@ -302,20 +271,13 @@ export function render(oldRender: () => void) {
           }),
         });
       } else {
-        // history.push("/system/login?redirect=" + window.location.pathname + window.location.search);
         history.push(loginPath + window.location.search);
-        // history.push(
-        //   "/system/login"
-        // );
       }
       oldRender();
     }
   }, 500);
 }
 
-/**
- * @see  https://umijs.org/zh-CN/plugins/plugin-initial-state
- * */
 export async function getInitialState(): Promise<{
   settings?: Partial<LayoutSettings>;
   currentUser?: API.CurrentUser;
@@ -354,11 +316,9 @@ export async function getInitialState(): Promise<{
 
   const { location } = history;
 
-  // 检查是否有保存的表单数据
   const savedFormData = getSavedFormData();
   if (savedFormData) {
     console.log('检测到保存的表单数据:', savedFormData);
-    // 可以在这里添加逻辑来提示用户有未完成的操作
   }
 
   if (location.pathname !== loginPath) {
@@ -378,23 +338,21 @@ export async function getInitialState(): Promise<{
     settings: defaultSettings as Partial<LayoutSettings>,
   };
 }
-// 映射菜单对应的图标
+
 const loopMenuItem1 = (menus: MenuDataItem[]): MenuDataItem[] =>
   menus.map(({ icon, routes, ...item }) => ({
     ...item,
-    icon: icon && <Icon component={icons[icon]} />,
+    icon: icon && icons[icon as keyof typeof icons] ? React.createElement(icons[icon as keyof typeof icons]) : undefined,
     routes: routes && loopMenuItem1(routes),
   }));
-// ProLayout 支持的api https://procomponents.ant.design/components/layout
+
 export const layout: RunTimeLayoutConfig = ({
   initialState,
   setInitialState,
 }) => {
   console.log(initialState?.currentUser?.name);
-  // console.log(initialState?.currentUser?.id)
   console.log(initialState?.currentUser?.userid);
   return {
-    // actionsRender: () => [<Question key="doc" />, <SelectLang key="SelectLang" />],
     avatarProps: {
       src: initialState?.currentUser?.avatar,
       title: <AvatarName />,
@@ -403,7 +361,6 @@ export const layout: RunTimeLayoutConfig = ({
       },
     },
     waterMarkProps: {
-      // content: initialState?.currentUser?.name,
       height: 36,
       width: 115,
       content: 'qixian.cs',
@@ -411,33 +368,18 @@ export const layout: RunTimeLayoutConfig = ({
         'https://gw.alipayobjects.com/zos/bmw-prod/59a18171-ae17-4fc5-93a0-2645f64a3aca.svg',
     },
     menu: {
-      // 每当 initialState?.currentUser?.userid 发生修改时重新执行 request
       params: {
         userId: initialState?.currentUser?.userid,
       },
       request: async (_params, _defaultMenuData) => {
-        // initialState.currentUser 中包含了所有用户信息
-        // console.log("menuData:test ")
-        // const menuData = await dynamicRoutes();
-        // console.log("menuData:2222 "+menuData)
-        // const menu1=loopMenuItem1(formatRoutes(menuData.data));
-        // console.log("menuData 转换1："+menu1)
-        // //console.log("menuData 获取数据:"+menuData)
-        // // console.log("menuData 转换2："+formatRoutes(menuData))
-        // return menu1;
-
-        // return extraRoutes;
         const menu1 = loopMenuItem1(formatRoutes(extraRoutes));
         console.log(`menuData 转换1：${menu1}`);
-        //console.log("menuData 获取数据:"+menuData)
-        // console.log("menuData 转换2："+formatRoutes(menuData))
         return menu1;
       },
     },
     footerRender: () => <Footer />,
     onPageChange: () => {
       const { location } = history;
-      // 如果没有登录，重定向到 login
       if (!initialState?.currentUser && location.pathname !== loginPath) {
         history.push(loginPath);
       }
@@ -471,11 +413,7 @@ export const layout: RunTimeLayoutConfig = ({
         ]
       : [],
     menuHeaderRender: undefined,
-    // 自定义 403 页面
-    // unAccessible: <div>unAccessible</div>,
-    // 增加一个 loading 的状态
     childrenRender: (children) => {
-      // if (initialState?.loading) return <PageLoading />;
       return (
         <>
           {children}
@@ -497,11 +435,6 @@ export const layout: RunTimeLayoutConfig = ({
   };
 };
 
-/**
- * @name request 配置，可以配置错误处理
- * 它基于 axios 提供了一套统一的网络请求和错误处理方案。
- * @doc https://umijs.org/docs/max/request#配置
- */
 export const request = {
   ...errorConfig,
 };

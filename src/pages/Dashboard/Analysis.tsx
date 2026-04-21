@@ -4,7 +4,7 @@ import {
   ShoppingOutlined,
   TrendingUpOutlined,
 } from '@ant-design/icons';
-import { PageContainer } from '@ant-design/pro-layout';
+import { PageContainer } from '@ant-design/pro-components';
 import {
   Card,
   Col,

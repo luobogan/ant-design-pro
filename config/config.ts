@@ -175,7 +175,7 @@ export default defineConfig({
   ],
 
   //================ pro 插件配置 =================
-  plugins: ['@umijs/max-plugin-openapi', '@umijs/request-record'],
+  plugins: ['@umijs/max-plugin-openapi'],
 
   /**
    * @name openAPI 插件的配置
@@ -203,8 +203,8 @@ export default defineConfig({
   //   exclude: ['mock/requestRecord.mock.js'],
   // },
   mock: false,
-  utoopack: {},
-  requestRecord: {},
+  // utoopack: {},
+  // requestRecord: {},
   exportStatic: {},
   define: {
     'process.env.CI': process.env.CI,
