@@ -490,7 +490,7 @@ const DataPermissionPage: React.FC = () => {
     <PageContainer title="数据权限管理" subTitle="基于菜单的数据权限配置管理">
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
-          <Card title="租户选择" bordered={true} style={{ height: 'calc(100vh - 200px)' }}>
+          <Card title="租户选择" variant="outlined" style={{ height: 'calc(100vh - 200px)' }}>
             <Tree
               showLine
               defaultExpandAll

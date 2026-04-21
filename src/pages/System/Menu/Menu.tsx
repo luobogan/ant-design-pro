@@ -562,7 +562,7 @@ const MenuPage: React.FC = () => {
     >
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
-          <Card title="租户选择" bordered={true} style={{ height: 'calc(100vh - 200px)' }}>
+          <Card title="租户选择" variant="outlined" style={{ height: 'calc(100vh - 200px)' }}>
             <Tree
               showLine
               defaultExpandAll
@@ -584,7 +584,7 @@ const MenuPage: React.FC = () => {
         </Col>
         <Col span={18}>
           <Alert
-            message={
+            title={
               <span>
                 {/* <InfoCircleOutlined style={{ marginRight: 8, color: '#1890ff' }} /> */}
                 <strong>功能权限说明：</strong>系统菜单的增删改功能仅对<strong>超级管理员</strong>开放。

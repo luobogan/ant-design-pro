@@ -182,7 +182,7 @@ const Analysis: React.FC = () => {
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col span={12}>
-          <Card title="销售趋势" bordered={false}>
+          <Card title="销售趋势" variant="plain">
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={salesData}>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -211,7 +211,7 @@ const Analysis: React.FC = () => {
           </Card>
         </Col>
         <Col span={12}>
-          <Card title="访问趋势" bordered={false}>
+          <Card title="访问趋势" variant="plain">
             <ResponsiveContainer width="100%" height={300}>
               <AreaChart data={visitData}>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -246,7 +246,7 @@ const Analysis: React.FC = () => {
 
       <Row gutter={[16, 16]}>
         <Col span={12}>
-          <Card title="订单状态分布" bordered={false}>
+          <Card title="订单状态分布" variant="plain">
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie
@@ -275,7 +275,7 @@ const Analysis: React.FC = () => {
           </Card>
         </Col>
         <Col span={12}>
-          <Card title="用户类型分布" bordered={false}>
+          <Card title="用户类型分布" variant="plain">
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie

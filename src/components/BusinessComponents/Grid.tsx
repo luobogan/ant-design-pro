@@ -121,7 +121,7 @@ const Grid = <T extends Record<string, any>>({
   };
 
   return (
-    <Card bordered={false}>
+    <Card variant="plain">
       <div>
         {/* 搜索表单 */}
         {renderSearchForm && (

@@ -369,7 +369,7 @@ const MemberList: React.FC = () => {
 
   return (
     <PageContainer>
-      <Card title="会员管理" bordered={false}>
+      <Card title="会员管理" variant="plain">
         <Space style={{ marginBottom: 16 }}>
           <Search
             placeholder="搜索用户名、邮箱"

@@ -52,7 +52,7 @@ const NotificationView: React.FC = () => {
       initialValues={initialValues}
       onFinish={handleSubmit}
     >
-      <Card title="通知偏好" bordered={false} style={{ marginBottom: 24 }}>
+      <Card title="通知偏好" variant="plain" style={{ marginBottom: 24 }}>
         <Form.Item
           name="systemNotifications"
           label="系统通知"
@@ -96,7 +96,7 @@ const NotificationView: React.FC = () => {
       </Card>
 
       <Divider orientation="left">系统通知类型</Divider>
-      <Card bordered={false} style={{ marginBottom: 24 }}>
+      <Card variant="plain" style={{ marginBottom: 24 }}>
         <Form.Item
           name={['systemNotificationTypes', 'security']}
           label="安全相关通知"
@@ -131,7 +131,7 @@ const NotificationView: React.FC = () => {
       </Card>
 
       <Divider orientation="left">消息通知类型</Divider>
-      <Card bordered={false} style={{ marginBottom: 24 }}>
+      <Card variant="plain" style={{ marginBottom: 24 }}>
         <Form.Item
           name={['messageNotificationTypes', 'directMessages']}
           label="直接消息"

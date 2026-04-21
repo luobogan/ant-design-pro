@@ -140,7 +140,7 @@ const Monitor: React.FC = () => {
   return (
     <PageContainer title="系统监控" subTitle="服务器状态和性能监控">
       <Alert
-        message="监控概览"
+        title="监控概览"
         description="当前系统共有5台服务器，其中4台在线，1台警告状态。数据库服务器CPU和内存使用率较高，建议及时处理。"
         type="info"
         showIcon
@@ -196,7 +196,7 @@ const Monitor: React.FC = () => {
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col span={12}>
-          <Card title="CPU使用率趋势" bordered={false}>
+          <Card title="CPU使用率趋势" variant="plain">
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={cpuData}>
                 <XAxis dataKey="time" />
@@ -213,7 +213,7 @@ const Monitor: React.FC = () => {
           </Card>
         </Col>
         <Col span={12}>
-          <Card title="内存使用率趋势" bordered={false}>
+          <Card title="内存使用率趋势" variant="plain">
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={memoryData}>
                 <XAxis dataKey="time" />
@@ -233,7 +233,7 @@ const Monitor: React.FC = () => {
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col span={12}>
-          <Card title="磁盘使用率趋势" bordered={false}>
+          <Card title="磁盘使用率趋势" variant="plain">
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={diskData}>
                 <XAxis dataKey="time" />
@@ -250,7 +250,7 @@ const Monitor: React.FC = () => {
           </Card>
         </Col>
         <Col span={12}>
-          <Card title="网络流量趋势" bordered={false}>
+          <Card title="网络流量趋势" variant="plain">
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={networkData}>
                 <XAxis dataKey="time" />
@@ -268,7 +268,7 @@ const Monitor: React.FC = () => {
         </Col>
       </Row>
 
-      <Card title="服务器状态列表" bordered={false}>
+      <Card title="服务器状态列表" variant="plain">
         <Table dataSource={serverStatus} rowKey="ip">
           <Column title="服务器名称" dataIndex="name" key="name" />
           <Column title="IP地址" dataIndex="ip" key="ip" />

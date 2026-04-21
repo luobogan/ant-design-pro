@@ -364,7 +364,7 @@ const TopMenuPage: React.FC = () => {
     <PageContainer title="顶部菜单管理" subTitle="管理系统顶部菜单，包括添加、编辑、删除顶部菜单等操作">
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
-          <Card title="租户选择" bordered={true} style={{ height: 'calc(100vh - 200px)' }}>
+          <Card title="租户选择" variant="outlined" style={{ height: 'calc(100vh - 200px)' }}>
             <Tree
               showLine
               defaultExpandAll
