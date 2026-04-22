@@ -50,7 +50,7 @@ const Settings: ProLayoutProps & {
   auth: {
     // 使用后端工程 @org.springblade.test.Sm2KeyGenerator 获取
     publicKey:
-      '049b9585c01891455719536d412e9e13c26a5977e68aaef99d8b78d2a7e1313aa2fd40fcf8ddd94d366109c23b186b27e7024108e392a45ad5fb55f3b361483dcf',
+      '04ac02fe94f4cac62a57a2335cc96a075a1ee41cea3b211bd7acbb9cf579b7e601b9ece2b0cfab64dca268b6942bf556af67cfe226a5cf28d936039c43e4bb12c1',
   },
   // 第三方登陆授权地址
   authUrl: 'http://localhost/blade-auth/oauth/render',
