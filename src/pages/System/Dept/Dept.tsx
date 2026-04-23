@@ -8,9 +8,10 @@ import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { useRequest } from '@umijs/max';
 import { usePageButtons } from '@/hooks/usePageButtons';
-import { Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, TreeSelect, message } from 'antd';
+import { Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, TreeSelect, message, Tree } from 'antd';
 import React, { useState, useMemo } from 'react';
 import * as deptApi from '@/services/system/dept';
+import usePermission from '@/hooks/usePermission';
 
 interface Dept {
   id: string;
@@ -31,6 +32,7 @@ const { TextArea } = Input;
 
 const Dept: React.FC = () => {
   const { buttons } = usePageButtons();
+  const { isAdmin, currentUser } = usePermission();
 
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [addModalVisible, setAddModalVisible] = useState<boolean>(false);
@@ -39,6 +41,7 @@ const Dept: React.FC = () => {
   const [currentDept, setCurrentDept] = useState<Dept | null>(null);
   const [addForm] = Form.useForm();
   const [editForm] = Form.useForm();
+  const [selectedDept, setSelectedDept] = useState<string>('');
 
   // 获取部门列表
   const {
@@ -156,6 +159,51 @@ const Dept: React.FC = () => {
       title: '无',
       children: removeEmptyChildren(rootNodes),
     }];
+  }, [deptData]);
+
+  // 部门树数据
+  const treeData = useMemo(() => {
+    const records = Array.isArray(deptData)
+      ? deptData
+      : deptData?.records || deptData?.data || [];
+
+    const deptMap = new Map<string, any>();
+    const rootNodes: any[] = [];
+
+    records.forEach((dept: any) => {
+      deptMap.set(String(dept.id), {
+        key: String(dept.id),
+        title: dept.deptName || dept.name || dept.id,
+        children: [],
+      });
+    });
+
+    deptMap.forEach((dept, id) => {
+      const parentId = records.find((r: any) => String(r.id) === id)?.parentId;
+      if (!parentId || parentId === '0' || !deptMap.has(String(parentId))) {
+        rootNodes.push(dept);
+      } else {
+        const parent = deptMap.get(String(parentId));
+        if (parent) {
+          parent.children.push(dept);
+        }
+      }
+    });
+
+    const removeEmptyChildren = (nodes: any[]): any[] => {
+      return nodes.map(node => {
+        if (node.children && node.children.length > 0) {
+          return {
+            ...node,
+            children: removeEmptyChildren(node.children),
+          };
+        }
+        const { children, ...rest } = node;
+        return rest;
+      });
+    };
+
+    return removeEmptyChildren(rootNodes);
   }, [deptData]);
 
   const columns: ProColumns<Dept>[] = [
@@ -347,6 +395,11 @@ const Dept: React.FC = () => {
     setEditModalVisible(true);
   };
 
+  // 检查是否为 00000 租户的高级管理员
+  const isRootAdmin = useMemo(() => {
+    return isAdmin && currentUser?.tenantId === '00000';
+  }, [isAdmin, currentUser]);
+
   return (
     <PageContainer
       title="部门管理"
@@ -361,22 +414,38 @@ const Dept: React.FC = () => {
         </Space>
       }
     >
-      <Card title="部门列表">
-        <ProTable
-          columns={columns}
-          dataSource={depts || []}
-          loading={loading}
-          rowKey="id"
-          pagination={{ pageSize: 10 }}
-          rowSelection={{
-            selectedRowKeys,
-            onChange: (keys) => setSelectedRowKeys(keys),
-          }}
-          toolBarRender={false}
-          treeData
-          childrenColumnName="children"
-        />
-      </Card>
+      <div style={{ display: 'flex', gap: '16px' }}>
+        {/* 左侧部门树（仅 00000 租户的高级管理员可见） */}
+        {isRootAdmin && (
+          <Card title="部门树" style={{ width: '280px', flexShrink: 0 }}>
+            <Tree
+              treeData={treeData}
+              selectedKeys={selectedDept ? [selectedDept] : []}
+              onSelect={(keys) => setSelectedDept(keys[0] as string)}
+              defaultExpandAll
+              style={{ maxHeight: '600px', overflow: 'auto' }}
+            />
+          </Card>
+        )}
+
+        {/* 右侧部门列表 */}
+        <Card title="部门列表" style={{ flex: 1 }}>
+          <ProTable
+            columns={columns}
+            dataSource={depts || []}
+            loading={loading}
+            rowKey="id"
+            pagination={{ pageSize: 10 }}
+            rowSelection={{
+              selectedRowKeys,
+              onChange: (keys) => setSelectedRowKeys(keys),
+            }}
+            toolBarRender={false}
+            treeData
+            childrenColumnName="children"
+          />
+        </Card>
+      </div>
 
       {/* 添加部门弹窗 */}
       <Modal

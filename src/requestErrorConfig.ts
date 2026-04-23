@@ -6,6 +6,7 @@ import qs from 'qs';
 import { getBasicAuth } from '@/utils/auth';
 import { getCaptchaKey, getTenantId, getToken, removeAll } from '@/utils/authority';
 import Settings from '../config/defaultSettings';
+import { message, notification } from 'antd';
 
 // 后端状态码消息映射
 const codeMessage: Record<number, string> = {
@@ -474,7 +475,10 @@ export const errorConfig: RequestConfig = {
       if (data?.code !== undefined) {
         // 特殊处理401错误，清除认证信息并跳转到登录页
         if (data.code === 401) {
-          console.error('认证失败:', data.msg);
+          const errorMsg = data.msg || codeMessage[401];
+          console.error('认证失败:', errorMsg);
+          // 显示错误消息
+          message.error(errorMsg);
           // 清除所有登录信息
           removeAll();
           // 跳转到登录页
@@ -499,11 +503,13 @@ export const errorConfig: RequestConfig = {
       // 处理 success 字段（兼容其他后端格式）
       if (data?.success !== undefined) {
         if (data.success === false) {
-          const errorMsg = data.message || data.errorMessage || '请求失败！';
+          const errorMsg = data.message || data.errorMessage || data.msg || '请求失败！';
           console.error(errorMsg);
+          // 显示错误消息
+          message.error(errorMsg);
           // 特殊处理401未授权错误
-          if (data.message?.includes('未授权')) {
-            console.error('认证失败:', data.message);
+          if (data.message?.includes('未授权') || data.msg?.includes('未授权')) {
+            console.error('认证失败:', errorMsg);
             // 清除所有登录信息
             removeAll();
             // 跳转到登录页
@@ -530,7 +536,10 @@ export const errorConfig: RequestConfig = {
 
     // 处理 401 认证失败
     if (error.name === 401 || error.response?.status === 401) {
+      const errorMsg = codeMessage[401] || '认证失败，请重新登录';
       console.error('会话已过期，跳转到登录页');
+      // 显示错误消息
+      message.error(errorMsg);
       // 清除所有登录信息
       removeAll();
       // 跳转到登录页
@@ -546,8 +555,13 @@ export const errorConfig: RequestConfig = {
       const { status, statusText } = response;
       const errortext = codeMessage[status] || statusText;
       console.error(`请求错误 ${status}: ${errortext}`);
+      // 显示错误消息
+      message.error(errortext);
     } else {
-      console.error('请求失败:', error.message);
+      const errorMsg = error.message || '请求失败，请重试';
+      console.error('请求失败:', errorMsg);
+      // 显示错误消息
+      message.error(errorMsg);
     }
 
     return Promise.reject(error);

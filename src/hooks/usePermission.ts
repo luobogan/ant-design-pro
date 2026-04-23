@@ -87,6 +87,7 @@ export const usePermission = () => {
     hasPageButton,
     isAdmin,
     buttons,
+    currentUser,
     loading: false,
   };
 };
