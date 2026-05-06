@@ -143,85 +143,89 @@ const CategoryList: React.FC = () => {
             </Tag>
           </div>
           <Space size="small">
-            {!!cat.parentId && (
+            {!cat.tenantGroup && (
               <>
+                {cat.parentId > 0 && (
+                  <>
+                    <Button
+                      type="link"
+                      size="small"
+                      icon={<SettingOutlined />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleManageAttributes(cat);
+                      }}
+                    >
+                      属性
+                    </Button>
+                    <Button
+                      type="link"
+                      size="small"
+                      icon={<TagOutlined />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleManageBrands(cat);
+                      }}
+                    >
+                      品牌
+                    </Button>
+                    <Button
+                      type="link"
+                      size="small"
+                      icon={<BuildOutlined />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleManageParams(cat);
+                      }}
+                    >
+                      参数
+                    </Button>
+                  </>
+                )}
                 <Button
                   type="link"
                   size="small"
-                  icon={<SettingOutlined />}
+                  icon={<EditOutlined />}
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleManageAttributes(cat);
+                    handleEdit(cat);
                   }}
                 >
-                  属性
+                  编辑
                 </Button>
                 <Button
                   type="link"
                   size="small"
-                  icon={<TagOutlined />}
+                  icon={<PlusOutlined />}
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleManageBrands(cat);
+                    handleAddChild(cat);
                   }}
                 >
-                  品牌
+                  添加子分类
                 </Button>
-                <Button
-                  type="link"
-                  size="small"
-                  icon={<BuildOutlined />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleManageParams(cat);
+                <Popconfirm
+                  title="确认删除"
+                  description="确定要删除该分类吗？"
+                  onConfirm={(e) => {
+                    e?.stopPropagation();
+                    handleDelete(cat.id);
                   }}
+                  okText="确认"
+                  cancelText="取消"
                 >
-                  参数
-                </Button>
+                  <Button
+                    type="link"
+                    size="small"
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    删除
+                  </Button>
+                </Popconfirm>
               </>
             )}
-            <Button
-              type="link"
-              size="small"
-              icon={<EditOutlined />}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleEdit(cat);
-              }}
-            >
-              编辑
-            </Button>
-            <Button
-              type="link"
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleAddChild(cat);
-              }}
-            >
-              添加子分类
-            </Button>
-            <Popconfirm
-              title="确认删除"
-              description="确定要删除该分类吗？"
-              onConfirm={(e) => {
-                e?.stopPropagation();
-                handleDelete(cat.id);
-              }}
-              okText="确认"
-              cancelText="取消"
-            >
-              <Button
-                type="link"
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-                onClick={(e) => e.stopPropagation()}
-              >
-                删除
-              </Button>
-            </Popconfirm>
           </Space>
         </div>
       ),

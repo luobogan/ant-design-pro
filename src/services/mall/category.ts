@@ -20,7 +20,16 @@ interface BladeResponse<T> {
 
 export const categoryApi = {
   getTree: async (): Promise<Category[]> => {
-    const response = await request<BladeResponse<Category[]>>(`${CATEGORY_BASE_URL}/tree`, {
+    // 获取当前租户ID
+    const userInfo = JSON.parse(localStorage.getItem('sword-user-info') || '{}');
+    const tenantId = userInfo?.tenantId || '000000';
+
+    // 000000租户使用按租户分组的接口，其他租户使用普通接口
+    const url = tenantId === '000000'
+      ? `${CATEGORY_BASE_URL}/tree/by-tenant`
+      : `${CATEGORY_BASE_URL}/tree`;
+
+    const response = await request<BladeResponse<Category[]>>(url, {
       method: 'GET',
     });
     return response.data;
