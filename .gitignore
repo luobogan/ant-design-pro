@@ -17,7 +17,6 @@ yarn-error.log
 /coverage
 .idea
 yarn.lock
-package-lock.json
 *bak
 .vscode
 
@@ -45,6 +44,9 @@ build
 
 # worktrees
 .worktrees
+
+# superpowers docs
+docs/superpowers
 
 # cloudflare wrangler
 .wrangler
