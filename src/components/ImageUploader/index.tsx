@@ -3,6 +3,7 @@ import { Upload, Button, Modal, message, Form } from 'antd';
 import { PlusOutlined, LoadingOutlined } from '@ant-design/icons';
 import type { UploadFile, UploadProps } from 'antd/es/upload/interface';
 import { ImageUploaderProps } from './types';
+import { getTenantId } from '@/utils/authority';
 
 const ImageUploader: React.FC<ImageUploaderProps> = ({
   name,
@@ -24,6 +25,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
   useLocalUpload = false,
   returnBase64 = true,
   uploadParams,
+  tenantId: propTenantId,
 }) => {
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [uploadLoading, setUploadLoading] = useState(false);
@@ -125,12 +127,14 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
         }
 
         const token = localStorage.getItem('sword-token') || '';
+        const uploadTenantId = propTenantId || getTenantId() || '000000';
 
         const response = await fetch(uploadUrl, {
           method: 'POST',
           headers: {
             Authorization: `Basic c2FiZXI6c2FiZXJfc2VjcmV0`,
             'Blade-Auth': `bearer ${token}`,
+            'Tenant-Id': uploadTenantId,
           },
           body: formData,
         });

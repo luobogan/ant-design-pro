@@ -1,5 +1,6 @@
 import React from 'react';
 import { Editor } from '@tinymce/tinymce-react';
+import { getTenantId } from '@/utils/authority';
 
 interface RichTextEditorProps {
   value?: string;
@@ -21,11 +22,13 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
       formData.append('file', blobInfo.blob(), blobInfo.filename());
 
       const token = localStorage.getItem('sword-token') || '';
+      const tenantId = getTenantId() || '000000';
 
       fetch('/api/blade-mall/admin/upload/image', {
         method: 'POST',
         headers: {
           'Blade-Auth': `bearer ${token}`,
+          'Tenant-Id': tenantId,
         },
         body: formData,
       })

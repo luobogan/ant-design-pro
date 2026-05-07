@@ -17,6 +17,7 @@ import {
   StarOutlined,
   UndoOutlined,
   WarningOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { useNavigate } from '@umijs/max';
@@ -41,10 +42,15 @@ import {
   Table,
   Tag,
   TreeSelect,
+  Layout,
+  Tree,
+  Spin,
 } from 'antd';
+const { Sider, Content } = Layout;
 import type { ColumnsType } from 'antd/es/table';
 import React, { useEffect, useState } from 'react';
 import { brandApi, categoryApi } from '@/services/mall';
+import { list as tenantListApi } from '@/services/system/tenant';
 import {
   adjustSkuStock,
   batchDeleteProducts,
@@ -135,12 +141,22 @@ const ProductList: React.FC = () => {
     total: 0,
   });
 
+  // 租户相关状态
+  const [tenantTreeData, setTenantTreeData] = useState<any[]>([]);
+  const [tenantList, setTenantList] = useState<any[]>([]);
+  const [selectedTenantId, setSelectedTenantId] = useState<string>('000000');
+  const [tenantLoading, setTenantLoading] = useState(false);
+
   // 获取分类和品牌
-  const fetchCategoriesAndBrands = async () => {
+  const fetchCategoriesAndBrands = async (tenantId?: string) => {
     try {
+      const params: any = {};
+      if (tenantId) {
+        params.tenantId = tenantId;
+      }
       const [categoryRes, brandRes] = await Promise.all([
-        categoryApi.getTree(),
-        brandApi.getList({ page: 1, pageSize: 100 }),
+        categoryApi.getTree(tenantId ? { tenantId } : undefined),
+        brandApi.getList({ page: 1, pageSize: 100, ...params }),
       ]);
 
       // 将分类数据转换为TreeSelect需要的格式
@@ -159,10 +175,62 @@ const ProductList: React.FC = () => {
     }
   };
 
-  // 获取统计数据
-  const fetchProductStats = async () => {
+  const fetchTenants = async () => {
+    setTenantLoading(true);
     try {
-      const statsData = await getProductStats();
+      const result = await tenantListApi({ current: 1, size: 1000 });
+      const tenants = result.data?.records || result.records || [];
+      setTenantList(tenants);
+      const treeData = tenants.map((tenant: any) => ({
+        key: tenant.tenantId,
+        title: (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ApartmentOutlined />
+            <span>{tenant.tenantName}</span>
+            <Tag color="blue" style={{ marginLeft: 4, fontSize: 12 }}>
+              {tenant.tenantId}
+            </Tag>
+          </div>
+        ),
+        isLeaf: true,
+      }));
+      setTenantTreeData([
+        {
+          key: 'all',
+          title: (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ApartmentOutlined />
+              <span>全部租户</span>
+            </div>
+          ),
+          children: treeData,
+        },
+      ]);
+    } catch (error: any) {
+      message.error(error.message || '获取租户列表失败');
+    } finally {
+      setTenantLoading(false);
+    }
+  };
+
+  const handleTenantSelect = (selectedKeys: React.Key[]) => {
+    if (selectedKeys.length === 0) return;
+    const tenantId = selectedKeys[0] as string;
+    setSelectedTenantId(tenantId);
+    const actualTenantId = tenantId === 'all' ? undefined : tenantId;
+    fetchCategoriesAndBrands(actualTenantId);
+    fetchProductStats(actualTenantId);
+    fetchData(1, pagination.pageSize, {}, actualTenantId);
+  };
+
+  // 获取统计数据
+  const fetchProductStats = async (tenantId?: string) => {
+    try {
+      const params: any = {};
+      if (tenantId) {
+        params.tenantId = tenantId;
+      }
+      const statsData = await getProductStats(params);
       setStats(statsData || null);
     } catch (error) {
       console.error('获取统计数据失败:', error);
@@ -170,14 +238,17 @@ const ProductList: React.FC = () => {
   };
 
   // 获取商品列表
-  const fetchData = async (page = 1, pageSize = 20, filters: any = {}) => {
+  const fetchData = async (page = 1, pageSize = 20, filters: any = {}, tenantId?: string) => {
     setLoading(true);
     try {
       const params = {
         current: page,
-        size: pageSize, // 后端使用的是 size 而不是 pageSize
+        size: pageSize,
         ...filters,
       };
+      if (tenantId) {
+        params.tenantId = tenantId;
+      }
 
       const result = await getProductList(params);
 
@@ -215,9 +286,10 @@ const ProductList: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchCategoriesAndBrands();
-    fetchProductStats();
-    fetchData();
+    fetchTenants();
+    fetchCategoriesAndBrands('000000');
+    fetchProductStats('000000');
+    fetchData(1, pagination.pageSize, {}, '000000');
   }, []);
 
   const handleTableChange = (pag: any) => {
@@ -655,8 +727,29 @@ const ProductList: React.FC = () => {
 
   return (
     <PageContainer>
-      <Card title="商品统计" style={{ marginBottom: 16 }}>
-        <Row gutter={[16, 16]}>
+      <Layout style={{ background: '#f0f2f5' }}>
+        <Sider
+          width={280}
+          style={{ background: '#fff', marginRight: 16, padding: 16 }}
+        >
+          <div style={{ marginBottom: 16, fontWeight: 600, fontSize: 16 }}>
+            <ApartmentOutlined style={{ marginRight: 8 }} />
+            租户列表
+          </div>
+          <Spin spinning={tenantLoading}>
+            <Tree
+              treeData={tenantTreeData}
+              defaultExpandAll
+              blockNode
+              onSelect={handleTenantSelect}
+              selectedKeys={[selectedTenantId]}
+              style={{ background: '#fff' }}
+            />
+          </Spin>
+        </Sider>
+        <Content>
+          <Card title="商品统计" style={{ marginBottom: 16 }}>
+            <Row gutter={[16, 16]}>
           <Col xs={12} sm={8} md={6}>
             <Statistic
               title="商品总数"
@@ -1018,6 +1111,8 @@ const ProductList: React.FC = () => {
           }}
         />
       </Modal>
+        </Content>
+      </Layout>
     </PageContainer>
   );
 };

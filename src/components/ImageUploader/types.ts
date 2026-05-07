@@ -27,4 +27,9 @@ export interface ImageUploaderProps {
    * 上传参数
    */
   uploadParams?: Record<string, any>;
+  /**
+   * 租户ID（用于上传时指定租户目录）
+   * 不传则自动从当前登录用户获取
+   */
+  tenantId?: string;
 }

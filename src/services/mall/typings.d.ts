@@ -61,6 +61,7 @@ export interface ProductFormData {
   }>;
   categoryId: string;
   brandId: string;
+  tenantId?: string;
   stock?: number;
   stockWarning?: number;
   productSn?: string;
@@ -333,6 +334,8 @@ export interface Category {
   level?: number;
   sort: number;
   status: number;
+  tenantId?: string;
+  tenantGroup?: boolean;
   createdAt: string;
   updatedAt?: string;
   children?: Category[];
@@ -427,6 +430,7 @@ export interface CategoryFormData {
   parentId?: number;
   sort: number;
   status: number;
+  tenantId?: string;
 }
 
 export interface CategoryAttribute {

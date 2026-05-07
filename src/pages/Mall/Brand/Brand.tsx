@@ -13,13 +13,21 @@ import {
   message,
   Card,
   Popconfirm,
+  Layout,
+  Tree,
+  Spin,
+  Tag,
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
+const { Sider, Content } = Layout;
+import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, ApartmentOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd';
 import { brandApi } from '@/services/mall/brand';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import type { Brand, BrandFormData } from '@/services/mall/typings';
 import ImageUploader from '@/components/ImageUploader';
+import { list as tenantListApi } from '@/services/system/tenant';
+
+const { Option } = Select;
 
 /**
  * 品牌管理页面
@@ -38,10 +46,22 @@ const BrandList: React.FC = () => {
   });
   const { buttons } = usePageButtons('brand');
 
-  const fetchData = async (page: number = 1, pageSize: number = 10) => {
+  // 租户相关状态
+  const [tenantTreeData, setTenantTreeData] = useState<any[]>([]);
+  const [tenantList, setTenantList] = useState<any[]>([]);
+  const [selectedTenantId, setSelectedTenantId] = useState<string>('000000');
+  const [tenantLoading, setTenantLoading] = useState(false);
+  // 表单中选择的租户ID（用于图片上传）
+  const [formTenantId, setFormTenantId] = useState<string>('000000');
+
+  const fetchData = async (page: number = 1, pageSize: number = 10, tenantId?: string) => {
     setLoading(true);
     try {
-      const response = await brandApi.getList({ page, pageSize });
+      const params: any = { page, pageSize };
+      if (tenantId) {
+        params.tenantId = tenantId;
+      }
+      const response = await brandApi.getList(params);
       setData(response.list || []);
       setPagination({
         current: response.current || 1,
@@ -55,8 +75,54 @@ const BrandList: React.FC = () => {
     }
   };
 
+  const fetchTenants = async () => {
+    setTenantLoading(true);
+    try {
+      const result = await tenantListApi({ current: 1, size: 1000 });
+      const tenants = result.data?.records || result.records || [];
+      setTenantList(tenants);
+      const treeData = tenants.map((tenant: any) => ({
+        key: tenant.tenantId,
+        title: (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ApartmentOutlined />
+            <span>{tenant.tenantName}</span>
+            <Tag color="blue" style={{ marginLeft: 4, fontSize: 12 }}>
+              {tenant.tenantId}
+            </Tag>
+          </div>
+        ),
+        isLeaf: true,
+      }));
+      setTenantTreeData([
+        {
+          key: 'all',
+          title: (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ApartmentOutlined />
+              <span>全部租户</span>
+            </div>
+          ),
+          children: treeData,
+        },
+      ]);
+    } catch (error: any) {
+      message.error(error.message || '获取租户列表失败');
+    } finally {
+      setTenantLoading(false);
+    }
+  };
+
+  const handleTenantSelect = (selectedKeys: React.Key[]) => {
+    if (selectedKeys.length === 0) return;
+    const tenantId = selectedKeys[0] as string;
+    setSelectedTenantId(tenantId);
+    fetchData(1, pagination.pageSize, tenantId === 'all' ? undefined : tenantId);
+  };
+
   useEffect(() => {
-    fetchData();
+    fetchTenants();
+    fetchData(1, 10, '000000');
   }, []);
 
   const columns: ColumnsType<Brand> = [
@@ -142,9 +208,13 @@ const BrandList: React.FC = () => {
     setCurrentBrand(null);
     setLogoUrl('');
     form.resetFields();
+    const userInfo = JSON.parse(localStorage.getItem('sword-user-info') || '{}');
+    const currentTenantId = userInfo?.tenantId || '000000';
+    setFormTenantId(currentTenantId);
     form.setFieldsValue({
       status: 1,
       sort: 0,
+      tenantId: currentTenantId,
     });
     setModalVisible(true);
   };
@@ -152,12 +222,14 @@ const BrandList: React.FC = () => {
   const handleEdit = (brand: Brand) => {
     setCurrentBrand(brand);
     setLogoUrl(brand.logo || '');
+    setFormTenantId(brand.tenantId || '000000');
     form.setFieldsValue({
       name: brand.name,
       description: brand.description,
       logo: brand.logo,
       status: brand.status,
       sort: brand.sort,
+      tenantId: brand.tenantId,
     });
     setModalVisible(true);
   };
@@ -166,7 +238,7 @@ const BrandList: React.FC = () => {
     try {
       await brandApi.delete(id);
       message.success('删除成功');
-      fetchData(pagination.current, pagination.pageSize);
+      fetchData(pagination.current, pagination.pageSize, selectedTenantId === 'all' ? undefined : selectedTenantId);
     } catch (error) {
       message.error('删除失败');
     }
@@ -188,7 +260,7 @@ const BrandList: React.FC = () => {
       }
 
       setModalVisible(false);
-      fetchData(pagination.current, pagination.pageSize);
+      fetchData(pagination.current, pagination.pageSize, selectedTenantId === 'all' ? undefined : selectedTenantId);
     } catch (error) {
       console.error('Submit error:', error);
       message.error('操作失败');
@@ -197,38 +269,61 @@ const BrandList: React.FC = () => {
 
   return (
     <PageContainer>
-      <Card
-        title="品牌管理"
-        extra={
-          <Space>
-            <Button icon={<ReloadOutlined />} onClick={() => fetchData(pagination.current, pagination.pageSize)}>
-              刷新
-            </Button>
-              <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-                新增品牌
-              </Button>
-          </Space>
-        }
-      >
-        <Table
-          rowKey="id"
-          columns={columns}
-          dataSource={data}
-          loading={loading}
-          pagination={{
-            current: pagination.current,
-            pageSize: pagination.pageSize,
-            total: pagination.total,
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (total) => `共 ${total} 条`,
-            onChange: (page, pageSize) => {
-              fetchData(page, pageSize);
-            },
-          }}
-          scroll={{ x: 1200 }}
-        />
-      </Card>
+      <Layout style={{ background: '#f0f2f5' }}>
+        <Sider
+          width={280}
+          style={{ background: '#fff', marginRight: 16, padding: 16 }}
+        >
+          <div style={{ marginBottom: 16, fontWeight: 600, fontSize: 16 }}>
+            <ApartmentOutlined style={{ marginRight: 8 }} />
+            租户列表
+          </div>
+          <Spin spinning={tenantLoading}>
+            <Tree
+              treeData={tenantTreeData}
+              defaultExpandAll
+              blockNode
+              onSelect={handleTenantSelect}
+              selectedKeys={[selectedTenantId]}
+              style={{ background: '#fff' }}
+            />
+          </Spin>
+        </Sider>
+        <Content>
+          <Card
+            title="品牌管理"
+            extra={
+              <Space>
+                <Button icon={<ReloadOutlined />} onClick={() => fetchData(pagination.current, pagination.pageSize, selectedTenantId === 'all' ? undefined : selectedTenantId)}>
+                  刷新
+                </Button>
+                <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+                  新增品牌
+                </Button>
+              </Space>
+            }
+          >
+            <Table
+              rowKey="id"
+              columns={columns}
+              dataSource={data}
+              loading={loading}
+              pagination={{
+                current: pagination.current,
+                pageSize: pagination.pageSize,
+                total: pagination.total,
+                showSizeChanger: true,
+                showQuickJumper: true,
+                showTotal: (total) => `共 ${total} 条`,
+                onChange: (page, pageSize) => {
+                  fetchData(page, pageSize, selectedTenantId === 'all' ? undefined : selectedTenantId);
+                },
+              }}
+              scroll={{ x: 1200 }}
+            />
+          </Card>
+        </Content>
+      </Layout>
 
       <Modal
         title={currentBrand ? '编辑品牌' : '新增品牌'}
@@ -247,6 +342,35 @@ const BrandList: React.FC = () => {
           >
             <Input placeholder="请输入品牌名称" />
           </Form.Item>
+
+          {(() => {
+            const userInfo = JSON.parse(localStorage.getItem('sword-user-info') || '{}');
+            const currentTenantId = userInfo?.tenantId || '000000';
+            if (currentTenantId === '000000') {
+              return (
+                <Form.Item
+                  label="所属租户"
+                  name="tenantId"
+                  rules={[{ required: true, message: '请选择所属租户' }]}
+                >
+                  <Select
+                    placeholder="请选择所属租户"
+                    disabled={!!currentBrand}
+                    onChange={(value) => {
+                      setFormTenantId(value || '000000');
+                    }}
+                  >
+                    {tenantList.map((tenant: any) => (
+                      <Option key={tenant.tenantId} value={tenant.tenantId}>
+                        {tenant.tenantName} ({tenant.tenantId})
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              );
+            }
+            return null;
+          })()}
 
           <Form.Item label="品牌LOGO" name="logo">
             <ImageUploader
@@ -267,6 +391,7 @@ const BrandList: React.FC = () => {
               useLocalUpload={false}
               returnBase64={false}
               uploadParams={{ type: 'brand' }}
+              tenantId={formTenantId}
             />
           </Form.Item>
 

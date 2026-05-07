@@ -1,25 +1,11 @@
-﻿// @ts-ignore
-import { startMock } from '@@/requestRecordMock';
+// @ts-ignore
 import { TestBrowser } from '@@/testBrowser';
 import { fireEvent, render } from '@testing-library/react';
 import React, { act } from 'react';
 
-let server: {
-  close: () => void;
-};
+// requestRecordMock 已禁用，测试使用默认 mock
 
 describe('Login Page', () => {
-  beforeAll(async () => {
-    server = await startMock({
-      port: 8000,
-      scene: 'login',
-    });
-  });
-
-  afterAll(() => {
-    server?.close();
-  });
-
   it('should show login form', async () => {
     const historyRef = React.createRef<any>();
     const rootContainer = render(

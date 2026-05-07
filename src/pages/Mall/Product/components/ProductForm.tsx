@@ -3,6 +3,7 @@ import {
   LeftOutlined,
   PlusOutlined,
   RightOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons';
 import {
   Button,
@@ -35,6 +36,7 @@ import {
   productApi,
   promotionApi,
 } from '@/services/mall';
+import { list as tenantListApi } from '@/services/system/tenant';
 import type {
   Brand,
   Category,
@@ -44,6 +46,7 @@ import type {
   Promotion,
 } from '@/services/mall/typings';
 import RichTextEditor from '@/components/RichTextEditor/index';
+import { getTenantId } from '@/utils/authority';
 
 const { Step } = Steps;
 const { TextArea } = Input;
@@ -127,8 +130,20 @@ const ProductForm: React.FC<ProductFormProps> = ({
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [allProducts, setAllProducts] = useState<any[]>([]);
 
+  // 租户相关状态
+  const [tenantList, setTenantList] = useState<any[]>([]);
+  const [currentTenantId, setCurrentTenantId] = useState<string>('000000');
+  // 表单中选择的租户ID（用于图片上传）
+  const [selectedTenantId, setSelectedTenantId] = useState<string>('000000');
+
   // 初始化数据
   useEffect(() => {
+    const userInfo = JSON.parse(localStorage.getItem('sword-user-info') || '{}');
+    const tenantId = userInfo?.tenantId || '000000';
+    setCurrentTenantId(tenantId);
+    if (tenantId === '000000') {
+      fetchTenants();
+    }
     fetchCategories();
     fetchBrands();
     fetchPromotions();
@@ -148,6 +163,16 @@ const ProductForm: React.FC<ProductFormProps> = ({
       setCategories(data);
     } catch (error: any) {
       message.error('获取分类失败');
+    }
+  };
+
+  const fetchTenants = async () => {
+    try {
+      const result = await tenantListApi({ current: 1, size: 1000 });
+      const tenants = result.data?.records || result.records || [];
+      setTenantList(tenants);
+    } catch (error: any) {
+      message.error('获取租户列表失败');
     }
   };
 
@@ -1368,6 +1393,32 @@ const ProductForm: React.FC<ProductFormProps> = ({
         </Col>
       </Row>
 
+      {currentTenantId === '000000' && (
+        <Row gutter={24}>
+          <Col span={12}>
+            <Form.Item
+              label="所属租户"
+              name="tenantId"
+              rules={[{ required: true, message: '请选择所属租户' }]}
+            >
+              <Select
+                placeholder="请选择所属租户"
+                disabled={!!product}
+                onChange={(value) => {
+                  setSelectedTenantId(value || '000000');
+                }}
+              >
+                {tenantList.map((tenant: any) => (
+                  <Option key={tenant.tenantId} value={tenant.tenantId}>
+                    {tenant.tenantName} ({tenant.tenantId})
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+          </Col>
+        </Row>
+      )}
+
       <Form.Item
         label="商品名称"
         name="name"
@@ -1460,7 +1511,8 @@ const ProductForm: React.FC<ProductFormProps> = ({
           beforeUpload={beforeUpload}
           action="/api/blade-mall/admin/upload/image"
           headers={{
-            'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`
+            'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`,
+            'Tenant-Id': selectedTenantId || '000000',
           }}
           fileList={mainImageFiles}
           onPreview={handlePreview}
@@ -1504,7 +1556,8 @@ const ProductForm: React.FC<ProductFormProps> = ({
           beforeUpload={beforeUpload}
           action="/api/blade-mall/admin/upload/image"
           headers={{
-            'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`
+            'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`,
+            'Tenant-Id': selectedTenantId || '000000',
           }}
           fileList={albumFiles}
           onPreview={handlePreview}
@@ -1938,7 +1991,8 @@ const ProductForm: React.FC<ProductFormProps> = ({
                             beforeUpload={beforeUpload}
                             action="/api/blade-mall/admin/upload/image"
                             headers={{
-                              'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`
+                              'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`,
+                              'Tenant-Id': selectedTenantId || '000000',
                             }}
                             fileList={attributeImages[value]?.mainImage || []}
                             onPreview={handlePreview}
@@ -1980,7 +2034,8 @@ const ProductForm: React.FC<ProductFormProps> = ({
                             beforeUpload={beforeUpload}
                             action="/api/blade-mall/admin/upload/image"
                             headers={{
-                              'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`
+                              'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`,
+                              'Tenant-Id': selectedTenantId || '000000',
                             }}
                             fileList={attributeImages[value]?.albumImages || []}
                             onPreview={handlePreview}

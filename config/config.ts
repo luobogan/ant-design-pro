@@ -200,7 +200,7 @@ export default defineConfig({
   ],
 
   //================ pro 插件配置 =================
-  plugins: ['@umijs/max-plugin-openapi', '@umijs/request-record'],
+  plugins: ['@umijs/max-plugin-openapi'],
 
   /**
    * @name openAPI 插件的配置
@@ -221,7 +221,7 @@ export default defineConfig({
     include: ['src/pages/**/_mock.ts'],
     exclude: ['mock/requestRecord.mock.js'],
   },
-  utoopack: {
+ utoopack: {
     module: {
       rules: {
         '*.md': {
@@ -231,7 +231,7 @@ export default defineConfig({
       },
     },
   },
-  requestRecord: {},
+  // requestRecord: false,
   // mock: {
   //   include: ['src/pages/**/_mock.ts'],
   //   exclude: ['mock/requestRecord.mock.js'],

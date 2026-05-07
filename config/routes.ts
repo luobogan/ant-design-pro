@@ -46,12 +46,12 @@ export default [
       },      // 通配符路由，直接指向404页面
       {
         path: '/*',
-        component: './404',
+        component: './exception/404',
       },
     ],
   },
   {
     path: '*',
-    component: './404',
+    component: './exception/404',
   },
 ];

@@ -1,4 +1,4 @@
-import { EyeOutlined } from '@ant-design/icons';
+import { EyeOutlined, ApartmentOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   Button,
@@ -11,14 +11,19 @@ import {
   Space,
   Table,
   Tag,
+  Layout,
+  Tree,
+  Spin,
 } from 'antd';
+const { Sider, Content } = Layout;
 import type { ColumnsType } from 'antd/es/table';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   getOrderById,
   getOrderList,
   updateOrderStatus,
 } from '@/services/mall/order';
+import { list as tenantListApi } from '@/services/system/tenant';
 import type { Order } from '@/services/mall/typings';
 import {
   formatDateTime,
@@ -46,19 +51,28 @@ const OrderList: React.FC = () => {
     total: 0,
   });
 
+  // 租户相关状态
+  const [tenantTreeData, setTenantTreeData] = useState<any[]>([]);
+  const [selectedTenantId, setSelectedTenantId] = useState<string>('000000');
+  const [tenantLoading, setTenantLoading] = useState(false);
+
   // 获取订单列表
   const fetchData = async (
     page = 1,
     pageSize = 10,
     searchFilters: any = {},
+    tenantId?: string,
   ) => {
     setLoading(true);
     try {
       const params = {
         current: page,
-        size: pageSize, // 后端使用的是 size 而不是 pageSize
+        size: pageSize,
         ...searchFilters,
       };
+      if (tenantId) {
+        params.tenantId = tenantId;
+      }
 
       const result = await getOrderList(params);
 
@@ -76,6 +90,55 @@ const OrderList: React.FC = () => {
       setLoading(false);
     }
   };
+
+  const fetchTenants = async () => {
+    setTenantLoading(true);
+    try {
+      const result = await tenantListApi({ current: 1, size: 1000 });
+      const tenants = result.data?.records || result.records || [];
+      const treeData = tenants.map((tenant: any) => ({
+        key: tenant.tenantId,
+        title: (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ApartmentOutlined />
+            <span>{tenant.tenantName}</span>
+            <Tag color="blue" style={{ marginLeft: 4, fontSize: 12 }}>
+              {tenant.tenantId}
+            </Tag>
+          </div>
+        ),
+        isLeaf: true,
+      }));
+      setTenantTreeData([
+        {
+          key: 'all',
+          title: (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ApartmentOutlined />
+              <span>全部租户</span>
+            </div>
+          ),
+          children: treeData,
+        },
+      ]);
+    } catch (error: any) {
+      message.error(error.message || '获取租户列表失败');
+    } finally {
+      setTenantLoading(false);
+    }
+  };
+
+  const handleTenantSelect = (selectedKeys: React.Key[]) => {
+    if (selectedKeys.length === 0) return;
+    const tenantId = selectedKeys[0] as string;
+    setSelectedTenantId(tenantId);
+    fetchData(1, pagination.pageSize, filters, tenantId === 'all' ? undefined : tenantId);
+  };
+
+  useEffect(() => {
+    fetchTenants();
+    fetchData(1, pagination.pageSize, {}, '000000');
+  }, []);
 
   const handleSearch = (keyword: string) => {
     setFilters({ ...filters, keyword });
@@ -193,6 +256,27 @@ const OrderList: React.FC = () => {
 
   return (
     <PageContainer>
+      <Layout style={{ background: '#f0f2f5' }}>
+        <Sider
+          width={280}
+          style={{ background: '#fff', marginRight: 16, padding: 16 }}
+        >
+          <div style={{ marginBottom: 16, fontWeight: 600, fontSize: 16 }}>
+            <ApartmentOutlined style={{ marginRight: 8 }} />
+            租户列表
+          </div>
+          <Spin spinning={tenantLoading}>
+            <Tree
+              treeData={tenantTreeData}
+              defaultExpandAll
+              blockNode
+              onSelect={handleTenantSelect}
+              selectedKeys={[selectedTenantId]}
+              style={{ background: '#fff' }}
+            />
+          </Spin>
+        </Sider>
+        <Content>
       <Card
         title="订单管理"
         extra={
@@ -201,7 +285,10 @@ const OrderList: React.FC = () => {
               placeholder="订单状态"
               style={{ width: 120 }}
               allowClear
-              onChange={handleStatusChange}
+              onChange={(value) => {
+                setFilters({ ...filters, status: value });
+                fetchData(1, pagination.pageSize, { ...filters, status: value }, selectedTenantId === 'all' ? undefined : selectedTenantId);
+              }}
             >
               <Option value="pending">待付款</Option>
               <Option value="paid">已付款</Option>
@@ -232,7 +319,7 @@ const OrderList: React.FC = () => {
             showQuickJumper: true,
             showTotal: (total) => `共 ${total} 条`,
           }}
-          onChange={(pag) => handleTableChange(pag)}
+          onChange={(pag) => fetchData(pag.current, pag.pageSize, filters, selectedTenantId === 'all' ? undefined : selectedTenantId)}
           scroll={{ x: 1500 }}
         />
       </Card>
@@ -400,6 +487,8 @@ const OrderList: React.FC = () => {
           </div>
         )}
       </Drawer>
+        </Content>
+      </Layout>
     </PageContainer>
   );
 };

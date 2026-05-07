@@ -19,6 +19,8 @@ import {
   Transfer,
   Row,
   Col,
+  Layout,
+  Spin,
 } from 'antd';
 import {
   PlusOutlined,
@@ -28,6 +30,7 @@ import {
   SettingOutlined,
   TagOutlined,
   BuildOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons';
 import {
   categoryApi,
@@ -36,6 +39,7 @@ import {
   categoryBrandApi,
   categoryParamApi,
 } from '@/services/mall';
+import { list as tenantListApi } from '@/services/system/tenant';
 import type {
   Category,
   Brand,
@@ -44,6 +48,8 @@ import type {
 } from '@/services/mall/typings';
 import EmojiPicker from '@/components/EmojiPicker';
 import ImageUploader from '@/components/ImageUploader';
+
+const { Sider, Content } = Layout;
 
 const { TextArea } = Input;
 const { Option } = Select;
@@ -63,6 +69,12 @@ const CategoryList: React.FC = () => {
   const [currentCategory, setCurrentCategory] = useState<Category | null>(null);
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
+
+  // 租户相关状态
+  const [tenantTreeData, setTenantTreeData] = useState<any[]>([]);
+  const [tenantList, setTenantList] = useState<any[]>([]);
+  const [selectedTenantId, setSelectedTenantId] = useState<string>('000000');
+  const [tenantLoading, setTenantLoading] = useState(false);
 
   const [attrModalVisible, setAttrModalVisible] = useState(false);
   const [currentCategoryForAttr, setCurrentCategoryForAttr] =
@@ -91,10 +103,10 @@ const CategoryList: React.FC = () => {
   const [currentParamType, setCurrentParamType] = useState<number>(1);
   const [paramOptionValues, setParamOptionValues] = useState<string[]>([]);
 
-  const fetchCategories = async () => {
+  const fetchCategories = async (tenantId?: string) => {
     setLoading(true);
     try {
-      const data = await categoryApi.getTree();
+      const data = await categoryApi.getTree(tenantId ? { tenantId } : undefined);
       const treeData = transformToTreeData(data);
       setCategoryTree(data);
       setTreeData(treeData);
@@ -103,6 +115,53 @@ const CategoryList: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchTenants = async () => {
+    setTenantLoading(true);
+    try {
+      const result = await tenantListApi({ current: 1, size: 1000 });
+      const tenants = result.data?.records || result.records || [];
+      setTenantList(tenants);
+      const treeData = tenants.map((tenant: any) => ({
+        key: tenant.tenantId,
+        title: (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ApartmentOutlined />
+            <span>{tenant.tenantName}</span>
+            <Tag color="blue" style={{ marginLeft: 4, fontSize: 12 }}>
+              {tenant.tenantId}
+            </Tag>
+          </div>
+        ),
+        isLeaf: true,
+      }));
+      // 添加"全部租户"节点
+      setTenantTreeData([
+        {
+          key: 'all',
+          title: (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ApartmentOutlined />
+              <span>全部租户</span>
+            </div>
+          ),
+          children: treeData,
+        },
+      ]);
+    } catch (error: any) {
+      message.error(error.message || '获取租户列表失败');
+    } finally {
+      setTenantLoading(false);
+    }
+  };
+
+  const handleTenantSelect = (selectedKeys: React.Key[]) => {
+    if (selectedKeys.length === 0) return;
+    const tenantId = selectedKeys[0] as string;
+    setSelectedTenantId(tenantId);
+    // 如果选择的是"全部租户"，不传参数；否则传入具体租户ID
+    fetchCategories(tenantId === 'all' ? undefined : tenantId);
   };
 
   const fetchBrands = async () => {
@@ -115,9 +174,43 @@ const CategoryList: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchCategories();
+    fetchTenants();
+    fetchCategories('000000');
     fetchBrands();
   }, []);
+
+  const findCategoryById = (categories: Category[], id: string | number | null | undefined): Category | null => {
+    if (!id) return null;
+    for (const cat of categories) {
+      if (String(cat.id) === String(id)) return cat;
+      if (cat.children) {
+        const found = findCategoryById(cat.children, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const getUploadTenantId = (): string => {
+    // 优先使用表单中选择的 tenantId
+    const formTenantId = form.getFieldValue('tenantId');
+    if (formTenantId) {
+      return formTenantId;
+    }
+    // 编辑模式下使用当前分类的 tenantId
+    if (currentCategory?.tenantId) {
+      return currentCategory.tenantId;
+    }
+    // 使用父级分类的 tenantId
+    const parentId = form.getFieldValue('parentId');
+    if (parentId) {
+      const parent = findCategoryById(categoryTree, parentId);
+      if (parent?.tenantId) {
+        return parent.tenantId;
+      }
+    }
+    return '';
+  };
 
   const transformToTreeData = (categories: Category[]): any[] => {
     return categories.map((cat) => ({
@@ -132,15 +225,19 @@ const CategoryList: React.FC = () => {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            {cat.icon && (
+            {cat.tenantGroup ? (
+              <ApartmentOutlined style={{ marginRight: 8, color: '#1890ff' }} />
+            ) : cat.icon ? (
               <span style={{ fontSize: '18px', marginRight: '8px' }}>
                 {cat.icon}
               </span>
+            ) : null}
+            <span style={{ fontWeight: cat.tenantGroup ? 600 : 400 }}>{cat.name}</span>
+            {!cat.tenantGroup && (
+              <Tag style={{ marginLeft: '8px' }} color={cat.status === 1 ? 'green' : 'red'}>
+                {cat.status === 1 ? '启用' : '禁用'}
+              </Tag>
             )}
-            <span>{cat.name}</span>
-            <Tag style={{ marginLeft: '8px' }} color={cat.status === 1 ? 'green' : 'red'}>
-              {cat.status === 1 ? '启用' : '禁用'}
-            </Tag>
           </div>
           <Space size="small">
             {!cat.tenantGroup && (
@@ -259,7 +356,10 @@ const CategoryList: React.FC = () => {
   const handleAdd = () => {
     setCurrentCategory(null);
     form.resetFields();
-    form.setFieldsValue({ parentId: null, sort: 0 });
+    // 获取当前登录用户的租户ID
+    const userInfo = JSON.parse(localStorage.getItem('sword-user-info') || '{}');
+    const currentTenantId = userInfo?.tenantId || '000000';
+    form.setFieldsValue({ parentId: null, sort: 0, tenantId: currentTenantId });
     setModalVisible(true);
   };
 
@@ -280,6 +380,7 @@ const CategoryList: React.FC = () => {
       parentId: category.parentId,
       sort: category.sort,
       status: category.status === 1,
+      tenantId: category.tenantId,
     });
     setModalVisible(true);
   };
@@ -310,7 +411,7 @@ const CategoryList: React.FC = () => {
         message.success('创建成功');
       }
       setModalVisible(false);
-      fetchCategories();
+      fetchCategories(selectedTenantId || undefined);
     } catch (error: any) {
       message.error(error.message || '操作失败');
     }
@@ -671,27 +772,52 @@ const CategoryList: React.FC = () => {
 
   return (
     <PageContainer>
-      <Card
-        title="商品分类"
-        extra={
-          <Space>
-            <Button icon={<ReloadOutlined />} onClick={fetchCategories}>
-              刷新
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-              新增一级分类
-            </Button>
-          </Space>
-        }
-      >
-        <Tree
-          treeData={treeData}
-          showLine
-          defaultExpandAll
-          blockNode
-          style={{ background: '#fff' }}
-        />
-      </Card>
+      <Layout style={{ background: '#f0f2f5' }}>
+        <Sider
+          width={280}
+          style={{ background: '#fff', marginRight: 16, padding: 16 }}
+        >
+          <div style={{ marginBottom: 16, fontWeight: 600, fontSize: 16 }}>
+            <ApartmentOutlined style={{ marginRight: 8 }} />
+            租户列表
+          </div>
+          <Spin spinning={tenantLoading}>
+            <Tree
+                treeData={tenantTreeData}
+                defaultExpandAll
+                blockNode
+                onSelect={handleTenantSelect}
+                selectedKeys={[selectedTenantId]}
+                style={{ background: '#fff' }}
+              />
+          </Spin>
+        </Sider>
+        <Content>
+          <Card
+            title="商品分类"
+            extra={
+              <Space>
+                <Button icon={<ReloadOutlined />} onClick={() => fetchCategories(selectedTenantId || undefined)}>
+                  刷新
+                </Button>
+                <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+                  新增一级分类
+                </Button>
+              </Space>
+            }
+          >
+            <Spin spinning={loading}>
+              <Tree
+                treeData={treeData}
+                showLine
+                defaultExpandAll
+                blockNode
+                style={{ background: '#fff' }}
+              />
+            </Spin>
+          </Card>
+        </Content>
+      </Layout>
 
       <Modal
         title={currentCategory ? '编辑分类' : '新增分类'}
@@ -711,6 +837,32 @@ const CategoryList: React.FC = () => {
           >
             <Input placeholder="请输入分类名称" />
           </Form.Item>
+
+          {(() => {
+            const userInfo = JSON.parse(localStorage.getItem('sword-user-info') || '{}');
+            const currentTenantId = userInfo?.tenantId || '000000';
+            if (currentTenantId === '000000') {
+              return (
+                <Form.Item
+                  label="所属租户"
+                  name="tenantId"
+                  rules={[{ required: true, message: '请选择所属租户' }]}
+                >
+                  <Select
+                    placeholder="请选择所属租户"
+                    disabled={!!currentCategory}
+                  >
+                    {tenantList.map((tenant: any) => (
+                      <Option key={tenant.tenantId} value={tenant.tenantId}>
+                        {tenant.tenantName} ({tenant.tenantId})
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              );
+            }
+            return null;
+          })()}
 
           <Form.Item label="父级分类" name="parentId">
             <TreeSelect
@@ -754,6 +906,7 @@ const CategoryList: React.FC = () => {
               useLocalUpload={false}
               returnBase64={false}
               uploadParams={{ type: 'category' }}
+              tenantId={getUploadTenantId()}
             />
           </Form.Item>
 

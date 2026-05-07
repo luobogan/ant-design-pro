@@ -12,10 +12,12 @@ import { stringify } from 'qs';
 
 import {
   AvatarDropdown,
-  AvatarName,
+  DocLink,
+  ErrorBoundary,
   Footer,
-  Question,
-  SelectLang,
+  LangDropdown,
+  OfflineBanner,
+  VersionDropdown,
 } from '@/components';
 import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
 import defaultSettings from '../config/defaultSettings';
@@ -126,7 +128,7 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
                       .then((mod) => resolve(mod))
                       .catch((error) => {
                         console.error('组件导入错误:', error);
-                        import('./pages/404.tsx').then((mod) => resolve(mod));
+                        import('./pages/exception/404').then((mod) => resolve(mod));
                       });
                   }),
               );
@@ -176,7 +178,7 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
                 .then((mod) => resolve(mod))
                 .catch((error) => {
                   console.error('组件导入错误:', error);
-                  import('./pages/404.tsx').then((mod) => resolve(mod));
+                  import('./pages/exception/404').then((mod) => resolve(mod));
                 });
             }),
         );
@@ -353,9 +355,14 @@ export const layout: RunTimeLayoutConfig = ({
   console.log(initialState?.currentUser?.name);
   console.log(initialState?.currentUser?.userid);
   return {
+    // actionsRender: () => [
+    //   <DocLink key="doc" />,
+    //   <VersionDropdown key="version" />,
+    //   <LangDropdown key="lang" />,
+    // ],
     avatarProps: {
       src: initialState?.currentUser?.avatar,
-      title: <AvatarName />,
+      title: initialState?.currentUser?.name || '用户',
       render: (_, avatarChildren) => {
         return <AvatarDropdown>{avatarChildren}</AvatarDropdown>;
       },
@@ -412,6 +419,9 @@ export const layout: RunTimeLayoutConfig = ({
           </Link>,
         ]
       : [],
+          // Replace ProLayout's default ErrorBoundary with our offline-aware version,
+    // so chunk load errors show friendly messages instead of "Something went wrong."
+    ErrorBoundary,
     menuHeaderRender: undefined,
     childrenRender: (children) => {
       return (
@@ -438,3 +448,11 @@ export const layout: RunTimeLayoutConfig = ({
 export const request = {
   ...errorConfig,
 };
+export function rootContainer(container: React.ReactNode) {
+  return (
+    <>
+      <OfflineBanner />
+      <ErrorBoundary>{container}</ErrorBoundary>
+    </>
+  );
+}
