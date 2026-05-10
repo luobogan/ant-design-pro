@@ -1,9 +1,41 @@
-import React, { useState, useEffect } from 'react';
-import { Upload, Button, Modal, message, Form } from 'antd';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Upload, Modal, message } from 'antd';
 import { PlusOutlined, LoadingOutlined } from '@ant-design/icons';
 import type { UploadFile, UploadProps } from 'antd/es/upload/interface';
-import { ImageUploaderProps } from './types';
+import { ImageUploaderProps, UploadResult, ImageValue } from './types';
 import { getTenantId } from '@/utils/authority';
+
+/**
+ * 通过 fetch 带认证头获取图片，转为 blob URL
+ * 解决 <img> 标签无法携带 blade-auth header 导致的 401 问题
+ */
+const fetchImageAsBlob = async (
+  url: string,
+  token: string,
+  tenantId: string
+): Promise<string | null> => {
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Basic c2FiZXI6c2FiZXJfc2VjcmV0`,
+        'Blade-Auth': `bearer ${token}`,
+        'Tenant-Id': tenantId,
+      },
+    });
+
+    if (!response.ok) {
+      console.warn('[ImageUploader] fetch图片失败:', response.status, url);
+      return null;
+    }
+
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  } catch (error) {
+    console.warn('[ImageUploader] fetch图片异常:', error);
+    return null;
+  }
+};
 
 const ImageUploader: React.FC<ImageUploaderProps> = ({
   name,
@@ -24,6 +56,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
   loading = false,
   useLocalUpload = false,
   returnBase64 = true,
+  returnObject = false,
   uploadParams,
   tenantId: propTenantId,
 }) => {
@@ -31,44 +64,147 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
   const [uploadLoading, setUploadLoading] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImage, setPreviewImage] = useState('');
+  const prevValueRef = useRef(value);
 
+  // 追踪所有创建的 blob URL，用于组件卸载时释放内存
+  const blobUrlsRef = useRef<Set<string>>(new Set());
+
+  // 清理 blob URL 内存
   useEffect(() => {
-    // 只有当 value 不为空且与当前 fileList 中的 url 不同时才重新初始化
-    // 这样可以避免在上传过程中覆盖正在处理的文件
-    const currentUrls = fileList
-      .filter((file) => file.status === 'done' && file.url)
-      .map((file) => file.url as string);
+    return () => {
+      blobUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      blobUrlsRef.current.clear();
+    };
+  }, []);
 
-    const shouldUpdate = value !== '' && (
-      (Array.isArray(value) && JSON.stringify(value) !== JSON.stringify(currentUrls)) ||
-      (!Array.isArray(value) && value !== currentUrls[0])
-    );
+  /**
+   * 安全地创建并追踪 blob URL
+   */
+  const trackBlobUrl = useCallback((blobUrl: string): string => {
+    blobUrlsRef.current.add(blobUrl);
+    return blobUrl;
+  }, []);
 
-    if (shouldUpdate) {
+  /**
+   * 将普通 URL 转为 blob URL（带认证）
+   * 用于初始化回显和上传后的图片加载
+   */
+  const convertToBlobUrl = useCallback(
+    async (file: UploadFile, rawUrl: string): Promise<string | undefined> => {
+      // 已经是 blob URL 或 base64，无需转换
+      if (rawUrl.startsWith('blob:') || rawUrl.startsWith('data:')) {
+        return rawUrl;
+      }
+
+      // 非下载接口的 URL（如外部 CDN），直接使用
+      if (!rawUrl.includes('/file/download/') && !rawUrl.includes('/api/')) {
+        return rawUrl;
+      }
+
+      const token = localStorage.getItem('sword-token') || '';
+      const uploadTenantId = propTenantId || getTenantId() || '000000';
+
+      const blobUrl = await fetchImageAsBlob(rawUrl, token, uploadTenantId);
+
+      if (blobUrl) {
+        return trackBlobUrl(blobUrl);
+      }
+      
+      // fetch 失败：返回原始 URL（可能是公开资源或白名单已放行）
+      console.warn('[ImageUploader] 无法通过fetch获取图片，回退到原始URL:', rawUrl);
+      return rawUrl;
+    },
+    [propTenantId, trackBlobUrl]
+  );
+
+  // ==================== 初始化/回显：value 变化时同步 fileList ====================
+  useEffect(() => {
+    if (value === prevValueRef.current) return;
+    prevValueRef.current = value;
+
+    const buildFileList = async () => {
       if (Array.isArray(value)) {
         const files: UploadFile[] = value
-          .filter((url) => url != null && url !== '')
-          .map((url, index) => ({
-            uid: `existing-${index}-${Date.now()}`,
-            name: `image-${index}.jpg`,
-            status: 'done',
-            url: String(url),
-          }));
+          .filter((item) => item != null && item !== '')
+          .map((item, index) => {
+            let url: string;
+            let id: string | number | undefined;
+            let isZip = false;
+
+            if (typeof item === 'string') {
+              url = item;
+            } else {
+              url = (item as ImageValue).url || '';
+              id = (item as ImageValue).id;
+              isZip = (item as any).isZip || false;
+            }
+
+            return {
+              uid: `existing-${index}-${Date.now()}`,
+              name: `image-${index}.jpg`,
+              status: 'done' as const,
+              url,           // 先设原始 URL，下面异步替换为 blob URL
+              response: id ? { data: { id, isZip } } : undefined,
+              _rawUrl: url,  // 保存原始 URL 用于异步转换
+            };
+          });
         setFileList(files);
-      } else if (value !== '') {
+
+        // 异步将每个文件 URL 转为 blob URL（解决 <img> 标签 401 问题）
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i];
+          if (f._rawUrl && !f._rawUrl.startsWith('blob:')) {
+            const blobUrl = await convertToBlobUrl(f, f._rawUrl);
+            if (blobUrl && blobUrl !== f._rawUrl) {
+              setFileList((prev) =>
+                prev.map((item) =>
+                  item.uid === f.uid ? { ...item, url: blobUrl } : item
+                )
+              );
+            }
+          }
+        }
+      } else if (value !== '' && value != null) {
+        let url: string;
+        let id: string | number | undefined;
+        let isZip = false;
+
+        if (typeof value === 'string') {
+          url = value;
+        } else {
+          url = (value as ImageValue).url || '';
+          id = (value as ImageValue).id;
+          isZip = (value as any).isZip || false;
+        }
+
         const file: UploadFile = {
           uid: `existing-${Date.now()}`,
           name: 'image.jpg',
           status: 'done',
-          url: String(value),
+          url,
+          response: id ? { data: { id, isZip } } : undefined,
+          _rawUrl: url,
         };
         setFileList([file]);
+
+        // 异步转换为 blob URL
+        if (!url.startsWith('blob:')) {
+          const blobUrl = await convertToBlobUrl(file, url);
+          if (blobUrl && blobUrl !== url) {
+            setFileList((prev) =>
+              prev.map((f) => (f.uid === file.uid ? { ...f, url: blobUrl } : f))
+            );
+          }
+        }
       } else {
         setFileList([]);
       }
-    }
-  }, [value, fileList]); // 监听 value 和 fileList 变化
+    };
 
+    buildFileList();
+  }, [value, convertToBlobUrl]);
+
+  // ==================== 文件验证 ====================
   const validateFile = (file: UploadFile) => {
     const isLtMaxSize = file.size ? file.size / 1024 / 1024 < maxSize : true;
     if (!isLtMaxSize) {
@@ -92,6 +228,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
     return true;
   };
 
+  // ==================== 上传逻辑 ====================
   const handleUpload: UploadProps['customRequest'] = async (options) => {
     const { file, onSuccess, onError } = options;
 
@@ -119,10 +256,9 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
         const formData = new FormData();
         formData.append('file', file as any);
 
-        // 添加上传参数
         if (uploadParams) {
-          Object.entries(uploadParams).forEach(([key, value]) => {
-            formData.append(key, value);
+          Object.entries(uploadParams).forEach(([key, val]) => {
+            formData.append(key, val);
           });
         }
 
@@ -143,17 +279,27 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
 
         if (result.success && result.data) {
           let fileUrl: string;
+          let fileId: string | number | undefined;
+          let isZip = false;
+
           if (typeof result.data === 'string') {
             fileUrl = result.data;
           } else {
             fileUrl = result.data.link || result.data.url || '';
-            if (!fileUrl && typeof result.data === 'object') {
-              fileUrl = JSON.stringify(result.data);
-            }
+            fileId = result.data.id;
+            isZip = result.data.isZip || false;
           }
+
           if (fileUrl) {
             message.success('图片上传成功！');
-            onSuccess?.({ url: fileUrl, data: fileUrl });
+            if (returnObject && fileId) {
+              onSuccess?.({
+                url: fileUrl,
+                data: { id: fileId, url: fileUrl, isZip },
+              });
+            } else {
+              onSuccess?.({ url: fileUrl, data: fileUrl });
+            }
           } else {
             message.error('图片上传失败！');
             onError?.(new Error('上传失败'));
@@ -171,21 +317,39 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
     }
   };
 
+  // ==================== 上传完成后：转换为 blob URL 显示 ====================
   const handleChange: UploadProps['onChange'] = (info) => {
     const processedFileList = info.fileList.map((file) => {
       if (file.status === 'done') {
         if (!file.url && file.response && file.response.data) {
           let fileUrl: string;
+          let fileId: string | number | undefined;
           if (typeof file.response.data === 'string') {
             fileUrl = file.response.data;
           } else {
             fileUrl = file.response.data.link || file.response.data.url || '';
+            fileId = file.response.data.id;
           }
           if (fileUrl) {
-            return {
-              ...file,
-              url: fileUrl,
-            };
+            file.url = fileUrl; // 先设原始 URL 立即显示
+
+            // 异步转为 blob URL（带认证）
+            const token = localStorage.getItem('sword-token') || '';
+            const uploadTenantId = propTenantId || getTenantId() || '000000';
+
+            fetchImageAsBlob(fileUrl, token, uploadTenantId)
+              .then((blobUrl) => {
+                if (blobUrl) {
+                  const trackedUrl = trackBlobUrl(blobUrl);
+                  setFileList((prev) =>
+                    prev.map((f) => (f.uid === file.uid ? { ...f, url: trackedUrl } : f))
+                  );
+                }
+              })
+              .catch(() => {
+                // 保持原始 URL
+                console.warn('[ImageUploader] handleChange: fetch转blob失败，保持原始URL');
+              });
           }
         }
       }
@@ -194,47 +358,116 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
 
     setFileList(processedFileList);
 
-    const urls = processedFileList
-      .filter((file) => file.status === 'done' && file.url)
-      .map((file) => file.url as string);
-
-    if (onChange) {
-      if (multiple) {
-        onChange(urls);
-      } else {
-        onChange(urls[0] || '');
-      }
-    }
+    // 触发 onChange 回调
+    triggerOnChange(processedFileList);
   };
 
-  const handlePreview = (file: UploadFile) => {
+  // ==================== 预览 ====================
+  const handlePreview = async (file: UploadFile) => {
     if (file.url) {
-      setPreviewImage(file.url);
-      setPreviewVisible(true);
+      // 如果是 ZIP 文件或下载接口 URL，通过 fetch 带认证获取
+      const needFetch =
+        (file.response?.data?.isZip) ||
+        (file.url.includes('/file/download/') && !file.url.startsWith('blob:'));
+
+      if (needFetch) {
+        const fileId = file.response?.data?.id;
+        const downloadUrl = fileId
+          ? `/api/blade-mall/file/download/${fileId}`
+          : file.url;
+
+        const token = localStorage.getItem('sword-token') || '';
+        const uploadTenantId = propTenantId || getTenantId() || '000000';
+
+        try {
+          const response = await fetch(downloadUrl, {
+            method: 'GET',
+            headers: {
+              Authorization: `Basic c2FiZXI6c2FiZXJfc2VjcmV0`,
+              'Blade-Auth': `bearer ${token}`,
+              'Tenant-Id': uploadTenantId,
+            },
+          });
+
+          if (response.ok) {
+            const blob = await response.blob();
+            const imageUrl = URL.createObjectURL(blob);
+            setPreviewImage(imageUrl);
+            setPreviewVisible(true);
+            // 预览关闭后释放
+            const originalOnCancel = () => setPreviewImage(imageUrl);
+          } else {
+            message.warning('无法预览此图片');
+          }
+        } catch (error) {
+          message.warning('预览失败');
+        }
+      } else {
+        setPreviewImage(file.url);
+        setPreviewVisible(true);
+      }
     } else {
       message.warning('无法预览此图片');
     }
   };
 
+  // ==================== 删除 ====================
   const handleRemove: UploadProps['onRemove'] = (file) => {
+    // 如果删除的是 blob URL，释放内存
+    if (file.url && file.url.startsWith('blob:')) {
+      URL.revokeObjectURL(file.url);
+      blobUrlsRef.current.delete(file.url);
+    }
+
     const newFileList = fileList.filter((item) => item.uid !== file.uid);
     setFileList(newFileList);
+    triggerOnChange(newFileList);
+    return true;
+  };
 
-    const urls = newFileList
-      .filter((file) => file.status === 'done' && file.url)
-      .map((file) => file.url as string);
+  // ==================== 统一触发 onChange ====================
+  const triggerOnChange = (currentFileList: UploadFile[]) => {
+    if (!onChange) return;
 
-    if (onChange) {
+    if (returnObject) {
+      const values = currentFileList
+        .filter((file) => file.status === 'done')
+        .map((file) => {
+          let id: string | number | undefined;
+          let url: string | undefined;
+          let isZip = false;
+
+          if (file.response && file.response.data) {
+            if (typeof file.response.data === 'object') {
+              id = file.response.data.id;
+              url = file.response.data.link || file.response.data.url;
+              isZip = file.response.data.isZip || false;
+            }
+          }
+          url = url || file.url;
+
+          return { id, url, isZip };
+        });
+
+      if (multiple) {
+        onChange(values);
+      } else {
+        onChange(values[0] || undefined);
+      }
+    } else {
+      const urls = currentFileList
+        .filter((file) => file.status === 'done' && file.url)
+        .map((file) => file.url as string);
+
       if (multiple) {
         onChange(urls);
       } else {
         onChange(urls[0] || '');
       }
     }
-
-    return true;
   };
 
+  // ==================== 渲染 ====================
   const uploadButton = (
     <div
       style={{
@@ -288,7 +521,13 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
         open={previewVisible}
         title="图片预览"
         footer={null}
-        onCancel={() => setPreviewVisible(false)}
+        onCancel={() => {
+          // 关闭预览时释放预览图 blob URL
+          if (previewImage.startsWith('blob:')) {
+            URL.revokeObjectURL(previewImage);
+          }
+          setPreviewVisible(false);
+        }}
       >
         <img alt="预览图片" style={{ width: '100%' }} src={previewImage} />
       </Modal>

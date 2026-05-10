@@ -266,9 +266,8 @@ const ProductForm: React.FC<ProductFormProps> = ({
   // 辅助函数：将图片 URL 转换为完整的文件对象
   const convertToFileObject = (url: string, index: number = 0): any => {
     if (!url) return null;
-    // 保持相对路径，通过代理加载图片
     const imageUrl = url.startsWith('http') ? url : url;
-    return {
+    const fileObj = {
       uid: `existing-${index}-${Date.now()}`,
       name: `product-image-${index}.jpg`,
       status: 'done',
@@ -276,6 +275,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
       thumbUrl: imageUrl,
       response: { success: true, data: imageUrl },
     };
+    return fileObj;
   };
 
   // 加载商品数据
@@ -338,6 +338,41 @@ const ProductForm: React.FC<ProductFormProps> = ({
       // 设置商品图片状态
       setMainImageFiles(mainImageFile ? [mainImageFile] : []);
       setAlbumFiles(albumFiles);
+
+      // 对下载URL，通过 fetch 带认证获取图片转为 blob URL
+      const fetchBlobForUrl = (url: string, setter: React.Dispatch<React.SetStateAction<any[]>>, uid: string) => {
+        if (url.includes('/file/download/')) {
+          const token = localStorage.getItem('sword-token') || '';
+          const tenantId = selectedTenantId || '000000';
+          fetch(url, {
+            method: 'GET',
+            headers: {
+              Authorization: `Basic c2FiZXI6c2FiZXJfc2VjcmV0`,
+              'blade-auth': `bearer ${token}`,
+              'Tenant-Id': tenantId,
+            },
+          })
+            .then((res) => {
+              if (!res.ok) throw new Error('Failed');
+              return res.blob();
+            })
+            .then((blob) => {
+              const blobUrl = URL.createObjectURL(blob);
+              setter((prev) =>
+                prev.map((f) =>
+                  f.uid === uid ? { ...f, url: blobUrl, thumbUrl: blobUrl } : f,
+                ),
+              );
+            })
+            .catch(() => {});
+        }
+      };
+      if (mainImageFile) {
+        fetchBlobForUrl(product.image, setMainImageFiles, mainImageFile.uid);
+      }
+      albumFiles.forEach((file) => {
+        fetchBlobForUrl(file.url, setAlbumFiles, file.uid);
+      });
 
       // 加载分类属性和参数
       let categoryAttributesData: CategoryAttribute[] = [];
@@ -690,6 +725,47 @@ const ProductForm: React.FC<ProductFormProps> = ({
         // 设置属性图片状态
         console.log('=== 初始化属性图片状态 ===', attributeImagesMap);
         setAttributeImages(attributeImagesMap);
+
+        // 对属性图片的下载URL，通过 fetch 带认证获取图片转为 blob URL
+        const token = localStorage.getItem('sword-token') || '';
+        const tenantId = selectedTenantId || '000000';
+        Object.entries(attributeImagesMap).forEach(([specValue, images]: [string, any]) => {
+          const fetchBlob = (url: string, field: 'mainImage' | 'albumImages', uid: string) => {
+            if (url.includes('/file/download/')) {
+              fetch(url, {
+                method: 'GET',
+                headers: {
+                  Authorization: `Basic c2FiZXI6c2FiZXJfc2VjcmV0`,
+                  'blade-auth': `bearer ${token}`,
+                  'Tenant-Id': tenantId,
+                },
+              })
+                .then((res) => {
+                  if (!res.ok) throw new Error('Failed');
+                  return res.blob();
+                })
+                .then((blob) => {
+                  const blobUrl = URL.createObjectURL(blob);
+                  setAttributeImages((prev) => ({
+                    ...prev,
+                    [specValue]: {
+                      ...prev[specValue],
+                      [field]: (prev[specValue]?.[field] || []).map((f: any) =>
+                        f.uid === uid ? { ...f, url: blobUrl, thumbUrl: blobUrl } : f,
+                      ),
+                    },
+                  }));
+                })
+                .catch(() => {});
+            }
+          };
+          if (images.mainImage) {
+            images.mainImage.forEach((f: any) => fetchBlob(f.url, 'mainImage', f.uid));
+          }
+          if (images.albumImages) {
+            images.albumImages.forEach((f: any) => fetchBlob(f.url, 'albumImages', f.uid));
+          }
+        });
       }
 
       // 设置关联商品
@@ -824,7 +900,12 @@ const ProductForm: React.FC<ProductFormProps> = ({
           url = file.url;
           console.log('文件有url字段:', url);
         } else if (file.response && file.response.data) {
-          url = file.response.data;
+          const data = file.response.data;
+          if (typeof data === 'string') {
+            url = data;
+          } else if (data && typeof data === 'object') {
+            url = data.url || data.link || '';
+          }
           console.log('文件有response.data:', url);
         }
         if (url) {
@@ -1232,15 +1313,12 @@ const ProductForm: React.FC<ProductFormProps> = ({
       if (typeof file.response === 'string') {
         imageUrl = file.response;
       } else if (file.response.data) {
-        imageUrl = file.response.data;
-      }
-    }
-
-    // 确保 URL 是完整的
-    if (imageUrl && !imageUrl.startsWith('http')) {
-      // 使用相对路径，通过代理访问
-      if (!imageUrl.startsWith('/')) {
-        imageUrl = '/' + imageUrl;
+        const data = file.response.data;
+        if (typeof data === 'string') {
+          imageUrl = data;
+        } else if (data && typeof data === 'object') {
+          imageUrl = data.url || data.link || '';
+        }
       }
     }
 
@@ -1275,7 +1353,6 @@ const ProductForm: React.FC<ProductFormProps> = ({
 
   // 鼠标滚轮缩放
   const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
     if (e.deltaY < 0) {
       handleZoomIn();
     } else {
@@ -1524,13 +1601,47 @@ const ProductForm: React.FC<ProductFormProps> = ({
               console.log('上传成功, 完整文件对象:', info.file);
               console.log('上传成功, response:', info.file.response);
               if (info.file.response && info.file.response.success) {
-                const fileUrl = info.file.response.data;
-                // 确保 URL 格式正确
-                const relativeUrl = fileUrl.startsWith('http') ? fileUrl : fileUrl;
-                info.file.url = relativeUrl;
-                info.file.thumbUrl = relativeUrl;
-                console.log('设置文件URL:', relativeUrl);
+                const responseData = info.file.response.data;
+                let fileUrl: string;
+                if (typeof responseData === 'string') {
+                  fileUrl = responseData;
+                } else if (responseData && typeof responseData === 'object') {
+                  fileUrl = responseData.url || responseData.link || '';
+                } else {
+                  fileUrl = '';
+                }
+                info.file.url = fileUrl;
+                info.file.thumbUrl = fileUrl;
+                console.log('设置文件URL:', fileUrl);
                 message.success('上传成功');
+                // 如果是下载URL，通过 fetch 带认证获取图片转为 blob URL
+                if (fileUrl.includes('/file/download/')) {
+                  const token = localStorage.getItem('sword-token') || '';
+                  const tenantId = selectedTenantId || '000000';
+                  fetch(fileUrl, {
+                    method: 'GET',
+                    headers: {
+                      Authorization: `Basic c2FiZXI6c2FiZXJfc2VjcmV0`,
+                      'blade-auth': `bearer ${token}`,
+                      'Tenant-Id': tenantId,
+                    },
+                  })
+                    .then((res) => {
+                      if (!res.ok) throw new Error('Failed');
+                      return res.blob();
+                    })
+                    .then((blob) => {
+                      const blobUrl = URL.createObjectURL(blob);
+                      setMainImageFiles((prev) =>
+                        prev.map((f) =>
+                          f.uid === info.file.uid
+                            ? { ...f, url: blobUrl, thumbUrl: blobUrl }
+                            : f,
+                        ),
+                      );
+                    })
+                    .catch(() => {});
+                }
               }
             } else if (info.file.status === 'error') {
               console.log('上传失败:', info.file.error);
@@ -1569,13 +1680,47 @@ const ProductForm: React.FC<ProductFormProps> = ({
               console.log('上传成功, 完整文件对象:', info.file);
               console.log('上传成功, response:', info.file.response);
               if (info.file.response && info.file.response.success) {
-                const fileUrl = info.file.response.data;
-                // 确保 URL 格式正确
-                const relativeUrl = fileUrl.startsWith('http') ? fileUrl : fileUrl;
-                info.file.url = relativeUrl;
-                info.file.thumbUrl = relativeUrl;
-                console.log('设置文件URL:', relativeUrl);
+                const responseData = info.file.response.data;
+                let fileUrl: string;
+                if (typeof responseData === 'string') {
+                  fileUrl = responseData;
+                } else if (responseData && typeof responseData === 'object') {
+                  fileUrl = responseData.url || responseData.link || '';
+                } else {
+                  fileUrl = '';
+                }
+                info.file.url = fileUrl;
+                info.file.thumbUrl = fileUrl;
+                console.log('设置文件URL:', fileUrl);
                 message.success('上传成功');
+                // 如果是下载URL，通过 fetch 带认证获取图片转为 blob URL
+                if (fileUrl.includes('/file/download/')) {
+                  const token = localStorage.getItem('sword-token') || '';
+                  const tenantId = selectedTenantId || '000000';
+                  fetch(fileUrl, {
+                    method: 'GET',
+                    headers: {
+                      Authorization: `Basic c2FiZXI6c2FiZXJfc2VjcmV0`,
+                      'blade-auth': `bearer ${token}`,
+                      'Tenant-Id': tenantId,
+                    },
+                  })
+                    .then((res) => {
+                      if (!res.ok) throw new Error('Failed');
+                      return res.blob();
+                    })
+                    .then((blob) => {
+                      const blobUrl = URL.createObjectURL(blob);
+                      setAlbumFiles((prev) =>
+                        prev.map((f) =>
+                          f.uid === info.file.uid
+                            ? { ...f, url: blobUrl, thumbUrl: blobUrl }
+                            : f,
+                        ),
+                      );
+                    })
+                    .catch(() => {});
+                }
               }
             } else if (info.file.status === 'error') {
               console.log('上传失败:', info.file.error);
@@ -2000,11 +2145,49 @@ const ProductForm: React.FC<ProductFormProps> = ({
                               console.log('Upload onChange:', info);
                               if (info.file.status === 'done') {
                                 if (info.file.response && info.file.response.success) {
-                                  const fileUrl = info.file.response.data;
-                                  const relativeUrl = fileUrl.startsWith('http') ? fileUrl : fileUrl;
-                                  info.file.url = relativeUrl;
-                                  info.file.thumbUrl = relativeUrl;
+                                  const responseData = info.file.response.data;
+                                  let fileUrl: string;
+                                  if (typeof responseData === 'string') {
+                                    fileUrl = responseData;
+                                  } else if (responseData && typeof responseData === 'object') {
+                                    fileUrl = responseData.url || responseData.link || '';
+                                  } else {
+                                    fileUrl = '';
+                                  }
+                                  info.file.url = fileUrl;
+                                  info.file.thumbUrl = fileUrl;
                                   message.success('上传成功');
+                                  if (fileUrl.includes('/file/download/')) {
+                                    const token = localStorage.getItem('sword-token') || '';
+                                    const tenantId = selectedTenantId || '000000';
+                                    fetch(fileUrl, {
+                                      method: 'GET',
+                                      headers: {
+                                        Authorization: `Basic c2FiZXI6c2FiZXJfc2VjcmV0`,
+                                        'blade-auth': `bearer ${token}`,
+                                        'Tenant-Id': tenantId,
+                                      },
+                                    })
+                                      .then((res) => {
+                                        if (!res.ok) throw new Error('Failed');
+                                        return res.blob();
+                                      })
+                                      .then((blob) => {
+                                        const blobUrl = URL.createObjectURL(blob);
+                                        setAttributeImages((prev) => ({
+                                          ...prev,
+                                          [value]: {
+                                            ...prev[value],
+                                            mainImage: (prev[value]?.mainImage || []).map((f) =>
+                                              f.uid === info.file.uid
+                                                ? { ...f, url: blobUrl, thumbUrl: blobUrl }
+                                                : f,
+                                            ),
+                                          },
+                                        }));
+                                      })
+                                      .catch(() => {});
+                                  }
                                 }
                               } else if (info.file.status === 'error') {
                                 message.error('上传失败');
@@ -2043,11 +2226,49 @@ const ProductForm: React.FC<ProductFormProps> = ({
                               console.log('Upload onChange:', info);
                               if (info.file.status === 'done') {
                                 if (info.file.response && info.file.response.success) {
-                                  const fileUrl = info.file.response.data;
-                                  const relativeUrl = fileUrl.startsWith('http') ? fileUrl : fileUrl;
-                                  info.file.url = relativeUrl;
-                                  info.file.thumbUrl = relativeUrl;
+                                  const responseData = info.file.response.data;
+                                  let fileUrl: string;
+                                  if (typeof responseData === 'string') {
+                                    fileUrl = responseData;
+                                  } else if (responseData && typeof responseData === 'object') {
+                                    fileUrl = responseData.url || responseData.link || '';
+                                  } else {
+                                    fileUrl = '';
+                                  }
+                                  info.file.url = fileUrl;
+                                  info.file.thumbUrl = fileUrl;
                                   message.success('上传成功');
+                                  if (fileUrl.includes('/file/download/')) {
+                                    const token = localStorage.getItem('sword-token') || '';
+                                    const tenantId = selectedTenantId || '000000';
+                                    fetch(fileUrl, {
+                                      method: 'GET',
+                                      headers: {
+                                        Authorization: `Basic c2FiZXI6c2FiZXJfc2VjcmV0`,
+                                        'blade-auth': `bearer ${token}`,
+                                        'Tenant-Id': tenantId,
+                                      },
+                                    })
+                                      .then((res) => {
+                                        if (!res.ok) throw new Error('Failed');
+                                        return res.blob();
+                                      })
+                                      .then((blob) => {
+                                        const blobUrl = URL.createObjectURL(blob);
+                                        setAttributeImages((prev) => ({
+                                          ...prev,
+                                          [value]: {
+                                            ...prev[value],
+                                            albumImages: (prev[value]?.albumImages || []).map((f) =>
+                                              f.uid === info.file.uid
+                                                ? { ...f, url: blobUrl, thumbUrl: blobUrl }
+                                                : f,
+                                            ),
+                                          },
+                                        }));
+                                      })
+                                      .catch(() => {});
+                                  }
                                 }
                               } else if (info.file.status === 'error') {
                                 message.error('上传失败');

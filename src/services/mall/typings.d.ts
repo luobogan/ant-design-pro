@@ -329,7 +329,12 @@ export interface Category {
   name: string;
   description?: string;
   icon?: string;
+  iconId?: number;
   banner?: string;
+  bannerId?: number;
+  imageId?: number;
+  imageInfo?: ImageFileInfo;
+  bannerInfo?: ImageFileInfo;
   parentId?: string;
   level?: number;
   sort: number;
@@ -339,6 +344,17 @@ export interface Category {
   createdAt: string;
   updatedAt?: string;
   children?: Category[];
+}
+
+export interface ImageFileInfo {
+  id: number;
+  imagefileid: string;
+  filename: string;
+  url: string;
+  filesize: number;
+  filetype: string;
+  iszip: number;
+  isEncrypt: boolean;
 }
 
 // 品牌相关类型

@@ -370,17 +370,53 @@ const CategoryList: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleEdit = (category: Category) => {
+  const handleEdit = async (category: Category) => {
     setCurrentCategory(category);
+
+    // 构建图片值
+    let imageValue: { id: number; url: string; isZip?: boolean } | undefined;
+    if (category.imageId && category.imageInfo?.url) {
+      // 如果是 ZIP 文件，通过下载接口获取解压后的图片
+      if (category.imageInfo.iszip === 1) {
+        try {
+          const token = localStorage.getItem('sword-token') || '';
+          const downloadUrl = `/api/blade-mall/file/download/${category.imageId}`;
+
+          const response = await fetch(downloadUrl, {
+            method: 'GET',
+            headers: {
+              Authorization: `Basic c2FiZXI6c2FiZXJfc2VjcmV0`,
+              'Blade-Auth': `bearer ${token}`,
+              'Tenant-Id': category.tenantId || '000000',
+            },
+          });
+
+          if (response.ok) {
+            const blob = await response.blob();
+            const imageUrl = URL.createObjectURL(blob);
+            imageValue = { id: category.imageId, url: imageUrl, isZip: true };
+          } else {
+            imageValue = { id: category.imageId, url: category.imageInfo.url, isZip: true };
+          }
+        } catch (error) {
+          imageValue = { id: category.imageId, url: category.imageInfo.url, isZip: true };
+        }
+      } else {
+        imageValue = { id: category.imageId, url: category.imageInfo.url };
+      }
+    }
+
     form.setFieldsValue({
       name: category.name,
       description: category.description,
-      icon: category.icon,
-      banner: category.banner,
+      iconId: category.iconId,
+      imageId: category.imageId,
+      bannerId: category.bannerId,
       parentId: category.parentId,
       sort: category.sort,
       status: category.status === 1,
       tenantId: category.tenantId,
+      image: imageValue, // 用于 ImageUploader
     });
     setModalVisible(true);
   };
@@ -398,11 +434,22 @@ const CategoryList: React.FC = () => {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      // 将布尔值转换为1或0
+
+      // 处理 imageId
+      let imageId: number | undefined;
+      if (values.image) {
+        if (typeof values.image === 'object' && values.image.id) {
+          imageId = Number(values.image.id);
+        }
+      }
+
+      // 将布尔值转换为 1 或 0
       const submitValues = {
         ...values,
+        imageId: imageId,
         status: values.status ? 1 : 0,
       };
+
       if (currentCategory) {
         await categoryApi.update(currentCategory.id, submitValues);
         message.success('更新成功');
@@ -886,17 +933,17 @@ const CategoryList: React.FC = () => {
             />
           </Form.Item>
 
-          <Form.Item label="分类图标" name="icon">
+          <Form.Item label="分类图标" name="iconId">
             <EmojiPicker placeholder="选择分类图标" />
           </Form.Item>
 
-          <Form.Item label="分类图片" name="banner">
+          <Form.Item label="分类图片" name="image">
             <ImageUploader
-              name="banner"
-              value={form.getFieldValue('banner') || ''}
-              onChange={(value) => form.setFieldsValue({ banner: value })}
+              name="image"
+              value={form.getFieldValue('image')}
+              onChange={(value) => form.setFieldsValue({ image: value })}
               maxCount={1}
-              accept=".jpg,.jpeg,.png"
+              accept=".jpg,.jpeg,.png,.gif,.bmp,.webp"
               maxSize={10}
               uploadUrl="/api/blade-mall/admin/upload/image"
               supportDrag={true}
@@ -905,6 +952,7 @@ const CategoryList: React.FC = () => {
               height={120}
               useLocalUpload={false}
               returnBase64={false}
+              returnObject={true}
               uploadParams={{ type: 'category' }}
               tenantId={getUploadTenantId()}
             />
