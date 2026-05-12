@@ -144,7 +144,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
     if (tenantId === '000000') {
       fetchTenants();
     }
-    fetchCategories();
+    fetchCategories(tenantId);
     fetchBrands();
     fetchPromotions();
     fetchAllProducts();
@@ -157,9 +157,9 @@ const ProductForm: React.FC<ProductFormProps> = ({
     }
   }, [product]);
 
-  const fetchCategories = async () => {
+  const fetchCategories = async (tenantId?: string) => {
     try {
-      const data = await categoryApi.getTree();
+      const data = await categoryApi.getTree(tenantId ? { tenantId } : undefined);
       setCategories(data);
     } catch (error: any) {
       message.error('获取分类失败');
@@ -292,28 +292,52 @@ const ProductForm: React.FC<ProductFormProps> = ({
 
       // 处理商品主图
       let mainImageFile: any = null;
-      if (product.image) {
-        mainImageFile = convertToFileObject(product.image, 0);
+      console.log('=== 处理商品主图 ===');
+      console.log('product.mainImageId:', product.mainImageId);
+      console.log('product.mainImageInfo:', product.mainImageInfo);
+      console.log('product.images:', product.images);
+      console.log('product.album:', product.album);
+      // 优先使用 mainImageInfo.url，其次使用 images[0]，最后使用 album[0]
+      const mainImageUrl = (product.mainImageInfo && product.mainImageInfo.url) || (product.images && product.images[0]) || (product.album && product.album[0]);
+      console.log('mainImageUrl:', mainImageUrl);
+      if (mainImageUrl) {
+        mainImageFile = convertToFileObject(mainImageUrl, 0);
       }
 
       // 处理商品相册
       let albumFiles: any[] = [];
+      console.log('=== 处理商品相册 ===');
+      console.log('product.images:', product.images);
+      console.log('product.images 类型:', typeof product.images);
+      console.log('是否为数组:', Array.isArray(product.images));
       if (product.images && Array.isArray(product.images)) {
-        albumFiles = product.images
-          .filter((img: string) => img)
-          .map((img: string, index: number) =>
-            convertToFileObject(img, index + 1),
-          )
-          .filter((file: any) => file !== null);
+        const filteredImages = product.images.filter((img: string) => img);
+        console.log('过滤后的图片:', filteredImages);
+        const mappedFiles = filteredImages.map((img: string, index: number) => {
+          console.log(`处理相册图片 ${index}:`, img);
+          const fileObj = convertToFileObject(img, index + 1);
+          console.log(`转换后的文件对象 ${index}:`, fileObj);
+          return fileObj;
+        });
+        console.log('映射后的文件数组:', mappedFiles);
+        albumFiles = mappedFiles.filter((file: any) => file !== null);
+        console.log('过滤后的 albumFiles:', albumFiles);
       }
+      console.log('最终的 albumFiles:', albumFiles);
 
       console.log('转换后的商品主图:', mainImageFile);
       console.log('转换后的商品相册:', albumFiles);
 
       // 设置表单值
+      // 设置租户ID状态
+      if (product.tenantId) {
+        setSelectedTenantId(product.tenantId);
+      }
+
       form.setFieldsValue({
         categoryId: product.categoryId,
         brandId: product.brandId,
+        tenantId: product.tenantId,
         name: product.name,
         subtitle: product.subtitle,
         description: product.description,
@@ -373,11 +397,13 @@ const ProductForm: React.FC<ProductFormProps> = ({
             .catch(() => {});
         }
       };
-      if (mainImageFile) {
-        fetchBlobForUrl(product.image, setMainImageFiles, mainImageFile.uid);
+      if (mainImageFile && mainImageUrl) {
+        fetchBlobForUrl(mainImageUrl, setMainImageFiles, mainImageFile.uid);
       }
       albumFiles.forEach((file) => {
-        fetchBlobForUrl(file.url, setAlbumFiles, file.uid);
+        if (file.url) {
+          fetchBlobForUrl(file.url, setAlbumFiles, file.uid);
+        }
       });
 
       // 加载分类属性和参数
@@ -903,20 +929,20 @@ const ProductForm: React.FC<ProductFormProps> = ({
           url = file;
           console.log('文件是字符串:', url);
         } else {
-          // 优先从 response 中提取服务端真实 URL（避免拿到 blob URL）
-          if (file.response && file.response.data) {
+          // 优先使用 file.url（可能是服务端URL或blob URL）
+          if (file.url) {
+            url = file.url;
+            console.log('使用file.url:', url);
+          }
+          // 如果 file.url 是 blob URL，从 response.data 中提取服务端真实 URL
+          if ((!url || url.startsWith('blob:')) && file.response && file.response.data) {
             const data = file.response.data;
             if (typeof data === 'string') {
               url = data;
             } else if (data && typeof data === 'object') {
               url = data.link || data.url || '';
             }
-            console.log('文件有response.data:', url);
-          }
-          // 没有 response 时回退到 file.url（过滤掉 blob URL）
-          if (!url && file.url && !file.url.startsWith('blob:')) {
-            url = file.url;
-            console.log('文件有url字段:', url);
+            console.log('file.url是blob或为空，使用response.data:', url);
           }
         }
         if (url) {
@@ -1440,15 +1466,23 @@ const ProductForm: React.FC<ProductFormProps> = ({
           >
             <TreeSelect
               placeholder="请选择商品分类"
-              treeData={categories.map((cat) => ({
-                title: cat.name,
-                value: cat.id,
-                disabled: !cat.parentId, // 禁用一级分类
-                children: cat.children?.map((child) => ({
-                  title: child.name,
-                  value: child.id,
-                })),
-              }))}
+              treeData={categories.map((cat) => {
+                const buildTreeData = (category: any) => {
+                  // 只显示已启用的分类
+                  if (category.status !== 1) {
+                    return null;
+                  }
+                  const children = category.children?.map(buildTreeData).filter(Boolean);
+                  return {
+                    title: category.name,
+                    value: category.id,
+                    children: children.length > 0 ? children : undefined,
+                  };
+                };
+                return buildTreeData(cat);
+              })
+              // 过滤掉一级分类，只显示子级分类
+              .filter((cat: any) => cat && cat.value && cat.children && cat.children.length > 0)}
               treeDefaultExpandAll
               style={{ width: '100%' }}
               onChange={(value) => {
@@ -1491,7 +1525,6 @@ const ProductForm: React.FC<ProductFormProps> = ({
             >
               <Select
                 placeholder="请选择所属租户"
-                disabled={!!product}
                 onChange={(value) => {
                   setSelectedTenantId(value || '000000');
                 }}

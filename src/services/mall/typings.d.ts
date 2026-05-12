@@ -8,7 +8,19 @@ export interface Product {
   price: number;
   originalPrice?: number;
   image: string;
+  mainImage?: string;
+  mainImageInfo?: {
+    id: number;
+    filename: string;
+    url: string;
+    filesize: number;
+    filetype: string;
+    iszip: number;
+    encrypt: boolean;
+  };
   images?: string[];
+  album?: string[];
+  albumImages?: any[];
   categoryId: string;
   categoryName?: string;
   brandId: string;
