@@ -76,8 +76,6 @@ const fetchImageAsBlob = (
         clearTimeout(timerId);
         if (err?.name !== 'AbortError') {
           console.warn('[ImageUploader] fetch图片异常:', err?.message || err, url);
-        } else {
-          console.debug('[ImageUploader] fetch已取消/超时:', url);
         }
         settle(null);
       });
@@ -197,10 +195,10 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
     [propTenantId, trackBlobUrl, needsBlobConversion]
   );
 
-  // ==================== 初始化/回显：value 变化时同步 fileList ====================
   useEffect(() => {
-    if (uploadEchoRef.current) return;
-    if (value === prevValueRef.current) return;
+    console.log('[ImageUploader] value effect 触发, value:', value, 'prevValue:', prevValueRef.current, 'uploadEcho:', uploadEchoRef.current);
+    if (uploadEchoRef.current) { console.log('[ImageUploader] uploadEchoRef 为 true，跳过'); return; }
+    // 强制每次 value 变化都执行，去掉 isSameValue 优化
     prevValueRef.current = value;
     const controller = createNewAbortController();
 

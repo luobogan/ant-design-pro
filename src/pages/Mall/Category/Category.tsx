@@ -372,8 +372,13 @@ const CategoryList: React.FC = () => {
   };
 
   const handleEdit = async (category: Category) => {
-    setCurrentCategory(category);
-    setModalVisible(true);
+    try {
+      const fullCategory = await categoryApi.getById(category.id);
+      setCurrentCategory(fullCategory);
+      setModalVisible(true);
+    } catch (error: any) {
+      message.error(error.message || '获取分类详情失败');
+    }
   };
 
   // 在 Modal 打开后设置表单值，确保 Form 已挂载
@@ -381,12 +386,11 @@ const CategoryList: React.FC = () => {
     if (!modalVisible) return;
 
     if (currentCategory) {
-      // 编辑模式：构建图片值 - 统一使用下载接口 URL，让 ImageUploader 通过带认证头的 fetch 加载图片
-      const localImageValue: { id: number; url: string; isZip?: boolean } | undefined = currentCategory.imageId && currentCategory.imageInfo?.url
+      const localImageValue: { id: number; url: string; isZip?: boolean } | undefined = currentCategory.imageId
         ? {
             id: currentCategory.imageId,
             url: `/api/blade-mall/file/download/${currentCategory.imageId}`,
-            isZip: currentCategory.imageInfo.iszip === 1,
+            isZip: currentCategory.imageInfo?.iszip === 1,
           }
         : undefined;
 
