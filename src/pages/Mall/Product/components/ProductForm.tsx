@@ -266,14 +266,20 @@ const ProductForm: React.FC<ProductFormProps> = ({
   // 辅助函数：将图片 URL 转换为完整的文件对象
   const convertToFileObject = (url: string, index: number = 0): any => {
     if (!url) return null;
-    const imageUrl = url.startsWith('http') ? url : url;
     const fileObj = {
       uid: `existing-${index}-${Date.now()}`,
       name: `product-image-${index}.jpg`,
       status: 'done',
-      url: imageUrl,
-      thumbUrl: imageUrl,
-      response: { success: true, data: imageUrl },
+      url: url,
+      thumbUrl: url,
+      response: {
+        success: true,
+        data: {
+          url: url,
+          link: url,
+          id: url.split('/').pop() || index,
+        },
+      },
     };
     return fileObj;
   };
@@ -896,17 +902,22 @@ const ProductForm: React.FC<ProductFormProps> = ({
         if (typeof file === 'string') {
           url = file;
           console.log('文件是字符串:', url);
-        } else if (file.url) {
-          url = file.url;
-          console.log('文件有url字段:', url);
-        } else if (file.response && file.response.data) {
-          const data = file.response.data;
-          if (typeof data === 'string') {
-            url = data;
-          } else if (data && typeof data === 'object') {
-            url = data.url || data.link || '';
+        } else {
+          // 优先从 response 中提取服务端真实 URL（避免拿到 blob URL）
+          if (file.response && file.response.data) {
+            const data = file.response.data;
+            if (typeof data === 'string') {
+              url = data;
+            } else if (data && typeof data === 'object') {
+              url = data.link || data.url || '';
+            }
+            console.log('文件有response.data:', url);
           }
-          console.log('文件有response.data:', url);
+          // 没有 response 时回退到 file.url（过滤掉 blob URL）
+          if (!url && file.url && !file.url.startsWith('blob:')) {
+            url = file.url;
+            console.log('文件有url字段:', url);
+          }
         }
         if (url) {
           // 去除 URL 中的反引号和空格

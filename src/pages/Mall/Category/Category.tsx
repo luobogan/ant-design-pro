@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   Tree,
@@ -69,6 +69,10 @@ const CategoryList: React.FC = () => {
   const [currentCategory, setCurrentCategory] = useState<Category | null>(null);
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
+  const addChildParentIdRef = useRef<number | null>(null);
+  // 图片值使用本地状态存储，避免 Form.getFieldValue 同步问题
+  const [imageValue, setImageValue] = useState<{ id: number; url: string; isZip?: boolean } | undefined>();
+
 
   // 租户相关状态
   const [tenantTreeData, setTenantTreeData] = useState<any[]>([]);
@@ -355,71 +359,67 @@ const CategoryList: React.FC = () => {
 
   const handleAdd = () => {
     setCurrentCategory(null);
+    addChildParentIdRef.current = null;
     form.resetFields();
-    // 获取当前登录用户的租户ID
-    const userInfo = JSON.parse(localStorage.getItem('sword-user-info') || '{}');
-    const currentTenantId = userInfo?.tenantId || '000000';
-    form.setFieldsValue({ parentId: null, sort: 0, tenantId: currentTenantId });
     setModalVisible(true);
   };
 
   const handleAddChild = (parent: Category) => {
     setCurrentCategory(null);
+    addChildParentIdRef.current = parent.id;
     form.resetFields();
-    form.setFieldsValue({ parentId: parent.id, sort: 0 });
     setModalVisible(true);
   };
 
   const handleEdit = async (category: Category) => {
     setCurrentCategory(category);
-
-    // 构建图片值
-    let imageValue: { id: number; url: string; isZip?: boolean } | undefined;
-    if (category.imageId && category.imageInfo?.url) {
-      // 如果是 ZIP 文件，通过下载接口获取解压后的图片
-      if (category.imageInfo.iszip === 1) {
-        try {
-          const token = localStorage.getItem('sword-token') || '';
-          const downloadUrl = `/api/blade-mall/file/download/${category.imageId}`;
-
-          const response = await fetch(downloadUrl, {
-            method: 'GET',
-            headers: {
-              Authorization: `Basic c2FiZXI6c2FiZXJfc2VjcmV0`,
-              'Blade-Auth': `bearer ${token}`,
-              'Tenant-Id': category.tenantId || '000000',
-            },
-          });
-
-          if (response.ok) {
-            const blob = await response.blob();
-            const imageUrl = URL.createObjectURL(blob);
-            imageValue = { id: category.imageId, url: imageUrl, isZip: true };
-          } else {
-            imageValue = { id: category.imageId, url: category.imageInfo.url, isZip: true };
-          }
-        } catch (error) {
-          imageValue = { id: category.imageId, url: category.imageInfo.url, isZip: true };
-        }
-      } else {
-        imageValue = { id: category.imageId, url: category.imageInfo.url };
-      }
-    }
-
-    form.setFieldsValue({
-      name: category.name,
-      description: category.description,
-      iconId: category.iconId,
-      imageId: category.imageId,
-      bannerId: category.bannerId,
-      parentId: category.parentId,
-      sort: category.sort,
-      status: category.status === 1,
-      tenantId: category.tenantId,
-      image: imageValue, // 用于 ImageUploader
-    });
     setModalVisible(true);
   };
+
+  // 在 Modal 打开后设置表单值，确保 Form 已挂载
+  useEffect(() => {
+    if (!modalVisible) return;
+
+    if (currentCategory) {
+      // 编辑模式：构建图片值 - 统一使用下载接口 URL，让 ImageUploader 通过带认证头的 fetch 加载图片
+      const localImageValue: { id: number; url: string; isZip?: boolean } | undefined = currentCategory.imageId && currentCategory.imageInfo?.url
+        ? {
+            id: currentCategory.imageId,
+            url: `/api/blade-mall/file/download/${currentCategory.imageId}`,
+            isZip: currentCategory.imageInfo.iszip === 1,
+          }
+        : undefined;
+
+      // 设置本地状态，供 ImageUploader 使用
+      setImageValue(localImageValue);
+
+      form.setFieldsValue({
+        name: currentCategory.name,
+        description: currentCategory.description,
+        iconId: currentCategory.iconId,
+        imageId: currentCategory.imageId,
+        bannerId: currentCategory.bannerId,
+        parentId: currentCategory.parentId,
+        sort: currentCategory.sort,
+        status: currentCategory.status === 1,
+        tenantId: currentCategory.tenantId,
+        image: localImageValue,
+      });
+    } else {
+      // 新增模式：设置默认值
+      setImageValue(undefined); // 清空图片值
+      const userInfo = JSON.parse(localStorage.getItem('sword-user-info') || '{}');
+      const currentTenantId = userInfo?.tenantId || '000000';
+      const parentId = addChildParentIdRef.current;
+      form.setFieldsValue({
+        parentId: parentId,
+        sort: 0,
+        tenantId: currentTenantId,
+      });
+      // 使用完后清除 ref
+      addChildParentIdRef.current = null;
+    }
+  }, [modalVisible, currentCategory]);
 
   const handleDelete = async (id: number) => {
     try {
@@ -940,8 +940,11 @@ const CategoryList: React.FC = () => {
           <Form.Item label="分类图片" name="image">
             <ImageUploader
               name="image"
-              value={form.getFieldValue('image')}
-              onChange={(value) => form.setFieldsValue({ image: value })}
+              value={imageValue}
+              onChange={(value) => {
+                setImageValue(value);
+                form.setFieldsValue({ image: value });
+              }}
               maxCount={1}
               accept=".jpg,.jpeg,.png,.gif,.bmp,.webp"
               maxSize={10}
@@ -1186,7 +1189,7 @@ const CategoryList: React.FC = () => {
           onChange: (targetKeys: string[]) =>
             setSelectedBrandIds(targetKeys.map(Number)),
           render: (item: any) => item.title,
-          listStyle: { width: 300, height: 400 },
+          styles: { section: { width: 300, height: 400 } },
           loading: brandLoading,
         })}
       </Modal>
