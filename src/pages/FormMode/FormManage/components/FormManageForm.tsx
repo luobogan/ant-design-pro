@@ -1,10 +1,10 @@
 import { ProForm, ProFormText, ProFormTextArea, ProFormSwitch, ProFormDigit } from '@ant-design/pro-components';
 import React, { useMemo } from 'react';
-import type { FormDefinition, FormDefinitionFormData } from '@/services/formmode/typings';
+import type { WorkflowBill, WorkflowBillFormData } from '@/services/formmode/typings';
 
 interface FormManageFormProps {
-  formDefinition?: FormDefinition;
-  onSubmit: (data: FormDefinitionFormData) => void;
+  formDefinition?: WorkflowBill;
+  onSubmit: (data: WorkflowBillFormData) => void;
   onCancel: () => void;
   submitting?: boolean;
   mode?: 'add' | 'edit';
@@ -36,7 +36,7 @@ const FormManageForm: React.FC<FormManageFormProps> = ({
     <ProForm
       initialValues={initialValues}
       onFinish={async (values) => {
-        await onSubmit(values as FormDefinitionFormData);
+        await onSubmit(values as WorkflowBillFormData);
       }}
       submitter={{
         searchConfig: {

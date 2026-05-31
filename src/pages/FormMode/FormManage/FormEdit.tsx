@@ -4,7 +4,7 @@ import { Button, Card, message } from 'antd';
 import React, { useRef, useState, useEffect } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import { formApi } from '@/services/formmode';
-import type { FormDefinitionFormData } from '@/services/formmode/typings';
+import type { WorkflowBillFormData } from '@/services/formmode/typings';
 import FormManageForm from './components/FormManageForm';
 
 /**

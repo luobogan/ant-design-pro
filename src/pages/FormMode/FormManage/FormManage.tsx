@@ -22,7 +22,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import React, { useEffect, useState } from 'react';
 import { formApi } from '@/services/formmode';
-import type { FormDefinition, PageParams } from '@/services/formmode/typings';
+import type { WorkflowBill, PageParams } from '@/services/formmode/typings';
 
 const { Search } = Input;
 
@@ -102,9 +102,9 @@ const FormManageList: React.FC = () => {
     navigate('/formmode/formmanage/aae?mode=add');
   };
 
-  // 编辑
+  // 编辑 - 跳转到表设计器并回显数据
   const handleEdit = (record: FormDefinition) => {
-    navigate(`/formmode/formmanage/aae?mode=edit&id=${record.id}`);
+    navigate(`/formmode/tabledesign?id=${record.id}`);
   };
 
   // 查看

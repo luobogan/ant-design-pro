@@ -141,7 +141,7 @@ export enum FieldStatus {
 // ==================== 表单管理 ====================
 
 /** 表单定义 */
-export interface FormDefinition {
+export interface WorkflowBill {
   /** 表单ID */
   id: string;
   /** 表单名称 */
@@ -167,7 +167,7 @@ export interface FormDefinition {
 }
 
 /** 表单表单数据（新增/编辑） */
-export interface FormDefinitionFormData {
+export interface WorkflowBillFormData {
   /** 表单ID（编辑时必填） */
   id?: string;
   /** 表单名称 */
@@ -180,6 +180,8 @@ export interface FormDefinitionFormData {
   status?: FormStatus;
   /** 模块ID */
   moduleId?: string;
+  /** 明细表数量 */
+  detailTableCount?: number;
 }
 
 // ==================== 字段管理 ====================
@@ -286,6 +288,10 @@ export interface FieldDefinitionFormData {
   listDisplay?: number;
   /** 选项列表 */
   options?: FieldOption[];
+  /** 所属明细表索引（0/null=主表，1=明细表1，2=明细表2...） */
+  detailTable?: number;
+  /** 是否主表字段：0-否（明细表字段），1-是（主表字段） */
+  isMain?: number;
 }
 
 // ==================== 表单数据 ====================

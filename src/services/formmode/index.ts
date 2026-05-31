@@ -1,7 +1,7 @@
 import { request } from '@umijs/max';
 import type {
-  FormDefinition,
-  FormDefinitionFormData,
+  WorkflowBill,
+  WorkflowBillFormData,
   FieldDefinition,
   FieldDefinitionFormData,
   FormDataRecord,
@@ -23,8 +23,8 @@ import type {
 
 // 导出类型
 export type {
-  FormDefinition,
-  FormDefinitionFormData,
+  WorkflowBill,
+  WorkflowBillFormData,
   FieldDefinition,
   FieldDefinitionFormData,
   FormDataRecord,
@@ -62,12 +62,12 @@ interface BladeResponse<T> {
 /**
  * 表单定义 API
  */
-export const formDefinitionApi = {
+export const workflowBillApi = {
   /**
    * 获取表单列表
    */
   getList: async (params: PageParams & { formName?: string; status?: number }) => {
-    const response = await request<BladeResponse<PageResponse<FormDefinition>>>(
+    const response = await request<BladeResponse<PageResponse<WorkflowBill>>>(
       FORM_DEFINITION_BASE_URL,
       {
         method: 'GET',
@@ -81,7 +81,7 @@ export const formDefinitionApi = {
    * 获取所有表单（不分页）
    */
   getAll: async () => {
-    const response = await request<BladeResponse<FormDefinition[]>>(
+    const response = await request<BladeResponse<WorkflowBill[]>>(
       `${FORM_DEFINITION_BASE_URL}/all`,
       {
         method: 'GET',
@@ -94,7 +94,7 @@ export const formDefinitionApi = {
    * 获取表单详情
    */
   getById: async (id: string) => {
-    const response = await request<BladeResponse<FormDefinition>>(
+    const response = await request<BladeResponse<WorkflowBill>>(
       `${FORM_DEFINITION_BASE_URL}/${id}`,
       {
         method: 'GET',
@@ -106,8 +106,8 @@ export const formDefinitionApi = {
   /**
    * 创建表单
    */
-  create: async (data: FormDefinitionFormData) => {
-    const response = await request<BladeResponse<FormDefinition>>(FORM_DEFINITION_BASE_URL, {
+  create: async (data: WorkflowBillFormData) => {
+    const response = await request<BladeResponse<WorkflowBill>>(FORM_DEFINITION_BASE_URL, {
       method: 'POST',
       data,
     });
@@ -117,8 +117,8 @@ export const formDefinitionApi = {
   /**
    * 更新表单
    */
-  update: async (id: string, data: FormDefinitionFormData) => {
-    const response = await request<BladeResponse<FormDefinition>>(
+  update: async (id: string, data: WorkflowBillFormData) => {
+    const response = await request<BladeResponse<WorkflowBill>>(
       `${FORM_DEFINITION_BASE_URL}/${id}`,
       {
         method: 'PUT',
@@ -151,12 +151,24 @@ export const formDefinitionApi = {
    * 更新表单状态
    */
   updateStatus: async (id: string, status: number) => {
-    const response = await request<BladeResponse<FormDefinition>>(
+    const response = await request<BladeResponse<WorkflowBill>>(
       `${FORM_DEFINITION_BASE_URL}/${id}/status`,
       {
         method: 'PUT',
         params: { status },
       },
+    );
+    return response.data;
+  },
+
+  /**
+   * 获取下一个自增表名
+   * 规则：formtable_main_{N}，自动查询最大N值并累加
+   */
+  getNextTableName: async () => {
+    const response = await request<BladeResponse<string>>(
+      `${FORM_DEFINITION_BASE_URL}/next-table-name`,
+      { method: 'GET' },
     );
     return response.data;
   },
@@ -173,6 +185,19 @@ export const formDefinitionApi = {
       },
     );
     return response.data;
+  },
+
+  /**
+   * 创建数据库表
+   */
+  createTable: async (id: string) => {
+    const response = await request<BladeResponse<string>>(
+      `${FORM_DEFINITION_BASE_URL}/${id}/create-table`,
+      {
+        method: 'POST',
+      },
+    );
+    return response;
   },
 };
 
@@ -224,9 +249,33 @@ export const fieldDefinitionApi = {
    * 创建字段
    */
   create: async (data: FieldDefinitionFormData) => {
+    // 使用驼峰命名，与后端实体类字段名一致
+    // 注意：billId 使用字符串传递以避免 JavaScript 大整数精度丢失问题
+    const mappedData = {
+      billId: data.formId ? data.formId : '0',
+      fieldName: data.fieldName,
+      fieldDbName: data.fieldName, // 使用字段名作为数据库列名
+      fieldHtmlType: data.fieldHtmlType,
+      fieldType: data.fieldType,
+      fieldDbType: data.fieldDbType || 'varchar',
+      fieldLen: data.fieldLength || 255,
+      decimalDigit: data.fieldDecimals || 0,
+      defaultValue: data.defaultValue || '',
+      dsOrder: data.sort || 0,
+      isNull: data.isRequired || 0,
+      uniqueValue: 0,
+      fieldMsg: '',
+      browType: null,
+      browserUrlId: null,
+      selectItem: data.options ? JSON.stringify(data.options) : null,
+      detailTable: data.detailTable != null ? data.detailTable : null,
+      isMain: data.isMain != null ? data.isMain : 1,
+      remark: data.description || '',
+    };
+    
     const response = await request<BladeResponse<FieldDefinition>>(FIELD_DEFINITION_BASE_URL, {
       method: 'POST',
-      data,
+      data: mappedData,
     });
     return response.data;
   },
@@ -619,7 +668,7 @@ export const browserApi = {
 
 // 导出所有 API
 export {
-  formDefinitionApi as formApi,
+  workflowBillApi as formApi,
   fieldDefinitionApi as fieldApi,
   formDataApi as dataApi,
   moduleDefinitionApi as moduleApi,

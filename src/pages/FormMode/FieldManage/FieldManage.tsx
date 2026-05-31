@@ -27,7 +27,7 @@ import React, { useEffect, useState } from 'react';
 import { formApi, fieldApi } from '@/services/formmode';
 import type {
   FieldDefinition,
-  FormDefinition,
+  WorkflowBill,
   PageParams,
 } from '@/services/formmode/typings';
 

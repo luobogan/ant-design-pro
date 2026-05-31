@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from '@umijs/max';
 import { Button, Card, message, Spin, Modal } from 'antd';
 import React, { useEffect, useState } from 'react';
 import { formApi } from '@/services/formmode';
-import type { FormDefinition, FormDefinitionFormData } from '@/services/formmode/typings';
+import type { WorkflowBill, WorkflowBillFormData } from '@/services/formmode/typings';
 import FormManageForm from './components/FormManageForm';
 
 /**

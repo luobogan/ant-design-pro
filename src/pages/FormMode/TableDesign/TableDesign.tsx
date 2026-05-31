@@ -18,7 +18,7 @@ import {
   CloseOutlined,
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
-import { useNavigate } from '@umijs/max';
+import { useNavigate, useSearchParams } from '@umijs/max';
 import {
   Button,
   Card,
@@ -39,9 +39,9 @@ import {
   Divider,
   Empty,
 } from 'antd';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { formApi, fieldApi } from '@/services/formmode';
-import type { FormDefinition, FieldDefinitionFormData } from '@/services/formmode/typings';
+import type { WorkflowBill, FieldDefinitionFormData } from '@/services/formmode/typings';
 
 // 导入 @dnd-kit 拖拽排序相关组件
 import {
@@ -133,11 +133,13 @@ const DragHandle: React.FC<{ index: number }> = ({ index }) => {
  */
 const TableDesign: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('design');
+  const [loading, setLoading] = useState(false);
 
   // 表配置
-  const [tableConfig, setTableConfig] = useState<Partial<FormDefinition>>({
+  const [tableConfig, setTableConfig] = useState<Partial<WorkflowBill>>({
     id: '',
     formName: '',
     tableName: '',
@@ -145,9 +147,9 @@ const TableDesign: React.FC = () => {
     status: 1 as any,
   });
 
-  // 字段列表 - 默认初始化8个系统字段
-  const [fields, setFields] = useState<Partial<FieldDefinitionFormData>[]>(() => {
-    const systemFields: Partial<FieldDefinitionFormData>[] = [
+  // 获取默认系统字段的辅助函数
+  const getDefaultSystemFields = (): Partial<FieldDefinitionFormData>[] => {
+    return [
       {
         fieldName: 'is_deleted',
         fieldLabel: '是否删除',
@@ -277,8 +279,10 @@ const TableDesign: React.FC = () => {
         listDisplay: 1,
       },
     ];
-    return systemFields;
-  });
+  };
+
+  // 字段列表 - 默认初始化8个系统字段
+  const [fields, setFields] = useState<Partial<FieldDefinitionFormData>[]>(() => getDefaultSystemFields());
 
   // 预览数据
   const [previewSql, setPreviewSql] = useState('');
@@ -290,7 +294,7 @@ const TableDesign: React.FC = () => {
   // 明细表列表（支持多个明细表）
   const [detailTables, setDetailTables] = useState<Array<{
     key: string;
-    config: Partial<FormDefinition>;
+    config: Partial<WorkflowBill>;
     fields: Partial<FieldDefinitionFormData>[];
     selectedRowKeys: React.Key[];
   }>>([]);
@@ -298,6 +302,162 @@ const TableDesign: React.FC = () => {
   const [activeDetailTab, setActiveDetailTab] = useState<string>('');
   // 明细表自增计数器
   const [detailTableCounter, setDetailTableCounter] = useState(0);
+
+  // 已有表单列表（用于主表选择）
+  const [existingForms, setExistingForms] = useState<WorkflowBill[]>([]);
+  const [selectedSourceFormId, setSelectedSourceFormId] = useState<string>('');
+
+  // 新建表单时，自动获取下一个表名
+  useEffect(() => {
+    const formId = searchParams.get('id');
+    if (!formId) {
+      // 新建模式：自动获取自增表名
+      formApi.getNextTableName().then((name) => {
+        setTableConfig(prev => ({ ...prev, tableName: name }));
+      }).catch((err) => {
+        console.error('获取表名失败:', err);
+      });
+    }
+  }, [searchParams]);
+
+  // 新建表单时，加载已有表单列表（用于主表选择）
+  useEffect(() => {
+    const formId = searchParams.get('id');
+    if (!formId) {
+      formApi.getAll().then((forms) => {
+        setExistingForms(forms || []);
+      }).catch((err) => {
+        console.error('获取表单列表失败:', err);
+      });
+    }
+  }, [searchParams]);
+
+  // 加载已有表单数据
+  useEffect(() => {
+    const formId = searchParams.get('id');
+    if (formId && !tableConfig.id) {
+      setLoading(true);
+      const loadData = async (id: string) => {
+        try {
+          // 1. 加载表单定义
+          const formData = await formApi.getById(id);
+          if (formData) {
+            setTableConfig({
+              id: formData.id,
+              formName: formData.formName || '',
+              tableName: formData.tableName || '',
+              description: formData.description || '',
+              status: formData.status || 1,
+            });
+          }
+
+          // 2. 加载字段定义
+          const fieldsData = await fieldApi.getByFormId(id);
+          if (fieldsData && fieldsData.length > 0) {
+            // 系统保留字段，不应从数据库加载（这些是系统自动创建的）
+            const systemFieldNames = new Set([
+              'id',
+              'request_id',
+              'main_id',
+              'is_deleted',
+              'update_time',
+              'update_user',
+              'create_time',
+              'create_user',
+              'create_dept',
+              'tenant_id',
+            ]);
+
+            // 分离主表字段和明细表字段
+            const mainFields: Partial<FieldDefinitionFormData>[] = [];
+            const detailFieldsMap: { [key: number]: Partial<FieldDefinitionFormData>[] } = {};
+
+            for (const f of fieldsData) {
+              // 兼容多种可能的字段名格式（驼峰、下划线、全小写）
+              const fieldName = f.fieldName || f.field_name || f.fieldname || '';
+              // 过滤系统保留字段（这些字段在新建/编辑时会自动创建）
+              if (systemFieldNames.has(fieldName.toLowerCase())) {
+                continue;
+              }
+              const isMain = f.isMain !== undefined ? f.isMain : (f.is_main !== undefined ? f.is_main : f.ismain);
+              const detailTable = f.detailTable !== undefined ? f.detailTable : (f.detail_table !== undefined ? f.detail_table : f.detailtable);
+              
+              const fieldItem: Partial<FieldDefinitionFormData> = {
+                id: f.id,
+                fieldName: fieldName,
+                fieldLabel: f.fieldLabel || f.field_label || f.fieldlabel || f.fieldDbName || f.field_db_name || f.fielddbname || '',
+                fieldHtmlType: f.fieldHtmlType ?? f.field_html_type ?? f.fieldhtmltype ?? 1,
+                fieldType: f.fieldType ?? f.field_type ?? f.fieldtype ?? 1,
+                fieldDbType: f.fieldDbType ?? f.field_db_type ?? f.fielddbtype ?? 'varchar',
+                fieldLength: f.fieldLength ?? f.field_length ?? f.fieldlen ?? 255,
+                fieldDecimals: f.fieldDecimals ?? f.field_decimals ?? f.decimaldigit ?? 0,
+                isRequired: f.isRequired ?? f.is_required ?? f.isnull ?? 0,
+                isReadOnly: f.isReadOnly ?? f.is_read_only ?? f.isreadonly ?? 0,
+                defaultValue: f.defaultValue ?? f.default_value ?? f.defaultvalue ?? '',
+                sort: f.sort ?? f.ds_order ?? f.dsOrder ?? 0,
+                status: f.status ?? 1,
+                isSystemField: f.isSystemField ?? f.is_system_field ?? f.issystemfield ?? 0,
+                listDisplay: f.listDisplay ?? f.list_display ?? f.listdisplay ?? 1,
+                isMain: isMain,
+                detailTable: detailTable,
+              };
+
+              if (isMain === 0 && detailTable) {
+                const dtIdx = detailTable;
+                if (!detailFieldsMap[dtIdx]) detailFieldsMap[dtIdx] = [];
+                detailFieldsMap[dtIdx].push(fieldItem);
+              } else {
+                mainFields.push(fieldItem);
+              }
+            }
+
+            // 设置主表字段（保留系统默认字段）
+            const defaultSystemFields = getDefaultSystemFields();
+            setFields([...defaultSystemFields, ...mainFields]);
+
+            // 设置明细表
+            const mainTableName = formData.tableName || 'main';
+            const newDetailTables: Array<{
+              key: string;
+              config: Partial<WorkflowBill>;
+              fields: Partial<FieldDefinitionFormData>[];
+              selectedRowKeys: React.Key[];
+            }> = [];
+            const sortedKeys = Object.keys(detailFieldsMap).sort((a, b) => Number(a) - Number(b));
+            sortedKeys.forEach((key, index) => {
+              const counter = index + 1;
+              // 获取明细表默认系统字段（id + main_id）
+              const defaultDetailFields = createDefaultDetailFields(mainTableName);
+              // 合并：默认系统字段 + 从数据库加载的用户字段
+              const userDetailFields = detailFieldsMap[Number(key)] || [];
+              newDetailTables.push({
+                key: `dt-${Date.now()}-${counter}`,
+                config: {
+                  id: '',
+                  formName: `明细表${counter}`,
+                  tableName: `${mainTableName}_dt${counter}`,
+                  description: '',
+                  status: 1,
+                },
+                fields: [...defaultDetailFields, ...userDetailFields],
+                selectedRowKeys: [],
+              });
+            });
+            setDetailTables(newDetailTables);
+            setDetailTableCounter(newDetailTables.length);
+          }
+
+          message.success('数据加载成功');
+        } catch (error) {
+          console.error('加载数据失败:', error);
+          message.error('加载数据失败');
+        } finally {
+          setLoading(false);
+        }
+      };
+      loadData(formId);
+    }
+  }, [searchParams]);
 
   // 创建明细表默认字段（id + 主表外键）
   const createDefaultDetailFields = (mainTableName: string): Partial<FieldDefinitionFormData>[] => [
@@ -318,7 +478,7 @@ const TableDesign: React.FC = () => {
       listDisplay: 1,
     },
     {
-      fieldName: `${mainTableName}_id`,
+      fieldName: 'main_id',
       fieldLabel: '主表ID',
       fieldHtmlType: 2,
       fieldType: 1,
@@ -348,7 +508,7 @@ const TableDesign: React.FC = () => {
         tableName: newTableName,
         description: '',
         status: 1 as any,
-      } as Partial<FormDefinition>,
+      } as Partial<WorkflowBill>,
       fields: createDefaultDetailFields(mainTableName),
       selectedRowKeys: [],
     };
@@ -422,6 +582,152 @@ const TableDesign: React.FC = () => {
   // 处理表配置变更
   const handleTableConfigChange = (field: string, value: any) => {
     setTableConfig(prev => ({ ...prev, [field]: value }));
+  };
+
+  // 选择已有主表，加载其字段和明细表
+  const handleSelectExistingForm = async (formId: string) => {
+    setSelectedSourceFormId(formId);
+    if (!formId) {
+      // 清空选择
+      setFields([]);
+      setDetailTables([]);
+      return;
+    }
+    try {
+      // 1. 加载表单定义
+      const formData = await formApi.getById(formId);
+      if (!formData) return;
+
+      // 2. 设置基本信息（不复制ID和表名，表名用自动生成的新值）
+      setTableConfig(prev => ({
+        ...prev,
+        formName: formData.formName || '',
+        description: formData.description || '',
+        status: formData.status || 1,
+      }));
+
+      // 3. 加载所有字段
+      const fieldsData = await fieldApi.getByFormId(formId);
+      if (!fieldsData || fieldsData.length === 0) {
+        setFields([]);
+        setDetailTables([]);
+        return;
+      }
+
+      // 系统保留字段，不复制到新表单
+      const systemFieldNames = new Set([
+        'id',
+        'request_id',
+        'main_id',
+        'is_deleted',
+        'update_time',
+        'update_user',
+        'create_time',
+        'create_user',
+        'create_dept',
+        'tenant_id',
+      ]);
+
+      // 分离主表字段和明细表字段
+      // 兼容下划线格式（MyBatis-Plus 返回）和驼峰格式
+      const mainFields: Partial<FieldDefinitionFormData>[] = [];
+      const detailFieldsMap: { [key: number]: Partial<FieldDefinitionFormData>[] } = {};
+
+      for (const f of fieldsData) {
+        // 兼容多种可能的字段名格式（驼峰、下划线、全小写）
+        const fieldName = f.fieldName || f.field_name || f.fieldname || '';
+        // 过滤系统保留字段
+        if (systemFieldNames.has(fieldName.toLowerCase())) {
+          continue;
+        }
+        const isMain = f.isMain !== undefined ? f.isMain : (f.is_main !== undefined ? f.is_main : f.ismain);
+        const detailTable = f.detailTable !== undefined ? f.detailTable : (f.detail_table !== undefined ? f.detail_table : f.detailtable);
+        
+        // 字段标签兼容：fieldLabel, field_label, fieldlabel, fieldDbName
+        const fieldLabel = f.fieldLabel ?? f.field_label ?? f.fieldlabel ?? f.fieldDbName ?? f.field_db_name ?? f.fielddbname ?? '';
+        // HTML类型兼容
+        const fieldHtmlType = f.fieldHtmlType ?? f.field_html_type ?? f.fieldhtmltype ?? 1;
+        // 字段类型兼容
+        const fieldType = f.fieldType ?? f.field_type ?? f.fieldtype ?? 1;
+        // 数据库字段类型兼容
+        const fieldDbType = f.fieldDbType ?? f.field_db_type ?? f.fielddbtype ?? 'varchar';
+        // 字段长度兼容
+        const fieldLength = f.fieldLength ?? f.field_length ?? f.fieldlen ?? 255;
+        // 小数位数兼容
+        const fieldDecimals = f.fieldDecimals ?? f.field_decimals ?? f.decimaldigit ?? 0;
+        // 是否必填兼容
+        const isRequired = f.isRequired ?? f.is_required ?? f.isnull ?? 0;
+        // 默认值兼容
+        const defaultValue = f.defaultValue ?? f.default_value ?? f.defaultvalue ?? '';
+        // 排序兼容
+        const sort = f.sort ?? f.ds_order ?? f.dsOrder ?? 0;
+        
+        const fieldItem: Partial<FieldDefinitionFormData> = {
+          fieldName: fieldName,
+          fieldLabel: fieldLabel,
+          fieldHtmlType: fieldHtmlType,
+          fieldType: fieldType,
+          fieldDbType: fieldDbType,
+          fieldLength: fieldLength,
+          fieldDecimals: fieldDecimals,
+          isRequired: isRequired,
+          isReadOnly: 0,
+          defaultValue: defaultValue,
+          sort: sort,
+          status: 1,
+          isSystemField: 0,
+          listDisplay: 1,
+          id: undefined, // 新建表单不保留原ID
+        };
+        if (isMain === 0 && detailTable) {
+          const dtIdx = detailTable;
+          if (!detailFieldsMap[dtIdx]) detailFieldsMap[dtIdx] = [];
+          detailFieldsMap[dtIdx].push(fieldItem);
+        } else {
+          mainFields.push(fieldItem);
+        }
+      }
+
+      // 4. 设置主表字段（保留系统默认字段）
+      const defaultSystemFields = getDefaultSystemFields();
+      setFields([...defaultSystemFields, ...mainFields]);
+
+      // 5. 设置明细表
+      const mainTableName = tableConfig.tableName || 'main';
+      const newDetailTables: Array<{
+        key: string;
+        config: Partial<WorkflowBill>;
+        fields: Partial<FieldDefinitionFormData>[];
+        selectedRowKeys: React.Key[];
+      }> = [];
+      const sortedKeys = Object.keys(detailFieldsMap).sort((a, b) => Number(a) - Number(b));
+      sortedKeys.forEach((key, index) => {
+        const counter = index + 1;
+        // 获取明细表默认系统字段（id + main_id）
+        const defaultDetailFields = createDefaultDetailFields(mainTableName);
+        // 合并：默认系统字段 + 从已有主表加载的用户字段
+        const userDetailFields = detailFieldsMap[Number(key)] || [];
+        newDetailTables.push({
+          key: `dt-${Date.now()}-${counter}`,
+          config: {
+            id: '',
+            formName: `明细表${counter}`,
+            tableName: `${mainTableName}_dt${counter}`,
+            description: '',
+            status: 1,
+          },
+          fields: [...defaultDetailFields, ...userDetailFields],
+          selectedRowKeys: [],
+        });
+      });
+      setDetailTables(newDetailTables);
+      setDetailTableCounter(newDetailTables.length);
+
+      message.success('已加载主表数据');
+    } catch (error) {
+      console.error('加载主表数据失败:', error);
+      message.error('加载主表数据失败');
+    }
   };
 
   // 添加字段
@@ -1131,13 +1437,15 @@ const TableDesign: React.FC = () => {
     try {
       // 1. 保存表单定义
       let formId = tableConfig.id;
+      const detailCount = detailTables.length;
       if (!formId) {
         const result = await formApi.create({
           formName: tableConfig.formName,
           tableName: tableConfig.tableName,
           description: tableConfig.description,
           status: tableConfig.status,
-        });
+          detailTableCount: detailCount,
+        } as any);
         formId = result.id;
         setTableConfig(prev => ({ ...prev, id: formId }));
         message.success('表单创建成功');
@@ -1147,19 +1455,65 @@ const TableDesign: React.FC = () => {
           tableName: tableConfig.tableName,
           description: tableConfig.description,
           status: tableConfig.status,
-        });
+          detailTableCount: detailCount,
+        } as any);
         message.success('表单更新成功');
       }
-      // 2. 保存字段
+
+      // 2. 保存主表字段
       for (const field of fields) {
-        const fieldData = { ...field, formId } as FieldDefinitionFormData;
+        const fieldData = { ...field, formId, isMain: 1 } as FieldDefinitionFormData;
         if (field.id) {
           await fieldApi.update(field.id, fieldData);
         } else {
           await fieldApi.create(fieldData);
         }
       }
-      message.success('保存成功');
+
+      // 3. 保存明细表字段
+      for (let dtIndex = 0; dtIndex < detailTables.length; dtIndex++) {
+        const detailTable = detailTables[dtIndex];
+        const detailIndex = dtIndex + 1; // 明细表索引从1开始
+        for (const field of detailTable.fields) {
+          const fieldData = {
+            ...field,
+            formId,
+            detailTable: detailIndex,
+            isMain: 0, // 明细表字段
+          } as FieldDefinitionFormData;
+          if (field.id) {
+            await fieldApi.update(field.id, fieldData);
+          } else {
+            await fieldApi.create(fieldData);
+          }
+        }
+      }
+      message.success('表单定义保存成功');
+
+      // 4. 创建数据库表
+      Modal.confirm({
+        title: '创建数据库表',
+        content: '表单定义已保存，是否立即创建数据库表？',
+        okText: '创建',
+        cancelText: '稍后',
+        onOk: async () => {
+          try {
+            if (!formId) {
+              message.error('表单ID不存在');
+              return;
+            }
+            const result = await formApi.createTable(formId);
+            if (result.success) {
+              message.success(result.msg || '数据库表创建成功');
+            } else {
+              message.error(result.msg || '数据库表创建失败');
+            }
+          } catch (error) {
+            console.error('创建数据库表失败:', error);
+            message.error('创建数据库表失败');
+          }
+        },
+      });
     } catch (error) {
       console.error('保存失败:', error);
       message.error('保存失败');
@@ -1216,6 +1570,34 @@ const TableDesign: React.FC = () => {
         >
           {/* ---- 表基本信息 ---- */}
           <Card title="表基本信息" size="small" style={{ marginBottom: 16 }}>
+            {/* 新建表单时显示主表选择器 */}
+            {!searchParams.get('id') && (
+              <Row gutter={[24, 16]} style={{ marginBottom: 16 }}>
+                <Col span={12}>
+                  <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>
+                    基于已有主表
+                  </label>
+                  <Select
+                    showSearch
+                    value={selectedSourceFormId || undefined}
+                    onChange={handleSelectExistingForm}
+                    placeholder="选择已有主表，自动带出字段和明细表..."
+                    allowClear
+                    style={{ width: '100%' }}
+                    filterOption={(input, option) =>
+                      (option?.label as string || '').toLowerCase().includes(input.toLowerCase())
+                    }
+                    options={(existingForms || []).map(f => ({
+                      value: f.id,
+                      label: `${f.formName} (${f.tableName})`,
+                    }))}
+                  />
+                  <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+                    选中后自动加载该表单的所有字段和明细表信息
+                  </div>
+                </Col>
+              </Row>
+            )}
             <Row gutter={[24, 16]}>
               <Col span={8}>
                 <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>
@@ -1223,9 +1605,13 @@ const TableDesign: React.FC = () => {
                 </label>
                 <Input
                   value={tableConfig.tableName}
-                  onChange={(e) => handleTableConfigChange('tableName', e.target.value)}
-                  placeholder="如：form_table_main"
+                  readOnly={true}
+                  placeholder="自动生成，不可修改"
+                  style={{ backgroundColor: '#f5f5f5' }}
                 />
+                <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+                  命名规则：formtable_main_{'{'}N{'}'}，N 自动累加
+                </div>
               </Col>
               <Col span={8}>
                 <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>
