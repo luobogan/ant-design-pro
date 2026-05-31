@@ -73,7 +73,21 @@ export function patchClientRoutes({ routes }: { routes: any }) {
 
 const toPascalCase = (str: string): string => {
   if (!str) return '';
-  return str.charAt(0).toUpperCase() + str.slice(1);
+
+  // 定义常见的单词列表，用于智能分割
+  const commonWords = ['Form', 'Mode', 'Manage', 'Data', 'View', 'Field', 'Edit', 'Add', 'List', 'Detail', 'System', 'Mall', 'Product', 'Category', 'User', 'Role', 'Menu', 'Exception', 'Table', 'Design'];
+
+  let result = str.toLowerCase();
+
+  // 尝试匹配常见单词并确保它们的首字母大写
+  commonWords.forEach(word => {
+    const lowercaseWord = word.toLowerCase();
+    // 匹配小写形式并替换为大写形式
+    result = result.replace(new RegExp(lowercaseWord, 'g'), word);
+  });
+
+  // 确保第一个字符大写
+  return result.charAt(0).toUpperCase() + result.slice(1);
 };
 
 const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
@@ -86,7 +100,7 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
       const pathParts = formattedPath.split('/').filter(Boolean);
 
       if (pathParts.length >= 2) {
-        const [module, page] = [pathParts[0], pathParts[pathParts.length - 1]];
+          const [module, page] = [toPascalCase(pathParts[0]), toPascalCase(pathParts[pathParts.length - 1])];
 
         const buttonsData = getButtons();
         console.log('从 localStorage 获取按钮数据:', buttonsData);
