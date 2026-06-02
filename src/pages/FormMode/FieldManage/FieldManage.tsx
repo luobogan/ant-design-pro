@@ -263,10 +263,55 @@ const FieldManageList: React.FC = () => {
       ),
     },
     {
+      title: '是否启用',
+      dataIndex: 'status',
+      key: 'status',
+      width: 100,
+      render: (status: number) => (
+        <Tag color={status === 1 ? 'green' : 'default'}>
+          {status === 1 ? '启用' : '禁用'}
+        </Tag>
+      ),
+    },
+    {
       title: '排序',
       dataIndex: 'sort',
       key: 'sort',
       width: 80,
+    },
+    {
+      title: '字段描述',
+      dataIndex: 'description',
+      key: 'description',
+      width: 150,
+      ellipsis: true,
+    },
+    {
+      title: '导入验证',
+      dataIndex: 'impCheck',
+      key: 'impCheck',
+      width: 100,
+      render: (impCheck: number) => {
+        const impCheckMap: Record<number, string> = {
+          0: '不验证',
+          1: '电话',
+          2: '手机',
+          3: '邮编',
+          4: '身份证',
+          5: '日期',
+          6: '时间',
+          7: 'email',
+          8: '自定义',
+        };
+        return impCheckMap[impCheck] || '不验证';
+      },
+    },
+    {
+      title: '提示信息',
+      dataIndex: 'placeholder',
+      key: 'placeholder',
+      width: 150,
+      ellipsis: true,
     },
     {
       title: '操作',
@@ -405,7 +450,7 @@ const FieldManageList: React.FC = () => {
           columns={columns}
           dataSource={data}
           loading={loading}
-          scroll={{ x: 1200 }}
+          scroll={{ x: 2000 }}
           rowSelection={{
             selectedRowKeys,
             onChange: setSelectedRowKeys,

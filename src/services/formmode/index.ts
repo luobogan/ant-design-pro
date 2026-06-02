@@ -355,6 +355,115 @@ export const fieldDefinitionApi = {
 };
 
 /**
+ * 字段扩展属性 API（对标泛微E9 ModeFormFieldExtend 表）
+ */
+export const fieldExtendApi = {
+  /**
+   * 根据字段ID获取扩展属性
+   */
+  getByFieldId: async (fieldId: string) => {
+    const response = await request<BladeResponse<FieldExtend>>(
+      `${API_BASE_PATH}/field-extend/by-field/${fieldId}`,
+      {
+        method: 'GET',
+      },
+    );
+    return response.data;
+  },
+
+  /**
+   * 根据表单ID获取扩展属性列表
+   */
+  getByFormId: async (formId: string) => {
+    const response = await request<BladeResponse<FieldExtend[]>>(
+      `${API_BASE_PATH}/field-extend/by-form/${formId}`,
+      {
+        method: 'GET',
+      },
+    );
+    return response.data;
+  },
+
+  /**
+   * 保存或更新字段扩展属性
+   */
+  save: async (data: FieldExtend) => {
+    const response = await request<BladeResponse<FieldExtend>>(
+      `${API_BASE_PATH}/field-extend/save`,
+      {
+        method: 'POST',
+        data,
+      },
+    );
+    return response.data;
+  },
+
+  /**
+   * 删除字段扩展属性（根据字段ID）
+   */
+  deleteByFieldId: async (fieldId: string) => {
+    return request(`${API_BASE_PATH}/field-extend/by-field/${fieldId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+/**
+ * 字段选项配置 API（对标泛微E9 selectItem 表）
+ */
+export const fieldOptionApi = {
+  /**
+   * 根据字段ID获取选项列表
+   */
+  getByFieldId: async (fieldId: string) => {
+    const response = await request<BladeResponse<FieldOption[]>>(
+      `${API_BASE_PATH}/field-option/by-field/${fieldId}`,
+      {
+        method: 'GET',
+      },
+    );
+    return response.data;
+  },
+
+  /**
+   * 根据表单ID获取选项列表
+   */
+  getByFormId: async (formId: string) => {
+    const response = await request<BladeResponse<FieldOption[]>>(
+      `${API_BASE_PATH}/field-option/by-form/${formId}`,
+      {
+        method: 'GET',
+      },
+    );
+    return response.data;
+  },
+
+  /**
+   * 保存字段选项列表（先删除再插入）
+   */
+  saveOptions: async (fieldId: string, formId: string, options: FieldOption[]) => {
+    const response = await request<BladeResponse<boolean>>(
+      `${API_BASE_PATH}/field-option/save`,
+      {
+        method: 'POST',
+        params: { fieldId, formId },
+        data: options,
+      },
+    );
+    return response.data;
+  },
+
+  /**
+   * 删除字段选项（根据字段ID）
+   */
+  deleteByFieldId: async (fieldId: string) => {
+    return request(`${API_BASE_PATH}/field-option/by-field/${fieldId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+/**
  * 表单数据 API
  */
 export const formDataApi = {
@@ -651,19 +760,33 @@ export const browserApi = {
     return response.data;
   },
 
-  /**
-   * 通用浏览框查询
-   */
-  getList: async (browserType: number, params: PageParams & { keyword?: string }) => {
-    const response = await request<BladeResponse<PageResponse<any>>>(
-      `${API_BASE_PATH}/browser/${browserType}`,
-      {
-        method: 'GET',
-        params,
-      },
-    );
-    return response.data;
-  },
+    /**
+     * 通用浏览框查询
+     */
+    getList: async (browserType: number, params: PageParams & { keyword?: string }) => {
+      const response = await request<BladeResponse<PageResponse<any>>>(
+        `${API_BASE_PATH}/browser/${browserType}`,
+        {
+          method: 'GET',
+          params,
+        },
+      );
+      return response.data;
+    },
+
+    /**
+     * 获取浏览按钮类型完整分类列表（35+种）
+     * 用于前端 BrowserTypePicker 分类选择弹窗
+     */
+    getBrowserTypes: async () => {
+      const response = await request<BladeResponse<any[]>>(
+        `${API_BASE_PATH}/browser/types`,
+        {
+          method: 'GET',
+        },
+      );
+      return response.data;
+    },
 };
 
 // 导出所有 API

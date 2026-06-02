@@ -42,6 +42,8 @@ import {
 import React, { useState, useEffect } from 'react';
 import { formApi, fieldApi } from '@/services/formmode';
 import type { WorkflowBill, FieldDefinitionFormData } from '@/services/formmode/typings';
+import BrowserButtonPreview from './components/BrowserButtonPreview';
+import BrowserTypePicker from './components/BrowserTypePicker';
 
 // 导入 @dnd-kit 拖拽排序相关组件
 import {
@@ -287,6 +289,20 @@ const TableDesign: React.FC = () => {
   // 预览数据
   const [previewSql, setPreviewSql] = useState('');
   const [previewFormJson, setPreviewFormJson] = useState('');
+
+  // 浏览按钮预览
+  const [browserPreviewVisible, setBrowserPreviewVisible] = useState(false);
+  const [browserPreviewField, setBrowserPreviewField] = useState<{ label: string; type: number } | null>(null);
+
+  // 浏览按钮类型选择器（分类弹窗）
+  const [typePickerVisible, setTypePickerVisible] = useState(false);
+  const [pickerContext, setPickerContext] = useState<{
+    index: number;
+    isDetail?: boolean;
+    currentType: number;
+    fieldLabel: string;
+    record: any;
+  } | null>(null);
 
   // 主表选中行
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -892,35 +908,62 @@ const TableDesign: React.FC = () => {
   };
 
   // 获取字段类型标签
+  // 泛微E9标准：根据 fieldHtmlType 和 fieldType 获取字段类型标签
   const getFieldTypeLabel = (htmlType: number | undefined, type: number | undefined): string => {
-    const typeMap: Record<string, string> = {
-      '1-1': '单行文本',
-      '1-2': '多行文本',
-      '1-3': '保密字段',
-      '2-1': '人力资源',
-      '3-1': '单选框',
-      '3-2': '多选框',
-      '3-3': '下拉框',
-      '4-1': '附件上传',
-      '5-1': '日期',
-      '5-2': '时间',
-      '6-1': '复选框',
-    };
-    return typeMap[`${htmlType}-${type}`] || `未知类型(${htmlType}-${type})`;
+    if (!htmlType) return '请选择';
+    switch (htmlType) {
+      case 1: // 文本字段
+        const textTypeMap: Record<number, string> = { 1: '单行文本', 2: '多行文本', 3: '保密字段', 4: '整数', 5: '浮点数', 6: '金额转换', 7: '金额千分位' };
+        return textTypeMap[type || 1] || '单行文本';
+      case 2: // 多行文本
+        return '多行文本';
+      case 3: // 浏览按钮
+        const browserTypeMap: Record<number, string> = { 1: '人力资源', 2: '部门', 3: '角色', 4: '岗位', 8: '项目', 16: '相关客户', 24: '文档', 30: '流程', 57: '附件', 98: '日期', 99: '时间', 164: '自定义浏览按钮', 256: '自定义树形单选', 257: '自定义树形多选' };
+        return browserTypeMap[type || 1] || `浏览按钮(${type})`;
+      case 4: // 选择框
+        const selectTypeMap: Record<number, string> = { 1: '下拉框', 2: '单选框', 3: '复选框' };
+        return selectTypeMap[type || 1] || '下拉框';
+      case 5: // 附件上传
+        return '附件上传';
+      case 6: // 复选框
+        return '复选框';
+      case 7: // 特殊字段
+        const specialTypeMap: Record<number, string> = { 1: '自定义链接', 2: '描述性文字', 3: '日期', 4: '时间' };
+        return specialTypeMap[type || 1] || '日期';
+      case 8: // 布局组件
+        return '布局组件';
+      default:
+        return `未知类型(${htmlType}-${type})`;
+    }
   };
 
-  // 根据字段类型确定数据库类型
+  // 泛微E9标准：根据字段类型确定数据库类型
   const getDbTypeByFieldType = (htmlType: number, type: number): string => {
-    if (htmlType === 1) return 'varchar';
-    else if (htmlType === 2) return 'varchar';
-    else if (htmlType === 3) return 'varchar';
-    else if (htmlType === 4) return 'varchar';
-    else if (htmlType === 5) {
-      if (type === 1) return 'date';
-      if (type === 2) return 'datetime';
-      return 'varchar';
-    } else if (htmlType === 6) return 'int';
-    return 'varchar';
+    switch (htmlType) {
+      case 1: // 文本字段
+        if (type === 2 || type === 3) return 'text'; // 多行文本、保密字段
+        if (type === 4 || type === 7) return 'varchar'; // 金额转换、金额千分位
+        if (type === 5) return 'decimal'; // 浮点数
+        return 'varchar';
+      case 2: // 多行文本
+        return 'text';
+      case 3: // 浏览按钮
+        return 'varchar';
+      case 4: // 选择框
+        return 'varchar';
+      case 5: // 附件上传
+        return 'varchar';
+      case 6: // 复选框
+        return 'int';
+      case 7: // 特殊字段
+        if (type === 3) return 'date'; // 日期
+        if (type === 4) return 'datetime'; // 时间
+        return 'varchar';
+      case 8: // 布局组件
+        return 'varchar';
+      default:
+        return 'varchar';
+    }
   };
 
   // 表格列定义
@@ -970,47 +1013,190 @@ const TableDesign: React.FC = () => {
       title: '字段类型',
       dataIndex: 'fieldHtmlType',
       key: 'fieldHtmlType',
-      width: 130,
+      width: 120,
       render: (value: number | undefined, record: any, index: number) => (
         <Select
           value={value}
           size="small"
-          onChange={(val) => handleFieldChange(index, 'fieldHtmlType', val)}
+          onChange={(val) => {
+            handleFieldChange(index, 'fieldHtmlType', val);
+            // 根据 htmltype 设置默认的 fieldType
+            const defaultTypeMap: Record<number, number> = { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 3, 8: 14 };
+            handleFieldChange(index, 'fieldType', defaultTypeMap[val] || 1);
+            // 自动设置数据库类型
+            const dbType = getDbTypeByFieldType(val, defaultTypeMap[val] || 1);
+            handleFieldChange(index, 'fieldDbType', dbType);
+          }}
           style={{ width: '100%' }}
           bordered={false}
           disabled={record.isSystemField === 1}
         >
-          <Select.Option value={1}>单行文本</Select.Option>
+          <Select.Option value={1}>文本字段</Select.Option>
           <Select.Option value={2}>多行文本</Select.Option>
-          <Select.Option value={3}>下拉框</Select.Option>
-          <Select.Option value={4}>日期</Select.Option>
-          <Select.Option value={5}>数字</Select.Option>
+          <Select.Option value={3}>浏览按钮</Select.Option>
+          <Select.Option value={4}>选择框</Select.Option>
+          <Select.Option value={5}>附件上传</Select.Option>
           <Select.Option value={6}>复选框</Select.Option>
+          <Select.Option value={7}>特殊字段</Select.Option>
+          <Select.Option value={8}>布局组件</Select.Option>
         </Select>
       ),
+    },
+    {
+      title: '类型',
+      dataIndex: 'fieldType',
+      key: 'fieldType',
+      width: 130,
+      render: (value: number | undefined, record: any, index: number) => {
+        const htmlType = record.fieldHtmlType;
+        // 根据 fieldHtmlType 动态渲染 fieldType 选项
+        let options: React.ReactNode[] = [];
+        switch (htmlType) {
+          case 1: // 文本字段
+            options = [
+              <Select.Option key={1} value={1}>单行文本</Select.Option>,
+              <Select.Option key={2} value={2}>多行文本</Select.Option>,
+              <Select.Option key={3} value={3}>保密字段</Select.Option>,
+              <Select.Option key={4} value={4}>整数</Select.Option>,
+              <Select.Option key={5} value={5}>浮点数</Select.Option>,
+              <Select.Option key={6} value={6}>金额转换</Select.Option>,
+              <Select.Option key={7} value={7}>金额千分位</Select.Option>,
+            ];
+            break;
+          case 2: // 多行文本
+            options = [<Select.Option key={1} value={1}>多行文本</Select.Option>];
+            break;
+          case 3: // 浏览按钮
+            options = [
+              <Select.Option key={1} value={1}>人力资源</Select.Option>,
+              <Select.Option key={2} value={2}>部门</Select.Option>,
+              <Select.Option key={3} value={3}>角色</Select.Option>,
+              <Select.Option key={4} value={4}>岗位</Select.Option>,
+              <Select.Option key={8} value={8}>项目</Select.Option>,
+              <Select.Option key={16} value={16}>相关客户</Select.Option>,
+              <Select.Option key={24} value={24}>文档</Select.Option>,
+              <Select.Option key={30} value={30}>流程</Select.Option>,
+              <Select.Option key={57} value={57}>附件</Select.Option>,
+              <Select.Option key={98} value={98}>日期</Select.Option>,
+              <Select.Option key={99} value={99}>时间</Select.Option>,
+              <Select.Option key={164} value={164}>自定义浏览按钮</Select.Option>,
+              <Select.Option key={256} value={256}>自定义树形单选</Select.Option>,
+              <Select.Option key={257} value={257}>自定义树形多选</Select.Option>,
+            ];
+            break;
+          case 4: // 选择框
+            options = [
+              <Select.Option key={1} value={1}>下拉框</Select.Option>,
+              <Select.Option key={2} value={2}>单选框</Select.Option>,
+              <Select.Option key={3} value={3}>复选框</Select.Option>,
+            ];
+            break;
+          case 5: // 附件上传
+            options = [
+              <Select.Option key={1} value={1}>附件上传</Select.Option>,
+              <Select.Option key={2} value={2}>图片上传</Select.Option>,
+            ];
+            break;
+          case 6: // 复选框
+            options = [<Select.Option key={1} value={1}>复选框</Select.Option>];
+            break;
+          case 7: // 特殊字段
+            options = [
+              <Select.Option key={1} value={1}>自定义链接</Select.Option>,
+              <Select.Option key={2} value={2}>描述性文字</Select.Option>,
+              <Select.Option key={3} value={3}>日期</Select.Option>,
+              <Select.Option key={4} value={4}>时间</Select.Option>,
+            ];
+            break;
+          case 8: // 布局组件
+            options = [<Select.Option key={14} value={14}>布局组件</Select.Option>];
+            break;
+          default:
+            options = [<Select.Option key={0} value={0}>请先选择字段类型</Select.Option>];
+        }
+        // 浏览按钮类型：点击 Select 值区域弹出分类类型选择器，点击箭头正常下拉切换类型
+        if (htmlType === 3) {
+          const typeLabelMap: Record<number, string> = {
+            1: '人力资源', 2: '部门', 3: '角色', 4: '岗位', 8: '项目',
+            16: '相关客户', 24: '文档', 30: '流程', 57: '附件',
+            98: '日期', 99: '时间', 164: '自定义浏览按钮',
+            161: '多人力资源', 17: '多部门', 18: '分部', 31: '多流程',
+            26: '多文档', 167: '分权单人力资源', 168: '分权多人力资源',
+            19: '分权单部门', 20: '分权多部门', 257: '自定义树形多选',
+          };
+          const currentLabel = typeLabelMap[value as number] || '未知类型';
+          return (
+            <div style={{ display: 'inline-block', width: '100%', position: 'relative' }}>
+              {/* 值区域点击覆盖层：点击值区域弹出分类类型选择器 */}
+              <div
+                onClick={(e) => {
+                  const target = e.target as HTMLElement;
+                  if (target.closest('.ant-select-suffix, .ant-select-arrow, .anticon')) return;
+                  if (target.tagName === 'SVG' || target.tagName === 'PATH') return;
+                  // 打开分类类型选择器弹窗
+                  setPickerContext({
+                    index,
+                    isDetail: false,
+                    currentType: (value as number) || 1,
+                    fieldLabel: record.fieldLabel || currentLabel,
+                    record,
+                  });
+                  setTypePickerVisible(true);
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: 'calc(100% - 24px)',
+                  height: '100%',
+                  zIndex: 1,
+                  cursor: 'pointer',
+                }}
+              />
+              <Select
+                value={value}
+                size="small"
+                onChange={(val) => {
+                  handleFieldChange(index, 'fieldType', val);
+                  const dbType = getDbTypeByFieldType(htmlType, val);
+                  handleFieldChange(index, 'fieldDbType', dbType);
+                }}
+                style={{ width: '100%' }}
+                bordered={false}
+                disabled={record.isSystemField === 1 || !htmlType}
+              >
+                {options}
+              </Select>
+            </div>
+          );
+        }
+        return (
+          <Select
+            value={value}
+            size="small"
+            onChange={(val) => {
+              handleFieldChange(index, 'fieldType', val);
+              // 自动设置数据库类型
+              const dbType = getDbTypeByFieldType(htmlType, val);
+              handleFieldChange(index, 'fieldDbType', dbType);
+            }}
+            style={{ width: '100%' }}
+            bordered={false}
+            disabled={record.isSystemField === 1 || !htmlType}
+          >
+            {options}
+          </Select>
+        );
+      },
     },
     {
       title: '数据库类型',
       dataIndex: 'fieldDbType',
       key: 'fieldDbType',
       width: 110,
-      render: (value: string | undefined, record: any, index: number) => (
-        <Select
-          value={value}
-          size="small"
-          onChange={(val) => handleFieldChange(index, 'fieldDbType', val)}
-          style={{ width: '100%' }}
-          bordered={false}
-          disabled={record.isSystemField === 1}
-        >
-          <Select.Option value="varchar">varchar</Select.Option>
-          <Select.Option value="int">int</Select.Option>
-          <Select.Option value="bigint">bigint</Select.Option>
-          <Select.Option value="decimal">decimal</Select.Option>
-          <Select.Option value="date">date</Select.Option>
-          <Select.Option value="datetime">datetime</Select.Option>
-          <Select.Option value="text">text</Select.Option>
-        </Select>
+      // 泛微E9标准：数据库类型根据字段类型自动确定，只读显示
+      render: (value: string | undefined) => (
+        <span style={{ padding: '0 8px' }}>{value || '-'}</span>
       ),
     },
     {
@@ -1031,19 +1217,22 @@ const TableDesign: React.FC = () => {
       ),
     },
     {
-      title: '字段长度',
+      title: '文本长度',
       dataIndex: 'fieldLength',
       key: 'fieldLength',
       width: 90,
+      // 泛微E9标准：仅文本字段（htmlType=1）可设置文本长度
       render: (value: number | undefined, record: any, index: number) => (
         <InputNumber
           value={value}
           size="small"
           onChange={(val) => handleFieldChange(index, 'fieldLength', val)}
           min={0}
+          max={4000}
           bordered={false}
           style={{ width: '100%', padding: 0 }}
-          disabled={record.isSystemField === 1}
+          disabled={record.isSystemField === 1 || record.fieldHtmlType !== 1}
+          placeholder={record.fieldHtmlType === 1 ? '长度' : '仅文本字段'}
         />
       ),
     },
@@ -1052,6 +1241,7 @@ const TableDesign: React.FC = () => {
       dataIndex: 'fieldDecimals',
       key: 'fieldDecimals',
       width: 90,
+      // 泛微E9标准：仅浮点数（htmlType=1, type=5）可设置小数位数
       render: (value: number | undefined, record: any, index: number) => (
         <InputNumber
           value={value}
@@ -1061,7 +1251,8 @@ const TableDesign: React.FC = () => {
           max={10}
           bordered={false}
           style={{ width: '100%', padding: 0 }}
-          disabled={record.isSystemField === 1}
+          disabled={record.isSystemField === 1 || !(record.fieldHtmlType === 1 && record.fieldType === 5)}
+          placeholder={(record.fieldHtmlType === 1 && record.fieldType === 5) ? '小数位' : '仅浮点数'}
         />
       ),
     },
@@ -1108,18 +1299,20 @@ const TableDesign: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 60,
+      width: 90,
       render: (_: any, record: any, index: number) => (
         record.isSystemField === 1 ? null : (
-          <Tooltip title="删除">
-            <Button
-              type="text"
-              danger
-              size="small"
-              icon={<DeleteOutlined />}
-              onClick={() => handleDeleteField(index)}
-            />
-          </Tooltip>
+          <Space size={0}>
+            <Tooltip title="删除">
+              <Button
+                type="text"
+                danger
+                size="small"
+                icon={<DeleteOutlined />}
+                onClick={() => handleDeleteField(index)}
+              />
+            </Tooltip>
+          </Space>
         )
       ),
     },
@@ -1184,47 +1377,190 @@ const TableDesign: React.FC = () => {
       title: '字段类型',
       dataIndex: 'fieldHtmlType',
       key: 'fieldHtmlType',
-      width: 130,
+      width: 120,
       render: (value: number | undefined, record: any, index: number) => (
         <Select
           value={value}
           size="small"
-          onChange={(val) => handleDetailFieldChange(index, 'fieldHtmlType', val)}
+          onChange={(val) => {
+            handleDetailFieldChange(index, 'fieldHtmlType', val);
+            // 根据 htmltype 设置默认的 fieldType
+            const defaultTypeMap: Record<number, number> = { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 3, 8: 14 };
+            handleDetailFieldChange(index, 'fieldType', defaultTypeMap[val] || 1);
+            // 自动设置数据库类型
+            const dbType = getDbTypeByFieldType(val, defaultTypeMap[val] || 1);
+            handleDetailFieldChange(index, 'fieldDbType', dbType);
+          }}
           style={{ width: '100%' }}
           bordered={false}
           disabled={record.isSystemField === 1}
         >
-          <Select.Option value={1}>单行文本</Select.Option>
+          <Select.Option value={1}>文本字段</Select.Option>
           <Select.Option value={2}>多行文本</Select.Option>
-          <Select.Option value={3}>下拉框</Select.Option>
-          <Select.Option value={4}>日期</Select.Option>
-          <Select.Option value={5}>数字</Select.Option>
+          <Select.Option value={3}>浏览按钮</Select.Option>
+          <Select.Option value={4}>选择框</Select.Option>
+          <Select.Option value={5}>附件上传</Select.Option>
           <Select.Option value={6}>复选框</Select.Option>
+          <Select.Option value={7}>特殊字段</Select.Option>
+          <Select.Option value={8}>布局组件</Select.Option>
         </Select>
       ),
+    },
+    {
+      title: '类型',
+      dataIndex: 'fieldType',
+      key: 'fieldType',
+      width: 130,
+      render: (value: number | undefined, record: any, index: number) => {
+        const htmlType = record.fieldHtmlType;
+        // 根据 fieldHtmlType 动态渲染 fieldType 选项
+        let options: React.ReactNode[] = [];
+        switch (htmlType) {
+          case 1: // 文本字段
+            options = [
+              <Select.Option key={1} value={1}>单行文本</Select.Option>,
+              <Select.Option key={2} value={2}>多行文本</Select.Option>,
+              <Select.Option key={3} value={3}>保密字段</Select.Option>,
+              <Select.Option key={4} value={4}>整数</Select.Option>,
+              <Select.Option key={5} value={5}>浮点数</Select.Option>,
+              <Select.Option key={6} value={6}>金额转换</Select.Option>,
+              <Select.Option key={7} value={7}>金额千分位</Select.Option>,
+            ];
+            break;
+          case 2: // 多行文本
+            options = [<Select.Option key={1} value={1}>多行文本</Select.Option>];
+            break;
+          case 3: // 浏览按钮
+            options = [
+              <Select.Option key={1} value={1}>人力资源</Select.Option>,
+              <Select.Option key={2} value={2}>部门</Select.Option>,
+              <Select.Option key={3} value={3}>角色</Select.Option>,
+              <Select.Option key={4} value={4}>岗位</Select.Option>,
+              <Select.Option key={8} value={8}>项目</Select.Option>,
+              <Select.Option key={16} value={16}>相关客户</Select.Option>,
+              <Select.Option key={24} value={24}>文档</Select.Option>,
+              <Select.Option key={30} value={30}>流程</Select.Option>,
+              <Select.Option key={57} value={57}>附件</Select.Option>,
+              <Select.Option key={98} value={98}>日期</Select.Option>,
+              <Select.Option key={99} value={99}>时间</Select.Option>,
+              <Select.Option key={164} value={164}>自定义浏览按钮</Select.Option>,
+              <Select.Option key={256} value={256}>自定义树形单选</Select.Option>,
+              <Select.Option key={257} value={257}>自定义树形多选</Select.Option>,
+            ];
+            break;
+          case 4: // 选择框
+            options = [
+              <Select.Option key={1} value={1}>下拉框</Select.Option>,
+              <Select.Option key={2} value={2}>单选框</Select.Option>,
+              <Select.Option key={3} value={3}>复选框</Select.Option>,
+            ];
+            break;
+          case 5: // 附件上传
+            options = [
+              <Select.Option key={1} value={1}>附件上传</Select.Option>,
+              <Select.Option key={2} value={2}>图片上传</Select.Option>,
+            ];
+            break;
+          case 6: // 复选框
+            options = [<Select.Option key={1} value={1}>复选框</Select.Option>];
+            break;
+          case 7: // 特殊字段
+            options = [
+              <Select.Option key={1} value={1}>自定义链接</Select.Option>,
+              <Select.Option key={2} value={2}>描述性文字</Select.Option>,
+              <Select.Option key={3} value={3}>日期</Select.Option>,
+              <Select.Option key={4} value={4}>时间</Select.Option>,
+            ];
+            break;
+          case 8: // 布局组件
+            options = [<Select.Option key={14} value={14}>布局组件</Select.Option>];
+            break;
+          default:
+            options = [<Select.Option key={0} value={0}>请先选择字段类型</Select.Option>];
+        }
+        // 浏览按钮类型：点击 Select 值区域弹出分类类型选择器，点击箭头正常下拉切换类型
+        if (htmlType === 3) {
+          const typeLabelMap: Record<number, string> = {
+            1: '人力资源', 2: '部门', 3: '角色', 4: '岗位', 8: '项目',
+            16: '相关客户', 24: '文档', 30: '流程', 57: '附件',
+            98: '日期', 99: '时间', 164: '自定义浏览按钮',
+            161: '多人力资源', 17: '多部门', 18: '分部', 31: '多流程',
+            26: '多文档', 167: '分权单人力资源', 168: '分权多人力资源',
+            19: '分权单部门', 20: '分权多部门', 257: '自定义树形多选',
+          };
+          const currentLabel = typeLabelMap[value as number] || '未知类型';
+          return (
+            <div style={{ display: 'inline-block', width: '100%', position: 'relative' }}>
+              {/* 值区域点击覆盖层：点击值区域弹出分类类型选择器 */}
+              <div
+                onClick={(e) => {
+                  const target = e.target as HTMLElement;
+                  if (target.closest('.ant-select-suffix, .ant-select-arrow, .anticon')) return;
+                  if (target.tagName === 'SVG' || target.tagName === 'PATH') return;
+                  // 打开分类类型选择器弹窗
+                  setPickerContext({
+                    index,
+                    isDetail: true,
+                    currentType: (value as number) || 1,
+                    fieldLabel: record.fieldLabel || currentLabel,
+                    record,
+                  });
+                  setTypePickerVisible(true);
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: 'calc(100% - 24px)',
+                  height: '100%',
+                  zIndex: 1,
+                  cursor: 'pointer',
+                }}
+              />
+              <Select
+                value={value}
+                size="small"
+                onChange={(val) => {
+                  handleDetailFieldChange(index, 'fieldType', val);
+                  const dbType = getDbTypeByFieldType(htmlType, val);
+                  handleDetailFieldChange(index, 'fieldDbType', dbType);
+                }}
+                style={{ width: '100%' }}
+                bordered={false}
+                disabled={record.isSystemField === 1 || !htmlType}
+              >
+                {options}
+              </Select>
+            </div>
+          );
+        }
+        return (
+          <Select
+            value={value}
+            size="small"
+            onChange={(val) => {
+              handleDetailFieldChange(index, 'fieldType', val);
+              // 自动设置数据库类型
+              const dbType = getDbTypeByFieldType(htmlType, val);
+              handleDetailFieldChange(index, 'fieldDbType', dbType);
+            }}
+            style={{ width: '100%' }}
+            bordered={false}
+            disabled={record.isSystemField === 1 || !htmlType}
+          >
+            {options}
+          </Select>
+        );
+      },
     },
     {
       title: '数据库类型',
       dataIndex: 'fieldDbType',
       key: 'fieldDbType',
       width: 110,
-      render: (value: string | undefined, record: any, index: number) => (
-        <Select
-          value={value}
-          size="small"
-          onChange={(val) => handleDetailFieldChange(index, 'fieldDbType', val)}
-          style={{ width: '100%' }}
-          bordered={false}
-          disabled={record.isSystemField === 1}
-        >
-          <Select.Option value="varchar">varchar</Select.Option>
-          <Select.Option value="int">int</Select.Option>
-          <Select.Option value="bigint">bigint</Select.Option>
-          <Select.Option value="decimal">decimal</Select.Option>
-          <Select.Option value="date">date</Select.Option>
-          <Select.Option value="datetime">datetime</Select.Option>
-          <Select.Option value="text">text</Select.Option>
-        </Select>
+      // 泛微E9标准：数据库类型根据字段类型自动确定，只读显示
+      render: (value: string | undefined) => (
+        <span style={{ padding: '0 8px' }}>{value || '-'}</span>
       ),
     },
     {
@@ -1245,19 +1581,22 @@ const TableDesign: React.FC = () => {
       ),
     },
     {
-      title: '字段长度',
+      title: '文本长度',
       dataIndex: 'fieldLength',
       key: 'fieldLength',
       width: 90,
+      // 泛微E9标准：仅文本字段（htmlType=1）可设置文本长度
       render: (value: number | undefined, record: any, index: number) => (
         <InputNumber
           value={value}
           size="small"
           onChange={(val) => handleDetailFieldChange(index, 'fieldLength', val)}
           min={0}
+          max={4000}
           bordered={false}
           style={{ width: '100%', padding: 0 }}
-          disabled={record.isSystemField === 1}
+          disabled={record.isSystemField === 1 || record.fieldHtmlType !== 1}
+          placeholder={record.fieldHtmlType === 1 ? '长度' : '仅文本字段'}
         />
       ),
     },
@@ -1266,6 +1605,7 @@ const TableDesign: React.FC = () => {
       dataIndex: 'fieldDecimals',
       key: 'fieldDecimals',
       width: 90,
+      // 泛微E9标准：仅浮点数（htmlType=1, type=5）可设置小数位数
       render: (value: number | undefined, record: any, index: number) => (
         <InputNumber
           value={value}
@@ -1275,7 +1615,8 @@ const TableDesign: React.FC = () => {
           max={10}
           bordered={false}
           style={{ width: '100%', padding: 0 }}
-          disabled={record.isSystemField === 1}
+          disabled={record.isSystemField === 1 || !(record.fieldHtmlType === 1 && record.fieldType === 5)}
+          placeholder={(record.fieldHtmlType === 1 && record.fieldType === 5) ? '小数位' : '仅浮点数'}
         />
       ),
     },
@@ -1309,18 +1650,20 @@ const TableDesign: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 60,
+      width: 90,
       render: (_: any, record: any, index: number) => (
         record.isSystemField === 1 ? null : (
-          <Tooltip title="删除">
-            <Button
-              type="text"
-              danger
-              size="small"
-              icon={<DeleteOutlined />}
-              onClick={() => handleDeleteDetailField(index)}
-            />
-          </Tooltip>
+          <Space size={0}>
+            <Tooltip title="删除">
+              <Button
+                type="text"
+                danger
+                size="small"
+                icon={<DeleteOutlined />}
+                onClick={() => handleDeleteDetailField(index)}
+              />
+            </Tooltip>
+          </Space>
         )
       ),
     },
@@ -2009,6 +2352,42 @@ const TableDesign: React.FC = () => {
         </TabPane>
 
       </Tabs>
+
+      {/* 浏览按钮预览弹窗 */}
+      <BrowserButtonPreview
+        visible={browserPreviewVisible}
+        fieldLabel={browserPreviewField?.label || ''}
+        browserType={browserPreviewField?.type || 1}
+        onClose={() => setBrowserPreviewVisible(false)}
+      />
+
+      {/* 浏览按钮类型选择器（分类弹窗） */}
+      <BrowserTypePicker
+        visible={typePickerVisible}
+        currentTypeId={pickerContext?.currentType}
+        onConfirm={(typeId, typeLabel) => {
+          // 更新字段类型值
+          if (pickerContext) {
+            if (pickerContext.isDetail) {
+              handleDetailFieldChange(pickerContext.index, 'fieldType', typeId);
+              const dbType = getDbTypeByFieldType(3, typeId);
+              handleDetailFieldChange(pickerContext.index, 'fieldDbType', dbType);
+            } else {
+              handleFieldChange(pickerContext.index, 'fieldType', typeId);
+              const dbType = getDbTypeByFieldType(3, typeId);
+              handleFieldChange(pickerContext.index, 'fieldDbType', dbType);
+            }
+          }
+          // 关闭选择器并打开预览
+          setTypePickerVisible(false);
+          setBrowserPreviewField({
+            label: pickerContext?.fieldLabel || typeLabel,
+            type: typeId,
+          });
+          setBrowserPreviewVisible(true);
+        }}
+        onCancel={() => setTypePickerVisible(false)}
+      />
     </PageContainer>
   );
 };

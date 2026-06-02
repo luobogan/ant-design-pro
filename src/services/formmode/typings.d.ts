@@ -206,7 +206,7 @@ export interface FieldDefinition {
   fieldLength?: number;
   /** 小数位数 */
   fieldDecimals?: number;
-  /** 是否必填：0-否，1-是 */
+  /** 是否必填：0-否，1-是（泛微标准字段 ismand） */
   isRequired: number;
   /** 是否只读：0-否，1-是 */
   isReadOnly: number;
@@ -228,20 +228,47 @@ export interface FieldDefinition {
   updateTime?: string;
   /** 选项列表（用于选择框、单选、多选等） */
   options?: FieldOption[];
+
+  // ==================== 泛微E9标准字段 ====================
+
+  /** 文本高度（多行文本使用） */
+  textHeight?: number;
+  /** 是否必填（泛微标准字段名 ismand） */
+  isMand?: number;
+  /** 显示顺序（泛微标准字段名 fieldorder） */
+  fieldOrder?: number;
+  /** 是否启用：0-否，1-是 */
+  isUsed?: number;
+  /** 快速录入类型 */
+  quickType?: number;
+  /** 导入验证类型：0不验证 1电话 2手机 3邮编 4身份证 5日期 6时间 7email 8自定义 */
+  impCheck?: number;
+  /** 验证表达式（正则表达式） */
+  checkExpression?: string;
+  /** 提示信息（输入框占位符） */
+  placeholder?: string;
+  /** 是否记录字段修改日志：0-否，1-是 */
+  needLog?: number;
+  /** 是否允许Excel导入：0-否，1-是 */
+  needExcel?: number;
+  /** 扩展属性（JSON格式） */
+  extend?: FieldExtend;
 }
 
-/** 字段选项（用于选择框、单选、多选等） */
+/** 字段选项配置（对标泛微E9 selectItem 表） */
 export interface FieldOption {
   /** 选项ID */
   id?: string;
   /** 字段ID */
   fieldId?: string;
+  /** 表单ID */
+  formId?: string;
   /** 选项值 */
-  value: string;
+  optionValue: string;
   /** 选项标签 */
-  label: string;
-  /** 排序 */
-  sort: number;
+  optionLabel: string;
+  /** 显示顺序 */
+  listOrder: number;
   /** 是否默认选中：0-否，1-是 */
   isDefault?: number;
 }
@@ -292,6 +319,73 @@ export interface FieldDefinitionFormData {
   detailTable?: number;
   /** 是否主表字段：0-否（明细表字段），1-是（主表字段） */
   isMain?: number;
+  /** 扩展属性（JSON格式） */
+  extend?: FieldExtend;
+
+  // ==================== 泛微E9标准字段 ====================
+
+  /** 文本高度（多行文本使用） */
+  textHeight?: number;
+  /** 是否必填（泛微标准字段名 ismand） */
+  isMand?: number;
+  /** 显示顺序（泛微标准字段名 fieldorder） */
+  fieldOrder?: number;
+  /** 是否启用：0-否，1-是 */
+  isUsed?: number;
+  /** 快速录入类型 */
+  quickType?: number;
+  /** 导入验证类型：0不验证，1电话，2手机，3邮编，4身份证，5日期，6时间，7email，8自定义 */
+  impCheck?: number;
+  /** 验证表达式（正则表达式） */
+  checkExpression?: string;
+  /** 提示信息（输入框占位符） */
+  placeholder?: string;
+  /** 是否记录字段修改日志：0-否，1-是 */
+  needLog?: number;
+  /** 是否允许Excel导入：0-否，1-是 */
+  needExcel?: number;
+}
+
+// ==================== 字段扩展属性（对标泛微E9 ModeFormFieldExtend 表） ====================
+
+/** 字段扩展属性 */
+export interface FieldExtend {
+  /** 主键ID */
+  id?: string;
+  /** 字段ID */
+  fieldId?: string;
+  /** 表单ID */
+  formId?: string;
+  /** 扩展属性（JSON格式） */
+  expendAttr?: string;
+  /** 创建日期 */
+  createDate?: string;
+  /** 创建时间 */
+  createTime?: string;
+  /** 修改日期 */
+  modifyDate?: string;
+  /** 修改时间 */
+  modifyTime?: string;
+}
+
+// ==================== 字段选项配置（对标泛微E9 selectItem 表） ====================
+
+/** 字段选项配置（修正：与后端 FieldOption.java 实体类一致） */
+export interface FieldOption {
+  /** 选项ID */
+  id?: string;
+  /** 字段ID */
+  fieldId?: string;
+  /** 表单ID */
+  formId?: string;
+  /** 选项值 */
+  optionValue: string;
+  /** 选项标签 */
+  optionLabel: string;
+  /** 显示顺序 */
+  listOrder: number;
+  /** 是否默认选中：0-否，1-是 */
+  isDefault?: number;
 }
 
 // ==================== 表单数据 ====================
