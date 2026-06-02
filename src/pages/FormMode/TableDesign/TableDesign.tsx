@@ -16,6 +16,7 @@ import {
   KeyOutlined,
   AppstoreOutlined,
   CloseOutlined,
+  DownOutlined,
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { useNavigate, useSearchParams } from '@umijs/max';
@@ -1114,7 +1115,7 @@ const TableDesign: React.FC = () => {
           default:
             options = [<Select.Option key={0} value={0}>请先选择字段类型</Select.Option>];
         }
-        // 浏览按钮类型：点击 Select 值区域弹出分类类型选择器，点击箭头正常下拉切换类型
+        // 浏览按钮类型：值区域点击预览，箭头点击类型选择
         if (htmlType === 3) {
           const typeLabelMap: Record<number, string> = {
             1: '人力资源', 2: '部门', 3: '角色', 4: '岗位', 8: '项目',
@@ -1127,13 +1128,56 @@ const TableDesign: React.FC = () => {
           const currentLabel = typeLabelMap[value as number] || '未知类型';
           return (
             <div style={{ display: 'inline-block', width: '100%', position: 'relative' }}>
-              {/* 值区域点击覆盖层：点击值区域弹出分类类型选择器 */}
+              {/* 值区域覆盖层：点击文字弹出预览，带下划线 */}
               <div
                 onClick={(e) => {
-                  const target = e.target as HTMLElement;
-                  if (target.closest('.ant-select-suffix, .ant-select-arrow, .anticon')) return;
-                  if (target.tagName === 'SVG' || target.tagName === 'PATH') return;
-                  // 打开分类类型选择器弹窗
+                  e.stopPropagation();
+                  e.preventDefault();
+                  setBrowserPreviewField({
+                    label: currentLabel,
+                    type: (value as number) || 1,
+                  });
+                  setBrowserPreviewVisible(true);
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: 'calc(100% - 28px)',
+                  height: '100%',
+                  zIndex: 2,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: '#1890ff',
+                  textDecoration: 'underline',
+                  paddingLeft: 8,
+                  fontSize: 13,
+                }}
+                title="点击预览"
+              >
+                {currentLabel}
+              </div>
+              <Select
+                value={value}
+                size="small"
+                onChange={(val) => {
+                  handleFieldChange(index, 'fieldType', val);
+                  const dbType = getDbTypeByFieldType(htmlType, val);
+                  handleFieldChange(index, 'fieldDbType', dbType);
+                }}
+                style={{ width: '100%', opacity: 0 }}
+                bordered={false}
+                disabled={record.isSystemField === 1 || !htmlType}
+                suffixIcon={null}
+              >
+                {options}
+              </Select>
+              {/* 箭头区域覆盖层：仅点击向下箭头才弹出类型选择弹窗 */}
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
                   setPickerContext({
                     index,
                     isDetail: false,
@@ -1146,27 +1190,21 @@ const TableDesign: React.FC = () => {
                 style={{
                   position: 'absolute',
                   top: 0,
-                  left: 0,
-                  width: 'calc(100% - 24px)',
+                  right: 0,
+                  width: 28,
                   height: '100%',
-                  zIndex: 1,
+                  zIndex: 2,
                   cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#999',
+                  background: '#fff',
                 }}
-              />
-              <Select
-                value={value}
-                size="small"
-                onChange={(val) => {
-                  handleFieldChange(index, 'fieldType', val);
-                  const dbType = getDbTypeByFieldType(htmlType, val);
-                  handleFieldChange(index, 'fieldDbType', dbType);
-                }}
-                style={{ width: '100%' }}
-                bordered={false}
-                disabled={record.isSystemField === 1 || !htmlType}
+                title="点击选择浏览按钮类型"
               >
-                {options}
-              </Select>
+                <DownOutlined />
+              </div>
             </div>
           );
         }
@@ -1478,7 +1516,7 @@ const TableDesign: React.FC = () => {
           default:
             options = [<Select.Option key={0} value={0}>请先选择字段类型</Select.Option>];
         }
-        // 浏览按钮类型：点击 Select 值区域弹出分类类型选择器，点击箭头正常下拉切换类型
+        // 浏览按钮类型：值区域点击预览，箭头点击类型选择
         if (htmlType === 3) {
           const typeLabelMap: Record<number, string> = {
             1: '人力资源', 2: '部门', 3: '角色', 4: '岗位', 8: '项目',
@@ -1491,13 +1529,56 @@ const TableDesign: React.FC = () => {
           const currentLabel = typeLabelMap[value as number] || '未知类型';
           return (
             <div style={{ display: 'inline-block', width: '100%', position: 'relative' }}>
-              {/* 值区域点击覆盖层：点击值区域弹出分类类型选择器 */}
+              {/* 值区域覆盖层：点击文字弹出预览，带下划线 */}
               <div
                 onClick={(e) => {
-                  const target = e.target as HTMLElement;
-                  if (target.closest('.ant-select-suffix, .ant-select-arrow, .anticon')) return;
-                  if (target.tagName === 'SVG' || target.tagName === 'PATH') return;
-                  // 打开分类类型选择器弹窗
+                  e.stopPropagation();
+                  e.preventDefault();
+                  setBrowserPreviewField({
+                    label: currentLabel,
+                    type: (value as number) || 1,
+                  });
+                  setBrowserPreviewVisible(true);
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: 'calc(100% - 28px)',
+                  height: '100%',
+                  zIndex: 2,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: '#1890ff',
+                  textDecoration: 'underline',
+                  paddingLeft: 8,
+                  fontSize: 13,
+                }}
+                title="点击预览"
+              >
+                {currentLabel}
+              </div>
+              <Select
+                value={value}
+                size="small"
+                onChange={(val) => {
+                  handleDetailFieldChange(index, 'fieldType', val);
+                  const dbType = getDbTypeByFieldType(htmlType, val);
+                  handleDetailFieldChange(index, 'fieldDbType', dbType);
+                }}
+                style={{ width: '100%', opacity: 0 }}
+                bordered={false}
+                disabled={record.isSystemField === 1 || !htmlType}
+                suffixIcon={null}
+              >
+                {options}
+              </Select>
+              {/* 箭头区域覆盖层：仅点击向下箭头才弹出类型选择弹窗 */}
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
                   setPickerContext({
                     index,
                     isDetail: true,
@@ -1510,27 +1591,21 @@ const TableDesign: React.FC = () => {
                 style={{
                   position: 'absolute',
                   top: 0,
-                  left: 0,
-                  width: 'calc(100% - 24px)',
+                  right: 0,
+                  width: 28,
                   height: '100%',
-                  zIndex: 1,
+                  zIndex: 2,
                   cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#999',
+                  background: '#fff',
                 }}
-              />
-              <Select
-                value={value}
-                size="small"
-                onChange={(val) => {
-                  handleDetailFieldChange(index, 'fieldType', val);
-                  const dbType = getDbTypeByFieldType(htmlType, val);
-                  handleDetailFieldChange(index, 'fieldDbType', dbType);
-                }}
-                style={{ width: '100%' }}
-                bordered={false}
-                disabled={record.isSystemField === 1 || !htmlType}
+                title="点击选择浏览按钮类型"
               >
-                {options}
-              </Select>
+                <DownOutlined />
+              </div>
             </div>
           );
         }
