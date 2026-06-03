@@ -15,25 +15,11 @@ export default [
     path: '/user',
     layout: false,
     routes: [
-      // {
-      //   path: '/user',
-      //   redirect: '/user/login',
-      // },
       {
         name: 'login',
         path: '/user/login',
         component: './Login/Login',
       },
-      // {
-      //   name: 'register',
-      //   path: '/user/register',
-      //   component: './Login/Register',
-      // },
-      // {
-      //   name: 'register-result',
-      //   path: '/user/register-result',
-      //   component: './Login/RegisterResult',
-      // },
     ],
   },
   {
@@ -43,7 +29,8 @@ export default [
       {
         path: '/',
         redirect: '/welcome',
-      },      // 通配符路由，直接指向404页面
+      },
+      // 通配符路由，直接指向404页面
       {
         path: '/*',
         component: './exception/404',
