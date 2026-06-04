@@ -111,7 +111,7 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ selectedField }) => {
         size="small"
       >
         {/* 基本属性 */}
-        <Divider orientation="left" plain style={{ fontSize: 12 }}>基本属性</Divider>
+        <Divider titlePlacement="left" plain style={{ fontSize: 12 }}>基本属性</Divider>
 
         <Form.Item label="字段标签" name="fieldLabel">
           <Input placeholder="请输入字段标签" />
@@ -139,7 +139,7 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ selectedField }) => {
         </Row>
 
         {/* 显示属性 */}
-        <Divider orientation="left" plain style={{ fontSize: 12 }}>显示属性</Divider>
+        <Divider titlePlacement="left" plain style={{ fontSize: 12 }}>显示属性</Divider>
 
         <Form.Item label="默认值" name="defaultValue">
           <Input placeholder="请输入默认值" />
@@ -160,7 +160,7 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ selectedField }) => {
         {/* 选项列表（下拉框/单选框/复选框专用） */}
         {showOptions && (
           <>
-            <Divider orientation="left" plain style={{ fontSize: 12 }}>
+            <Divider titlePlacement="left" plain style={{ fontSize: 12 }}>
               选项列表
               <a onClick={addOption} style={{ marginLeft: 8, fontSize: 12 }}>
                 <PlusOutlined /> 添加
@@ -196,7 +196,7 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ selectedField }) => {
         )}
 
         {/* 验证规则（参照迁移文档 §6） */}
-        <Divider orientation="left" plain style={{ fontSize: 12 }}>
+        <Divider titlePlacement="left" plain style={{ fontSize: 12 }}>
           验证规则（§6 数据验证迁移）
         </Divider>
 

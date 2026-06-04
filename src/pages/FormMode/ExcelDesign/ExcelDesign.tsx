@@ -113,25 +113,25 @@ const ExcelDesignContent: React.FC = () => {
   // ──────────────────────────────────────────────
   const handleFieldSelect = useCallback((field: any) => {
     // 判断字段来源：来自后端表单字段 vs 静态字段类型
-    // FieldDefinition 特征：有 fieldName 和 fieldLabel 属性（后端字段）
+    // FieldDefinition 特征：有 id、fieldName 和 fieldLabel 属性（后端字段）
     // 静态字段特征：有 label 和 type 属性
-    const isFormField = field.type === 'formField' || field.fieldId || (field.fieldName && field.fieldLabel);
+    const isFormField = !!(field.fieldName && field.fieldLabel) || field.type === 'formField';
 
     // 构造完整的 pendingField 对象
     const pending = {
       ...field,
-      // 字段ID：后端字段用 fieldId 或 id，静态类型用 type
-      id: isFormField ? (field.fieldId || field.id) : (field.id || field.type),
+      // 字段ID：后端字段用 id，静态类型用 type 或生成的 ID
+      id: field.id || field.fieldId || `static_${field.type}_${Date.now()}`,
       // 字段名称（数据库字段名）
-      fieldName: isFormField ? field.fieldName : (field.name || field.type),
-      // 字段标签（显示名称）
-      fieldLabel: isFormField ? field.fieldLabel : (field.label || field.type),
+      fieldName: field.fieldName || field.name || field.type || 'unknown',
+      // 字段标签（显示名称）- 添加默认值防止 undefined
+      fieldLabel: field.fieldLabel || field.label || field.fieldName || field.type || '未命名字段',
       // 字段类型：后端字段用 fieldHtmlType/fieldType，静态类型用 type
       fieldHtmlType: field.fieldHtmlType || 1,
       fieldType: field.fieldType || 1,
       // 兼容旧代码
-      type: isFormField ? 'formField' : field.type,
-      label: isFormField ? field.fieldLabel : (field.label || field.type),
+      type: isFormField ? 'formField' : (field.type || 'unknown'),
+      label: field.fieldLabel || field.label || field.fieldName || '未命名字段',
       // 其他属性
       required: false,
       readonly: false,

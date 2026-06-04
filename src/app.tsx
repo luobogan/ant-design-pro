@@ -63,12 +63,20 @@ let extraRoutes: any[] = [];
 export function patchClientRoutes({ routes }: { routes: any }) {
   const routerIndex = routes.findIndex((item: RouteItem) => item.path === '/');
   const parentId = routes[routerIndex].id;
-  if (extraRoutes) {
-    Object.assign(routes[routerIndex], { routes: [] }, { children: [] });
+  if (extraRoutes?.length > 0) {
+    // 只初始化一次，避免重复挂载
+    if (!routes[routerIndex].children) {
+      routes[routerIndex].children = [];
+    }
     const x = loopMenuItem(extraRoutes, parentId);
-    routes[routerIndex].routes.push(...x);
-    routes[routerIndex].children.push(...x);
-    console.log(`test:  ${routes}`);
+    // 只挂载到 children，不要同时 push 到 routes 和 children（会导致 key 重复）
+    const existingPaths = new Set(routes[routerIndex].children.map((r: any) => r.path));
+    x.forEach((r: any) => {
+      if (!existingPaths.has(r.path)) {
+        routes[routerIndex].children.push(r);
+      }
+    });
+    console.log('patchClientRoutes: 已挂载动态路由', routes[routerIndex].children.length);
   }
 }
 

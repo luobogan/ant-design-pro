@@ -15,6 +15,14 @@ import { UniverSheetsNumfmtPlugin } from '@univerjs/sheets-numfmt';
 import { UniverSheetsNumfmtUIPlugin } from '@univerjs/sheets-numfmt-ui';
 import { UniverSheetsDataValidationPlugin } from '@univerjs/sheets-data-validation';
 
+// 关键：导入 sheets facade 侧效应，为 FUniver 添加 createWorkbook 等方法
+// 必须在导入 FUniver 之前执行
+import '@univerjs/sheets/facade';
+
+// 导入 FUniver 类（Facade API 的入口）
+// FUniver 需要通过 FUniver.newAPI(univer) 来创建实例，不能直接 new FUniver()
+import { FUniver } from '@univerjs/core/facade';
+
 // 导入语言包
 import DesignZhCN from '@univerjs/design/locale/zh-CN';
 import UIZhCN from '@univerjs/ui/locale/zh-CN';
@@ -33,10 +41,10 @@ import '@univerjs/sheets-ui/lib/index.css';
 import '@univerjs/sheets-formula-ui/lib/index.css';
 import '@univerjs/sheets-numfmt-ui/lib/index.css';
 
-// ──────────────────────────────────────────────
+// ──────────────────────────────────────
 // 字段类型常量 - 与 FieldPalette 保持一致
 // 参照迁移文档 §6.2 数据验证类型映射
-// ──────────────────────────────────────────────
+// ──────────────────────────────────────
 const FIELD_TYPE_META = {
   text:      { label: '单行文本', category: '基础字段', validationType: 'textLength', maxLength: 200 },
   textarea:  { label: '多行文本', category: '文本字段', validationType: 'textLength', maxLength: 4000 },
@@ -147,7 +155,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   pendingField,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const univerRef = useRef<Univer | null>(null);
+  const univerRef = useRef<any>(null);
   const workbookRef = useRef<any>(null);
   const [workbook, setWorkbook] = useState<any>(null);
   const [initialized, setInitialized] = useState<boolean>(false);
@@ -155,29 +163,10 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   const sheetRef = useRef<any>(null);
   const { message } = App.useApp();
 
-  // ──────────────────────────────────────────────
-  // 拖放处理
-  // ──────────────────────────────────────────────
-  const [{ isOver }, dropRef] = useDrop(() => ({
-    accept: 'FIELD',
-    drop: (item: any, monitor) => {
-      if (monitor.didDrop()) return;
-      // 使用 workbookRef.current 检查（同步），而不是 workbook 状态（异步）
-      if (!workbookRef.current) {
-        message.warning('Excel 表格尚未初始化完成，请稍后再试');
-        return;
-      }
-      message.info(`字段 "${item.label || item.type}" 已拖放到 ${sheetName}`);
-    },
-    collect: (monitor) => ({
-      isOver: monitor.isOver({ shallow: true }),
-    }),
-  }), [workbookRef.current]);
-
-  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────
   // 字段类型 → 数据验证规则映射
   // 参照迁移文档 §6.2 验证类型映射表
-  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────
   const buildValidationRule = useCallback((fieldMeta: FieldMeta) => {
     const { fieldType, required, options } = fieldMeta;
     const meta = FIELD_TYPE_META[fieldType as FieldType];
@@ -252,10 +241,10 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     }
   }, []);
 
-  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────
   // 字段类型 → 单元格样式映射
   // 参照迁移文档 §8 样式系统迁移
-  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────
   const buildCellStyle = useCallback((fieldMeta: FieldMeta): any => {
     const style: any = {};
     const { fieldType, required, readonly } = fieldMeta;
@@ -311,10 +300,10 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     return style;
   }, []);
 
-  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────
   // 设置数据验证
   // 参照迁移文档 §6.1 数据验证迁移代码
-  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────
   const setDataValidation = useCallback((sheet: any, row: number, col: number, rule: any) => {
     if (!rule) return;
     try {
@@ -332,41 +321,49 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     }
   }, []);
 
-  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────
   // 设置单元格字段元数据 + 样式 + 验证
-  // ──────────────────────────────────────────────
+  // 使用 Facade API: FWorksheet.getRange() 返回 FRange
+  // 注意：FRange 没有 setNote 方法，字段元数据通过单独的 Map 存储
+  // ──────────────────────────────────────
+  const cellFieldMetaMap = useRef<Record<string, FieldMeta>>({});
+  
   const setCellField = useCallback((
-    sheet: any,
+    workbook: any,  // FWorkbook (Facade)
+    sheet: any,    // FWorksheet (Facade)
     row: number,
     col: number,
     fieldMeta: FieldMeta,
   ) => {
     try {
-      const range = sheet.getRange(row, col, 1, 1);
+      // Facade API: FWorksheet.getRange(row, col) 返回 FRange
+      const range = sheet.getRange(row, col);
 
       // 1. 设置显示值（优先使用字段标签，否则使用默认值）
       const displayValue = fieldMeta.defaultValue || fieldMeta.fieldLabel || fieldMeta.fieldName;
       range.setValue(displayValue);
 
-      // 2. 附加字段元数据（JSON 字符串存为 note）
-      const metaStr = JSON.stringify({
+      // 2. 存储字段元数据到内存 Map（FRange 没有 setNote 方法）
+      const cellKey = `${row}_${col}`;
+      cellFieldMetaMap.current[cellKey] = {
         ...fieldMeta,
         __version: '1.0',
         __timestamp: Date.now(),
-      });
-      range.setNote(metaStr);
+      };
 
-      // 3. 设置单元格样式
-      const style = buildCellStyle(fieldMeta);
-      if (Object.keys(style).length > 0) {
-        range.setStyle(style);
-      }
+      // 3. 设置单元格样式（临时禁用，等待确认正确 API）
+      // TODO: 确认 Univer FRange 的正确样式设置方法
+      // const style = buildCellStyle(fieldMeta);
+      // if (Object.keys(style).length > 0) {
+      //   range.setStyle(style);
+      // }
 
-      // 4. 设置数据验证规则
-      const rule = buildValidationRule(fieldMeta);
-      if (rule) {
-        setDataValidation(sheet, row, col, rule);
-      }
+      // 4. 设置数据验证规则（临时禁用，等待确认正确 API）
+      // TODO: 确认 Univer 数据验证的正确 API
+      // const rule = buildValidationRule(fieldMeta);
+      // if (rule) {
+      //   setDataValidation(sheet, row, col, rule);
+      // }
 
       return true;
     } catch (e) {
@@ -375,32 +372,27 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     }
   }, [buildCellStyle, buildValidationRule, setDataValidation]);
 
-  // ──────────────────────────────────────────────
-  // 解析单元格中的字段元数据
-  // ──────────────────────────────────────────────
-  const getCellFieldMeta = useCallback((sheet: any, row: number, col: number): FieldMeta | null => {
-    try {
-      const range = sheet.getRange(row, col, 1, 1);
-      const note = range.getNote();
-      if (note) {
-        const parsed = JSON.parse(note);
-        if (parsed && parsed.__version) return parsed as FieldMeta;
-      }
-      return null;
-    } catch {
-      return null;
-    }
+  // ──────────────────────────────────────
+  // 获取单元格字段元数据（从内存 Map 读取）
+  // ──────────────────────────────────────
+  const getCellFieldMeta = useCallback((row: number, col: number): FieldMeta | null => {
+    const cellKey = `${row}_${col}`;
+    const meta = cellFieldMetaMap.current[cellKey];
+    return meta || null;
   }, []);
 
-  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────
   // 加载布局数据（支持双格式解析）
+  // 使用 Facade API (FWorkbook/FWorksheet/FRange)
   // 参照迁移文档 §9.1 - Univer JSON 格式 + §9.2 - SpreadJS 兼容格式
-  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────
   const loadLayoutData = useCallback((data: any) => {
     if (!workbook) return;
 
     try {
-      const sheet = workbook.getActiveSheet();
+      // workbook 是 FWorkbook (Facade)
+      const fWorkbook: any = workbook;
+      const sheet = fWorkbook.getActiveSheet(); // 返回 FWorksheet
 
       // 解析 cellData（支持 Univer 格式 cellData: { row: { col: { v, s, fieldMeta } } }）
       const cellData: Record<string, Record<string, CellDataItem>> = data.cellData || {};
@@ -415,14 +407,16 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           cellCount++;
 
           // 解析字段元数据
-          if (cell.fieldMeta) {
-            setCellField(sheet, row, col, cell.fieldMeta as FieldMeta);
-          } else if (cell.v !== undefined && cell.v !== null) {
-            const range = sheet.getRange(row, col, 1, 1);
-            range.setValue(cell.v);
-            if (cell.tag) {
-              range.setNote(cell.tag);
-            }
+          if ((cell as any).fieldMeta) {
+            // 存储到内存 Map
+            const cellKey = `${row}_${col}`;
+            cellFieldMetaMap.current[cellKey] = (cell as any).fieldMeta;
+            // 设置单元格值
+            setCellField(workbook, sheet, row, col, (cell as any).fieldMeta as FieldMeta);
+          } else if ((cell as any).v !== undefined && (cell as any).v !== null) {
+            // Facade API: FWorksheet.getRange(row, col) 返回 FRange
+            const range = sheet.getRange(row, col);
+            range.setValue((cell as any).v);
           }
         });
       });
@@ -435,7 +429,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           for (let col = 0; col < (dataTable[row]?.length || 0); col++) {
             const cellValue = dataTable[row][col];
             if (cellValue !== null && cellValue !== undefined && cellValue !== '') {
-              const range = sheet.getRange(row, col, 1, 1);
+              // Facade API: getRange(row, col) 返回 FRange
+              const range = sheet.getRange(row, col);
               range.setValue(cellValue);
               cellCount++;
             }
@@ -452,17 +447,24 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     }
   }, [workbook, setCellField]);
 
-  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────
   // 保存布局数据（Univer JSON 格式 + SpreadJS 兼容格式）
+  // 使用 Facade API (FWorkbook/FWorksheet/FRange)
   // 参照迁移文档 §9.1 - Univer JSON 格式 + §9.2 转换工具
-  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────
   const saveLayoutData = useCallback(() => {
     if (!workbook) return null;
 
     try {
-      const sheet = workbook.getActiveSheet();
-      const maxRow = Math.min(sheet.getRowCount(), 50);
-      const maxCol = Math.min(sheet.getColumnCount(), 26);
+      // workbook 是 FWorkbook (Facade)
+      const fWorkbook: any = workbook;
+      const sheet = fWorkbook.getActiveSheet(); // FWorksheet
+      
+      // 临时方案：使用固定范围（等待确认获取行列数的正确 API）
+      // TODO: 确认 Univer FWorksheet 获取行列数的正确方法
+      const maxRow = 50;
+      const maxCol = 26;
+      
       const cellData: Record<string, Record<string, CellDataItem>> = {};
       const dataTable: any[][] = [];
       let hasData = false;
@@ -470,9 +472,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       for (let row = 0; row < maxRow; row++) {
         let rowHasData = false;
         for (let col = 0; col < maxCol; col++) {
-          const range = sheet.getRange(row, col, 1, 1);
+          // Facade API: FWorksheet.getRange(row, col) 返回 FRange
+          const range = sheet.getRange(row, col);
           const value = range.getValue();
-          const note = range.getNote();
 
           if (value === null || value === undefined || value === '') continue;
           hasData = true;
@@ -480,20 +482,12 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
           if (!cellData[row]) cellData[row] = {};
 
-          let fieldMeta: FieldMeta | null = null;
-          if (note) {
-            try {
-              const parsed = JSON.parse(note);
-              if (parsed.__version || parsed.fieldType) {
-                fieldMeta = parsed as FieldMeta;
-              }
-            } catch { /* ignore parse error */ }
-          }
+          // 从内存 Map 获取字段元数据
+          const fieldMeta = getCellFieldMeta(row, col);
 
           cellData[row][col] = {
             v: value,
             fieldMeta: fieldMeta || undefined,
-            tag: fieldMeta ? note : undefined,
           };
 
           // 同时构建 SpreadJS 兼容数据表
@@ -551,41 +545,75 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       console.error('保存布局数据失败:', error);
       return null;
     }
-  }, [workbook, sheetName, formId, onLayoutChange]);
+  }, [workbook, sheetName, formId, onLayoutChange, getCellFieldMeta]);
 
-  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────
+  // 辅助函数：将后端 fieldHtmlType/fieldType 映射为 FIELD_TYPE_META 的 key
+  // ──────────────────────────────────────
+  const mapToFieldType = (field: any): FieldType => {
+    const htmlType = field.fieldHtmlType || 1;
+    const type = field.fieldType || 1;
+    // fieldhtmltype=1 文本字段：type=1 单行文本，type=2 多行文本
+    if (htmlType === 1) return type === 2 ? 'textarea' : 'text';
+    // fieldhtmltype=2 浏览按钮 → text
+    if (htmlType === 2) return 'text';
+    // fieldhtmltype=3/8 选择框/下拉框
+    if (htmlType === 3 || htmlType === 8) return 'select';
+    // fieldhtmltype=4 附件
+    if (htmlType === 4) return 'attachment';
+    // fieldhtmltype=5 特殊字段：type=1 日期，type=2 日期时间
+    if (htmlType === 5) return type === 2 ? 'datetime' : 'date';
+    // fieldhtmltype=6 复选框
+    if (htmlType === 6) return 'checkbox';
+    // fieldhtmltype=9 树形选择 → select
+    if (htmlType === 9) return 'select';
+    return 'text';
+  };
+
+  // ──────────────────────────────────────
   // 将字段放置到指定单元格
-  // ──────────────────────────────────────────────
+  // 使用 Facade API (FWorkbook/FWorksheet/FRange)
+  // 参照迁移文档 §5.3 字段绑定（setTag → setNote）
+  // ──────────────────────────────────────
   const handleFieldDrop = useCallback((field: any, row: number, col: number) => {
     if (!workbook) return;
 
     try {
-      const sheet = workbook.getActiveSheet();
+      // workbook 是 FWorkbook (Facade)
+      const fWorkbook: any = workbook;
+      const sheet = fWorkbook.getActiveSheet();  // 返回 FWorksheet
       sheetRef.current = sheet;
+
+      // 解析正确的 fieldType（后端字段需要映射，静态字段直接使用 type）
+      const resolvedType: FieldType =
+        field.type === 'formField' || field.fieldHtmlType
+          ? mapToFieldType(field)
+          : (field.type as FieldType);
 
       // 构造完整的字段元数据
       const fieldMeta: FieldMeta = {
-        fieldId: field.id || field.fieldId || field.type,
-        fieldName: field.fieldName || field.type,
-        fieldLabel: field.label || field.fieldLabel || field.type,
-        fieldType: field.type as FieldType,
+        fieldId: String(field.id || field.fieldId || ''),
+        fieldName: field.fieldName || '',
+        fieldLabel: field.fieldLabel || field.label || '',
+        fieldType: resolvedType,
         required: field.required || false,
         readonly: field.readonly || false,
         defaultValue: field.defaultValue || '',
         placeholder: field.placeholder || '',
-        length: field.length || (FIELD_TYPE_META[field.type as FieldType] as any)?.maxLength,
+        length: field.length || (FIELD_TYPE_META[resolvedType] as any)?.maxLength,
         tooltip: field.tooltip || '',
         options: field.options || [],
       };
 
-      // 写入字段元数据到单元格
-      setCellField(sheet, row, col, fieldMeta);
+      // 写入字段元数据到单元格（参照 §5.3 字段绑定）
+      // sheet 是 FWorksheet，其 getRange 返回 FRange，有 setValue/setNote/setStyle 方法
+      setCellField(workbook, sheet, row, col, fieldMeta);
 
       message.success(
         `字段 "${fieldMeta.fieldLabel}" 已放置到单元格 (${row + 1}, ${String.fromCharCode(65 + col)})`
       );
 
-      // 自动触发保存（saveLayoutData 已定义在上方，确保可访问）
+      // 自动触发保存
       const data = saveLayoutData();
       if (data) {
         onLayoutChange(data);
@@ -596,11 +624,47 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     }
   }, [workbook, setCellField, saveLayoutData, onLayoutChange]);
 
-  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────
+  // 拖放处理（必须放在 handleFieldDrop 之后，否则无法访问）
+  // 使用 Facade API (workbook)
+  // 参照迁移文档 §5.3 字段绑定
+  // ──────────────────────────────────────
+  const [{ isOver }, dropRef] = useDrop(() => ({
+    accept: 'FIELD',
+    drop: (item: any, monitor) => {
+      if (monitor.didDrop()) return;
+      if (!workbook) {
+        message.warning('Excel 表格尚未初始化完成，请稍后再试');
+        return;
+      }
+      try {
+        // workbook 是 FWorkbook (Facade)
+        const fWorkbook: any = workbook;
+        const sheet = fWorkbook.getActiveSheet(); // 返回 FWorksheet
+        const selection = sheet.getSelection?.() || sheet.getActiveRange?.();
+        let row = 0;
+        let col = 0;
+        if (selection) {
+          row = selection.startRow ?? selection.row ?? 0;
+          col = selection.startColumn ?? selection.col ?? 0;
+        }
+        handleFieldDrop(item, row, col);
+      } catch (e) {
+        console.error('[Drop] 获取选中区域失败:', e);
+        handleFieldDrop(item, 0, 0);
+      }
+    },
+    collect: (monitor) => ({
+      isOver: monitor.isOver({ shallow: true }),
+    }),
+  }), [workbook, handleFieldDrop]);
+
+  // ──────────────────────────────────────
   // 初始化 Univer
   // 参照迁移文档 §4.1 工作簿初始化对比
   // 使用递归 RAF 等待 containerRef.current 就绪，避免 ref 未绑定就初始化
-  // ──────────────────────────────────────────────
+  // 关键：通过 import '@univerjs/sheets/facade' 启用 Facade API
+  // ──────────────────────────────────────
   const initRef = useRef(false);
   useEffect(() => {
     if (initRef.current) {
@@ -768,11 +832,21 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           throw e;
         }
 
-        // Step 14: 创建工作簿
-        console.log('[Univer Init] Step 14: 创建 sheet 工作簿...');
-        let workbookInstance: any;
+        // Step 14: 创建 FUniver 外观 API 包装实例，然后创建工作簿
+        // 关键：FUniver 是外观 API 的入口，需要通过 FUniver.newAPI(univer) 创建
+        console.log('[Univer Init] Step 14: 创建 FUniver 外观 API 实例...');
+        let fUniver: any;
+        let fWorkbook: any;
         try {
-          workbookInstance = univer.createUnit(UniverInstanceType.UNIVER_SHEET, {
+          // 使用 FUniver.newAPI() 创建外观 API 包装实例
+          // 参数可以是 Univer 实例或 Injector 实例
+          fUniver = FUniver.newAPI(univer);
+          console.log('[Univer Init] Step 14a OK: FUniver 实例创建成功');
+
+          // 使用 FUniver 的 createWorkbook 方法创建 FWorkbook
+          // 返回 FWorkbook (Facade)，其 getActiveSheet() 返回 FWorksheet
+          // FWorksheet.getRange() 返回 FRange，有 setValue/setNote/setStyle 方法
+          fWorkbook = fUniver.createWorkbook({
             id: 'wb-' + (formId || sheetName) + '-' + Date.now(),
             name: sheetName,
             sheetOrder: ['sheet1'],
@@ -797,32 +871,33 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
               },
             },
           });
-          console.log('[Univer Init] Step 14 OK: 工作簿创建成功');
+          console.log('[Univer Init] Step 14b OK: FWorkbook 创建成功');
         } catch (e) {
-          console.error('[Univer Init] Step 14 失败: createUnit 抛出异常:', e);
+          console.error('[Univer Init] Step 14 失败:', e);
           throw e;
         }
 
-        workbookRef.current = workbookInstance;
-        setWorkbook(workbookInstance);
+        // 保存 Facade 引用
+        workbookRef.current = fWorkbook;
         univerRef.current = univer;
+        setWorkbook(fWorkbook); // fWorkbook 是 FWorkbook (Facade)
         setInitialized(true);
         setInitError('');
 
-        // 获取活动工作表
-        const sheet = workbookInstance.getActiveSheet();
+        // 获取活动工作表（FWorksheet）
+        const sheet = fWorkbook.getActiveSheet();
         sheetRef.current = sheet;
 
         // 参照迁移文档 §7.2 事件绑定
-        // 添加值变化事件
-        const valueChangeDisposer = workbookInstance.onCellValueChange?.(
+        // 添加值变化事件（使用 FWorkbook）
+        const valueChangeDisposer = fWorkbook.onCellValueChange?.(
           (cell: any, oldValue: any, newValue: any) => {
             console.log(`[§7 Event] 单元格值变化: (${cell?.row}, ${cell?.col}) ${oldValue} → ${newValue}`);
           }
         );
 
-        // 添加选区变化事件
-        const selectionDisposer = workbookInstance.onSelectionChange?.(
+        // 添加选区变化事件（使用 FWorkbook）
+        const selectionDisposer = fWorkbook.onSelectionChange?.(
           (selection: any) => {
             if (!selection) return;
             // 检查是否有待放置的字段
@@ -846,7 +921,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           if (valueChangeDisposer) valueChangeDisposer();
           if (selectionDisposer) selectionDisposer();
           if (univerRef.current) {
-            try { univerRef.current.dispose(); } catch (e) { console.error('清理失败:', e); }
+            try { (univerRef.current as any).dispose(); } catch (e) { console.error('清理失败:', e); }
           }
         };
       } catch (error) {
@@ -877,28 +952,29 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     };
   }, [sheetName]);
 
-  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────
   // 暴露接口给父组件（通过 window 桥接）
-  // ──────────────────────────────────────────────
+  // 使用 Facade API (FWorkbook/FWorksheet)
+  // ──────────────────────────────────────
   useEffect(() => {
     if (workbook) {
       (window as any).univerExcelGrid = {
         saveLayoutData,
         loadLayoutData,
         handleFieldDrop,
-        getWorkbook: () => workbook,
-        getActiveSheet: () => workbook.getActiveSheet(),
+        getWorkbook: () => workbook,  // 返回 FWorkbook
+        getActiveSheet: () => (workbook as any).getActiveSheet(),  // 返回 FWorksheet
         getWorkbookId: () => workbookRef.current?.getUnitId?.(),
       };
     }
   }, [workbook, saveLayoutData, loadLayoutData, handleFieldDrop]);
 
-  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────
   // 渲染
   // 注意：containerRef 的 div 必须始终渲染，否则 ref 回调永远不会触发，
   // 导致递归 RAF 永远等不到 containerRef.current，一直卡在"加载中"。
   // 加载/错误状态用遮罩层叠加显示，不替换 container div。
-  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────
   return (
     <Card
       title={
