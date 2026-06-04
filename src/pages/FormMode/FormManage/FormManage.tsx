@@ -1,4 +1,4 @@
-import { PlusOutlined, ReloadOutlined, DeleteOutlined, EditOutlined, EyeOutlined, SettingOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, DeleteOutlined, EditOutlined, EyeOutlined, SettingOutlined, SearchOutlined, TableOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { useNavigate } from '@umijs/max';
 import { usePageButtons } from '@/hooks/usePageButtons';
@@ -112,6 +112,11 @@ const FormManageList: React.FC = () => {
     navigate(`/formmode/formview/${record.id}`);
   };
 
+  // Excel设计
+  const handleExcelDesign = (record: FormDefinition) => {
+    navigate(`/formmode/exceldesign/ExcelDesign?formId=${record.id}&formName=${encodeURIComponent(record.formName)}`);
+  };
+
   // 删除
   const handleDelete = async (id: string) => {
     try {
@@ -210,7 +215,7 @@ const FormManageList: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 200,
+      width: 280,
       fixed: 'right',
       render: (_: any, record: FormDefinition) => (
         <Space size="small">
@@ -232,6 +237,16 @@ const FormManageList: React.FC = () => {
               onClick={() => handleEdit(record)}
             >
               编辑
+            </Button>
+          )}
+          {hasPermission('exceldesign') && (
+            <Button
+              type="link"
+              size="small"
+              icon={<TableOutlined />}
+              onClick={() => handleExcelDesign(record)}
+            >
+              Excel设计
             </Button>
           )}
           {hasPermission('formmanage_delete') && (

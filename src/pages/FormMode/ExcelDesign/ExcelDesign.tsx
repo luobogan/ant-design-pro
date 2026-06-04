@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import {
+  App,
   Button,
-  message,
   Card,
   Tabs,
   Spin,
@@ -28,10 +28,11 @@ import { saveFormLayout, getFormLayout } from '@/services/formmode/formLayoutApi
  * 集成Univer表格、字段面板、属性配置面板
  * 参照 SpreadJS迁移到Univer方案.md 实现字段元数据完整集成
  */
-const ExcelDesign: React.FC = () => {
+const ExcelDesignContent: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const formId = searchParams.get('formId');
+  const { message } = App.useApp();
 
   const [activeTab, setActiveTab] = useState<string>('Sheet1');
   const [selectedField, setSelectedField] = useState<any>(null);
@@ -111,13 +112,27 @@ const ExcelDesign: React.FC = () => {
   // 参照迁移文档 §5.3 字段绑定
   // ──────────────────────────────────────────────
   const handleFieldSelect = useCallback((field: any) => {
+    // 判断字段来源：来自后端表单字段 vs 静态字段类型
+    // FieldDefinition 特征：有 fieldName 和 fieldLabel 属性（后端字段）
+    // 静态字段特征：有 label 和 type 属性
+    const isFormField = field.type === 'formField' || field.fieldId || (field.fieldName && field.fieldLabel);
+
     // 构造完整的 pendingField 对象
     const pending = {
       ...field,
-      id: field.id || field.type,
-      fieldName: field.fieldName || field.type,
-      fieldLabel: field.label || field.type,
-      fieldType: field.type,
+      // 字段ID：后端字段用 fieldId 或 id，静态类型用 type
+      id: isFormField ? (field.fieldId || field.id) : (field.id || field.type),
+      // 字段名称（数据库字段名）
+      fieldName: isFormField ? field.fieldName : (field.name || field.type),
+      // 字段标签（显示名称）
+      fieldLabel: isFormField ? field.fieldLabel : (field.label || field.type),
+      // 字段类型：后端字段用 fieldHtmlType/fieldType，静态类型用 type
+      fieldHtmlType: field.fieldHtmlType || 1,
+      fieldType: field.fieldType || 1,
+      // 兼容旧代码
+      type: isFormField ? 'formField' : field.type,
+      label: isFormField ? field.fieldLabel : (field.label || field.type),
+      // 其他属性
       required: false,
       readonly: false,
       defaultValue: '',
@@ -132,7 +147,7 @@ const ExcelDesign: React.FC = () => {
     // 挂载到 window 供 UniverExcelGrid 内部通过事件访问
     (window as any).__pendingField = pending;
 
-    message.info(`已选中字段 "${field.label}"，请点击 Excel 单元格放置`);
+    message.info(`已选中字段 "${pending.fieldLabel}"，请点击 Excel 单元格放置`);
   }, []);
 
   // ──────────────────────────────────────────────
@@ -273,7 +288,7 @@ const ExcelDesign: React.FC = () => {
           <div style={{ display: 'flex', height: 'calc(100vh - 200px)' }}>
             {/* 左侧字段面板 */}
             <div style={{ width: 250, borderRight: '1px solid #f0f0f0', overflow: 'auto' }}>
-              <FieldPalette onFieldSelect={handleFieldSelect} />
+              <FieldPalette onFieldSelect={handleFieldSelect} formId={formId || undefined} />
             </div>
 
             {/* 中间 Univer Excel 区域 */}
@@ -293,5 +308,11 @@ const ExcelDesign: React.FC = () => {
     </DndProvider>
   );
 };
+
+const ExcelDesign: React.FC = () => (
+  <App>
+    <ExcelDesignContent />
+  </App>
+);
 
 export default ExcelDesign;

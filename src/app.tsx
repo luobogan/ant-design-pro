@@ -133,13 +133,18 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
               const formattedPath1 = Func.formatRoutePath(item1.path);
               const pathParts1 = formattedPath1.split('/').filter(Boolean);
               const lastSegment = pathParts1[pathParts1.length - 1];
+              const parentPath = pathParts1.slice(0, -1).join('/');
               const componentName = `${toPascalCase(page)}${toPascalCase(lastSegment)}`;
-              console.log(`按钮组件路径：./pages/${module}/${page}/${componentName}.tsx`);
+              // 构建 PascalCase 路径：/formmode/exceldesign → ./pages/FormMode/ExcelDesign/ExcelDesign.tsx
+              const pascalPath = pathParts1.map(p => toPascalCase(p)).join('/');
+              const importPath = `./pages/${pascalPath}.tsx`;
+              //  debugger;
+              console.log(`按钮组件路径：${importPath}`);
 
               const ButtonComponent = React.lazy(
                 () =>
                   new Promise((resolve, _reject) => {
-                    import(`./pages/${module}/${page}/${componentName}.tsx`)
+                    import(`./pages/${pascalPath}.tsx`)
                       .then((mod) => resolve(mod))
                       .catch((error) => {
                         console.error('组件导入错误:', error);

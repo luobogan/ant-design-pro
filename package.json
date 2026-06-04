@@ -73,7 +73,6 @@
     "@univerjs/sheets-numfmt-ui": "^0.25.0",
     "@univerjs/sheets-ui": "^0.25.0",
     "@univerjs/ui": "^0.25.0",
-    "antd": "^6.3.7",
     "antd-style": "^4.1.0",
     "classnames": "^2.5.1",
     "clsx": "^2.1.1",
@@ -123,7 +122,6 @@
     "@types/node": "^25.9.1",
     "@types/js-base64": "^3.3.1",
     "@types/lodash": "^4.17.10",
-    "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/react-helmet": "^6.1.11",
@@ -150,8 +148,7 @@
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3",
     "umi-presets-pro": "^2.0.3",
-    "umi-serve": "^1.9.11"
-    "typescript": "^6.0.3",
+    "umi-serve": "^1.9.11",
     "vitest": "4.1.8"
   },
   "engines": {

@@ -1,46 +1,74 @@
-import React from 'react';
-import { Card, Input, Tree, Badge } from 'antd';
+import React, { useEffect, useState } from 'react';
+import { Card, Input, Tree, Badge, Spin } from 'antd';
 import { useDrag } from 'react-dnd';
 import {
   FontSizeOutlined,
-  NumberOutlined,
+  EditOutlined,
   CalendarOutlined,
   DownOutlined,
   CheckSquareOutlined,
-  RadiusBottomleftOutlined,
-  FileTextOutlined,
   PaperClipOutlined,
-  EditOutlined,
-  GroupOutlined,
-  NodeIndexOutlined,
-  HighlightOutlined,
+  TableOutlined,
+  UnorderedListOutlined,
+  NumberOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
+import { fieldDefinitionApi } from '@/services/formmode';
+import type { FieldDefinition } from '@/services/formmode/typings';
 
 /**
  * 字段面板组件
- * 显示可拖拽的字段类型
- * 参照迁移文档 §4.3 单元格操作 API 映射 + §6 数据验证类型
+ * 显示表单的主表字段和明细表字段
+ * 支持从后端加载字段定义
  */
 
-interface FieldType {
-  type: string;
-  label: string;
-  icon: React.ReactNode;
-  category: string;
-}
+// 根据字段HTML类型和详细类型获取图标
+const getFieldIcon = (field: FieldDefinition): React.ReactNode => {
+  const { fieldHtmlType, fieldType } = field;
+
+  // fieldhtmltype=1 文本字段
+  if (fieldHtmlType === 1) {
+    if (fieldType === 1) return <FontSizeOutlined />;  // 单行文本
+    if (fieldType === 2) return <EditOutlined />;       // 多行文本
+    return <FontSizeOutlined />;
+  }
+  // fieldhtmltype=2 浏览按钮
+  if (fieldHtmlType === 2) return <TableOutlined />;
+  // fieldhtmltype=3 选择框
+  if (fieldHtmlType === 3) return <DownOutlined />;
+  // fieldhtmltype=4 附件
+  if (fieldHtmlType === 4) return <PaperClipOutlined />;
+  // fieldhtmltype=5 特殊字段（日期、时间）
+  if (fieldHtmlType === 5) return <CalendarOutlined />;
+  // fieldhtmltype=6 复选框
+  if (fieldHtmlType === 6) return <CheckSquareOutlined />;
+  // fieldhtmltype=8 下拉选择框
+  if (fieldHtmlType === 8) return <DownOutlined />;
+  // fieldhtmltype=9 树形选择
+  if (fieldHtmlType === 9) return <UnorderedListOutlined />;
+
+  return <FontSizeOutlined />;
+};
 
 // 可拖拽的字段项组件
 const DraggableFieldItem: React.FC<{
-  field: FieldType;
+  field: FieldDefinition;
   onFieldSelect: (field: any) => void;
 }> = ({ field, onFieldSelect }) => {
   const [{ isDragging }, dragRef] = useDrag(() => ({
     type: 'FIELD',
-    item: field,
+    item: {
+      type: 'formField',
+      fieldId: field.id,
+      fieldName: field.fieldName,
+      fieldLabel: field.fieldLabel,
+      fieldHtmlType: field.fieldHtmlType,
+      fieldType: field.fieldType,
+    },
     collect: (monitor) => ({
       isDragging: monitor.isDragging(),
     }),
-  }));
+  }), [field]);
 
   return (
     <div
@@ -53,121 +81,172 @@ const DraggableFieldItem: React.FC<{
         padding: '4px 8px',
         borderRadius: 4,
         transition: 'background-color 0.2s',
+        fontSize: '13px',
       }}
       onClick={() => onFieldSelect(field)}
       onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f5f5f5')}
       onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
     >
-      <span style={{ marginRight: 8 }}>{field.icon}</span>
-      <span>{field.label}</span>
+      <span style={{ marginRight: 8, color: '#1890ff' }}>{getFieldIcon(field)}</span>
+      <span>{field.fieldLabel}</span>
+      <span style={{ marginLeft: 4, color: '#999', fontSize: '12px' }}>({field.fieldName})</span>
     </div>
   );
 };
 
 interface FieldPaletteProps {
   onFieldSelect: (field: any) => void;
+  formId?: string;
 }
 
-const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect }) => {
-  const [searchText, setSearchText] = React.useState('');
+const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, formId }) => {
+  const [searchText, setSearchText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [fields, setFields] = useState<FieldDefinition[]>([]);
+  const [mainTableFields, setMainTableFields] = useState<FieldDefinition[]>([]);
+  const [detailTableFields, setDetailTableFields] = useState<Record<number, FieldDefinition[]>>({});
 
-  // 参照迁移文档 §6.2 支持的验证类型 - 完整字段类型列表
-  const fieldTypes: FieldType[] = [
-    { type: 'text', label: '单行文本', icon: <FontSizeOutlined />, category: '基础字段' },
-    { type: 'number', label: '数字', icon: <NumberOutlined />, category: '基础字段' },
-    { type: 'wholeNumber', label: '整数', icon: <NodeIndexOutlined />, category: '基础字段' },
-    { type: 'date', label: '日期', icon: <CalendarOutlined />, category: '基础字段' },
-    { type: 'datetime', label: '日期时间', icon: <CalendarOutlined />, category: '基础字段' },
-    { type: 'select', label: '下拉框', icon: <DownOutlined />, category: '选择字段' },
-    { type: 'checkbox', label: '复选框', icon: <CheckSquareOutlined />, category: '选择字段' },
-    { type: 'radio', label: '单选框', icon: <RadiusBottomleftOutlined />, category: '选择字段' },
-    { type: 'textarea', label: '多行文本', icon: <EditOutlined />, category: '文本字段' },
-    { type: 'richtext', label: '富文本', icon: <FileTextOutlined />, category: '文本字段' },
-    { type: 'attachment', label: '附件', icon: <PaperClipOutlined />, category: '高级字段' },
-    { type: 'custom', label: '自定义', icon: <HighlightOutlined />, category: '高级字段' },
-    { type: 'group', label: '分组框', icon: <GroupOutlined />, category: '布局字段' },
-  ];
+  // 加载表单字段
+  useEffect(() => {
+    if (!formId) {
+      setFields([]);
+      setMainTableFields([]);
+      setDetailTableFields({});
+      return;
+    }
 
-  const treeData = [
-    {
-      title: '基础字段',
-      key: 'group-base',
-      children: fieldTypes
-        .filter(f => f.category === '基础字段')
-        .map(f => ({
-          title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} />,
-          key: 'field-' + f.type,
-        })),
-    },
-    {
-      title: '选择字段',
-      key: 'group-select',
-      children: fieldTypes
-        .filter(f => f.category === '选择字段')
-        .map(f => ({
-          title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} />,
-          key: 'field-' + f.type,
-        })),
-    },
-    {
-      title: '文本字段',
-      key: 'group-text',
-      children: fieldTypes
-        .filter(f => f.category === '文本字段')
-        .map(f => ({
-          title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} />,
-          key: 'field-' + f.type,
-        })),
-    },
-    {
-      title: '高级字段',
-      key: 'group-advanced',
-      children: fieldTypes
-        .filter(f => f.category === '高级字段' || f.category === '布局字段')
-        .map(f => ({
-          title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} />,
-          key: 'field-' + f.type,
-        })),
-    },
-  ];
+    const loadFields = async () => {
+      setLoading(true);
+      try {
+        const data = await fieldDefinitionApi.getByFormId(formId);
+        if (data) {
+          setFields(data);
 
-  const filteredTreeData = searchText
-    ? treeData
-        .map(group => ({
-          ...group,
-          children: group.children?.filter((child: any) => {
-            const fieldType = fieldTypes.find(ft => 'field-' + ft.type === child.key);
-            return fieldType ? fieldType.label.includes(searchText) : true;
-          }),
-        }))
-        .filter(group => group.children && group.children.length > 0)
-    : treeData;
+          // 分离主表字段和明细表字段
+          const mainFields = data.filter(f => f.isMain === 1 || f.detailTable === 0 || f.detailTable === undefined);
+          const detailFields: Record<number, FieldDefinition[]> = {};
+
+          data.forEach(f => {
+            if (f.isMain === 0 && f.detailTable && f.detailTable > 0) {
+              if (!detailFields[f.detailTable]) {
+                detailFields[f.detailTable] = [];
+              }
+              detailFields[f.detailTable].push(f);
+            }
+          });
+
+          setMainTableFields(mainFields);
+          setDetailTableFields(detailFields);
+        }
+      } catch (error) {
+        console.error('[FieldPalette] 加载字段失败:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadFields();
+  }, [formId]);
+
+  // 构建树形数据
+  const buildTreeData = () => {
+    const groups: any[] = [];
+
+    // 主表字段
+    if (mainTableFields.length > 0) {
+      const filteredMain = searchText
+        ? mainTableFields.filter(f =>
+            f.fieldLabel.includes(searchText) || f.fieldName.includes(searchText)
+          )
+        : mainTableFields;
+
+      if (filteredMain.length > 0) {
+        groups.push({
+          title: `主表字段 (${filteredMain.length})`,
+          key: 'group-main',
+          children: filteredMain.map(f => ({
+            title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} />,
+            key: 'field-' + f.id,
+          })),
+        });
+      }
+    }
+
+    // 明细表字段
+    Object.keys(detailTableFields).forEach(detailTableNum => {
+      const num = Number(detailTableNum);
+      const fields = detailTableFields[num];
+      const filtered = searchText
+        ? fields.filter(f =>
+            f.fieldLabel.includes(searchText) || f.fieldName.includes(searchText)
+          )
+        : fields;
+
+      if (filtered.length > 0) {
+        groups.push({
+          title: `明细表${num} (${filtered.length})`,
+          key: `group-detail-${num}`,
+          children: filtered.map(f => ({
+            title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} />,
+            key: 'field-' + f.id,
+          })),
+        });
+      }
+    });
+
+    return groups;
+  };
+
+  const treeData = buildTreeData();
+
+  const totalCount = mainTableFields.length + Object.values(detailTableFields).reduce((sum, arr) => sum + arr.length, 0);
+
+  if (!formId) {
+    return (
+      <Card
+        title="字段面板"
+        size="small"
+        style={{ height: '100%', overflow: 'auto' }}
+      >
+        <div style={{ textAlign: 'center', color: '#999', padding: '20px 0' }}>
+          请先选择表单
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card
       title={
         <span>
-          <Badge count={fieldTypes.length} showZero={false} size="small" offset={[6, 0]}>
+          <Badge count={totalCount} showZero={false} size="small" offset={[6, 0]}>
             字段面板
           </Badge>
         </span>
       }
       size="small"
       style={{ height: '100%', overflow: 'auto' }}
+      extra={loading ? <Spin size="small" /> : null}
     >
       <Input
-        placeholder="搜索字段类型"
+        placeholder="搜索字段（名称/标识）"
         value={searchText}
         onChange={e => setSearchText(e.target.value)}
         style={{ marginBottom: 16 }}
         allowClear
       />
-      <Tree
-        treeData={filteredTreeData}
-        defaultExpandAll
-        showIcon={false}
-        switcherIcon={<DownOutlined />}
-      />
+      {treeData.length > 0 ? (
+        <Tree
+          treeData={treeData}
+          defaultExpandAll
+          showIcon={false}
+          switcherIcon={<DownOutlined />}
+        />
+      ) : (
+        <div style={{ textAlign: 'center', color: '#999', padding: '20px 0' }}>
+          {loading ? '加载中...' : '暂无字段数据'}
+        </div>
+      )}
     </Card>
   );
 };
