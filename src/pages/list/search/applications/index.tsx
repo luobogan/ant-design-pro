@@ -24,7 +24,8 @@ import { categoryOptions } from '../../mock';
 import type { ListItemDataType } from './data.d';
 import { queryFakeList } from './service';
 import useStyles from './style.style';
-export function formatWan(val: number) {
+
+function formatWan(val: number) {
   const v = val * 1;
   if (!v || Number.isNaN(v)) return '';
   let result: React.ReactNode = val;
@@ -76,7 +77,7 @@ const CardInfo: React.FC<{
     </div>
   );
 };
-export const Applications: FC<Record<string, any>> = () => {
+const Applications: FC<Record<string, any>> = () => {
   const { styles } = useStyles();
   const {
     data,
@@ -111,21 +112,18 @@ export const Applications: FC<Record<string, any>> = () => {
           >
             <Form.Item name="category">
               <TagSelect expandable>
-                {categoryOptions
-                  .filter(
-                    (
-                      category,
-                    ): category is { value: string | number; label: string } =>
-                      category.value !== undefined && category.value !== null,
-                  )
-                  .map((category) => (
-                    <TagSelect.Option
-                      value={category.value}
-                      key={category.value}
-                    >
-                      {category.label}
-                    </TagSelect.Option>
-                  ))}
+                {categoryOptions.flatMap((category) =>
+                  category.value !== undefined && category.value !== null
+                    ? [
+                        <TagSelect.Option
+                          value={category.value}
+                          key={category.value}
+                        >
+                          {category.label}
+                        </TagSelect.Option>,
+                      ]
+                    : [],
+                )}
               </TagSelect>
             </Form.Item>
           </StandardFormRow>

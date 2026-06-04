@@ -156,21 +156,18 @@ const Articles: FC = () => {
           <StandardFormRow title="所属类目" block style={{ paddingBottom: 11 }}>
             <FormItem name="category">
               <TagSelect expandable>
-                {categoryOptions
-                  .filter(
-                    (
-                      category,
-                    ): category is { value: string | number; label: string } =>
-                      category.value !== undefined && category.value !== null,
-                  )
-                  .map((category) => (
-                    <TagSelect.Option
-                      value={category.value}
-                      key={category.value}
-                    >
-                      {category.label}
-                    </TagSelect.Option>
-                  ))}
+                {categoryOptions.flatMap((category) =>
+                  category.value !== undefined && category.value !== null
+                    ? [
+                        <TagSelect.Option
+                          value={category.value}
+                          key={category.value}
+                        >
+                          {category.label}
+                        </TagSelect.Option>,
+                      ]
+                    : [],
+                )}
               </TagSelect>
             </FormItem>
           </StandardFormRow>
@@ -183,7 +180,20 @@ const Articles: FC = () => {
                 options={ownerOptions}
               />
             </FormItem>
-            <a className={styles.selfTrigger} onClick={setOwner}>
+            <a
+              className={styles.selfTrigger}
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                setOwner();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  setOwner();
+                }
+              }}
+            >
               只看自己的
             </a>
           </StandardFormRow>

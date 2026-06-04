@@ -21,10 +21,11 @@ const Settings: ProLayoutProps & {
   // 报表设计器地址
   reportUrl?: string;
 } = {
+  navTheme: 'light',
+  colorPrimary: '#1677ff',
   // 移除硬编码的 navTheme，允许 SettingDrawer 的设置生效
   // navTheme: 'light',
   // 拂晓蓝
-  colorPrimary: '#1890ff',
   layout: 'mix',
   contentWidth: 'Fluid',
   fixedHeader: false,
