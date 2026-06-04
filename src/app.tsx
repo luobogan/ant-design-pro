@@ -9,7 +9,8 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import React from 'react';
 import { stringify } from 'qs';
-
+// Initialize dayjs plugins globally
+dayjs.extend(relativeTime);
 import {
   AvatarDropdown,
   DocLink,
@@ -300,6 +301,7 @@ export async function getInitialState(): Promise<{
   buttons?: any[];
   loading?: boolean;
   fetchUserInfo?: () => Promise<API.CurrentUser | undefined>;
+  settingDrawerOpen?: boolean;
 }> {
   const fetchUserInfo = async () => {
     try {
