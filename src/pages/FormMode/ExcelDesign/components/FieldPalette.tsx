@@ -57,13 +57,10 @@ const DraggableFieldItem: React.FC<{
 }> = ({ field, onFieldSelect }) => {
   const [{ isDragging }, dragRef] = useDrag(() => ({
     type: 'FIELD',
+    // 关键：传递完整 field 对象，确保 drop 时能获取所有属性
     item: {
+      ...field,
       type: 'formField',
-      fieldId: field.id,
-      fieldName: field.fieldName,
-      fieldLabel: field.fieldLabel,
-      fieldHtmlType: field.fieldHtmlType,
-      fieldType: field.fieldType,
     },
     collect: (monitor) => ({
       isDragging: monitor.isDragging(),

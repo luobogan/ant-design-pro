@@ -30,7 +30,7 @@ import DocsUIZhCN from '@univerjs/docs-ui/locale/zh-CN';
 import SheetsZhCN from '@univerjs/sheets/locale/zh-CN';
 import SheetsUIZhCN from '@univerjs/sheets-ui/locale/zh-CN';
 import SheetsFormulaUIZhCN from '@univerjs/sheets-formula-ui/locale/zh-CN';
-import SheetsNumfmtUIZhCN from '@univerjs/sheets-numfmt-ui/lib/es/locale/zh-CN';
+import SheetsNumfmtUIZhCN from '@univerjs/sheets-numfmt-ui/locale/zh-CN';
 import SheetsDataValidationZhCN from '@univerjs/sheets-data-validation/locale/zh-CN';
 
 // 导入样式（注意顺序：design -> ui -> 其他）
@@ -345,11 +345,12 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
       // 2. 存储字段元数据到内存 Map（FRange 没有 setNote 方法）
       const cellKey = `${row}_${col}`;
-      cellFieldMetaMap.current[cellKey] = {
+      const metaWithVersion = {
         ...fieldMeta,
-        __version: '1.0',
+        __version: '1.0' as const,
         __timestamp: Date.now(),
       };
+      cellFieldMetaMap.current[cellKey] = metaWithVersion as any;
 
       // 3. 设置单元格样式（临时禁用，等待确认正确 API）
       // TODO: 确认 Univer FRange 的正确样式设置方法
@@ -579,34 +580,47 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     if (!workbook) return;
 
     try {
-      // workbook 是 FWorkbook (Facade)
+      // 优先使用 window.__pendingField，它包含完整的字段信息
+      const actualField = (window as any).__pendingField || field;
+      
+      console.log('[handleFieldDrop] 字段信息:', {
+        fromParam: field,
+        fromWindow: (window as any).__pendingField,
+        actualField,
+      });
+      
       const fWorkbook: any = workbook;
-      const sheet = fWorkbook.getActiveSheet();  // 返回 FWorksheet
+      const sheet = fWorkbook.getActiveSheet();
       sheetRef.current = sheet;
 
       // 解析正确的 fieldType（后端字段需要映射，静态字段直接使用 type）
       const resolvedType: FieldType =
-        field.type === 'formField' || field.fieldHtmlType
-          ? mapToFieldType(field)
-          : (field.type as FieldType);
+        actualField.type === 'formField' || actualField.fieldHtmlType
+          ? mapToFieldType(actualField)
+          : (actualField.type as FieldType);
 
       // 构造完整的字段元数据
       const fieldMeta: FieldMeta = {
-        fieldId: String(field.id || field.fieldId || ''),
-        fieldName: field.fieldName || '',
-        fieldLabel: field.fieldLabel || field.label || '',
+        fieldId: String(actualField.id || actualField.fieldId || ''),
+        fieldName: actualField.fieldName || '',
+        fieldLabel: actualField.fieldLabel || actualField.label || '',
         fieldType: resolvedType,
-        required: field.required || false,
-        readonly: field.readonly || false,
-        defaultValue: field.defaultValue || '',
-        placeholder: field.placeholder || '',
-        length: field.length || (FIELD_TYPE_META[resolvedType] as any)?.maxLength,
-        tooltip: field.tooltip || '',
-        options: field.options || [],
+        required: actualField.required || false,
+        readonly: actualField.readonly || false,
+        defaultValue: actualField.defaultValue || '',
+        placeholder: actualField.placeholder || '',
+        length: actualField.length || (FIELD_TYPE_META[resolvedType] as any)?.maxLength,
+        tooltip: actualField.tooltip || '',
+        options: actualField.options || [],
       };
 
-      // 写入字段元数据到单元格（参照 §5.3 字段绑定）
-      // sheet 是 FWorksheet，其 getRange 返回 FRange，有 setValue/setNote/setStyle 方法
+      // 写入字段元数据到单元格
+      console.log('[handleFieldDrop] 准备放置字段:', {
+        fieldLabel: fieldMeta.fieldLabel,
+        row,
+        col,
+        cellKey: `${row}_${col}`,
+      });
       setCellField(workbook, sheet, row, col, fieldMeta);
 
       message.success(
@@ -625,6 +639,64 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   }, [workbook, setCellField, saveLayoutData, onLayoutChange]);
 
   // ──────────────────────────────────────
+  // 获取鼠标位置对应的单元格坐标
+  // 简化方案：直接使用容器 Ref 计算相对位置
+  // ──────────────────────────────────────
+  const getCellFromMouseEvent = useCallback((clientX: number, clientY: number): { row: number; col: number } => {
+    // 尝试使用新的 hitTest API（需要 Univer 0.25.0+）
+    if (workbook) {
+      try {
+        const sheet: any = workbook.getActiveSheet();
+        if (sheet && typeof sheet.hitTest === 'function') {
+          const result = sheet.hitTest(clientX, clientY);
+          if (result) {
+            console.log('[getCellFromMouseEvent] hitTest 成功:', result);
+            return result;
+          }
+        }
+      } catch (e) {
+        console.warn('[getCellFromMouseEvent] hitTest API 调用失败，使用估算方法:', e);
+      }
+    }
+    
+    // 降级方案：使用固定单元格大小估算
+    if (!containerRef.current) {
+      console.warn('[getCellFromMouseEvent] containerRef.current 为空');
+      return { row: 0, col: 0 };
+    }
+    
+    const rect = containerRef.current.getBoundingClientRect();
+    const relativeX = clientX - rect.left;
+    const relativeY = clientY - rect.top;
+    
+    console.log('[getCellFromMouseEvent] 鼠标位置 (估算):', {
+      clientX,
+      clientY,
+      rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      relativeX,
+      relativeY,
+    });
+    
+    // 使用固定单元格大小估算（Univer 默认值）
+    const defaultColWidth = 73;
+    const defaultRowHeight = 19;
+    
+    const col = Math.floor(relativeX / defaultColWidth);
+    const row = Math.floor(relativeY / defaultRowHeight);
+    
+    console.log('[getCellFromMouseEvent] 计算结果 (估算):', {
+      row,
+      col,
+      relativeX,
+      relativeY,
+      estimatedCol: Math.floor(relativeX / defaultColWidth),
+      estimatedRow: Math.floor(relativeY / defaultRowHeight),
+    });
+    
+    return { row: Math.max(0, row), col: Math.max(0, col) };
+  }, [workbook]);
+
+  // ──────────────────────────────────────
   // 拖放处理（必须放在 handleFieldDrop 之后，否则无法访问）
   // 使用 Facade API (workbook)
   // 参照迁移文档 §5.3 字段绑定
@@ -638,16 +710,25 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         return;
       }
       try {
-        // workbook 是 FWorkbook (Facade)
-        const fWorkbook: any = workbook;
-        const sheet = fWorkbook.getActiveSheet(); // 返回 FWorksheet
-        const selection = sheet.getSelection?.() || sheet.getActiveRange?.();
-        let row = 0;
-        let col = 0;
-        if (selection) {
-          row = selection.startRow ?? selection.row ?? 0;
-          col = selection.startColumn ?? selection.col ?? 0;
+        // 获取鼠标释放位置对应的单元格坐标
+        const clientOffset = monitor.getClientOffset();
+        if (!clientOffset) {
+          // 如果无法获取鼠标位置，使用当前选中区域
+          const fWorkbook: any = workbook;
+          const sheet = fWorkbook.getActiveSheet();
+          const selection = sheet.getSelection?.() || sheet.getActiveRange?.();
+          let row = 0;
+          let col = 0;
+          if (selection) {
+            row = selection.startRow ?? selection.row ?? 0;
+            col = selection.startColumn ?? selection.col ?? 0;
+          }
+          handleFieldDrop(item, row, col);
+          return;
         }
+        
+        const { row, col } = getCellFromMouseEvent(clientOffset.x, clientOffset.y);
+        console.log(`[Drop] 鼠标位置: (${clientOffset.x}, ${clientOffset.y}) -> 单元格: (${row}, ${col})`);
         handleFieldDrop(item, row, col);
       } catch (e) {
         console.error('[Drop] 获取选中区域失败:', e);
@@ -657,7 +738,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     collect: (monitor) => ({
       isOver: monitor.isOver({ shallow: true }),
     }),
-  }), [workbook, handleFieldDrop]);
+  }), [workbook, handleFieldDrop, getCellFromMouseEvent]);
 
   // ──────────────────────────────────────
   // 初始化 Univer

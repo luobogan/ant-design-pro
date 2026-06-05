@@ -112,10 +112,21 @@ const ExcelDesignContent: React.FC = () => {
   // 参照迁移文档 §5.3 字段绑定
   // ──────────────────────────────────────────────
   const handleFieldSelect = useCallback((field: any) => {
+    console.log('[handleFieldSelect] 收到字段:', field);
+    
     // 判断字段来源：来自后端表单字段 vs 静态字段类型
     // FieldDefinition 特征：有 id、fieldName 和 fieldLabel 属性（后端字段）
     // 静态字段特征：有 label 和 type 属性
-    const isFormField = !!(field.fieldName && field.fieldLabel) || field.type === 'formField';
+    const isFormField = !!(field.id && (field.fieldName || field.fieldLabel));
+
+    console.log('[handleFieldSelect] 字段类型判断:', {
+      isFormField,
+      hasId: !!field.id,
+      hasFieldName: !!field.fieldName,
+      hasFieldLabel: !!field.fieldLabel,
+      fieldLabel: field.fieldLabel,
+      label: field.label,
+    });
 
     // 构造完整的 pendingField 对象
     const pending = {
@@ -141,13 +152,20 @@ const ExcelDesignContent: React.FC = () => {
       options: [],
     };
 
+    console.log('[handleFieldSelect] 构造后的 pending:', {
+      id: pending.id,
+      fieldName: pending.fieldName,
+      fieldLabel: pending.fieldLabel,
+      type: pending.type,
+    });
+
     setPendingField(pending);
     setSelectedField(pending);
 
     // 挂载到 window 供 UniverExcelGrid 内部通过事件访问
     (window as any).__pendingField = pending;
 
-    message.info(`已选中字段 "${pending.fieldLabel}"，请点击 Excel 单元格放置`);
+    message.info(`已选中字段 "${pending.fieldLabel}"，请拖拽到 Excel 单元格`);
   }, []);
 
   // ──────────────────────────────────────────────
