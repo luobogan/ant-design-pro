@@ -1,0 +1,143 @@
+/**
+ * Copyright 2023-present DreamNum Co., Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import type { ICreateUnitOptions, Injector, IWorkbookData } from '@univerjs/core';
+import type { FWorksheet } from './f-worksheet';
+import { FUniver } from '@univerjs/core/facade';
+import { FWorkbook } from './f-workbook';
+/**
+ * @ignore
+ */
+export interface IFUniverSheetsMixin {
+    /**
+     * Create a new spreadsheet and get the API handler of that spreadsheet.
+     * @param {Partial<IWorkbookData>} data The snapshot of the spreadsheet.
+     * @param {ICreateUnitOptions} options The options of creating the spreadsheet.
+     * @returns {FWorkbook} The spreadsheet API instance.
+     * @example
+     * ```ts
+     * const fWorkbook = univerAPI.createWorkbook({ id: 'workbook-01', name: 'Workbook1' });
+     * console.log(fWorkbook);
+     * ```
+     *
+     * Add you can make the workbook not as the active workbook by setting options:
+     * ```ts
+     * const fWorkbook = univerAPI.createWorkbook({ id: 'workbook-01', name: 'Workbook1' }, { makeCurrent: false });
+     * console.log(fWorkbook);
+     * ```
+     */
+    createWorkbook(data: Partial<IWorkbookData>, options?: ICreateUnitOptions): FWorkbook;
+    /**
+     * Get the currently focused Univer spreadsheet.
+     * @returns {FWorkbook | null} The currently focused Univer spreadsheet API instance, or null if there is no active spreadsheet.
+     * @example
+     * ```ts
+     * const fWorkbook = univerAPI.getActiveWorkbook();
+     * console.log(fWorkbook);
+     * ```
+     */
+    getActiveWorkbook(): FWorkbook | null;
+    /**
+     * Get the spreadsheet API handler by the spreadsheet id.
+     * @param {string} id The spreadsheet id.
+     * @returns {FWorkbook | null} The spreadsheet API instance corresponding to the spreadsheet id, or null if not found.
+     *
+     * @example
+     * ```ts
+     * const fWorkbook = univerAPI.getWorkbook('workbook-01');
+     * console.log(fWorkbook);
+     * ```
+     */
+    getWorkbook(id: string): FWorkbook | null;
+    /**
+     * Get the target of the sheet.
+     * @param {ICommandInfo<object>} commandInfo - The commandInfo of the command.
+     * @returns {Nullable<{ workbook: FWorkbook; worksheet: FWorksheet }>} - The target of the sheet.
+     * @example
+     * ```ts
+     * univerAPI.addEvent(univerAPI.Event.CommandExecuted, (event) => {
+     *   const { options, ...commandInfo } = event;
+     *   const target = univerAPI.getSheetCommandTarget(commandInfo.params);
+     *   if (!target) return;
+     *   const { workbook, worksheet } = target;
+     *   console.log(workbook, worksheet);
+     * });
+     * ```
+     */
+    getSheetCommandTarget(params?: {
+        unitId?: string;
+        subUnitId?: string;
+        sheetId?: string;
+    }): {
+        workbook: FWorkbook;
+        worksheet: FWorksheet;
+        unitId: string;
+        subUnitId: string;
+    } | null;
+    /**
+     * Get the active sheet.
+     * @returns {Nullable<{ workbook: FWorkbook; worksheet: FWorksheet }>} The active sheet.
+     * @example
+     * ```ts
+     * const target = univerAPI.getActiveSheet();
+     * if (!target) return;
+     * const { workbook, worksheet } = target;
+     * console.log(workbook, worksheet);
+     * ```
+     */
+    getActiveSheet(): {
+        workbook: FWorkbook;
+        worksheet: FWorksheet;
+    } | null;
+    /**
+     * Set whether to enable synchronize the frozen state to other users in real-time collaboration.
+     * @param {boolean} enabled - Whether to enable freeze sync. Default is true.
+     * @example
+     * ```ts
+     * // Disable freeze sync
+     * univerAPI.setFreezeSync(false);
+     * ```
+     */
+    setFreezeSync(enabled: boolean): void;
+}
+export declare class FUniverSheetsMixin extends FUniver implements IFUniverSheetsMixin {
+    createWorkbook(data: Partial<IWorkbookData>, options?: ICreateUnitOptions): FWorkbook;
+    getActiveWorkbook(): FWorkbook | null;
+    getWorkbook(id: string): FWorkbook | null;
+    getSheetCommandTarget(params?: {
+        unitId?: string;
+        subUnitId?: string;
+        sheetId?: string;
+    }): {
+        workbook: FWorkbook;
+        worksheet: FWorksheet;
+        unitId: string;
+        subUnitId: string;
+    } | null;
+    getActiveSheet(): {
+        workbook: FWorkbook;
+        worksheet: FWorksheet;
+    } | null;
+    setFreezeSync(enabled: boolean): void;
+    /**
+     * @ignore
+     */
+    _initialize(injector: Injector): void;
+    private _initWorkbookEvent;
+}
+declare module '@univerjs/core/facade' {
+    interface FUniver extends IFUniverSheetsMixin {
+    }
+}

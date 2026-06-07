@@ -23,6 +23,25 @@ import '@univerjs/sheets/facade';
 // FUniver 需要通过 FUniver.newAPI(univer) 来创建实例，不能直接 new FUniver()
 import { FUniver } from '@univerjs/core/facade';
 
+// 关键：导入 sheets-ui facade 侧效应，为 FWorksheet 添加 hitTest 等方法
+// 这行代码会执行 FWorksheet.extend(FWorksheetUIMixin)，将 hitTest 方法添加到 FWorksheet 原型上
+import '@univerjs/sheets-ui/facade';
+
+// 手动确保 FWorksheet 原型上有 hitTest 方法
+// 解决模块实例不一致的问题
+// 注意：FWorksheetUIMixin 是内部类，不能直接导入
+// 正确的方法是导入 @univerjs/sheets-ui/facade 模块（副作用导入），它会自动执行 FWorksheet.extend(FWorksheetUIMixin)
+import { FWorksheet } from '@univerjs/sheets/facade';
+import '@univerjs/sheets-ui/facade';
+
+// 在运行时手动调用 extend（如果上面的副作用导入没有生效）
+try {
+  // 动态导入以触发副作用
+  require('@univerjs/sheets-ui/facade');
+} catch (e) {
+  console.warn('[Init] 无法导入 @univerjs/sheets-ui/facade:', e);
+}
+
 // 导入语言包
 import DesignZhCN from '@univerjs/design/locale/zh-CN';
 import UIZhCN from '@univerjs/ui/locale/zh-CN';
@@ -327,7 +346,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // 注意：FRange 没有 setNote 方法，字段元数据通过单独的 Map 存储
   // ──────────────────────────────────────
   const cellFieldMetaMap = useRef<Record<string, FieldMeta>>({});
-  
+
   const setCellField = useCallback((
     workbook: any,  // FWorkbook (Facade)
     sheet: any,    // FWorksheet (Facade)
@@ -460,12 +479,12 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       // workbook 是 FWorkbook (Facade)
       const fWorkbook: any = workbook;
       const sheet = fWorkbook.getActiveSheet(); // FWorksheet
-      
+
       // 临时方案：使用固定范围（等待确认获取行列数的正确 API）
       // TODO: 确认 Univer FWorksheet 获取行列数的正确方法
       const maxRow = 50;
       const maxCol = 26;
-      
+
       const cellData: Record<string, Record<string, CellDataItem>> = {};
       const dataTable: any[][] = [];
       let hasData = false;
@@ -582,13 +601,13 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     try {
       // 优先使用 window.__pendingField，它包含完整的字段信息
       const actualField = (window as any).__pendingField || field;
-      
+
       console.log('[handleFieldDrop] 字段信息:', {
         fromParam: field,
         fromWindow: (window as any).__pendingField,
         actualField,
       });
-      
+
       const fWorkbook: any = workbook;
       const sheet = fWorkbook.getActiveSheet();
       sheetRef.current = sheet;
@@ -639,62 +658,72 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   }, [workbook, setCellField, saveLayoutData, onLayoutChange]);
 
   // ──────────────────────────────────────
-  // 获取鼠标位置对应的单元格坐标
-  // 简化方案：直接使用容器 Ref 计算相对位置
+  // 获取鼠标位置对应的单元格坐标（基于已知列宽/行高手算）
+  // 因为 Univer canvas 高度只有 27px（初始化尺寸问题），hitTest 计算错误
+  // 改用根据 workbook 创建时定义的列宽/行高手动计算
   // ──────────────────────────────────────
   const getCellFromMouseEvent = useCallback((clientX: number, clientY: number): { row: number; col: number } => {
-    // 尝试使用新的 hitTest API（需要 Univer 0.25.0+）
-    if (workbook) {
-      try {
-        const sheet: any = workbook.getActiveSheet();
-        if (sheet && typeof sheet.hitTest === 'function') {
-          const result = sheet.hitTest(clientX, clientY);
-          if (result) {
-            console.log('[getCellFromMouseEvent] hitTest 成功:', result);
-            return result;
-          }
-        }
-      } catch (e) {
-        console.warn('[getCellFromMouseEvent] hitTest API 调用失败，使用估算方法:', e);
+    // 已知列宽配置（与 createWorkbook 时一致）
+    const columnWidths: Record<number, number> = {
+      0: 120, 1: 120, 2: 150, 3: 200, 4: 200, 5: 120,
+    };
+    const DEFAULT_COL_WIDTH = 73;
+    // 已知行高配置
+    const rowHeights: Record<number, number> = {
+      0: 30,
+    };
+    const DEFAULT_ROW_HEIGHT = 24;
+
+    // 获取 canvas 元素位置，用于计算相对坐标
+    const canvasEl = containerRef.current?.querySelector('canvas');
+    const canvasRect = canvasEl?.getBoundingClientRect();
+
+    if (!canvasRect) {
+      // 无 canvas 时降级：直接用 container 位置
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return { row: 0, col: 0 };
+      const relativeX = clientX - rect.left;
+      const relativeY = clientY - rect.top;
+      const col = Math.floor(relativeX / DEFAULT_COL_WIDTH);
+      const row = Math.floor(relativeY / DEFAULT_ROW_HEIGHT);
+      return { row: Math.max(0, row), col: Math.max(0, col) };
+    }
+
+    // 计算鼠标在 canvas 内的相对位置
+    const relX = clientX - canvasRect.left;
+    const relY = clientY - canvasRect.top;
+
+    console.log('[getCellFromMouseEvent] Canvas 位置:', {
+      left: canvasRect.left.toFixed(0), top: canvasRect.top.toFixed(0),
+      width: canvasRect.width.toFixed(0), height: canvasRect.height.toFixed(0),
+    });
+    console.log('[getCellFromMouseEvent] Canvas 相对坐标:', { relX: relX.toFixed(1), relY: relY.toFixed(1) });
+
+    // 遍历列宽累积求和，找到鼠标所在的列
+    let accumulatedX = 0;
+    let col = 0;
+    for (let c = 0; c < 100; c++) {  // 最多 100 列
+      accumulatedX += columnWidths[c] ?? DEFAULT_COL_WIDTH;
+      if (relX < accumulatedX) {
+        col = c;
+        break;
       }
     }
-    
-    // 降级方案：使用固定单元格大小估算
-    if (!containerRef.current) {
-      console.warn('[getCellFromMouseEvent] containerRef.current 为空');
-      return { row: 0, col: 0 };
+
+    // 遍历行高累积求和，找到鼠标所在的行
+    let accumulatedY = 0;
+    let row = 0;
+    for (let r = 0; r < 200; r++) {  // 最多 200 行
+      accumulatedY += rowHeights[r] ?? DEFAULT_ROW_HEIGHT;
+      if (relY < accumulatedY) {
+        row = r;
+        break;
+      }
     }
-    
-    const rect = containerRef.current.getBoundingClientRect();
-    const relativeX = clientX - rect.left;
-    const relativeY = clientY - rect.top;
-    
-    console.log('[getCellFromMouseEvent] 鼠标位置 (估算):', {
-      clientX,
-      clientY,
-      rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-      relativeX,
-      relativeY,
-    });
-    
-    // 使用固定单元格大小估算（Univer 默认值）
-    const defaultColWidth = 73;
-    const defaultRowHeight = 19;
-    
-    const col = Math.floor(relativeX / defaultColWidth);
-    const row = Math.floor(relativeY / defaultRowHeight);
-    
-    console.log('[getCellFromMouseEvent] 计算结果 (估算):', {
-      row,
-      col,
-      relativeX,
-      relativeY,
-      estimatedCol: Math.floor(relativeX / defaultColWidth),
-      estimatedRow: Math.floor(relativeY / defaultRowHeight),
-    });
-    
+
+    console.log('[getCellFromMouseEvent] 计算结果:', { row, col });
     return { row: Math.max(0, row), col: Math.max(0, col) };
-  }, [workbook]);
+  }, []);
 
   // ──────────────────────────────────────
   // 拖放处理（必须放在 handleFieldDrop 之后，否则无法访问）
@@ -710,25 +739,44 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         return;
       }
       try {
-        // 获取鼠标释放位置对应的单元格坐标
-        const clientOffset = monitor.getClientOffset();
-        if (!clientOffset) {
-          // 如果无法获取鼠标位置，使用当前选中区域
+        let row = 0;
+        let col = 0;
+        let source = '默认(0,0)';
+
+        // 优先方案：使用 Univer 当前选中单元格（最准确）
+        // 用户先点击选中目标单元格 → 再拖拽字段放下
+        try {
           const fWorkbook: any = workbook;
           const sheet = fWorkbook.getActiveSheet();
-          const selection = sheet.getSelection?.() || sheet.getActiveRange?.();
-          let row = 0;
-          let col = 0;
-          if (selection) {
-            row = selection.startRow ?? selection.row ?? 0;
-            col = selection.startColumn ?? selection.col ?? 0;
+          if (sheet) {
+            // 优先用 getActiveCell() 获取当前活动单元格
+            const activeCell = sheet.getActiveCell?.() || sheet.getActiveRange?.();
+            if (activeCell) {
+              const row1 = activeCell.getRow?.();
+              const col1 = activeCell.getColumn?.();
+              if (typeof row1 === 'number' && typeof col1 === 'number') {
+                row = row1;
+                col = col1;
+                source = `活动单元格(${row},${col})`;
+              }
+            }
           }
-          handleFieldDrop(item, row, col);
-          return;
+        } catch (e) {
+          console.warn('[Drop] 获取活动单元格失败，尝试坐标计算:', e);
         }
-        
-        const { row, col } = getCellFromMouseEvent(clientOffset.x, clientOffset.y);
-        console.log(`[Drop] 鼠标位置: (${clientOffset.x}, ${clientOffset.y}) -> 单元格: (${row}, ${col})`);
+
+        // 降级方案：如果活动单元格不可用，尝试用鼠标坐标计算
+        if (row === 0 && col === 0 && source === '默认(0,0)') {
+          const clientOffset = monitor.getClientOffset();
+          if (clientOffset) {
+            const { row: r, col: c } = getCellFromMouseEvent(clientOffset.x, clientOffset.y);
+            row = r;
+            col = c;
+            source = `坐标计算(${row},${col})`;
+          }
+        }
+
+        console.log(`[Drop] 放置来源: ${source}`);
         handleFieldDrop(item, row, col);
       } catch (e) {
         console.error('[Drop] 获取选中区域失败:', e);
@@ -921,7 +969,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         try {
           // 使用 FUniver.newAPI() 创建外观 API 包装实例
           // 参数可以是 Univer 实例或 Injector 实例
-          fUniver = FUniver.newAPI(univer);
+          // 注意：由于本地 univer 源码与 node_modules 版本类型不匹配，需要使用类型断言
+          fUniver = FUniver.newAPI(univer as any);
           console.log('[Univer Init] Step 14a OK: FUniver 实例创建成功');
 
           // 使用 FUniver 的 createWorkbook 方法创建 FWorkbook
@@ -969,6 +1018,14 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         const sheet = fWorkbook.getActiveSheet();
         sheetRef.current = sheet;
 
+        // 调试：检查 sheet 对象是否有 hitTest 方法
+        console.log('[Univer Init] Sheet 类型:', sheet?.constructor?.name);
+        console.log('[Univer Init] Sheet.hitTest 类型:', typeof sheet?.hitTest);
+        if (sheet) {
+          const allMethods = Object.getOwnPropertyNames(Object.getPrototypeOf(sheet));
+          console.log('[Univer Init] Sheet 所有方法:', allMethods.filter(m => !m.startsWith('_')));
+        }
+
         // 参照迁移文档 §7.2 事件绑定
         // 添加值变化事件（使用 FWorkbook）
         const valueChangeDisposer = fWorkbook.onCellValueChange?.(
@@ -996,6 +1053,16 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             loadLayoutData(layoutData[sheetName]);
           }, 300);
         }
+
+        // 调试：输出 canvas 尺寸（确认手动计算方案的基础数据）
+        setTimeout(() => {
+          const canvasEl = containerRef.current?.querySelector('canvas');
+          const canvasRect = canvasEl?.getBoundingClientRect();
+          console.log('[Univer Init] Canvas 尺寸:', canvasRect ? {
+            width: canvasRect.width.toFixed(0), height: canvasRect.height.toFixed(0),
+            left: canvasRect.left.toFixed(0), top: canvasRect.top.toFixed(0),
+          } : '无 canvas');
+        }, 500);
 
         // 保存清理函数引用，在 useEffect cleanup 时使用
         (attemptInit as any).cleanup = () => {
