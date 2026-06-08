@@ -111,13 +111,16 @@ const ExcelDesignContent: React.FC = () => {
       };
       await saveFormLayout(formData);
       message.success('保存成功');
+      
+      // 保存成功后重新加载布局数据，确保页面显示最新数据
+      await loadFormLayout();
     } catch (error) {
       console.error('保存失败:', error);
       message.error('保存失败');
     } finally {
       setSaving(false);
     }
-  }, [formId]);
+  }, [formId, loadFormLayout]);
 
   // ──────────────────────────────────────────────
   // 字段选择 → 准备放置到 Excel 单元格

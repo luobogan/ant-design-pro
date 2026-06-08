@@ -549,9 +549,22 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     if (!workbook) return;
 
     try {
+      // 关键修复：加载新数据前先清空旧的元数据，避免删除的单元格数据残留
+      console.log('[LoadLayout] 清空旧的单元格元数据');
+      cellFieldMetaMap.current = {};
+      
       // workbook 是 FWorkbook (Facade)
       const fWorkbook: any = workbook;
       const sheet = fWorkbook.getActiveSheet(); // 返回 FWorksheet
+      
+      // 关键修复：清空表格中所有单元格的内容（遍历固定范围）
+      console.log('[LoadLayout] 清空表格所有单元格内容');
+      for (let row = 0; row < 50; row++) {
+        for (let col = 0; col < 26; col++) {
+          const range = sheet.getRange(row, col);
+          range.setValue('');
+        }
+      }
 
       // 解析 cellData（支持 Univer 格式 cellData: { row: { col: { v, s, fieldMeta } } }）
       const cellData: Record<string, Record<string, CellDataItem>> = data.cellData || {};
@@ -635,14 +648,29 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           const range = sheet.getRange(row, col);
           const value = range.getValue();
 
+          // 跳过空值单元格
           if (value === null || value === undefined || value === '') continue;
+          
+          // 获取字段元数据（从内存 Map）
+          const fieldMeta = getCellFieldMeta(row, col);
+          
+          // 关键验证：如果有元数据，检查元数据中的值是否与单元格值匹配
+          // 这样可以防止保存已删除但元数据仍存在的单元格
+          if (fieldMeta) {
+            const metaValue = fieldMeta.fieldLabel || fieldMeta.fieldName || fieldMeta.defaultValue || '';
+            if (String(value) !== String(metaValue)) {
+              console.log(`[Save] 单元格 (${row}, ${col}) 值不匹配，跳过: 实际值="${value}", 元数据值="${metaValue}"`);
+              // 值不匹配，说明元数据已过期，清除它
+              const cellKey = `${row}_${col}`;
+              delete cellFieldMetaMap.current[cellKey];
+              continue;
+            }
+          }
+
           hasData = true;
           rowHasData = true;
 
           if (!cellData[row]) cellData[row] = {};
-
-          // 从内存 Map 获取字段元数据
-          const fieldMeta = getCellFieldMeta(row, col);
 
           cellData[row][col] = {
             v: value,
@@ -1207,7 +1235,19 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         try {
           valueChangeDisposer = fWorkbook.onCellValueChange?.(
             (cell: any, oldValue: any, newValue: any) => {
-              console.log(`[Drag] 单元格值变化: (${cell?.row}, ${cell?.col}) ${oldValue} → ${newValue}`);
+              const row = cell?.row;
+              const col = cell?.col;
+              console.log(`[CellChange] 单元格值变化: (${row}, ${col}) ${oldValue} → ${newValue}`);
+
+              // 关键修复：如果单元格值被删除（空），清除 cellFieldMetaMap 中的元数据
+              if ((newValue === null || newValue === undefined || newValue === '') && 
+                  (oldValue !== null && oldValue !== undefined && oldValue !== '')) {
+                const cellKey = `${row}_${col}`;
+                if (cellFieldMetaMap.current[cellKey]) {
+                  console.log(`[CellChange] 单元格 (${row}, ${col}) 内容已删除，清除字段元数据`);
+                  delete cellFieldMetaMap.current[cellKey];
+                }
+              }
 
               // 延迟触发保存（防抖），等待拖拽操作完全结束
               if (changeTimer) clearTimeout(changeTimer);
@@ -1215,7 +1255,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
                 // 拖拽可能导致字段元数据位置变化，需要重新保存布局
                 const data = saveLayoutData();
                 if (data) {
-                  console.log('[Drag] 拖拽操作完成，自动保存布局数据');
+                  console.log('[CellChange] 自动保存布局数据');
                   onLayoutChange(data);
                 }
               }, 500);
