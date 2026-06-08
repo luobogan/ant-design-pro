@@ -803,13 +803,13 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // ──────────────────────────────────────
   const getCellFromMouseEvent = useCallback((clientX: number, clientY: number): { row: number; col: number } => {
     console.log('[getCellFromMouseEvent] 开始执行', { clientX, clientY });
-    
+
     // 优先使用 Facade API 的 hitTest 方法（最精准）
     const fWorkbook: any = workbook;
     const sheet = fWorkbook?.getActiveSheet?.();
-    
-    console.log('[getCellFromMouseEvent] sheet 检查:', { 
-      hasSheet: !!sheet, 
+
+    console.log('[getCellFromMouseEvent] sheet 检查:', {
+      hasSheet: !!sheet,
       hasHitTest: typeof sheet?.hitTest === 'function',
       sheetType: typeof sheet
     });
@@ -913,17 +913,17 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     },
     drop: (item: any, monitor) => {
       console.log('[useDrop][Drop] 回调触发', { item, isOver: monitor.isOver(), canDrop: monitor.canDrop() });
-      
+
       if (monitor.didDrop()) {
         console.log('[useDrop][Drop] 已被子组件处理，跳过');
         return;
       }
-      
+
       if (!workbook) {
         message.warning('Excel 表格尚未初始化完成，请稍后再试');
         return;
       }
-      
+
       try {
         let row = 0;
         let col = 0;
@@ -932,7 +932,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         // 方案1：使用 hitTest（最精准）
         const clientOffset = monitor.getClientOffset();
         console.log('[useDrop][Drop] clientOffset:', clientOffset);
-        
+
         if (clientOffset) {
           const { row: r, col: c } = getCellFromMouseEvent(clientOffset.x, clientOffset.y);
           row = r;
@@ -1259,10 +1259,33 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         console.log('[Drag] 视觉反馈: 半透明蓝色填充 + 亮色边框预览');
 
         // 加载布局数据
-        if (layoutData && layoutData[sheetName]) {
-          setTimeout(() => {
-            loadLayoutData(layoutData[sheetName]);
-          }, 300);
+        if (layoutData) {
+          // 支持两种格式：
+          // 1. 直接包含 cellData 的格式
+          // 2. Univer 完整格式：{sheets: {sheet1: {cellData: {...}}}}
+          let sheetData = layoutData;
+
+          // 尝试按 sheetName 查找（处理大小写不匹配问题）
+          if (layoutData.sheets) {
+            // 优先精确匹配
+            sheetData = layoutData.sheets[sheetName];
+            // 如果没找到，尝试小写匹配
+            if (!sheetData) {
+              sheetData = layoutData.sheets[sheetName.toLowerCase()];
+            }
+            // 如果还没找到，尝试第一个 sheet
+            if (!sheetData && layoutData.sheetOrder && layoutData.sheetOrder.length > 0) {
+              sheetData = layoutData.sheets[layoutData.sheetOrder[0]];
+            }
+          }
+
+          if (sheetData) {
+            setTimeout(() => {
+              loadLayoutData(sheetData);
+            }, 300);
+          } else {
+            console.log('[Layout] 未找到对应 Sheet 的数据:', { sheetName, availableSheets: layoutData.sheets ? Object.keys(layoutData.sheets) : null });
+          }
         }
 
         // 调试：输出 canvas 尺寸（确认手动计算方案的基础数据）
@@ -1312,7 +1335,6 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     };
   }, [sheetName]);
 
-  // ──────────────────────────────────────
   // 暴露接口给父组件（通过 window 桥接）
   // 使用 Facade API (FWorkbook/FWorksheet)
   // ──────────────────────────────────────
@@ -1330,6 +1352,43 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     }
   }, [workbook, saveLayoutData, loadLayoutData, handleFieldDrop, getCellFieldMeta]);
 
+  // ──────────────────────────────────────
+  // 监听 layoutData 变化，重新加载布局数据
+  // ──────────────────────────────────────
+  useEffect(() => {
+    if (!workbook || !layoutData) return;
+
+    console.log('[Layout] layoutData 变化，重新加载', { sheetName, hasCellData: !!(layoutData.sheets || layoutData.cellData) });
+
+    // 支持两种格式：
+    // 1. 直接包含 cellData 的格式
+    // 2. Univer 完整格式：{sheets: {sheet1: {cellData: {...}}}}
+    let sheetData = layoutData;
+
+    // 尝试按 sheetName 查找（处理大小写不匹配问题）
+    if (layoutData.sheets) {
+      // 优先精确匹配
+      sheetData = layoutData.sheets[sheetName];
+      // 如果没找到，尝试小写匹配
+      if (!sheetData) {
+        sheetData = layoutData.sheets[sheetName.toLowerCase()];
+      }
+      // 如果还没找到，尝试第一个 sheet
+      if (!sheetData && layoutData.sheetOrder && layoutData.sheetOrder.length > 0) {
+        sheetData = layoutData.sheets[layoutData.sheetOrder[0]];
+      }
+    }
+
+    if (sheetData) {
+      // 使用微延迟确保表格已渲染
+      setTimeout(() => {
+        loadLayoutData(sheetData);
+      }, 100);
+    } else {
+      console.log('[Layout] 未找到对应 Sheet 的数据:', { sheetName, availableSheets: layoutData.sheets ? Object.keys(layoutData.sheets) : null });
+    }
+  }, [layoutData, workbook, sheetName, loadLayoutData]);
+
   // 组件卸载时清理 hover 定时器
   useEffect(() => {
     return () => {
@@ -1338,6 +1397,76 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       }
     };
   }, []);
+
+  // ─────────────────────────────────────────────────────────────────
+  // ★★★ 全局 window 级别原生 drop 监听器（终极兜底方案）★★★
+  // 独立于任何组件状态，确保在整个页面生命周期内都能捕获 drop 事件。
+  // 即使 workbook 未就绪也会注册，只是不处理而已。
+  // ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    console.log('[GlobalDrop] 注册全局 window drop 监听器');
+
+    let dragCount = 0;
+
+    const handleGlobalDragOver = (e: DragEvent) => {
+      // 检查是否有待放置的字段
+      const pending = (window as any).__pendingField;
+      if (pending) {
+        e.preventDefault();
+        e.dataTransfer!.dropEffect = 'copy';
+      }
+    };
+
+    const handleGlobalDrop = (e: DragEvent) => {
+      dragCount++;
+      console.log(`[GlobalDrop][${dragCount}] drop 事件触发`, {
+        hasDataTransfer: !!e.dataTransfer,
+        types: e.dataTransfer ? Array.from(e.dataTransfer.types) : [],
+        clientX: e.clientX,
+        clientY: e.clientY,
+        target: e.target?.tagName || 'unknown',
+      });
+
+      // 如果没有待放置字段，直接返回
+      const pendingField = (window as any).__pendingField;
+      if (!pendingField) {
+        console.log('[GlobalDrop] 无待放置字段，跳过');
+        return;
+      }
+
+      console.log('[GlobalDrop] 检测到待放置字段:', pendingField.fieldLabel || pendingField.fieldName);
+
+      // 只有当 workbook 就绪时才处理
+      if (!workbook) {
+        console.log('[GlobalDrop] workbook 未就绪，跳过处理');
+        return;
+      }
+
+      // 获取字段数据
+      let fieldData: any = pendingField;
+
+      // 计算单元格坐标
+      const { row, col } = getCellFromMouseEvent(e.clientX, e.clientY);
+      console.log(`[GlobalDrop] 计算单元格: (${row}, ${col})`);
+
+      // 执行放置
+      if (row >= 0 && col >= 0) {
+        console.log('[GlobalDrop] 执行 handleFieldDrop');
+        handleFieldDrop(fieldData, row, col);
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener('dragover', handleGlobalDragOver, false);
+    window.addEventListener('drop', handleGlobalDrop, false);
+    console.log('[GlobalDrop] ✅ 全局监听器已注册');
+
+    return () => {
+      window.removeEventListener('dragover', handleGlobalDragOver, false);
+      window.removeEventListener('drop', handleGlobalDrop, false);
+      console.log('[GlobalDrop] 监听器已移除');
+    };
+  }, [workbook, handleFieldDrop, getCellFromMouseEvent]);
 
   // ─────────────────────────────────────────────────────────────────
   // ★★★ 容器级别原生 drop 监听器（兜底方案）★★★

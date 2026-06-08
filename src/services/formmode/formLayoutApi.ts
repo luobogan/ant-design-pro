@@ -7,10 +7,10 @@ import { request } from '@umijs/max';
 
 /**
  * 获取表单布局
- * @param formId 表单ID
+ * @param formId 表单ID（字符串类型，避免大整数精度丢失）
  * @returns 表单布局
  */
-export async function getFormLayout(formId: number) {
+export async function getFormLayout(formId: string) {
   return request(`/api/blade-formmode/form-layout/${formId}`, {
     method: 'GET',
   });

@@ -56,10 +56,20 @@ const ExcelDesignContent: React.FC = () => {
     if (!formId) return;
     setLoading(true);
     try {
-      const result = await getFormLayout(parseInt(formId));
+      // 使用 String(formId) 避免 JavaScript 大整数精度丢失
+      const result = await getFormLayout(String(formId));
       if (result && result.data) {
-        const parsed = result.data.layoutJson || {};
-        setLayoutData(parsed);
+        // layoutJson 是字符串，需要解析为对象
+        let layoutJson = result.data.layoutJson;
+        if (typeof layoutJson === 'string') {
+          try {
+            layoutJson = JSON.parse(layoutJson);
+          } catch (e) {
+            console.warn('解析 layoutJson 失败:', e);
+            layoutJson = {};
+          }
+        }
+        setLayoutData(layoutJson || {});
         message.success('布局数据加载成功');
       }
     } catch (error) {
@@ -94,9 +104,9 @@ const ExcelDesignContent: React.FC = () => {
     setSaving(true);
     try {
       const formData = {
-        formId: parseInt(formId),
+        formId: String(formId),  // 保持字符串格式，避免 JavaScript 大整数精度丢失
         layoutName: `表单${formId}的布局`,
-        layoutJson: sheetLayoutData,
+        layoutJson: JSON.stringify(sheetLayoutData),  // 转换为 JSON 字符串
         status: 1,
       };
       await saveFormLayout(formData);
@@ -278,7 +288,7 @@ const ExcelDesignContent: React.FC = () => {
         const disposable = fAPI.addEvent(eventName, (params: any) => {
           // ── 回调入口日志 ──
           console.log('[Event.Drop][Callback] ====== 收到拖拽放置事件 ======');
-          console.log('[Event.Drop][Callback] 回调已触发！', { 
+          console.log('[Event.Drop][Callback] 回调已触发！', {
             timestamp: Date.now(),
             paramsType: typeof params,
             paramsKeys: params ? Object.keys(params) : []
