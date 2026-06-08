@@ -252,50 +252,65 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
       const { row, col } = hoveredCell;
 
-      // 使用 Facade API 计算单元格位置
-      let left = 0;
-      for (let c = 0; c < col; c++) {
-        let w: number;
-        if (typeof sheet.getColumnWidth === 'function') {
-          w = sheet.getColumnWidth(c);
-        } else {
-          w = 73;
+      // 使用 getCellRect 获取单元格的像素位置（相对于 canvas/sheet 内容区）
+      // 这是最精准的方式，由 Univer Skeleton 计算，考虑了滚动、缩放、合并单元格等所有因素
+      let rect = null;
+      if (typeof (sheet as any).getCellRect === 'function') {
+        rect = (sheet as any).getCellRect(row, col);
+      }
+
+      if (!rect) {
+        console.warn('[Hover] getCellRect 不可用，使用降级方案');
+        // 降级：使用累加计算（不可靠，仅作兜底）
+        let left = 0;
+        for (let c = 0; c < col; c++) {
+          let w = typeof sheet.getColumnWidth === 'function' ? sheet.getColumnWidth(c) : 73;
+          if (!w || w <= 0) w = 73;
+          left += w;
         }
-        if (!w || w <= 0) w = 73;
-        left += w;
-      }
-
-      let top = 0;
-      for (let r = 0; r < row; r++) {
-        let h: number;
-        if (typeof sheet.getRowHeight === 'function') {
-          h = sheet.getRowHeight(r);
-        } else {
-          h = 24;
+        let top = 0;
+        for (let r = 0; r < row; r++) {
+          let h = typeof sheet.getRowHeight === 'function' ? sheet.getRowHeight(r) : 24;
+          if (!h || h <= 0) h = 24;
+          top += h;
         }
-        if (!h || h <= 0) h = 24;
-        top += h;
+        const width = (typeof sheet.getColumnWidth === 'function' ? sheet.getColumnWidth(col) : 73) || 73;
+        const height = (typeof sheet.getRowHeight === 'function' ? sheet.getRowHeight(row) : 24) || 24;
+        rect = { left, top, width, height };
       }
 
-      // 获取目标单元格的宽度和高度
-      let width: number;
-      if (typeof sheet.getColumnWidth === 'function') {
-        width = sheet.getColumnWidth(col);
-      } else {
-        width = 73;
+      // getCellRect 返回的是相对于 sheet 内容区（左上角）的像素坐标
+      // 高亮框是绝对定位在 container 中的，需要加上 sheet 内容区在 container 内的偏移
+      // 这个偏移 = canvas 元素在 container 内的偏移（即行头宽度 + 列头高度）
+      const canvasEl = containerRef.current?.querySelector('canvas');
+      let offsetX = 0;
+      let offsetY = 0;
+      if (canvasEl) {
+        const canvasRect = canvasEl.getBoundingClientRect();
+        const containerRect = containerRef.current!.getBoundingClientRect();
+        // canvas 相对于 viewport 的偏移 减去 container 相对于 viewport 的偏移
+        offsetX = canvasRect.left - containerRect.left + (containerRef.current?.scrollLeft || 0);
+        offsetY = canvasRect.top - containerRect.top + (containerRef.current?.scrollTop || 0);
       }
-      if (!width || width <= 0) width = 73;
 
-      let height: number;
-      if (typeof sheet.getRowHeight === 'function') {
-        height = sheet.getRowHeight(row);
-      } else {
-        height = 24;
-      }
-      if (!height || height <= 0) height = 24;
-
-      const newStyle = { left, top, width, height };
+      const newStyle = {
+        left: rect.left + offsetX,
+        top: rect.top + offsetY,
+        width: rect.width,
+        height: rect.height,
+      };
       setHoverStyle(newStyle);
+
+      // 调试：输出高亮框位置
+      console.log('[Hover] 高亮框位置:', {
+        row, col,
+        rect,
+        offsetX: offsetX.toFixed(1),
+        offsetY: offsetY.toFixed(1),
+        finalLeft: newStyle.left.toFixed(1),
+        finalTop: newStyle.top.toFixed(1),
+        hoverVisible,
+      });
 
       // 如果是新位置（从 null 或不同位置过来），先瞬间移到新位置再显示
       if (!hoverVisible) {

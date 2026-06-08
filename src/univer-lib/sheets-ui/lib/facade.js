@@ -929,6 +929,7 @@ var FWorksheetUIMixin = class extends FWorksheet {
 	* @param clientX - X coordinate relative to the viewport (pageX)
 	* @param clientY - Y coordinate relative to the viewport (pageY)
 	* @returns The cell row and column at the given coordinates, or null if not found.
+	*          Also returns the cell's pixel position (left, top, width, height) relative to the canvas element.
 	*/
 	hitTest(clientX, clientY) {
 		const unitId = this._workbook.getUnitId();
@@ -971,9 +972,61 @@ var FWorksheetUIMixin = class extends FWorksheet {
 			});
 			return null;
 		}
+		const row = cellInfo.actualRow;
+		const column = cellInfo.actualColumn;
+		const rowHeightAccumulation = skeleton.rowHeightAccumulation;
+		const columnWidthAccumulation = skeleton.columnWidthAccumulation;
+		let left = 0;
+		let top = 0;
+		let width = 0;
+		let height = 0;
+		if (rowHeightAccumulation && columnWidthAccumulation) {
+			if (column > 0) left = columnWidthAccumulation[column - 1] || 0;
+			if (row > 0) top = rowHeightAccumulation[row - 1] || 0;
+			width = (columnWidthAccumulation[column] || 0) - left;
+			height = (rowHeightAccumulation[row] || 0) - top;
+		}
 		return {
-			row: cellInfo.actualRow,
-			column: cellInfo.actualColumn
+			row,
+			column,
+			left,
+			top,
+			width,
+			height
+		};
+	}
+	/**
+	* Get the pixel rectangle of the specified cell, relative to the canvas element.
+	* This is useful for positioning overlay elements (e.g., highlight borders) on the canvas.
+	* @param row - The row index (0-based).
+	* @param column - The column index (0-based).
+	* @returns The pixel rectangle, or null if skeleton is not available.
+	*/
+	getCellRect(row, column) {
+		const skeleton = this.getSkeleton();
+		if (!skeleton) {
+			console.warn("[getCellRect] Skeleton not found");
+			return null;
+		}
+		const rowHeightAccumulation = skeleton.rowHeightAccumulation;
+		const columnWidthAccumulation = skeleton.columnWidthAccumulation;
+		if (!rowHeightAccumulation || !columnWidthAccumulation) {
+			console.warn("[getCellRect] Accumulation arrays not available");
+			return null;
+		}
+		let left = 0;
+		let top = 0;
+		if (column > 0) left = columnWidthAccumulation[column - 1] || 0;
+		if (row > 0) top = rowHeightAccumulation[row - 1] || 0;
+		const width = (columnWidthAccumulation[column] || 0) - left;
+		const height = (rowHeightAccumulation[row] || 0) - top;
+		const offsetX = skeleton.rowHeaderWidthAndMarginLeft || 0;
+		const offsetY = skeleton.columnHeaderHeightAndMarginTop || 0;
+		return {
+			left: left + offsetX,
+			top: top + offsetY,
+			width,
+			height
 		};
 	}
 	autoResizeColumn(columnPosition) {

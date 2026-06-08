@@ -328,6 +328,28 @@ export interface IFWorksheetUIMixin {
         row: number;
         column: number;
     }>;
+    /**
+     * Get the pixel rectangle of the specified cell, relative to the canvas element.
+     * This is useful for positioning overlay elements (e.g., highlight borders) on the canvas.
+     * @param {number} row The row index (0-based).
+     * @param {number} column The column index (0-based).
+     * @returns {Nullable<{ left: number; top: number; width: number; height: number }>} The pixel rectangle, or null if skeleton is not available.
+     * @example
+     * ```ts
+     * const fWorksheet = univerAPI.getActiveWorkbook().getSheetByName('Sheet1');
+     * if (!fWorksheet) return;
+     * const rect = fWorksheet.getCellRect(0, 0);
+     * if (rect) {
+     *   console.log(`Cell(0,0) rect: left=${rect.left}, top=${rect.top}, width=${rect.width}, height=${rect.height}`);
+     * }
+     * ```
+     */
+    getCellRect(row: number, column: number): Nullable<{
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+    }>;
 }
 export declare class FWorksheetUIMixin extends FWorksheet implements IFWorksheetUIMixin {
     refreshCanvas(): FWorksheet;
@@ -344,10 +366,28 @@ export declare class FWorksheetUIMixin extends FWorksheet implements IFWorksheet
      * @param clientX - X coordinate relative to the viewport (pageX)
      * @param clientY - Y coordinate relative to the viewport (pageY)
      * @returns The cell row and column at the given coordinates, or null if not found.
+     *          Also returns the cell's pixel position (left, top, width, height) relative to the canvas element.
      */
     hitTest(clientX: number, clientY: number): Nullable<{
         row: number;
         column: number;
+        left?: number;
+        top?: number;
+        width?: number;
+        height?: number;
+    }>;
+    /**
+     * Get the pixel rectangle of the specified cell, relative to the canvas element.
+     * This is useful for positioning overlay elements (e.g., highlight borders) on the canvas.
+     * @param row - The row index (0-based).
+     * @param column - The column index (0-based).
+     * @returns The pixel rectangle, or null if skeleton is not available.
+     */
+    getCellRect(row: number, column: number): Nullable<{
+        left: number;
+        top: number;
+        width: number;
+        height: number;
     }>;
     autoResizeColumn(columnPosition: number): FWorksheet;
     autoResizeColumns(startColumn: number, numColumns: number): FWorksheet;
