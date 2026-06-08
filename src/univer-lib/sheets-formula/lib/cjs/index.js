@@ -153,7 +153,7 @@ const PLUGIN_CONFIG_KEY_MOBILE = "sheets-formula.mobile.config";
 const configSymbolMobile = Symbol(PLUGIN_CONFIG_KEY_MOBILE);
 
 //#endregion
-//#region \0@oxc-project+runtime@0.133.0/helpers/esm/decorateParam.js
+//#region \0@oxc-project+runtime@0.134.0/helpers/esm/decorateParam.js
 function __decorateParam(paramIndex, decorator) {
 	return function(target, key) {
 		decorator(target, key, paramIndex);
@@ -161,7 +161,7 @@ function __decorateParam(paramIndex, decorator) {
 }
 
 //#endregion
-//#region \0@oxc-project+runtime@0.133.0/helpers/esm/decorate.js
+//#region \0@oxc-project+runtime@0.134.0/helpers/esm/decorate.js
 function __decorate(decorators, target, key, desc) {
 	var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
 	if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
@@ -275,7 +275,7 @@ function getDataLength(copyDataPiece) {
 }
 
 //#endregion
-//#region \0@oxc-project+runtime@0.133.0/helpers/esm/typeof.js
+//#region \0@oxc-project+runtime@0.134.0/helpers/esm/typeof.js
 function _typeof(o) {
 	"@babel/helpers - typeof";
 	return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o) {
@@ -286,7 +286,7 @@ function _typeof(o) {
 }
 
 //#endregion
-//#region \0@oxc-project+runtime@0.133.0/helpers/esm/toPrimitive.js
+//#region \0@oxc-project+runtime@0.134.0/helpers/esm/toPrimitive.js
 function toPrimitive(t, r) {
 	if ("object" != _typeof(t) || !t) return t;
 	var e = t[Symbol.toPrimitive];
@@ -299,14 +299,14 @@ function toPrimitive(t, r) {
 }
 
 //#endregion
-//#region \0@oxc-project+runtime@0.133.0/helpers/esm/toPropertyKey.js
+//#region \0@oxc-project+runtime@0.134.0/helpers/esm/toPropertyKey.js
 function toPropertyKey(t) {
 	var i = toPrimitive(t, "string");
 	return "symbol" == _typeof(i) ? i : i + "";
 }
 
 //#endregion
-//#region \0@oxc-project+runtime@0.133.0/helpers/esm/defineProperty.js
+//#region \0@oxc-project+runtime@0.134.0/helpers/esm/defineProperty.js
 function _defineProperty(e, r, t) {
 	return (r = toPropertyKey(r)) in e ? Object.defineProperty(e, r, {
 		value: t,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   App,
@@ -14,6 +14,7 @@ import {
   UploadOutlined,
   UndoOutlined,
   RedoOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from '@umijs/max';
 import { DndProvider } from 'react-dnd';
@@ -40,6 +41,7 @@ const ExcelDesignContent: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [pendingField, setPendingField] = useState<any>(null);
+  const [hoveredField, setHoveredField] = useState<any>(null);
 
   // ──────────────────────────────────────────────
   // 加载表单布局数据
@@ -113,7 +115,7 @@ const ExcelDesignContent: React.FC = () => {
   // ──────────────────────────────────────────────
   const handleFieldSelect = useCallback((field: any) => {
     console.log('[handleFieldSelect] 收到字段:', field);
-    
+
     // 判断字段来源：来自后端表单字段 vs 静态字段类型
     // FieldDefinition 特征：有 id、fieldName 和 fieldLabel 属性（后端字段）
     // 静态字段特征：有 label 和 type 属性
@@ -189,11 +191,445 @@ const ExcelDesignContent: React.FC = () => {
   }, [pendingField, clearPendingField]);
 
   // ──────────────────────────────────────────────
+  // 字段悬停 → 高亮对应单元格
+  // ──────────────────────────────────────────────
+  const handleFieldHover = useCallback((field: any | null) => {
+    setHoveredField(field);
+  }, []);
+
+  // ──────────────────────────────────────────────
   // 布局变更回调
   // ──────────────────────────────────────────────
   const handleLayoutChange = useCallback((data: any) => {
     setLayoutData((prev: any) => ({ ...prev, ...data }));
   }, []);
+
+  // ══════════════════════════════════════════════
+  // Univer Event.Drop 原生拖拽放置事件处理
+  // 功能：从左侧 FieldPalette 拖拽字段到 Univer canvas 单元格时，
+  //       自动将字段数据填入目标单元格，提供完整的视觉反馈和异常处理
+  // ══════════════════════════════════════════════
+
+  /** 拖拽放置成功后的临时高亮状态（用于视觉反馈） */
+  const [dropFlash, setDropFlash] = useState<{ row: number; col: number; label: string } | null>(null);
+  const dropFlashTimerRef = useRef<any>(null);
+  const dropDisposeRef = useRef<(() => void) | null>(null);
+
+  /**
+   * 订阅 Univer Event.Drop 事件的核心逻辑
+   * 在 FUniver API 就绪后，注册拖拽放置回调
+   * 每次拖拽放置会：
+   *   1. 从 dataTransfer 解析字段数据（支持 application/json + text/plain 两种格式）
+   *   2. 验证字段数据完整性
+   *   3. 检查目标单元格是否已被占用
+   *   4. 调用 UniverExcelGrid.handleFieldDrop 执行放置
+   *   5. 清理 pendingField 状态
+   *   6. 触发临时视觉高亮反馈
+   */
+  // ⚠️ 临时禁用 Event.Drop 订阅，避免与 useDrop 冲突
+  // 只使用 React DnD 的 useDrop 处理拖放
+  /*
+  useEffect(() => {
+    // 只针对该组件内的全局状态标记，防止重复订阅
+    let retryTimer: any = null;
+    let isSubscribed = false;
+
+    console.log('[Event.Drop][Lifecycle] useEffect 初始化，开始准备订阅');
+
+    const doSubscribe = () => {
+      console.log('[Event.Drop][Subscribe] doSubscribe 开始执行');
+
+      // 1. 获取 FUniver Facade API 实例
+      const fAPI = (window as any).__univerFAPI;
+      console.log('[Event.Drop][Dependency] 检查 window.__univerFAPI:', {
+        exists: !!fAPI,
+        hasEvent: !!(fAPI && fAPI.Event),
+        hasAddEvent: !!(fAPI && typeof fAPI.addEvent === 'function'),
+      });
+      if (!fAPI || !fAPI.Event || !fAPI.addEvent) {
+        console.warn('[Event.Drop][Dependency] FUniver API 未就绪, 返回 false 等待重试');
+        return false;
+      }
+
+      // 2. 获取 UniverExcelGrid 组件引用（必须有 handleFieldDrop）
+      const univerGrid = (window as any).univerExcelGrid;
+      const hasHandleFieldDrop = !!(univerGrid && typeof univerGrid.handleFieldDrop === 'function');
+      console.log('[Event.Drop][Dependency] 检查 window.univerExcelGrid:', {
+        exists: !!univerGrid,
+        hasHandleFieldDrop,
+        exposedMethods: univerGrid ? Object.keys(univerGrid) : [],
+      });
+      if (!univerGrid || !hasHandleFieldDrop) {
+        console.warn('[Event.Drop][Dependency] UniverExcelGrid 未就绪, 返回 false 等待重试');
+        return false;
+      }
+
+      console.log('[Event.Drop][Subscribe] FUniver API + UniverExcelGrid 已就绪，开始订阅...');
+
+      try {
+        // 3. 订阅 Event.Drop
+        const eventName = fAPI.Event.Drop;
+        console.log('[Event.Drop][Subscribe] 调用 fAPI.addEvent, 事件名称:', {
+          eventName,
+          eventType: typeof eventName,
+          availableEvents: Object.keys(fAPI.Event || {}),
+        });
+
+        const disposable = fAPI.addEvent(eventName, (params: any) => {
+          // ── 回调入口日志 ──
+          console.log('[Event.Drop][Callback] ====== 收到拖拽放置事件 ======');
+          console.log('[Event.Drop][Callback] 回调已触发！', { 
+            timestamp: Date.now(),
+            paramsType: typeof params,
+            paramsKeys: params ? Object.keys(params) : []
+          });
+          console.log('[Event.Drop][Callback] params 原始值:', {
+            type: typeof params,
+            isNull: params === null,
+            isUndefined: params === undefined,
+            keys: params ? Object.keys(params) : [],
+          });
+          console.log('[Event.Drop][Callback] params 完整内容:', params);
+
+          const { row, column, dataTransfer } = params || {};
+
+          // ── 坐标解析日志 ──
+          const colLetter = column !== undefined && column !== null ? String.fromCharCode(65 + Number(column)) : '?';
+          const rowNum = row !== undefined && row !== null ? Number(row) + 1 : '?';
+          console.log('[Event.Drop][Position] 目标单元格坐标:', {
+            rawRow: row,
+            rawColumn: column,
+            rowType: typeof row,
+            columnType: typeof column,
+            displayRef: `(${rowNum}, ${colLetter})`,
+            isValid: row !== undefined && row !== null && column !== undefined && column !== null,
+          });
+
+          // ── 3a. 验证 dataTransfer ──
+          console.log('[Event.Drop][DataTransfer] dataTransfer 检查:', {
+            exists: !!dataTransfer,
+            type: typeof dataTransfer,
+            types: dataTransfer ? Array.from(dataTransfer.types || []) : [],
+            filesCount: dataTransfer?.files?.length ?? 0,
+            effectAllowed: dataTransfer?.effectAllowed ?? 'N/A',
+            dropEffect: dataTransfer?.dropEffect ?? 'N/A',
+          });
+          if (!dataTransfer) {
+            console.warn('[Event.Drop][DataTransfer] dataTransfer 为空，忽略此次放置');
+            console.log('[Event.Drop][Callback] ====== 结束（dataTransfer 为空）======');
+            return;
+          }
+
+          // ── 3b. 从 dataTransfer 解析字段数据 ──
+          // 优先使用 handleFieldSelect 后设置的 __pendingField（包含完整后端字段属性）
+          // 然后尝试从 dataTransfer 的 application/json 解析
+          // 最后 fallback 到 text/plain
+          let fieldData: any = null;
+          const pendingField = (window as any).__pendingField;
+          console.log('[Event.Drop][FieldData] ====== 开始字段数据解析 ======');
+          console.log('[Event.Drop][FieldData] Step 1 - 检查 window.__pendingField:', {
+            exists: !!pendingField,
+            fieldLabel: pendingField?.fieldLabel,
+            fieldName: pendingField?.fieldName,
+            fieldId: pendingField?.id || pendingField?.fieldId,
+            pendingKeys: pendingField ? Object.keys(pendingField) : [],
+          });
+
+          if (pendingField) {
+            fieldData = pendingField;
+            console.log('[Event.Drop][FieldData] ✅ Step 1 命中: 使用 __pendingField');
+          }
+
+          if (!fieldData) {
+            console.log('[Event.Drop][FieldData] Step 2 - 尝试从 dataTransfer.application/json 解析');
+            const jsonData = dataTransfer.getData('application/json');
+            console.log('[Event.Drop][FieldData] dataTransfer.getData("application/json") 结果:', {
+              rawLength: jsonData?.length ?? 0,
+              preview: jsonData ? jsonData.substring(0, 200) : '(empty)',
+            });
+            if (jsonData) {
+              try {
+                fieldData = JSON.parse(jsonData);
+                console.log('[Event.Drop][FieldData] ✅ Step 2 命中: 从 application/json 解析成功:', {
+                  fieldLabel: fieldData?.fieldLabel,
+                  fieldName: fieldData?.fieldName,
+                  fieldId: fieldData?.id || fieldData?.fieldId,
+                  fieldType: fieldData?.fieldHtmlType || fieldData?.fieldType,
+                  parsedKeys: Object.keys(fieldData),
+                });
+              } catch (e) {
+                console.error('[Event.Drop][FieldData] ❌ Step 2 解析 application/json 异常:', {
+                  error: (e as Error).message,
+                  stack: (e as Error).stack?.substring(0, 200),
+                  rawPreview: jsonData.substring(0, 300),
+                });
+              }
+            } else {
+              console.log('[Event.Drop][FieldData] Step 2 跳过: dataTransfer 中无 application/json 数据');
+            }
+          }
+
+          if (!fieldData) {
+            console.log('[Event.Drop][FieldData] Step 3 - 尝试从 dataTransfer.text/plain 解析');
+            const textData = dataTransfer.getData('text/plain');
+            console.log('[Event.Drop][FieldData] dataTransfer.getData("text/plain") 结果:', {
+              textData,
+              length: textData?.length ?? 0,
+            });
+            if (textData) {
+              console.log('[Event.Drop][FieldData] Step 3a - 检查 __pendingField 是否匹配 text/plain:', {
+                textData,
+                pendingFieldLabel: pendingField?.fieldLabel,
+                pendingFieldName: pendingField?.fieldName,
+                labelMatch: pendingField?.fieldLabel === textData,
+                nameMatch: pendingField?.fieldName === textData,
+              });
+              const p = (window as any).__pendingField;
+              if (p && (p.fieldLabel === textData || p.fieldName === textData)) {
+                fieldData = p;
+                console.log('[Event.Drop][FieldData] ✅ Step 3 命中: 通过 text/plain 匹配到 __pendingField');
+              } else {
+                console.log('[Event.Drop][FieldData] Step 3 无法匹配: text/plain 数据无法关联到已选字段');
+              }
+            } else {
+              console.log('[Event.Drop][FieldData] Step 3 跳过: dataTransfer 中无 text/plain 数据');
+            }
+          }
+
+          // ── 3c. 验证字段数据是否有效 ──
+          console.log('[Event.Drop][FieldData] ====== 字段数据验证 ======');
+          const finalFieldData = fieldData;
+          console.log('[Event.Drop][FieldData] 最终字段数据概览:', {
+            exists: !!finalFieldData,
+            hasId: !!(finalFieldData?.id || finalFieldData?.fieldId),
+            hasFieldName: !!finalFieldData?.fieldName,
+            hasFieldLabel: !!finalFieldData?.fieldLabel,
+            fieldLabel: finalFieldData?.fieldLabel || '(empty)',
+            fieldName: finalFieldData?.fieldName || '(empty)',
+            fieldId: finalFieldData?.id || finalFieldData?.fieldId || '(empty)',
+            fieldHtmlType: finalFieldData?.fieldHtmlType || '(empty)',
+            fieldType: finalFieldData?.fieldType || '(empty)',
+            fullPayload: finalFieldData ? JSON.stringify(finalFieldData).substring(0, 500) : '(null)',
+          });
+
+          if (!finalFieldData || (!finalFieldData.id && !finalFieldData.fieldName && !finalFieldData.fieldLabel)) {
+            console.warn('[Event.Drop][FieldData] ❌ 字段数据验证失败:', {
+              reason: !finalFieldData ? 'fieldData 为空' : '缺少 id/fieldName/fieldLabel',
+              fieldData: finalFieldData,
+            });
+            message.warning({
+              content: '请先点击左侧字段面板选中字段，再拖拽到 Excel 单元格',
+              key: 'drop-field-warning',
+              duration: 3,
+            });
+            console.log('[Event.Drop][Callback] ====== 结束（字段数据无效）======');
+            return;
+          }
+          console.log('[Event.Drop][FieldData] ✅ 字段数据验证通过');
+
+          // ── 3d. 检查目标单元格是否已被占用 ──
+          console.log('[Event.Drop][CellCheck] ====== 目标单元格占用检查 ======');
+          console.log('[Event.Drop][CellCheck] 目标:', {
+            row,
+            column,
+            cellRef: `(${rowNum}, ${colLetter})`,
+            hasGetCellFieldMeta: typeof univerGrid.getCellFieldMeta === 'function',
+          });
+          if (typeof univerGrid.getCellFieldMeta === 'function') {
+            const existingMeta = univerGrid.getCellFieldMeta(row, column);
+            console.log('[Event.Drop][CellCheck] getCellFieldMeta 查询结果:', {
+              hasMeta: !!existingMeta,
+              fieldId: existingMeta?.fieldId || '(none)',
+              fieldLabel: existingMeta?.fieldLabel || '(none)',
+              fieldName: existingMeta?.fieldName || '(none)',
+              fullMeta: existingMeta ? JSON.stringify(existingMeta) : '(null)',
+            });
+            if (existingMeta && existingMeta.fieldId) {
+              console.warn('[Event.Drop][CellCheck] ❌ 目标单元格已被占用，阻止放置:', {
+                row,
+                column,
+                cellRef: `(${rowNum}, ${colLetter})`,
+                existingField: existingMeta.fieldLabel,
+                newField: finalFieldData.fieldLabel || finalFieldData.fieldName,
+              });
+              message.warning({
+                content: `单元格 (${rowNum}, ${colLetter}) 已被字段"${existingMeta.fieldLabel}"占用`,
+                key: 'cell-occupied',
+                duration: 3,
+              });
+              console.log('[Event.Drop][Callback] ====== 结束（单元格被占用）======');
+              return;
+            }
+            console.log('[Event.Drop][CellCheck] ✅ 目标单元格空闲，可以放置');
+          } else {
+            console.log('[Event.Drop][CellCheck] ⚠️ getCellFieldMeta 不可用，跳过占用检查');
+          }
+
+          // ── 3e. 执行字段放置 ──
+          console.log('[Event.Drop][Execute] ====== 开始执行字段放置 ======');
+          console.log('[Event.Drop][Execute] 调用参数:', {
+            field: {
+              id: finalFieldData.id || finalFieldData.fieldId,
+              fieldName: finalFieldData.fieldName,
+              fieldLabel: finalFieldData.fieldLabel,
+              fieldHtmlType: finalFieldData.fieldHtmlType,
+            },
+            row,
+            column,
+            cellRef: `(${rowNum}, ${colLetter})`,
+          });
+          console.log('[Event.Drop][Execute] 调用 univerGrid.handleFieldDrop...');
+          try {
+            const startTime = Date.now();
+            univerGrid.handleFieldDrop(finalFieldData, row, column);
+            const elapsed = Date.now() - startTime;
+            console.log('[Event.Drop][Execute] ✅ handleFieldDrop 调用成功:', {
+              elapsed: `${elapsed}ms`,
+              field: finalFieldData.fieldLabel || finalFieldData.fieldName,
+              target: `(${rowNum}, ${colLetter})`,
+            });
+
+            // 成功提示（使用固定 key 避免重复弹出）
+            const successMsg = `字段"${finalFieldData.fieldLabel || finalFieldData.fieldName}" 已放置到单元格 (${rowNum}, ${colLetter})`;
+            console.log('[Event.Drop][Feedback] 发送 success 提示:', successMsg);
+            message.success({
+              content: successMsg,
+              key: 'drop-success',
+              duration: 2,
+            });
+
+            // 视觉反馈：临时高亮状态（2 秒后自动消失）
+            console.log('[Event.Drop][Feedback] 触发 visual flash 高亮:', {
+              row,
+              col: column,
+              label: finalFieldData.fieldLabel || finalFieldData.fieldName || '',
+            });
+            setDropFlash({
+              row,
+              col: column,
+              label: finalFieldData.fieldLabel || finalFieldData.fieldName || '',
+            });
+            if (dropFlashTimerRef.current) {
+              console.log('[Event.Drop][Feedback] 清除上一次的 flash 定时器');
+              clearTimeout(dropFlashTimerRef.current);
+            }
+            dropFlashTimerRef.current = setTimeout(() => {
+              console.log('[Event.Drop][Feedback] flash 高亮定时器到期，清除高亮');
+              setDropFlash(null);
+              dropFlashTimerRef.current = null;
+            }, 2000);
+
+            // 清理待放置状态
+            console.log('[Event.Drop][Cleanup] 清理 pendingField 状态');
+            setPendingField(null);
+            (window as any).__pendingField = null;
+            console.log('[Event.Drop][Cleanup] ✅ pendingField 已清理');
+
+            console.log('[Event.Drop][Callback] ====== 结束（放置成功 ✅）======');
+          } catch (e) {
+            const error = e as Error;
+            console.error('[Event.Drop][Execute] ❌ handleFieldDrop 抛出异常:', {
+              name: error.name,
+              message: error.message,
+              stack: error.stack?.substring(0, 500),
+              field: finalFieldData?.fieldLabel || finalFieldData?.fieldName || '(unknown)',
+              target: `(${rowNum}, ${colLetter})`,
+            });
+            message.error({
+              content: `字段放置失败：${error.message || '未知错误'}`,
+              key: 'drop-error',
+              duration: 3,
+            });
+            console.log('[Event.Drop][Callback] ====== 结束（执行异常 ❌）======');
+          }
+        });
+
+        // 保存清理函数
+        console.log('[Event.Drop][Dispose] 保存 disposable 清理函数');
+        dropDisposeRef.current = () => {
+          console.log('[Event.Drop][Dispose] 执行 disposable.dispose() 清理事件订阅');
+          try {
+            disposable.dispose();
+            console.log('[Event.Drop][Dispose] ✅ disposable.dispose() 执行成功');
+          } catch (e) {
+            console.warn('[Event.Drop][Dispose] disposable.dispose() 执行忽略:', e);
+          }
+        };
+
+        isSubscribed = true;
+        console.log('[Event.Drop][Subscribe] ✅✅✅ Event.Drop 订阅成功 ✅✅✅');
+        return true;
+      } catch (e) {
+        const error = e as Error;
+        console.error('[Event.Drop][Subscribe] ❌ 订阅 Event.Drop 抛出异常:', {
+          name: error.name,
+          message: error.message,
+          stack: error.stack?.substring(0, 500),
+        });
+        return false;
+      }
+    };
+
+    // 延迟 1.5 秒等待 Univer 初始化完成
+    console.log('[Event.Drop][Retry] 设置 1.5s 延迟后首次尝试订阅');
+    const initialTimer = setTimeout(() => {
+      console.log('[Event.Drop][Retry] 1.5s 延迟到期，首次尝试 doSubscribe');
+      if (!doSubscribe()) {
+        // 首次订阅失败，每 500ms 轮询重试，最多 30 次（15 秒）
+        console.log('[Event.Drop][Retry] 首次订阅失败，启动轮询重试（每 500ms，最多 30 次）');
+        let retryCount = 0;
+        retryTimer = setInterval(() => {
+          retryCount++;
+          console.log(`[Event.Drop][Retry] 第 ${retryCount}/30 次重试...`);
+          if (retryCount > 30) {
+            clearInterval(retryTimer);
+            console.error('[Event.Drop][Retry] ❌ 重试 30 次后仍未就绪，放弃订阅');
+            console.log('[Event.Drop][Retry] 最终诊断信息:', {
+              hasFAPI: !!(window as any).__univerFAPI,
+              hasUniverGrid: !!(window as any).univerExcelGrid,
+              fAPIDetail: (window as any).__univerFAPI ? {
+                hasEvent: !!((window as any).__univerFAPI.Event),
+                hasAddEvent: typeof (window as any).__univerFAPI.addEvent === 'function',
+              } : 'N/A',
+              univerGridDetail: (window as any).univerExcelGrid ? {
+                methods: Object.keys((window as any).univerExcelGrid),
+              } : 'N/A',
+            });
+            return;
+          }
+          if (doSubscribe()) {
+            console.log(`[Event.Drop][Retry] ✅ 第 ${retryCount} 次重试订阅成功`);
+            clearInterval(retryTimer);
+          } else {
+            console.log(`[Event.Drop][Retry] 第 ${retryCount} 次重试仍未成功`);
+          }
+        }, 500);
+      }
+    }, 1500);
+
+    // 清理
+    return () => {
+      console.log('[Event.Drop][Lifecycle] useEffect 清理函数执行');
+      console.log('[Event.Drop][Lifecycle] 清理 initialTimer');
+      clearTimeout(initialTimer);
+      if (retryTimer) {
+        console.log('[Event.Drop][Lifecycle] 清理 retryTimer');
+        clearInterval(retryTimer);
+      }
+      if (dropDisposeRef.current) {
+        console.log('[Event.Drop][Lifecycle] 执行事件订阅清理');
+        dropDisposeRef.current();
+        dropDisposeRef.current = null;
+      }
+      if (dropFlashTimerRef.current) {
+        console.log('[Event.Drop][Lifecycle] 清理 dropFlash 定时器');
+        clearTimeout(dropFlashTimerRef.current);
+        dropFlashTimerRef.current = null;
+      }
+      console.log('[Event.Drop][Lifecycle] useEffect 清理完成');
+    };
+  }, [message]); // message 来自 antd App.useApp()，引用稳定
+  */
 
   // ──────────────────────────────────────────────
   // 重做/撤销（占位）
@@ -295,6 +731,7 @@ const ExcelDesignContent: React.FC = () => {
         onLayoutChange={handleLayoutChange}
         formId={formId || undefined}
         pendingField={selectedField || (window as any).__pendingField}
+        hoveredField={hoveredField}
       />
     ),
   }));
@@ -306,13 +743,42 @@ const ExcelDesignContent: React.FC = () => {
           <div style={{ display: 'flex', height: 'calc(100vh - 200px)' }}>
             {/* 左侧字段面板 */}
             <div style={{ width: 250, borderRight: '1px solid #f0f0f0', overflow: 'auto' }}>
-              <FieldPalette onFieldSelect={handleFieldSelect} formId={formId || undefined} />
+              <FieldPalette onFieldSelect={handleFieldSelect} onFieldHover={handleFieldHover} formId={formId || undefined} />
             </div>
 
             {/* 中间 Univer Excel 区域 */}
             <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
               <Card>
                 <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
+
+                {/* 拖拽放置成功后的临时高亮反馈 */}
+                {dropFlash && (
+                  <div
+                    style={{
+                      position: 'fixed',
+                      bottom: 24,
+                      right: 24,
+                      zIndex: 1050,
+                      padding: '10px 20px',
+                      borderRadius: 6,
+                      background: '#f6ffed',
+                      border: '1px solid #b7eb8f',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+                      fontSize: 14,
+                      color: '#389e0d',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      animation: 'fadeIn 0.3s ease',
+                    }}
+                  >
+                    <CheckCircleOutlined style={{ fontSize: 18 }} />
+                    <span>
+                      字段 <strong>{dropFlash.label}</strong> 已放置到
+                      单元格 <strong>({dropFlash.row + 1}, {String.fromCharCode(65 + dropFlash.col)})</strong>
+                    </span>
+                  </div>
+                )}
               </Card>
             </div>
 

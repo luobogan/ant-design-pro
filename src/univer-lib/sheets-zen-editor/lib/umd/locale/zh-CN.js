@@ -1,1 +1,0 @@
-(function(e,t){typeof exports==`object`&&typeof module<`u`?module.exports=t():typeof define==`function`&&define.amd?define([],t):(e=typeof globalThis<`u`?globalThis:e||self,e.UniverSheetsZenEditorZhCN=t())})(this,function(){return{"sheets-zen-editor":{rightClick:{zenEditor:`禅模式编辑`},shortcut:{sheet:{"zen-edit-cancel":`取消编辑（禅模式状态）`,"zen-edit-confirm":`放弃编辑（禅模式状态）`}}}}});

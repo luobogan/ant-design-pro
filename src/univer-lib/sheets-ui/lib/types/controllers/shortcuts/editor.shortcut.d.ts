@@ -14,10 +14,9 @@
  * limitations under the License.
  */
 import type { IShortcutItem } from '@univerjs/ui';
-import { KeyCode } from '@univerjs/ui';
-export declare const ARROW_SELECTION_KEYCODE_LIST: KeyCode[];
-export declare const MOVE_SELECTION_KEYCODE_LIST: KeyCode[];
-export declare function generateArrowSelectionShortCutItem(): IShortcutItem<object>[];
+export declare const ARROW_SELECTION_KEYCODE_LIST: any[];
+export declare const MOVE_SELECTION_KEYCODE_LIST: any[];
+export declare function generateArrowSelectionShortCutItem(): IShortcutItem[];
 export declare const StartEditWithF2Shortcut: IShortcutItem;
 export declare const RepeatLastActionShortcut: IShortcutItem;
 export declare const EditorCursorEnterShortcut: IShortcutItem;

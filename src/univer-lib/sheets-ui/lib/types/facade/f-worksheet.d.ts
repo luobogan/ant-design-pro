@@ -339,6 +339,12 @@ export declare class FWorksheetUIMixin extends FWorksheet implements IFWorksheet
     scrollToCell(row: number, column: number, duration?: number): FWorksheet;
     getScrollState(): IScrollState;
     getSkeleton(): Nullable<SpreadsheetSkeleton>;
+    /**
+     * Hit test to get the cell at the given page coordinates.
+     * @param clientX - X coordinate relative to the viewport (pageX)
+     * @param clientY - Y coordinate relative to the viewport (pageY)
+     * @returns The cell row and column at the given coordinates, or null if not found.
+     */
     hitTest(clientX: number, clientY: number): Nullable<{
         row: number;
         column: number;

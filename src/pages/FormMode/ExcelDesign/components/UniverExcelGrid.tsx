@@ -164,6 +164,8 @@ interface UniverExcelGridProps {
   formId?: string;
   /** 待放置字段（从 FieldPalette 选中） */
   pendingField?: any;
+  /** 悬停字段（从 FieldPalette hover）→ 高亮对应单元格 */
+  hoveredField?: any;
 }
 
 const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
@@ -172,6 +174,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   onLayoutChange,
   formId,
   pendingField,
+  hoveredField,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const univerRef = useRef<any>(null);
@@ -181,6 +184,127 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   const [initError, setInitError] = useState<string>('');
   const sheetRef = useRef<any>(null);
   const { message } = App.useApp();
+
+  // ──────────────────────────────────────
+  // 字段悬停高亮状态
+  // ──────────────────────────────────────
+  const [hoveredCell, setHoveredCell] = useState<{ row: number; col: number } | null>(null);
+  const [hoverStyle, setHoverStyle] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const [hoverVisible, setHoverVisible] = useState(false);
+  const hoverTimerRef = useRef<any>(null);
+
+  // 监听 hoveredField 变化 → 找到对应单元格 → 计算位置
+  useEffect(() => {
+    // 清除之前的定时器
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+
+    if (!hoveredField || !workbook) {
+      // 鼠标离开字段 → 先触发 opacity 过渡隐藏，等待过渡完成后再移除 DOM
+      // 这样 CSS transition 才能播放淡出动画
+      setHoverStyle((prev) => prev ? { ...prev } : null); // 保持位置不变
+      hoverTimerRef.current = setTimeout(() => {
+        setHoverVisible(false);
+        setHoveredCell(null);
+      }, 350); // 等待过渡完成（0.3s + 50ms 余量）
+      return;
+    }
+
+    // 搜索 cellFieldMetaMap 找到匹配的单元格
+    const fieldId = hoveredField.id;
+    let foundCell: { row: number; col: number } | null = null;
+
+    for (const [cellKey, meta] of Object.entries(cellFieldMetaMap.current)) {
+      const metaFieldId = (meta as any).fieldId || (meta as any).id;
+      if (metaFieldId === fieldId || metaFieldId === String(fieldId)) {
+        const [r, c] = cellKey.split('_').map(Number);
+        if (!isNaN(r) && !isNaN(c)) {
+          foundCell = { row: r, col: c };
+          break;
+        }
+      }
+    }
+
+    if (foundCell) {
+      setHoveredCell(foundCell);
+      // 计算位置在下一帧（等 hoveredCell 更新）
+    } else {
+      setHoveredCell(null);
+      // 先触发淡出过渡
+      hoverTimerRef.current = setTimeout(() => {
+        setHoverVisible(false);
+      }, 350);
+    }
+  }, [hoveredField, workbook]);
+
+  // 当 hoveredCell 变化时，计算位置
+  useEffect(() => {
+    if (!hoveredCell || !workbook) {
+      return;
+    }
+
+    try {
+      const fWorkbook: any = workbook;
+      const sheet = fWorkbook.getActiveSheet();
+      if (!sheet) return;
+
+      const { row, col } = hoveredCell;
+
+      // 使用 Facade API 计算单元格位置
+      let left = 0;
+      for (let c = 0; c < col; c++) {
+        let w: number;
+        if (typeof sheet.getColumnWidth === 'function') {
+          w = sheet.getColumnWidth(c);
+        } else {
+          w = 73;
+        }
+        if (!w || w <= 0) w = 73;
+        left += w;
+      }
+
+      let top = 0;
+      for (let r = 0; r < row; r++) {
+        let h: number;
+        if (typeof sheet.getRowHeight === 'function') {
+          h = sheet.getRowHeight(r);
+        } else {
+          h = 24;
+        }
+        if (!h || h <= 0) h = 24;
+        top += h;
+      }
+
+      // 获取目标单元格的宽度和高度
+      let width: number;
+      if (typeof sheet.getColumnWidth === 'function') {
+        width = sheet.getColumnWidth(col);
+      } else {
+        width = 73;
+      }
+      if (!width || width <= 0) width = 73;
+
+      let height: number;
+      if (typeof sheet.getRowHeight === 'function') {
+        height = sheet.getRowHeight(row);
+      } else {
+        height = 24;
+      }
+      if (!height || height <= 0) height = 24;
+
+      const newStyle = { left, top, width, height };
+      setHoverStyle(newStyle);
+
+      // 如果是新位置（从 null 或不同位置过来），先瞬间移到新位置再显示
+      if (!hoverVisible) {
+        setHoverVisible(true);
+      }
+    } catch (e) {
+      console.warn('[Hover] 计算单元格位置失败:', e);
+    }
+  }, [hoveredCell, workbook, hoverVisible]);
 
   // ──────────────────────────────────────
   // 字段类型 → 数据验证规则映射
@@ -658,20 +782,37 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   }, [workbook, setCellField, saveLayoutData, onLayoutChange]);
 
   // ──────────────────────────────────────
-  // 获取鼠标位置对应的单元格坐标（基于已知列宽/行高手算）
-  // 因为 Univer canvas 高度只有 27px（初始化尺寸问题），hitTest 计算错误
-  // 改用根据 workbook 创建时定义的列宽/行高手动计算
+  // 获取鼠标位置对应的单元格坐标
+  // 策略：使用 FWorksheet.getColumnWidth() / getRowHeight() 从 Facade API
+  // 获取实际列宽/行高进行计算，无需硬编码
   // ──────────────────────────────────────
   const getCellFromMouseEvent = useCallback((clientX: number, clientY: number): { row: number; col: number } => {
-    // 已知列宽配置（与 createWorkbook 时一致）
-    const columnWidths: Record<number, number> = {
-      0: 120, 1: 120, 2: 150, 3: 200, 4: 200, 5: 120,
-    };
+    console.log('[getCellFromMouseEvent] 开始执行', { clientX, clientY });
+    
+    // 优先使用 Facade API 的 hitTest 方法（最精准）
+    const fWorkbook: any = workbook;
+    const sheet = fWorkbook?.getActiveSheet?.();
+    
+    console.log('[getCellFromMouseEvent] sheet 检查:', { 
+      hasSheet: !!sheet, 
+      hasHitTest: typeof sheet?.hitTest === 'function',
+      sheetType: typeof sheet
+    });
+
+    if (sheet && typeof sheet.hitTest === 'function') {
+      try {
+        const result = sheet.hitTest(clientX, clientY);
+        if (result && typeof result.row === 'number' && typeof result.column === 'number') {
+          console.log('[getCellFromMouseEvent] hitTest 成功:', { row: result.row, col: result.column });
+          return { row: result.row, col: result.column };
+        }
+      } catch (e) {
+        console.warn('[getCellFromMouseEvent] hitTest 失败，降级到坐标计算:', e);
+      }
+    }
+
+    // 降级方案：使用坐标计算（原有逻辑）
     const DEFAULT_COL_WIDTH = 73;
-    // 已知行高配置
-    const rowHeights: Record<number, number> = {
-      0: 30,
-    };
     const DEFAULT_ROW_HEIGHT = 24;
 
     // 获取 canvas 元素位置，用于计算相对坐标
@@ -693,98 +834,110 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     const relX = clientX - canvasRect.left;
     const relY = clientY - canvasRect.top;
 
-    console.log('[getCellFromMouseEvent] Canvas 位置:', {
+    console.log('[getCellFromMouseEvent] Canvas:', {
       left: canvasRect.left.toFixed(0), top: canvasRect.top.toFixed(0),
       width: canvasRect.width.toFixed(0), height: canvasRect.height.toFixed(0),
     });
-    console.log('[getCellFromMouseEvent] Canvas 相对坐标:', { relX: relX.toFixed(1), relY: relY.toFixed(1) });
+    console.log('[getCellFromMouseEvent] 坐标:', { relX: relX.toFixed(1), relY: relY.toFixed(1) });
 
-    // 遍历列宽累积求和，找到鼠标所在的列
+    // 从 Facade API 获取实际列宽遍历计算列
     let accumulatedX = 0;
     let col = 0;
-    for (let c = 0; c < 100; c++) {  // 最多 100 列
-      accumulatedX += columnWidths[c] ?? DEFAULT_COL_WIDTH;
+    for (let c = 0; c < 100; c++) {
+      let w: number;
+      if (sheet && typeof sheet.getColumnWidth === 'function') {
+        w = sheet.getColumnWidth(c);
+      } else {
+        w = DEFAULT_COL_WIDTH;
+      }
+      // getColumnWidth 可能返回 0 或 undefined，用默认值兜底
+      if (!w || w <= 0) w = DEFAULT_COL_WIDTH;
+      accumulatedX += w;
       if (relX < accumulatedX) {
         col = c;
         break;
       }
     }
 
-    // 遍历行高累积求和，找到鼠标所在的行
+    // 从 Facade API 获取实际行高遍历计算行
     let accumulatedY = 0;
     let row = 0;
-    for (let r = 0; r < 200; r++) {  // 最多 200 行
-      accumulatedY += rowHeights[r] ?? DEFAULT_ROW_HEIGHT;
+    for (let r = 0; r < 200; r++) {
+      let h: number;
+      if (sheet && typeof sheet.getRowHeight === 'function') {
+        h = sheet.getRowHeight(r);
+      } else {
+        h = DEFAULT_ROW_HEIGHT;
+      }
+      if (!h || h <= 0) h = DEFAULT_ROW_HEIGHT;
+      accumulatedY += h;
       if (relY < accumulatedY) {
         row = r;
         break;
       }
     }
 
-    console.log('[getCellFromMouseEvent] 计算结果:', { row, col });
+    console.log('[getCellFromMouseEvent] 降级计算结果:', { row, col });
     return { row: Math.max(0, row), col: Math.max(0, col) };
-  }, []);
+  }, [workbook]);
 
   // ──────────────────────────────────────
   // 拖放处理（必须放在 handleFieldDrop 之后，否则无法访问）
   // 使用 Facade API (workbook)
   // 参照迁移文档 §5.3 字段绑定
   // ──────────────────────────────────────
-  const [{ isOver }, dropRef] = useDrop(() => ({
+  const [{ isOver, canDrop }, dropRef] = useDrop(() => ({
     accept: 'FIELD',
+    canDrop: (item, monitor) => {
+      console.log('[useDrop][CanDrop] 检查是否可放置', { item });
+      return true; // 始终允许放置
+    },
+    hover: (item, monitor) => {
+      // 注意：不能在 hover 中调用 monitor.canDrop()，否则会导致无限递归
+      console.log('[useDrop][Hover] 拖拽悬停', { isOver: monitor.isOver() });
+    },
     drop: (item: any, monitor) => {
-      if (monitor.didDrop()) return;
+      console.log('[useDrop][Drop] 回调触发', { item, isOver: monitor.isOver(), canDrop: monitor.canDrop() });
+      
+      if (monitor.didDrop()) {
+        console.log('[useDrop][Drop] 已被子组件处理，跳过');
+        return;
+      }
+      
       if (!workbook) {
         message.warning('Excel 表格尚未初始化完成，请稍后再试');
         return;
       }
+      
       try {
         let row = 0;
         let col = 0;
         let source = '默认(0,0)';
 
-        // 优先方案：使用 Univer 当前选中单元格（最准确）
-        // 用户先点击选中目标单元格 → 再拖拽字段放下
-        try {
-          const fWorkbook: any = workbook;
-          const sheet = fWorkbook.getActiveSheet();
-          if (sheet) {
-            // 优先用 getActiveCell() 获取当前活动单元格
-            const activeCell = sheet.getActiveCell?.() || sheet.getActiveRange?.();
-            if (activeCell) {
-              const row1 = activeCell.getRow?.();
-              const col1 = activeCell.getColumn?.();
-              if (typeof row1 === 'number' && typeof col1 === 'number') {
-                row = row1;
-                col = col1;
-                source = `活动单元格(${row},${col})`;
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('[Drop] 获取活动单元格失败，尝试坐标计算:', e);
+        // 方案1：使用 hitTest（最精准）
+        const clientOffset = monitor.getClientOffset();
+        console.log('[useDrop][Drop] clientOffset:', clientOffset);
+        
+        if (clientOffset) {
+          const { row: r, col: c } = getCellFromMouseEvent(clientOffset.x, clientOffset.y);
+          row = r;
+          col = c;
+          source = `hitTest(${row},${col})`;
+          console.log('[useDrop][Drop] 使用 hitTest 结果:', { row, col });
+        } else {
+          console.warn('[useDrop][Drop] clientOffset 为空，使用默认值');
         }
 
-        // 降级方案：如果活动单元格不可用，尝试用鼠标坐标计算
-        if (row === 0 && col === 0 && source === '默认(0,0)') {
-          const clientOffset = monitor.getClientOffset();
-          if (clientOffset) {
-            const { row: r, col: c } = getCellFromMouseEvent(clientOffset.x, clientOffset.y);
-            row = r;
-            col = c;
-            source = `坐标计算(${row},${col})`;
-          }
-        }
-
-        console.log(`[Drop] 放置来源: ${source}`);
+        console.log(`[useDrop][Drop] 放置来源: ${source}`);
         handleFieldDrop(item, row, col);
       } catch (e) {
-        console.error('[Drop] 获取选中区域失败:', e);
+        console.error('[useDrop][Drop] 处理放置失败:', e);
         handleFieldDrop(item, 0, 0);
       }
     },
     collect: (monitor) => ({
       isOver: monitor.isOver({ shallow: true }),
+      canDrop: monitor.canDrop(),
     }),
   }), [workbook, handleFieldDrop, getCellFromMouseEvent]);
 
@@ -1014,6 +1167,11 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         setInitialized(true);
         setInitError('');
 
+        // 暴露 FUniver 实例到 window 桥接，供 ExcelDesign 订阅 Event.Drop 等事件
+        // 确保外部组件能通过 window.__univerFAPI 访问 FUniver Facade API
+        (window as any).__univerFAPI = fUniver;
+        console.log('[Univer Init] ✅ FUniver 实例已暴露到 window.__univerFAPI');
+
         // 获取活动工作表（FWorksheet）
         const sheet = fWorkbook.getActiveSheet();
         sheetRef.current = sheet;
@@ -1028,24 +1186,62 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
         // 参照迁移文档 §7.2 事件绑定
         // 添加值变化事件（使用 FWorkbook）
-        const valueChangeDisposer = fWorkbook.onCellValueChange?.(
-          (cell: any, oldValue: any, newValue: any) => {
-            console.log(`[§7 Event] 单元格值变化: (${cell?.row}, ${cell?.col}) ${oldValue} → ${newValue}`);
-          }
-        );
+        // 当单元格内容变更时触发，包括：手动编辑、拖拽移动（MoveRangeCommand）等
+        let changeTimer: any = null;
+        let valueChangeDisposer: (() => void) | undefined;
+        try {
+          valueChangeDisposer = fWorkbook.onCellValueChange?.(
+            (cell: any, oldValue: any, newValue: any) => {
+              console.log(`[Drag] 单元格值变化: (${cell?.row}, ${cell?.col}) ${oldValue} → ${newValue}`);
+
+              // 延迟触发保存（防抖），等待拖拽操作完全结束
+              if (changeTimer) clearTimeout(changeTimer);
+              changeTimer = setTimeout(() => {
+                // 拖拽可能导致字段元数据位置变化，需要重新保存布局
+                const data = saveLayoutData();
+                if (data) {
+                  console.log('[Drag] 拖拽操作完成，自动保存布局数据');
+                  onLayoutChange(data);
+                }
+              }, 500);
+            }
+          );
+        } catch (e) {
+          console.warn('[Univer Init] 添加值变化事件失败:', e);
+        }
 
         // 添加选区变化事件（使用 FWorkbook）
-        const selectionDisposer = fWorkbook.onSelectionChange?.(
-          (selection: any) => {
-            if (!selection) return;
-            // 检查是否有待放置的字段
-            const pending = (window as any).__pendingField || pendingField;
-            if (pending) {
-              // 自动放置字段到当前选中单元格
-              console.log(`[§7 Event] 选区变化:`, selection, `待放置字段:`, pending?.label);
+        // 用于检测拖拽操作完成后的选区变化
+        let lastSelection: any = null;
+        let selectionDisposer: (() => void) | undefined;
+        try {
+          selectionDisposer = fWorkbook.onSelectionChange?.(
+            (selection: any) => {
+              if (!selection) return;
+
+              // 检测选区变化（拖拽后选区会变化）
+              const selStr = JSON.stringify(selection);
+              const lastStr = lastSelection ? JSON.stringify(lastSelection) : '';
+              if (selStr !== lastStr) {
+                // 检查是否有待放置的字段
+                const pending = (window as any).__pendingField || pendingField;
+                if (pending) {
+                  console.log(`[Drag] 选区变化:`, selection, `待放置字段:`, pending?.fieldLabel || pending?.label || pending?.fieldName || '未知');
+                }
+                lastSelection = selection;
+              }
             }
-          }
-        );
+          );
+        } catch (e) {
+          console.warn('[Univer Init] 添加选区变化事件失败:', e);
+        }
+
+        // 监听 Univer 内部事件：选区拖拽移动结束（由 MoveRangeRenderController 触发）
+        // 注意：此事件独立于 react-dnd，是 Univer 内置的单元格拖拽功能
+        // 通过检测连续的值变化来判断拖拽移动是否完成
+        console.log('[Drag] ✅ 单元格拖拽功能已启用（Univer 内置功能）');
+        console.log('[Drag] 支持的操作: 选中单元格 → 拖拽边框移动到新位置');
+        console.log('[Drag] 视觉反馈: 半透明蓝色填充 + 亮色边框预览');
 
         // 加载布局数据
         if (layoutData && layoutData[sheetName]) {
@@ -1066,8 +1262,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
         // 保存清理函数引用，在 useEffect cleanup 时使用
         (attemptInit as any).cleanup = () => {
-          if (valueChangeDisposer) valueChangeDisposer();
-          if (selectionDisposer) selectionDisposer();
+          if (valueChangeDisposer && typeof valueChangeDisposer === 'function') valueChangeDisposer();
+          if (selectionDisposer && typeof selectionDisposer === 'function') selectionDisposer();
+          if (changeTimer) clearTimeout(changeTimer);
           if (univerRef.current) {
             try { (univerRef.current as any).dispose(); } catch (e) { console.error('清理失败:', e); }
           }
@@ -1110,12 +1307,102 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         saveLayoutData,
         loadLayoutData,
         handleFieldDrop,
+        getCellFieldMeta,
         getWorkbook: () => workbook,  // 返回 FWorkbook
         getActiveSheet: () => (workbook as any).getActiveSheet(),  // 返回 FWorksheet
         getWorkbookId: () => workbookRef.current?.getUnitId?.(),
       };
     }
-  }, [workbook, saveLayoutData, loadLayoutData, handleFieldDrop]);
+  }, [workbook, saveLayoutData, loadLayoutData, handleFieldDrop, getCellFieldMeta]);
+
+  // 组件卸载时清理 hover 定时器
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) {
+        clearTimeout(hoverTimerRef.current);
+      }
+    };
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────────
+  // ★★★ 容器级别原生 drop 监听器（兜底方案）★★★
+  // 绕过 react-dnd 和 Univer Event.Drop 两条路径。
+  // 注册到 container 元素上，确保能捕获到 drop 事件。
+  // 注意：必须同时监听 dragover 并阻止默认行为，否则 drop 事件不会触发。
+  // ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    // ★★★ 调试：确认 useEffect 被执行 ★★★
+    console.log('[NativeDrop] useEffect 执行, workbook:', !!workbook);
+
+    if (!workbook || !containerRef.current) {
+      console.log('[NativeDrop] workbook 或 container 未就绪，跳过注册');
+      return;
+    }
+
+    const container = containerRef.current;
+    let dragCount = 0;
+
+    // 必须阻止 dragover 的默认行为，否则 drop 事件不会触发
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    const handleNativeDrop = (e: DragEvent) => {
+      // ★★★ 调试：记录所有 drop 事件 ★★★
+      console.log('[NativeDrop] drop 事件触发', {
+        hasDataTransfer: !!e.dataTransfer,
+        types: e.dataTransfer ? Array.from(e.dataTransfer.types) : [],
+        clientX: e.clientX,
+        clientY: e.clientY,
+        target: e.target?.tagName || 'unknown',
+      });
+
+      if (!e.dataTransfer) return; // 不是拖拽事件，忽略
+
+      dragCount++;
+      const eventId = dragCount;
+
+      // Step 1: 获取字段数据
+      const pendingField = (window as any).__pendingField;
+      let fieldData: any = null;
+
+      if (pendingField) {
+        fieldData = pendingField;
+      }
+
+      if (!fieldData && e.dataTransfer) {
+        try {
+          const jsonStr = e.dataTransfer.getData('application/json');
+          if (jsonStr) {
+            fieldData = JSON.parse(jsonStr);
+          }
+        } catch { /* ignore */ }
+      }
+
+      if (!fieldData) return;
+
+      // Step 2: 获取鼠标坐标 → 转换为单元格坐标
+      const { row, col } = getCellFromMouseEvent(e.clientX, e.clientY);
+      console.log(`[NativeDrop][${eventId}] drop at (${e.clientX},${e.clientY}) → cell(${row},${col}), field=${fieldData.fieldLabel || fieldData.fieldName}`);
+
+      // Step 3: 执行字段放置
+      if (row >= 0 && col >= 0) {
+        handleFieldDrop(fieldData, row, col);
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    container.addEventListener('dragover', handleDragOver);
+    container.addEventListener('drop', handleNativeDrop);
+    console.log('[NativeDrop] container drop 监听器已注册');
+
+    return () => {
+      container.removeEventListener('dragover', handleDragOver);
+      container.removeEventListener('drop', handleNativeDrop);
+    };
+  }, [workbook, handleFieldDrop, getCellFromMouseEvent, containerRef.current]);
 
   // ──────────────────────────────────────
   // 渲染
@@ -1130,7 +1417,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           📋 工作表: {sheetName}
           {pendingField && (
             <span style={{ marginLeft: 12, color: '#1890ff', fontSize: 12 }}>
-              待放置: {pendingField.label || pendingField.type}
+              待放置: {pendingField.fieldLabel || pendingField.label || pendingField.fieldName || pendingField.type}
             </span>
           )}
         </span>
@@ -1157,8 +1444,66 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           border: '1px solid #d9d9d9',
           backgroundColor: isOver ? '#e6f7ff' : '#fff',
           transition: 'background-color 0.2s',
+          position: 'relative',
+          overflow: 'hidden',
         }}
-      />
+      >
+        {/* 字段悬停高亮边框 - 绝对定位在 canvas 上方，含 8px 内边距 */}
+        {hoverVisible && hoverStyle && (
+          <div
+            style={{
+              position: 'absolute',
+              // 内边距 8px：边框略微大于单元格，视觉上更舒适
+              left: hoverStyle.left - 8,
+              top: hoverStyle.top - 8,
+              width: hoverStyle.width + 16,
+              height: hoverStyle.height + 16,
+              border: '2px solid #007bff',
+              borderRadius: 2,
+              pointerEvents: 'none',
+              zIndex: 5,
+              boxSizing: 'border-box',
+              outline: 'none',
+              // 过渡效果：平滑移动和大小变化（0.3s ease，符合 0.3-0.5s 要求）
+              transition: [
+                'left 0.3s ease',
+                'top 0.3s ease',
+                'width 0.3s ease',
+                'height 0.3s ease',
+                'opacity 0.3s ease',
+                'border-color 0.3s ease',
+              ].join(', '),
+              // Chrome/Safari/Edge (WebKit) 前缀
+              WebkitTransition: [
+                'left 0.3s ease',
+                'top 0.3s ease',
+                'width 0.3s ease',
+                'height 0.3s ease',
+                'opacity 0.3s ease',
+              ].join(', '),
+              // Firefox (Moz) 前缀
+              MozTransition: [
+                'left 0.3s ease',
+                'top 0.3s ease',
+                'width 0.3s ease',
+                'height 0.3s ease',
+                'opacity 0.3s ease',
+              ].join(', '),
+              // IE/Edge 旧版 (ms) 前缀
+              msTransition: [
+                'left 0.3s ease',
+                'top 0.3s ease',
+                'width 0.3s ease',
+                'height 0.3s ease',
+                'opacity 0.3s ease',
+              ].join(', '),
+              opacity: 1,
+              // box-shadow 增强视觉深度
+              boxShadow: '0 0 6px rgba(0, 123, 255, 0.3), 0 0 2px rgba(0, 123, 255, 0.2)',
+            }}
+          />
+        )}
+      </div>
       {/* 加载中遮罩 */}
       {!initialized && !initError && (
         <div

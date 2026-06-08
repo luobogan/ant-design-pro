@@ -1,1 +1,0 @@
-(function(e,t){typeof exports==`object`&&typeof module<`u`?module.exports=t():typeof define==`function`&&define.amd?define([],t):(e=typeof globalThis<`u`?globalThis:e||self,e.UniverSheetsZenEditorJaJP=t())})(this,function(){return{"sheets-zen-editor":{rightClick:{zenEditor:`禅モード`},shortcut:{sheet:{"zen-edit-cancel":`禅モードをキャンセル`,"zen-edit-confirm":`禅モードに移行`}}}}});

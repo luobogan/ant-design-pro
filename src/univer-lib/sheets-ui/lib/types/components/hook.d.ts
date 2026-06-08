@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 import type { Workbook } from '@univerjs/core';
-import { SheetSkeletonManagerService } from '../services/sheet-skeleton-manager.service';
 export declare function useActiveWorkbook(): Workbook | null;
-export declare function useActiveWorksheet(workbook?: Workbook | null): import("@univerjs/core").Nullable<import("@univerjs/core").Worksheet>;
+export declare function useActiveWorksheet(workbook?: Workbook | null): any;
 export declare function useWorkbooks(): Workbook[];
-export declare function useSheetSkeleton(): SheetSkeletonManagerService | null | undefined;
+export declare function useSheetSkeleton(): any;

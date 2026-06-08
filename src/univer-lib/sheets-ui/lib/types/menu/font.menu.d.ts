@@ -15,15 +15,14 @@
  */
 import type { IAccessor } from '@univerjs/core';
 import type { IMenuButtonItem, IMenuSelectorItem } from '@univerjs/ui';
-import { MenuItemType } from '@univerjs/ui';
 import { Observable } from 'rxjs';
 export declare function FontSizeSelectorMenuItemFactory(accessor: IAccessor): IMenuSelectorItem<number>;
 export declare function FontSizeIncreaseMenuItemFactory(accessor: IAccessor): IMenuButtonItem;
 export declare function FontSizeDecreaseMenuItemFactory(accessor: IAccessor): {
     id: string;
-    type: MenuItemType;
+    type: any;
     icon: string;
     tooltip: string;
     disabled$: Observable<boolean>;
-    hidden$: Observable<boolean>;
+    hidden$: any;
 };

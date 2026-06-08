@@ -54,7 +54,8 @@ const getFieldIcon = (field: FieldDefinition): React.ReactNode => {
 const DraggableFieldItem: React.FC<{
   field: FieldDefinition;
   onFieldSelect: (field: any) => void;
-}> = ({ field, onFieldSelect }) => {
+  onFieldHover?: (field: any | null) => void;
+}> = ({ field, onFieldSelect, onFieldHover }) => {
   const [{ isDragging }, dragRef] = useDrag(() => ({
     type: 'FIELD',
     // 关键：传递完整 field 对象，确保 drop 时能获取所有属性
@@ -67,9 +68,42 @@ const DraggableFieldItem: React.FC<{
     }),
   }), [field]);
 
+  /**
+   * 原生拖拽开始事件处理器
+   * 在 react-dnd 处理 dragstart 后，额外将字段数据写入 native dataTransfer
+   * 使 Univer canvas 的原生 dragover/drop 事件能读取到字段数据
+   */
+    const handleDragStart = (e: React.DragEvent) => {
+    const fieldData = {
+      id: field.id,
+      fieldId: field.id,
+      fieldName: field.fieldName,
+      fieldLabel: field.fieldLabel || field.label || '',
+      fieldHtmlType: field.fieldHtmlType,
+      fieldType: field.fieldType,
+      type: 'formField',
+      required: field.required || false,
+      readonly: field.readonly || false,
+      defaultValue: field.defaultValue || '',
+      placeholder: field.placeholder || '',
+      options: field.options || [],
+    };
+
+    // ★★★ 核心修复：直接拖拽时设置 __pendingField ★★★
+    (window as any).__pendingField = {
+      ...fieldData,
+      fieldLabel: field.fieldLabel || field.label || field.fieldName || '未命名字段',
+    };
+
+    e.dataTransfer.setData('application/json', JSON.stringify(fieldData));
+    e.dataTransfer.setData('text/plain', field.fieldLabel || field.fieldName || '');
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
   return (
     <div
       ref={dragRef as any}
+      onDragStart={handleDragStart}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -81,8 +115,14 @@ const DraggableFieldItem: React.FC<{
         fontSize: '13px',
       }}
       onClick={() => onFieldSelect(field)}
-      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f5f5f5')}
-      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = '#f5f5f5';
+        onFieldHover?.(field);
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = 'transparent';
+        onFieldHover?.(null);
+      }}
     >
       <span style={{ marginRight: 8, color: '#1890ff' }}>{getFieldIcon(field)}</span>
       <span>{field.fieldLabel}</span>
@@ -93,10 +133,11 @@ const DraggableFieldItem: React.FC<{
 
 interface FieldPaletteProps {
   onFieldSelect: (field: any) => void;
+  onFieldHover?: (field: any | null) => void;
   formId?: string;
 }
 
-const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, formId }) => {
+const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover, formId }) => {
   const [searchText, setSearchText] = useState('');
   const [loading, setLoading] = useState(false);
   const [fields, setFields] = useState<FieldDefinition[]>([]);
@@ -162,7 +203,7 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, formId }) =>
           title: `主表字段 (${filteredMain.length})`,
           key: 'group-main',
           children: filteredMain.map(f => ({
-            title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} />,
+            title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} onFieldHover={onFieldHover} />,
             key: 'field-' + f.id,
           })),
         });
@@ -184,7 +225,7 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, formId }) =>
           title: `明细表${num} (${filtered.length})`,
           key: `group-detail-${num}`,
           children: filtered.map(f => ({
-            title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} />,
+            title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} onFieldHover={onFieldHover} />,
             key: 'field-' + f.id,
           })),
         });

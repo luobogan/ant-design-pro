@@ -924,20 +924,53 @@ var FWorksheetUIMixin = class extends FWorksheet {
 		const service = (_this$_injector$get$g = this._injector.get(IRenderManagerService).getRenderUnitById(this._workbook.getUnitId())) === null || _this$_injector$get$g === void 0 ? void 0 : _this$_injector$get$g.with(SheetSkeletonManagerService);
 		return service === null || service === void 0 ? void 0 : service.getSkeleton(this._worksheet.getSheetId());
 	}
+	/**
+	* Hit test to get the cell at the given page coordinates.
+	* @param clientX - X coordinate relative to the viewport (pageX)
+	* @param clientY - Y coordinate relative to the viewport (pageY)
+	* @returns The cell row and column at the given coordinates, or null if not found.
+	*/
 	hitTest(clientX, clientY) {
 		const unitId = this._workbook.getUnitId();
 		const render = this._injector.get(IRenderManagerService).getRenderUnitById(unitId);
-		if (!render) return null;
+		if (!render) {
+			console.warn("[hitTest] Render not found for unitId:", unitId);
+			return null;
+		}
 		const scene = render.scene;
-		if (!scene) return null;
-		const relativeCoords = scene.getCoordRelativeToViewport(Vector2.FromArray([clientX, clientY]));
-		const { x: offsetX, y: offsetY } = relativeCoords;
-		const scrollXY = scene.getScrollXYInfoByViewport(relativeCoords);
+		if (!scene) {
+			console.warn("[hitTest] Scene not found");
+			return null;
+		}
+		const engine = scene.getEngine();
+		const canvasElement = engine === null || engine === void 0 ? void 0 : engine.getCanvasElement();
+		let offsetX;
+		let offsetY;
+		if (canvasElement) {
+			const canvasRect = canvasElement.getBoundingClientRect();
+			offsetX = clientX - canvasRect.left;
+			offsetY = clientY - canvasRect.top;
+		} else {
+			offsetX = clientX;
+			offsetY = clientY;
+			console.warn("[hitTest] Canvas element not found, using client coordinates directly");
+		}
+		const coordVector = Vector2.FromArray([offsetX, offsetY]);
+		const scrollXY = scene.getScrollXYInfoByViewport(coordVector);
 		const { scaleX, scaleY } = scene.getAncestorScale();
 		const skeleton = this.getSkeleton();
-		if (!skeleton) return null;
+		if (!skeleton) {
+			console.warn("[hitTest] Skeleton not found");
+			return null;
+		}
 		const cellInfo = skeleton.getCellByOffset(offsetX, offsetY, scaleX, scaleY, scrollXY);
-		if (!cellInfo) return null;
+		if (!cellInfo) {
+			console.warn("[hitTest] No cell found at coordinates", {
+				offsetX,
+				offsetY
+			});
+			return null;
+		}
 		return {
 			row: cellInfo.actualRow,
 			column: cellInfo.actualColumn

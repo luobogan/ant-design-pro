@@ -24,7 +24,7 @@ export declare enum RepeatLastActionPermission {
     RowStyle = "rowStyle",
     ColumnStyle = "columnStyle"
 }
-export declare const SHEETS_BASIC_REPEATABLE_COMMANDS: string[];
+export declare const SHEETS_BASIC_REPEATABLE_COMMANDS: any[];
 export interface IRepeatLastActionService {
     setAction(commandInfo: ICommandInfo | null): void;
     getAction(): ICommandInfo | null;
