@@ -50,12 +50,17 @@ const getFieldIcon = (field: FieldDefinition): React.ReactNode => {
   return <FontSizeOutlined />;
 };
 
-// 可拖拽的字段项组件
+// 可拖拽的字段项组件 - 双列布局：标签 + 字段
 const DraggableFieldItem: React.FC<{
   field: FieldDefinition;
   onFieldSelect: (field: any) => void;
   onFieldHover?: (field: any | null) => void;
 }> = ({ field, onFieldSelect, onFieldHover }) => {
+  // 获取字段名称，支持多种属性名
+  const displayFieldName = field.fieldName || field.fieldDbName || field.name || field.columnName || '';
+  // 获取字段标签，支持多种属性名
+  const displayFieldLabel = field.fieldLabel || field.label || displayFieldName || '未命名字段';
+
   const [{ isDragging }, dragRef] = useDrag(() => ({
     type: 'FIELD',
     // 关键：传递完整 field 对象，确保 drop 时能获取所有属性
@@ -77,8 +82,8 @@ const DraggableFieldItem: React.FC<{
     const fieldData = {
       id: field.id,
       fieldId: field.id,
-      fieldName: field.fieldName,
-      fieldLabel: field.fieldLabel || field.label || '',
+      fieldName: displayFieldName,
+      fieldLabel: displayFieldLabel,
       fieldHtmlType: field.fieldHtmlType,
       fieldType: field.fieldType,
       type: 'formField',
@@ -92,11 +97,11 @@ const DraggableFieldItem: React.FC<{
     // ★★★ 核心修复：直接拖拽时设置 __pendingField ★★★
     (window as any).__pendingField = {
       ...fieldData,
-      fieldLabel: field.fieldLabel || field.label || field.fieldName || '未命名字段',
+      fieldLabel: displayFieldLabel,
     };
 
     e.dataTransfer.setData('application/json', JSON.stringify(fieldData));
-    e.dataTransfer.setData('text/plain', field.fieldLabel || field.fieldName || '');
+    e.dataTransfer.setData('text/plain', displayFieldLabel);
     e.dataTransfer.effectAllowed = 'copy';
   };
 
@@ -109,10 +114,11 @@ const DraggableFieldItem: React.FC<{
         alignItems: 'center',
         cursor: 'grab',
         opacity: isDragging ? 0.5 : 1,
-        padding: '4px 8px',
+        padding: '4px 0',
         borderRadius: 4,
         transition: 'background-color 0.2s',
         fontSize: '13px',
+        width: '100%',
       }}
       onClick={() => onFieldSelect(field)}
       onMouseEnter={(e) => {
@@ -124,9 +130,24 @@ const DraggableFieldItem: React.FC<{
         onFieldHover?.(null);
       }}
     >
-      <span style={{ marginRight: 8, color: '#1890ff' }}>{getFieldIcon(field)}</span>
-      <span>{field.fieldLabel}</span>
-      <span style={{ marginLeft: 4, color: '#999', fontSize: '12px' }}>({field.fieldName})</span>
+      {/* 第一列：图标 + 标签 */}
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', paddingRight: 8 }}>
+        <span style={{ marginRight: 8, color: '#1890ff' }}>{getFieldIcon(field)}</span>
+        <span>{displayFieldLabel}</span>
+      </div>
+
+      {/* 第二列：字段名称 */}
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        alignItems: 'center',
+        color: '#999',
+        fontSize: '12px',
+        paddingLeft: 8,
+        borderLeft: '1px solid #e8e8e8'
+      }}>
+        <span>{displayFieldName || '-'}</span>
+      </div>
     </div>
   );
 };
@@ -157,6 +178,11 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
       setLoading(true);
       try {
         const data = await fieldDefinitionApi.getByFormId(formId);
+        console.log('[FieldPalette] 原始字段数据:', data);
+        if (data && data.length > 0) {
+          console.log('[FieldPalette] 第一条字段完整数据:', data[0]);
+          console.log('[FieldPalette] fieldName:', data[0]?.fieldName, '| fieldLabel:', data[0]?.fieldLabel);
+        }
         if (data) {
           setFields(data);
 
@@ -273,13 +299,42 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
         style={{ marginBottom: 16 }}
         allowClear
       />
+
+      {/* 表头：标签 + 字段双列布局 */}
+      <div style={{
+        display: 'flex',
+        padding: '8px 0',
+        borderBottom: '1px solid #e8e8e8',
+        marginBottom: 8,
+        fontSize: '12px',
+        color: '#666',
+        fontWeight: 'bold'
+      }}>
+        <div style={{ flex: 1, paddingRight: 8 }}>标签</div>
+        <div style={{ flex: 1, paddingLeft: 8, borderLeft: '1px solid #e8e8e8' }}>字段</div>
+      </div>
+
+      {/* 简单列表渲染，避免 Tree 组件的缩进影响双列布局 */}
       {treeData.length > 0 ? (
-        <Tree
-          treeData={treeData}
-          defaultExpandAll
-          showIcon={false}
-          switcherIcon={<DownOutlined />}
-        />
+        <div>
+          {treeData.map((group: any) => (
+            <div key={group.key}>
+              {/* 分组标题 */}
+              <div style={{
+                padding: '8px 0 4px 0',
+                fontSize: '12px',
+                color: '#1890ff',
+                fontWeight: 'bold'
+              }}>
+                {group.title}
+              </div>
+              {/* 分组下的字段列表 */}
+              {group.children?.map((child: any) => (
+                <div key={child.key}>{child.title}</div>
+              ))}
+            </div>
+          ))}
+        </div>
       ) : (
         <div style={{ textAlign: 'center', color: '#999', padding: '20px 0' }}>
           {loading ? '加载中...' : '暂无字段数据'}

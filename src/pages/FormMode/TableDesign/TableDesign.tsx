@@ -40,7 +40,7 @@ import {
   Divider,
   Empty,
 } from 'antd';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { formApi, fieldApi } from '@/services/formmode';
 import type { WorkflowBill, FieldDefinitionFormData } from '@/services/formmode/typings';
 import BrowserButtonPreview from './components/BrowserButtonPreview';
@@ -75,14 +75,93 @@ interface DragHandleValue {
 }
 const DragHandleContext = React.createContext<DragHandleValue | null>(null);
 
+// ==================== 可编辑单元格组件 ====================
+// 使用本地状态管理输入，只在失焦时更新父组件，避免每次按键都触发重新渲染导致焦点丢失
+
+interface EditableCellProps {
+  value: string | undefined;
+  record: any;
+  index: number;
+  field: string;
+  onChange: (index: number, field: string, value: any) => void;
+}
+
+const EditableCell: React.FC<EditableCellProps> = ({ value, record, index, field, onChange }) => {
+  const [localValue, setLocalValue] = useState<string>(value || '');
+  const localValueRef = useRef(localValue);
+  
+  // 缓存最新值，供 onBlur 使用
+  useEffect(() => {
+    localValueRef.current = localValue;
+  }, [localValue]);
+
+  // 当外部 value 变化时同步（如重置、加载新数据）
+  useEffect(() => {
+    setLocalValue(value || '');
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let newValue = e.target.value;
+
+    // 如果是字段编码（fieldName），只允许字母、数字和下划线
+    if (field === 'fieldName') {
+      newValue = newValue.replace(/[^a-zA-Z0-9_]/g, '');
+    }
+
+    setLocalValue(newValue);
+  };
+
+  const handleBlur = () => {
+    // 失焦时通知父组件更新数据
+    onChange(index, field, localValue);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    // 回车键也触发保存
+    if (e.key === 'Enter') {
+      onChange(index, field, localValue);
+    }
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+  };
+
+  const handleFocus = (e: React.FocusEvent) => {
+    e.stopPropagation();
+  };
+
+  const handleMouseDownCapture = (e: React.MouseEvent) => {
+    e.stopPropagation();
+  };
+
+  return (
+    <Input
+      value={localValue}
+      size="small"
+      onChange={handleChange}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      onClick={handleClick}
+      onFocus={handleFocus}
+      onMouseDownCapture={handleMouseDownCapture}
+      placeholder={field === 'fieldName' ? '字段编码（字母、数字、下划线）' : '字段名称'}
+      bordered={true}
+      style={{ padding: '0 8px' }}
+      disabled={Number(record.isSystemField) === 1}
+    />
+  );
+};
+
 // ==================== 可拖拽表格行组件 ====================
 
 interface DragableTableRowProps {
   index: number;
   children: React.ReactNode;
+  idPrefix?: string; // 拖拽 id 前缀，主表默认 'field'，明细表用 'detail-field'
 }
 
-const DragableTableRow: React.FC<DragableTableRowProps> = ({ index, children }) => {
+const DragableTableRow: React.FC<DragableTableRowProps> = ({ index, children, idPrefix = 'field' }) => {
   const {
     attributes,
     listeners,
@@ -91,7 +170,7 @@ const DragableTableRow: React.FC<DragableTableRowProps> = ({ index, children }) 
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: `field-${index}` });
+  } = useSortable({ id: `${idPrefix}-${index}` });
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -350,130 +429,169 @@ const TableDesign: React.FC = () => {
   }, [searchParams]);
 
   // 加载已有表单数据
+  // 使用 AbortController 防止 React 18 StrictMode 下 effect 多次执行导致数据重复
   useEffect(() => {
     const formId = searchParams.get('id');
-    if (formId && !tableConfig.id) {
-      setLoading(true);
-      const loadData = async (id: string) => {
-        try {
-          // 1. 加载表单定义
-          const formData = await formApi.getById(id);
-          if (formData) {
-            setTableConfig({
-              id: formData.id,
-              formName: formData.formName || '',
-              tableName: formData.tableName || '',
-              description: formData.description || '',
-              status: formData.status || 1,
-            });
-          }
+    if (!formId) return;
 
-          // 2. 加载字段定义
-          const fieldsData = await fieldApi.getByFormId(id);
-          if (fieldsData && fieldsData.length > 0) {
-            // 系统保留字段，不应从数据库加载（这些是系统自动创建的）
-            const systemFieldNames = new Set([
-              'id',
-              'request_id',
-              'main_id',
-              'is_deleted',
-              'update_time',
-              'update_user',
-              'create_time',
-              'create_user',
-              'create_dept',
-              'tenant_id',
-            ]);
+    // 每次执行前先重置状态，确保切换表单时重新加载
+    setLoading(true);
+    setFields([]);
+    setDetailTables([]);
 
-            // 分离主表字段和明细表字段
-            const mainFields: Partial<FieldDefinitionFormData>[] = [];
-            const detailFieldsMap: { [key: number]: Partial<FieldDefinitionFormData>[] } = {};
+    const abortController = new AbortController();
 
-            for (const f of fieldsData) {
-              // 兼容多种可能的字段名格式（驼峰、下划线、全小写）
-              const fieldName = f.fieldName || f.field_name || f.fieldname || '';
-              // 过滤系统保留字段（这些字段在新建/编辑时会自动创建）
-              if (systemFieldNames.has(fieldName.toLowerCase())) {
-                continue;
-              }
-              const isMain = f.isMain !== undefined ? f.isMain : (f.is_main !== undefined ? f.is_main : f.ismain);
-              const detailTable = f.detailTable !== undefined ? f.detailTable : (f.detail_table !== undefined ? f.detail_table : f.detailtable);
-              
-              const fieldItem: Partial<FieldDefinitionFormData> = {
-                id: f.id,
-                fieldName: fieldName,
-                fieldLabel: f.fieldLabel || f.field_label || f.fieldlabel || f.fieldDbName || f.field_db_name || f.fielddbname || '',
-                fieldHtmlType: f.fieldHtmlType ?? f.field_html_type ?? f.fieldhtmltype ?? 1,
-                fieldType: f.fieldType ?? f.field_type ?? f.fieldtype ?? 1,
-                fieldDbType: f.fieldDbType ?? f.field_db_type ?? f.fielddbtype ?? 'varchar',
-                fieldLength: f.fieldLength ?? f.field_length ?? f.fieldlen ?? 255,
-                fieldDecimals: f.fieldDecimals ?? f.field_decimals ?? f.decimaldigit ?? 0,
-                isRequired: f.isRequired ?? f.is_required ?? f.isnull ?? 0,
-                isReadOnly: f.isReadOnly ?? f.is_read_only ?? f.isreadonly ?? 0,
-                defaultValue: f.defaultValue ?? f.default_value ?? f.defaultvalue ?? '',
-                sort: f.sort ?? f.ds_order ?? f.dsOrder ?? 0,
-                status: f.status ?? 1,
-                isSystemField: f.isSystemField ?? f.is_system_field ?? f.issystemfield ?? 0,
-                listDisplay: f.listDisplay ?? f.list_display ?? f.listdisplay ?? 1,
-                isMain: isMain,
-                detailTable: detailTable,
-              };
+    const loadData = async (id: string) => {
+      try {
+        // 1. 加载表单定义
+        const formData = await formApi.getById(id);
+        if (abortController.signal.aborted) return;
 
-              if (isMain === 0 && detailTable) {
-                const dtIdx = detailTable;
-                if (!detailFieldsMap[dtIdx]) detailFieldsMap[dtIdx] = [];
-                detailFieldsMap[dtIdx].push(fieldItem);
-              } else {
-                mainFields.push(fieldItem);
-              }
+        if (formData) {
+          setTableConfig({
+            id: formData.id,
+            formName: formData.formName || '',
+            tableName: formData.tableName || '',
+            description: formData.description || '',
+            status: formData.status || 1,
+          });
+        }
+
+        // 2. 加载字段定义
+        const fieldsData = await fieldApi.getByFormId(id);
+        if (abortController.signal.aborted) return;
+
+        if (fieldsData && fieldsData.length > 0) {
+          // 系统保留字段，不应从数据库加载（这些是系统自动创建的）
+          const systemFieldNames = new Set([
+            'id',
+            'request_id',
+            'main_id',
+            'is_deleted',
+            'update_time',
+            'update_user',
+            'create_time',
+            'create_user',
+            'create_dept',
+            'tenant_id',
+          ]);
+
+          // 分离主表字段和明细表字段
+          const mainFields: Partial<FieldDefinitionFormData>[] = [];
+          const detailFieldsMap: { [key: number]: Partial<FieldDefinitionFormData>[] } = {};
+          // 记录所有出现过的明细表索引，包括只有系统字段的明细表
+          const allDetailTableIndices = new Set<number>();
+
+          for (const f of fieldsData) {
+            const fieldName = f.fieldName || f.field_name || f.fieldname || '';
+            // 不过滤系统字段，而是记录明细表索引
+            const isMain = f.isMain !== undefined ? f.isMain : (f.is_main !== undefined ? f.is_main : f.ismain);
+            const detailTable = f.detailTable !== undefined ? f.detailTable : (f.detail_table !== undefined ? f.detail_table : f.detailtable);
+
+            if (isMain === 0 && detailTable) {
+              allDetailTableIndices.add(Number(detailTable));
             }
 
-            // 设置主表字段（保留系统默认字段）
-            const defaultSystemFields = getDefaultSystemFields();
-            setFields([...defaultSystemFields, ...mainFields]);
+            // 过滤系统保留字段（这些字段在新建/编辑时会自动创建）
+            if (systemFieldNames.has(fieldName.toLowerCase())) {
+              continue;
+            }
 
-            // 设置明细表
-            const mainTableName = formData.tableName || 'main';
-            const newDetailTables: Array<{
-              key: string;
-              config: Partial<WorkflowBill>;
-              fields: Partial<FieldDefinitionFormData>[];
-              selectedRowKeys: React.Key[];
-            }> = [];
-            const sortedKeys = Object.keys(detailFieldsMap).sort((a, b) => Number(a) - Number(b));
-            sortedKeys.forEach((key, index) => {
-              const counter = index + 1;
-              // 获取明细表默认系统字段（id + main_id）
-              const defaultDetailFields = createDefaultDetailFields(mainTableName);
-              // 合并：默认系统字段 + 从数据库加载的用户字段
-              const userDetailFields = detailFieldsMap[Number(key)] || [];
-              newDetailTables.push({
-                key: `dt-${Date.now()}-${counter}`,
-                config: {
-                  id: '',
-                  formName: `明细表${counter}`,
-                  tableName: `${mainTableName}_dt${counter}`,
-                  description: '',
-                  status: 1,
-                },
-                fields: [...defaultDetailFields, ...userDetailFields],
-                selectedRowKeys: [],
-              });
-            });
-            setDetailTables(newDetailTables);
-            setDetailTableCounter(newDetailTables.length);
+            const fieldItem: Partial<FieldDefinitionFormData> = {
+              id: f.id,
+              fieldName: fieldName,
+              fieldLabel: f.fieldLabel || f.field_label || f.fieldlabel || f.fieldDbName || f.field_db_name || f.fielddbname || '',
+              fieldHtmlType: f.fieldHtmlType ?? f.field_html_type ?? f.fieldhtmltype ?? 1,
+              fieldType: f.fieldType ?? f.field_type ?? f.fieldtype ?? 1,
+              fieldDbType: f.fieldDbType ?? f.field_db_type ?? f.fielddbtype ?? 'varchar',
+              fieldLength: f.fieldLength ?? f.field_length ?? f.fieldlen ?? 255,
+              fieldDecimals: f.fieldDecimals ?? f.field_decimals ?? f.decimaldigit ?? 0,
+              isRequired: f.isRequired ?? f.is_required ?? f.isnull ?? 0,
+              isReadOnly: f.isReadOnly ?? f.is_read_only ?? f.isreadonly ?? 0,
+              defaultValue: f.defaultValue ?? f.default_value ?? f.defaultvalue ?? '',
+              sort: f.sort ?? f.ds_order ?? f.dsOrder ?? 0,
+              status: f.status ?? 1,
+              isSystemField: f.isSystemField ?? f.is_system_field ?? f.issystemfield ?? 0,
+              listDisplay: f.listDisplay ?? f.list_display ?? f.listdisplay ?? 1,
+              isMain: isMain,
+              detailTable: detailTable,
+            };
+
+            if (isMain === 0 && detailTable) {
+              const dtIdx = Number(detailTable);
+              if (!detailFieldsMap[dtIdx]) detailFieldsMap[dtIdx] = [];
+              detailFieldsMap[dtIdx].push(fieldItem);
+            } else {
+              mainFields.push(fieldItem);
+            }
           }
 
-          message.success('数据加载成功');
-        } catch (error) {
-          console.error('加载数据失败:', error);
-          message.error('加载数据失败');
-        } finally {
+          // 设置主表字段（直接替换，不追加，避免重复）
+          const defaultSystemFields = getDefaultSystemFields();
+          setFields([...defaultSystemFields, ...mainFields]);
+
+          // 设置明细表：合并所有明细表索引（包括只有系统字段的）
+          const mainTableName = formData.tableName || 'main';
+          const allIndices = new Set<number>([
+            ...Array.from(allDetailTableIndices),
+            ...Object.keys(detailFieldsMap).map(Number),
+          ]);
+          const sortedIndices = Array.from(allIndices).sort((a, b) => a - b);
+
+          const newDetailTables: Array<{
+            key: string;
+            config: Partial<WorkflowBill>;
+            fields: Partial<FieldDefinitionFormData>[];
+            selectedRowKeys: React.Key[];
+          }> = [];
+
+          sortedIndices.forEach((dtIdx, arrayIndex) => {
+            const counter = arrayIndex + 1;
+            const defaultDetailFields = createDefaultDetailFields(mainTableName);
+            const userDetailFields = detailFieldsMap[dtIdx] || [];
+            newDetailTables.push({
+              key: `dt-${Date.now()}-${counter}`,
+              config: {
+                id: '',
+                formName: `明细表${counter}`,
+                tableName: `${mainTableName}_dt${counter}`,
+                description: '',
+                status: 1,
+              },
+              fields: [...defaultDetailFields, ...userDetailFields],
+              selectedRowKeys: [],
+            });
+          });
+
+          setDetailTables(newDetailTables);
+          setActiveDetailTab(newDetailTables[0]?.key || '');
+          setDetailTableCounter(newDetailTables.length);
+        } else {
+          // 没有字段数据时，重置为默认状态
+          const defaultSystemFields = getDefaultSystemFields();
+          setFields(defaultSystemFields);
+          setDetailTables([]);
+          setDetailTableCounter(0);
+        }
+
+        message.success('数据加载成功');
+      } catch (error: any) {
+        if (error.name === 'AbortError') return;
+        console.error('加载数据失败:', error);
+        message.error('加载数据失败');
+      } finally {
+        if (!abortController.signal.aborted) {
           setLoading(false);
         }
-      };
-      loadData(formId);
-    }
+      }
+    };
+
+    loadData(formId);
+
+    // 清理函数：下次 effect 执行时取消上一次的请求
+    return () => {
+      abortController.abort();
+    };
   }, [searchParams]);
 
   // 创建明细表默认字段（id + 主表外键）
@@ -659,7 +777,7 @@ const TableDesign: React.FC = () => {
         }
         const isMain = f.isMain !== undefined ? f.isMain : (f.is_main !== undefined ? f.is_main : f.ismain);
         const detailTable = f.detailTable !== undefined ? f.detailTable : (f.detail_table !== undefined ? f.detail_table : f.detailtable);
-        
+
         // 字段标签兼容：fieldLabel, field_label, fieldlabel, fieldDbName
         const fieldLabel = f.fieldLabel ?? f.field_label ?? f.fieldlabel ?? f.fieldDbName ?? f.field_db_name ?? f.fielddbname ?? '';
         // HTML类型兼容
@@ -678,7 +796,7 @@ const TableDesign: React.FC = () => {
         const defaultValue = f.defaultValue ?? f.default_value ?? f.defaultvalue ?? '';
         // 排序兼容
         const sort = f.sort ?? f.ds_order ?? f.dsOrder ?? 0;
-        
+
         const fieldItem: Partial<FieldDefinitionFormData> = {
           fieldName: fieldName,
           fieldLabel: fieldLabel,
@@ -738,6 +856,7 @@ const TableDesign: React.FC = () => {
         });
       });
       setDetailTables(newDetailTables);
+      setActiveDetailTab(newDetailTables[0]?.key || '');
       setDetailTableCounter(newDetailTables.length);
 
       message.success('已加载主表数据');
@@ -846,21 +965,21 @@ const TableDesign: React.FC = () => {
     });
   };
 
-  // 明细表 - 更新字段
-  const handleDetailFieldChange = (index: number, field: string, value: any) => {
-    const currentTable = detailTables.find(dt => dt.key === activeDetailTab);
-    if (!currentTable) return;
-    const newFields = [...currentTable.fields];
-    (newFields[index] as any)[field] = value;
-    if (field === 'fieldHtmlType' || field === 'fieldType') {
-      const htmlType = field === 'fieldHtmlType' ? value : newFields[index].fieldHtmlType;
-      const type = field === 'fieldType' ? value : newFields[index].fieldType;
-      (newFields[index] as any).fieldDbType = getDbTypeByFieldType(htmlType, type);
-    }
-    setDetailTables(prev => prev.map(dt =>
-      dt.key === activeDetailTab ? { ...dt, fields: newFields } : dt
-    ));
-  };
+  // 明细表 - 更新字段（使用 useCallback 缓存）
+  const handleDetailFieldChange = useCallback((index: number, field: string, value: any) => {
+    setDetailTables(prev => prev.map(dt => {
+      if (dt.key !== activeDetailTab) return dt;
+      
+      const newFields = [...dt.fields];
+      (newFields[index] as any)[field] = value;
+      if (field === 'fieldHtmlType' || field === 'fieldType') {
+        const htmlType = field === 'fieldHtmlType' ? value : newFields[index].fieldHtmlType;
+        const type = field === 'fieldType' ? value : newFields[index].fieldType;
+        (newFields[index] as any).fieldDbType = getDbTypeByFieldType(htmlType, type);
+      }
+      return { ...dt, fields: newFields };
+    }));
+  }, [activeDetailTab]);
 
   // 删除单个字段
   const handleDeleteField = (index: number) => {
@@ -878,19 +997,21 @@ const TableDesign: React.FC = () => {
     });
   };
 
-  // 更新字段
-  const handleFieldChange = (index: number, field: string, value: any) => {
-    const newFields = [...fields];
-    (newFields[index] as any)[field] = value;
+  // 更新字段（使用 useCallback 缓存，避免每次渲染都创建新的函数实例）
+  const handleFieldChange = useCallback((index: number, field: string, value: any) => {
+    setFields(prevFields => {
+      const newFields = [...prevFields];
+      (newFields[index] as any)[field] = value;
 
-    if (field === 'fieldHtmlType' || field === 'fieldType') {
-      const htmlType = field === 'fieldHtmlType' ? value : newFields[index].fieldHtmlType;
-      const type = field === 'fieldType' ? value : newFields[index].fieldType;
-      (newFields[index] as any).fieldDbType = getDbTypeByFieldType(htmlType, type);
-    }
+      if (field === 'fieldHtmlType' || field === 'fieldType') {
+        const htmlType = field === 'fieldHtmlType' ? value : newFields[index].fieldHtmlType;
+        const type = field === 'fieldType' ? value : newFields[index].fieldType;
+        (newFields[index] as any).fieldDbType = getDbTypeByFieldType(htmlType, type);
+      }
 
-    setFields(newFields);
-  };
+      return newFields;
+    });
+  }, []);
 
   // 拖拽结束
   const handleDragEnd = (event: DragEndEvent) => {
@@ -905,6 +1026,23 @@ const TableDesign: React.FC = () => {
         newFields.splice(newIndex, 0, moved);
         return newFields.map((f, i) => ({ ...f, sort: i }));
       });
+    }
+  };
+
+  // 明细表拖拽结束
+  const handleDetailDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setDetailTables(prev => prev.map(dt => {
+        if (dt.key !== activeDetailTab) return dt;
+        const items = [...dt.fields];
+        const oldIndex = items.findIndex((_, idx) => `detail-field-${idx}` === active.id);
+        const newIndex = items.findIndex((_, idx) => `detail-field-${idx}` === over.id);
+        if (oldIndex === -1 || newIndex === -1) return dt;
+        const [moved] = items.splice(oldIndex, 1);
+        items.splice(newIndex, 0, moved);
+        return { ...dt, fields: items.map((f, i) => ({ ...f, sort: i })) };
+      }));
     }
   };
 
@@ -967,8 +1105,8 @@ const TableDesign: React.FC = () => {
     }
   };
 
-  // 表格列定义
-  const columns = [
+  // 表格列定义（用 useMemo 缓存，避免每次渲染重新创建导致输入框失焦）
+  const columns = useMemo(() => [
     {
       title: '序号',
       dataIndex: 'sort',
@@ -982,14 +1120,12 @@ const TableDesign: React.FC = () => {
       key: 'fieldName',
       width: 150,
       render: (value: string | undefined, record: any, index: number) => (
-        <Input
+        <EditableCell
           value={value}
-          size="small"
-          onChange={(e) => handleFieldChange(index, 'fieldName', e.target.value)}
-          placeholder="字段编码"
-          bordered={false}
-          style={{ padding: 0 }}
-          disabled={record.isSystemField === 1}
+          record={record}
+          index={index}
+          field="fieldName"
+          onChange={handleFieldChange}
         />
       ),
     },
@@ -999,14 +1135,12 @@ const TableDesign: React.FC = () => {
       key: 'fieldLabel',
       width: 150,
       render: (value: string | undefined, record: any, index: number) => (
-        <Input
+        <EditableCell
           value={value}
-          size="small"
-          onChange={(e) => handleFieldChange(index, 'fieldLabel', e.target.value)}
-          placeholder="字段名称"
-          bordered={false}
-          style={{ padding: 0 }}
-          disabled={false}  // 字段名称始终可编辑
+          record={record}
+          index={index}
+          field="fieldLabel"
+          onChange={handleFieldChange}
         />
       ),
     },
@@ -1354,7 +1488,7 @@ const TableDesign: React.FC = () => {
         )
       ),
     },
-  ];
+  ], [handleFieldChange]);
 
   // 表格行选择配置
   const rowSelection = {
@@ -1368,8 +1502,8 @@ const TableDesign: React.FC = () => {
     }),
   };
 
-  // 明细表列定义
-  const detailColumns = [
+  // 明细表列定义（用 useMemo 缓存）
+  const detailColumns = useMemo(() => [
     {
       title: '序号',
       dataIndex: 'sort',
@@ -1383,14 +1517,12 @@ const TableDesign: React.FC = () => {
       key: 'fieldName',
       width: 150,
       render: (value: string | undefined, record: any, index: number) => (
-        <Input
+        <EditableCell
           value={value}
-          size="small"
-          onChange={(e) => handleDetailFieldChange(index, 'fieldName', e.target.value)}
-          placeholder="字段编码"
-          bordered={false}
-          style={{ padding: 0 }}
-          disabled={record.isSystemField === 1}
+          record={record}
+          index={index}
+          field="fieldName"
+          onChange={(index, field, value) => handleDetailFieldChange(index, field, value)}
         />
       ),
     },
@@ -1399,15 +1531,13 @@ const TableDesign: React.FC = () => {
       dataIndex: 'fieldLabel',
       key: 'fieldLabel',
       width: 150,
-      render: (value: string | undefined, __: any, index: number) => (
-        <Input
+      render: (value: string | undefined, record: any, index: number) => (
+        <EditableCell
           value={value}
-          size="small"
-          onChange={(e) => handleDetailFieldChange(index, 'fieldLabel', e.target.value)}
-          placeholder="字段名称"
-          bordered={false}
-          style={{ padding: 0 }}
-          disabled={false}
+          record={record}
+          index={index}
+          field="fieldLabel"
+          onChange={(index, field, value) => handleDetailFieldChange(index, field, value)}
         />
       ),
     },
@@ -1742,7 +1872,7 @@ const TableDesign: React.FC = () => {
         )
       ),
     },
-  ];
+  ], [handleDetailFieldChange]);
 
   // 获取当前激活明细表的行选择配置
   const getDetailRowSelection = () => {
@@ -2337,37 +2467,44 @@ const TableDesign: React.FC = () => {
                           </Space>
                         }
                       >
-                        <Table
-                          dataSource={dt.fields}
-                          columns={detailColumns}
-                          rowKey={(_, index) => `detail-field-${index}`}
-                          pagination={false}
-                          size="small"
-                          bordered
-                          scroll={{ x: 1300 }}
-                          rowSelection={getDetailRowSelection()}
-                          components={{
-                            body: {
-                              row: (props: any) => {
-                                const rowIndex = dt.fields.findIndex(
-                                  (_, idx) => props['data-row-key'] === `detail-field-${idx}`
-                                );
-                                if (rowIndex === -1) return <tr {...props} />;
-                                return <DragableTableRow index={rowIndex}>{props.children}</DragableTableRow>;
-                              },
-                            },
-                          }}
-                          onRow={(_, index) => ({
-                            style: { cursor: 'grab' },
-                          })}
-                          locale={{
-                            emptyText: (
-                              <div style={{ padding: 20 }}>
-                                <p>暂无字段，点击"新增字段"开始设计</p>
-                              </div>
-                            ),
-                          }}
-                        />
+                        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDetailDragEnd}>
+                          <SortableContext
+                            items={dt.fields.map((_, idx) => `detail-field-${idx}`)}
+                            strategy={verticalListSortingStrategy}
+                          >
+                            <Table
+                              dataSource={dt.fields}
+                              columns={detailColumns}
+                              rowKey={(_, index) => `detail-field-${index}`}
+                              pagination={false}
+                              size="small"
+                              bordered
+                              scroll={{ x: 1300 }}
+                              rowSelection={getDetailRowSelection()}
+                              components={{
+                                body: {
+                                  row: (props: any) => {
+                                    const rowIndex = dt.fields.findIndex(
+                                      (_, idx) => props['data-row-key'] === `detail-field-${idx}`
+                                    );
+                                    if (rowIndex === -1) return <tr {...props} />;
+                                    return <DragableTableRow index={rowIndex} idPrefix="detail-field">{props.children}</DragableTableRow>;
+                                  },
+                                },
+                              }}
+                              onRow={(_, index) => ({
+                                style: { cursor: 'grab' },
+                              })}
+                              locale={{
+                                emptyText: (
+                                  <div style={{ padding: 20 }}>
+                                    <p>暂无字段，点击"新增字段"开始设计</p>
+                                  </div>
+                                ),
+                              }}
+                            />
+                          </SortableContext>
+                        </DndContext>
                       </Card>
                     </TabPane>
                   ))}
