@@ -305,6 +305,7 @@ export const fieldDefinitionApi = {
 
   /**
    * 批量删除字段
+   * 传对象 {ids: string[]}，后端用 Map 接收
    */
   batchDelete: async (ids: string[]) => {
     return request(`${FIELD_DEFINITION_BASE_URL}/batch-delete`, {

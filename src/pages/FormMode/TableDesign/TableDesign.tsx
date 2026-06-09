@@ -945,22 +945,36 @@ const TableDesign: React.FC = () => {
 
   // 明细表 - 删除单个字段
   const handleDeleteDetailField = (index: number) => {
+    // 捕获要删除的字段
     const currentTable = detailTables.find(dt => dt.key === activeDetailTab);
-    if (!currentTable) return;
+    const deletedField = currentTable?.fields[index];
+    
     Modal.confirm({
       title: '确认删除',
-      content: `确定要删除字段 "${currentTable.fields[index]?.fieldLabel}" 吗？`,
+      content: `确定要删除字段 "${deletedField?.fieldLabel}" 吗？`,
       okText: '确认',
       cancelText: '取消',
-      onOk: () => {
-        const newFields = [...currentTable.fields];
-        newFields.splice(index, 1);
-        setDetailTables(prev => prev.map(dt =>
-          dt.key === activeDetailTab
-            ? { ...dt, fields: newFields }
-            : dt
-        ));
-        message.success('字段已删除');
+      onOk: async () => {
+        // 先从前端状态中移除
+        setDetailTables(prev => prev.map(dt => {
+          if (dt.key !== activeDetailTab) return dt;
+          const newFields = [...dt.fields];
+          newFields.splice(index, 1);
+          return { ...dt, fields: newFields };
+        }));
+
+        // 如果字段已保存到数据库（有 ID），立即调用后端删除
+        if (deletedField?.id) {
+          try {
+            await fieldApi.delete(deletedField.id.toString());
+            message.success('字段已删除');
+          } catch (error) {
+            message.error('删除字段失败');
+            console.error('删除字段失败:', error);
+          }
+        } else {
+          message.success('字段已删除');
+        }
       },
     });
   };
@@ -982,17 +996,31 @@ const TableDesign: React.FC = () => {
   }, [activeDetailTab]);
 
   // 删除单个字段
-  const handleDeleteField = (index: number) => {
+  const handleDeleteField = (field: Partial<FieldDefinitionFormData>) => {
     Modal.confirm({
       title: '确认删除',
-      content: `确定要删除字段 "${fields[index]?.fieldLabel}" 吗？`,
+      content: `确定要删除字段 "${field?.fieldLabel}" 吗？`,
       okText: '确认',
       cancelText: '取消',
-      onOk: () => {
-        const newFields = [...fields];
-        newFields.splice(index, 1);
-        setFields(newFields);
-        message.success('字段已删除');
+      onOk: async () => {
+        // 先从前端状态中移除（通过 ID 或引用匹配）
+        setFields(prevFields => prevFields.filter(f => f !== field && f.id !== field?.id));
+
+        // 如果字段已保存到数据库（有 ID），立即调用后端删除
+        if (field?.id) {
+          try {
+            console.log('正在删除字段，ID:', field.id);
+            const response = await fieldApi.delete(field.id.toString());
+            console.log('删除字段响应:', response);
+            message.success('字段已删除');
+          } catch (error) {
+            console.error('删除字段失败 - 详细错误:', error);
+            message.error('删除字段失败：' + (error as any)?.message || '未知错误');
+          }
+        } else {
+          console.log('字段无 ID，仅从前端移除');
+          message.success('字段已删除');
+        }
       },
     });
   };
@@ -1481,7 +1509,7 @@ const TableDesign: React.FC = () => {
                 danger
                 size="small"
                 icon={<DeleteOutlined />}
-                onClick={() => handleDeleteField(index)}
+                onClick={() => handleDeleteField(record)}
               />
             </Tooltip>
           </Space>
