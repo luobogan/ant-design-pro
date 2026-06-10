@@ -199,7 +199,32 @@ export const workflowBillApi = {
     );
     return response;
   },
+
+  /**
+   * 同步数据库表结构（根据字段定义自动创建/更新表结构）
+   * @param id 表单ID
+   * @returns 同步结果，包含成功状态、消息和警告
+   */
+  syncTableStructure: async (id: string) => {
+    const response = await request<BladeResponse<SyncResult>>(
+      `${FORM_DEFINITION_BASE_URL}/${id}/sync-table-structure`,
+      {
+        method: 'POST',
+      },
+    );
+    return response;
+  },
 };
+
+/**
+ * 同步结果类型
+ */
+export interface SyncResult {
+  success: boolean;
+  msg: string;
+  warnings?: string[];
+  executedSql?: string[];
+}
 
 /**
  * 字段定义 API

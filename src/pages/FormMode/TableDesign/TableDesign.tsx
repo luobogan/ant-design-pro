@@ -89,7 +89,7 @@ interface EditableCellProps {
 const EditableCell: React.FC<EditableCellProps> = ({ value, record, index, field, onChange }) => {
   const [localValue, setLocalValue] = useState<string>(value || '');
   const localValueRef = useRef(localValue);
-  
+
   // 缓存最新值，供 onBlur 使用
   useEffect(() => {
     localValueRef.current = localValue;
@@ -247,6 +247,7 @@ const TableDesign: React.FC = () => {
         status: 1,
         isSystemField: 1,
         listDisplay: 1,
+        isMain: 1, // 明确标记为主表字段
       },
       {
         fieldName: 'update_time',
@@ -263,6 +264,7 @@ const TableDesign: React.FC = () => {
         status: 1,
         isSystemField: 1,
         listDisplay: 1,
+        isMain: 1, // 明确标记为主表字段
       },
       {
         fieldName: 'update_user',
@@ -279,6 +281,7 @@ const TableDesign: React.FC = () => {
         status: 1,
         isSystemField: 1,
         listDisplay: 1,
+        isMain: 1, // 明确标记为主表字段
       },
       {
         fieldName: 'create_dept',
@@ -295,6 +298,7 @@ const TableDesign: React.FC = () => {
         status: 1,
         isSystemField: 1,
         listDisplay: 1,
+        isMain: 1, // 明确标记为主表字段
       },
       {
         fieldName: 'create_time',
@@ -311,6 +315,7 @@ const TableDesign: React.FC = () => {
         status: 1,
         isSystemField: 1,
         listDisplay: 1,
+        isMain: 1, // 明确标记为主表字段
       },
       {
         fieldName: 'create_user',
@@ -327,6 +332,7 @@ const TableDesign: React.FC = () => {
         status: 1,
         isSystemField: 1,
         listDisplay: 1,
+        isMain: 1, // 明确标记为主表字段
       },
       {
         fieldName: 'tenant_id',
@@ -343,6 +349,7 @@ const TableDesign: React.FC = () => {
         status: 1,
         isSystemField: 1,
         listDisplay: 1,
+        isMain: 1, // 明确标记为主表字段
       },
       {
         fieldName: 'id',
@@ -359,6 +366,7 @@ const TableDesign: React.FC = () => {
         status: 1,
         isSystemField: 1,
         listDisplay: 1,
+        isMain: 1, // 明确标记为主表字段
       },
     ];
   };
@@ -866,11 +874,28 @@ const TableDesign: React.FC = () => {
     }
   };
 
+  // 获取下一个可用的字段序号
+  const getNextFieldIndex = (currentFields: Partial<FieldDefinitionFormData>[]): number => {
+    let maxIndex = 0;
+    currentFields.forEach((field) => {
+      const fieldName = field.fieldName || '';
+      const match = fieldName.match(/^field_(\d+)$/);
+      if (match) {
+        const index = parseInt(match[1], 10);
+        if (index > maxIndex) {
+          maxIndex = index;
+        }
+      }
+    });
+    return maxIndex + 1;
+  };
+
   // 添加字段
   const handleAddField = () => {
+    const nextIndex = getNextFieldIndex(fields);
     const newField: Partial<FieldDefinitionFormData> = {
-      fieldName: `field_${fields.length + 1}`,
-      fieldLabel: `字段${fields.length + 1}`,
+      fieldName: `field_${nextIndex}`,
+      fieldLabel: `字段${nextIndex}`,
       fieldHtmlType: 1,
       fieldType: 1,
       fieldDbType: 'varchar',
@@ -922,9 +947,10 @@ const TableDesign: React.FC = () => {
   const handleAddDetailField = () => {
     const currentTable = detailTables.find(dt => dt.key === activeDetailTab);
     if (!currentTable) return;
+    const nextIndex = getNextFieldIndex(currentTable.fields);
     const newField: Partial<FieldDefinitionFormData> = {
-      fieldName: `field_${currentTable.fields.length + 1}`,
-      fieldLabel: `字段${currentTable.fields.length + 1}`,
+      fieldName: `field_${nextIndex}`,
+      fieldLabel: `字段${nextIndex}`,
       fieldHtmlType: 1,
       fieldType: 1,
       fieldDbType: 'varchar',
@@ -948,7 +974,7 @@ const TableDesign: React.FC = () => {
     // 捕获要删除的字段
     const currentTable = detailTables.find(dt => dt.key === activeDetailTab);
     const deletedField = currentTable?.fields[index];
-    
+
     Modal.confirm({
       title: '确认删除',
       content: `确定要删除字段 "${deletedField?.fieldLabel}" 吗？`,
@@ -981,18 +1007,35 @@ const TableDesign: React.FC = () => {
 
   // 明细表 - 更新字段（使用 useCallback 缓存）
   const handleDetailFieldChange = useCallback((index: number, field: string, value: any) => {
-    setDetailTables(prev => prev.map(dt => {
-      if (dt.key !== activeDetailTab) return dt;
-      
-      const newFields = [...dt.fields];
-      (newFields[index] as any)[field] = value;
-      if (field === 'fieldHtmlType' || field === 'fieldType') {
-        const htmlType = field === 'fieldHtmlType' ? value : newFields[index].fieldHtmlType;
-        const type = field === 'fieldType' ? value : newFields[index].fieldType;
-        (newFields[index] as any).fieldDbType = getDbTypeByFieldType(htmlType, type);
+    setDetailTables(prev => {
+      // 找到当前明细表
+      const currentTable = prev.find(dt => dt.key === activeDetailTab);
+      if (!currentTable) return prev;
+
+      // 如果修改的是字段编码，先校验是否重复
+      if (field === 'fieldName' && value) {
+        const isDuplicate = currentTable.fields.some((f, i) =>
+          i !== index && f.fieldName === value
+        );
+        if (isDuplicate) {
+          message.error(`字段编码 "${value}" 已存在，请使用其他编码`);
+          return prev;
+        }
       }
-      return { ...dt, fields: newFields };
-    }));
+
+      return prev.map(dt => {
+        if (dt.key !== activeDetailTab) return dt;
+
+        const newFields = [...dt.fields];
+        (newFields[index] as any)[field] = value;
+        if (field === 'fieldHtmlType' || field === 'fieldType') {
+          const htmlType = field === 'fieldHtmlType' ? value : newFields[index].fieldHtmlType;
+          const type = field === 'fieldType' ? value : newFields[index].fieldType;
+          (newFields[index] as any).fieldDbType = getDbTypeByFieldType(htmlType, type);
+        }
+        return { ...dt, fields: newFields };
+      });
+    });
   }, [activeDetailTab]);
 
   // 删除单个字段
@@ -1003,8 +1046,25 @@ const TableDesign: React.FC = () => {
       okText: '确认',
       cancelText: '取消',
       onOk: async () => {
-        // 先从前端状态中移除（通过 ID 或引用匹配）
-        setFields(prevFields => prevFields.filter(f => f !== field && f.id !== field?.id));
+        // 先从前端状态中移除
+        // 使用字段编码作为唯一标识符进行匹配（更可靠）
+        setFields(prevFields => {
+          const targetFieldName = field?.fieldName;
+          const targetId = field?.id;
+
+          return prevFields.filter(f => {
+            // 如果有 ID，优先使用 ID 匹配
+            if (targetId && f.id) {
+              return f.id !== targetId;
+            }
+            // 否则使用字段编码匹配
+            if (targetFieldName && f.fieldName) {
+              return f.fieldName !== targetFieldName;
+            }
+            // 最后使用引用匹配
+            return f !== field;
+          });
+        });
 
         // 如果字段已保存到数据库（有 ID），立即调用后端删除
         if (field?.id) {
@@ -1029,6 +1089,18 @@ const TableDesign: React.FC = () => {
   const handleFieldChange = useCallback((index: number, field: string, value: any) => {
     setFields(prevFields => {
       const newFields = [...prevFields];
+
+      // 如果修改的是字段编码，先校验是否重复
+      if (field === 'fieldName' && value) {
+        const isDuplicate = prevFields.some((f, i) =>
+          i !== index && f.fieldName === value
+        );
+        if (isDuplicate) {
+          message.error(`字段编码 "${value}" 已存在，请使用其他编码`);
+          return prevFields;
+        }
+      }
+
       (newFields[index] as any)[field] = value;
 
       if (field === 'fieldHtmlType' || field === 'fieldType') {
@@ -2038,7 +2110,12 @@ const TableDesign: React.FC = () => {
 
       // 2. 保存主表字段
       for (const field of fields) {
-        const fieldData = { ...field, formId, isMain: 1 } as FieldDefinitionFormData;
+        // 保留字段原有的 isMain 值，未设置时默认为主表字段(1)
+        const fieldData = {
+          ...field,
+          formId,
+          isMain: field.isMain !== undefined ? field.isMain : 1
+        } as FieldDefinitionFormData;
         if (field.id) {
           await fieldApi.update(field.id, fieldData);
         } else {
@@ -2066,30 +2143,42 @@ const TableDesign: React.FC = () => {
       }
       message.success('表单定义保存成功');
 
-      // 4. 创建数据库表
-      Modal.confirm({
-        title: '创建数据库表',
-        content: '表单定义已保存，是否立即创建数据库表？',
-        okText: '创建',
-        cancelText: '稍后',
-        onOk: async () => {
-          try {
-            if (!formId) {
-              message.error('表单ID不存在');
-              return;
+      // 4. 自动同步数据库表结构
+      try {
+        if (!formId) {
+          message.error('表单ID不存在');
+        } else {
+          const result = await formApi.syncTableStructure(formId);
+          if (result.success) {
+            message.success(result.msg || '数据库表同步成功');
+            if (result.warnings && result.warnings.length > 0) {
+              result.warnings.forEach((warning: string) => {
+                message.warning(warning);
+              });
             }
-            const result = await formApi.createTable(formId);
-            if (result.success) {
-              message.success(result.msg || '数据库表创建成功');
+          } else {
+            // 如果表中存在数据，显示友好的提示信息
+            if (result.dataCount !== undefined && result.dataCount > 0) {
+              message.warning({
+                content: (
+                  <div>
+                    <p>{result.msg}</p>
+                    <p style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
+                      请先清理表单关联的数据表中的数据，然后在表单设计页面点击「同步表结构」按钮重新同步。
+                    </p>
+                  </div>
+                ),
+                duration: 5,
+              });
             } else {
-              message.error(result.msg || '数据库表创建失败');
+              message.error(result.msg || '数据库表同步失败');
             }
-          } catch (error) {
-            console.error('创建数据库表失败:', error);
-            message.error('创建数据库表失败');
           }
-        },
-      });
+        }
+      } catch (error) {
+        console.error('同步数据库表失败:', error);
+        message.warning('表单定义已保存，但数据库表同步失败，请手动同步');
+      }
     } catch (error) {
       console.error('保存失败:', error);
       message.error('保存失败');

@@ -184,13 +184,23 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
           console.log('[FieldPalette] fieldName:', data[0]?.fieldName, '| fieldLabel:', data[0]?.fieldLabel);
         }
         if (data) {
-          setFields(data);
+          // 过滤掉已删除的字段（双重保障）
+          const filteredData = data.filter(f => {
+            const isDeleted = f.isDeleted === 1 || f.status === -1;
+            if (isDeleted) {
+              console.log('[FieldPalette] 过滤已删除字段:', f.fieldName, f.fieldLabel);
+            }
+            return !isDeleted;
+          });
+          
+          console.log('[FieldPalette] 原始字段数:', data.length, '过滤后字段数:', filteredData.length);
+          setFields(filteredData);
 
           // 分离主表字段和明细表字段
-          const mainFields = data.filter(f => f.isMain === 1 || f.detailTable === 0 || f.detailTable === undefined);
+          const mainFields = filteredData.filter(f => f.isMain === 1 || f.detailTable === 0 || f.detailTable === undefined);
           const detailFields: Record<number, FieldDefinition[]> = {};
 
-          data.forEach(f => {
+          filteredData.forEach(f => {
             if (f.isMain === 0 && f.detailTable && f.detailTable > 0) {
               if (!detailFields[f.detailTable]) {
                 detailFields[f.detailTable] = [];
