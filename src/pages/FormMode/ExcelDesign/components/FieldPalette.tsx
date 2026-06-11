@@ -185,10 +185,15 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
         }
         if (data) {
           // 过滤掉已删除的字段（双重保障）
+          // 兼容后端返回的字段命名：isDeleted（驼峰）或 is_deleted（下划线）
           const filteredData = data.filter(f => {
-            const isDeleted = f.isDeleted === 1 || f.status === -1;
+            // 兼容两种命名格式
+            const deletedFlag = f.isDeleted !== undefined ? f.isDeleted : f.is_deleted;
+            const statusValue = f.status;
+            
+            const isDeleted = deletedFlag === 1 || statusValue === -1;
             if (isDeleted) {
-              console.log('[FieldPalette] 过滤已删除字段:', f.fieldName, f.fieldLabel);
+              console.log('[FieldPalette] 过滤已删除字段:', f.fieldName, f.fieldLabel, '| isDeleted:', deletedFlag, '| status:', statusValue);
             }
             return !isDeleted;
           });

@@ -406,6 +406,8 @@ const TableDesign: React.FC = () => {
   const [activeDetailTab, setActiveDetailTab] = useState<string>('');
   // 明细表自增计数器
   const [detailTableCounter, setDetailTableCounter] = useState(0);
+  // 待删除的明细表索引列表（保存时才执行实际删除）
+  const [detailTablesToDelete, setDetailTablesToDelete] = useState<number[]>([]);
 
   // 已有表单列表（用于主表选择）
   const [existingForms, setExistingForms] = useState<WorkflowBill[]>([]);
@@ -558,11 +560,12 @@ const TableDesign: React.FC = () => {
             const defaultDetailFields = createDefaultDetailFields(mainTableName);
             const userDetailFields = detailFieldsMap[dtIdx] || [];
             newDetailTables.push({
-              key: `dt-${Date.now()}-${counter}`,
+              // key 使用原始的 dtIdx，保留数据库中的明细表索引
+              key: `dt-${dtIdx}`,
               config: {
                 id: '',
-                formName: `明细表${counter}`,
-                tableName: `${mainTableName}_dt${counter}`,
+                formName: `明细表${dtIdx}`,
+                tableName: `${mainTableName}_dt${dtIdx}`,
                 description: '',
                 status: 1,
               },
@@ -640,7 +643,19 @@ const TableDesign: React.FC = () => {
 
   // 新增明细表
   const handleAddDetailTable = () => {
-    const counter = detailTableCounter + 1;
+    // 找到当前最大的明细表索引，然后+1
+    // 这样删除某个明细表后，新增加表时仍然以最大索引+1为新索引
+    let maxIndex = 0;
+    for (const dt of detailTables) {
+      const match = dt.key.match(/dt-(\d+)/);
+      if (match) {
+        const idx = parseInt(match[1]);
+        if (idx > maxIndex) {
+          maxIndex = idx;
+        }
+      }
+    }
+    const counter = maxIndex + 1;
     const mainTableName = tableConfig.tableName || 'main';
     const newTableName = `${mainTableName}_dt${counter}`;
     const newDetailTable = {
@@ -657,28 +672,43 @@ const TableDesign: React.FC = () => {
     };
     setDetailTables([...detailTables, newDetailTable]);
     setActiveDetailTab(newDetailTable.key);
+    // 同步更新计数器
     setDetailTableCounter(counter);
     message.success(`已添加明细表：${newTableName}`);
   };
 
   // 删除明细表
+  // 标记为待删除，保存时才执行实际删除
   const handleRemoveDetailTable = (key: string) => {
     if (detailTables.length <= 0) {
       message.warning('请先添加明细表');
       return;
     }
+
+    const tableToRemove = detailTables.find(dt => dt.key === key);
+    if (!tableToRemove) return;
+
+    // 从 key 中提取明细表索引（key格式为 dt-N）
+    const match = key.match(/dt-(\d+)/);
+    if (!match) return;
+    const detailIndex = parseInt(match[1]);
+
     Modal.confirm({
       title: '确认删除明细表',
-      content: `确定要删除明细表 "${detailTables.find(dt => dt.key === key)?.config.tableName}" 吗？`,
+      content: `确定要删除明细表 "${tableToRemove.config.tableName}" 吗？点击保存后，数据库表和字段定义才会被删除。`,
       okText: '确认',
       cancelText: '取消',
       onOk: () => {
+        // 记录需要删除的明细表索引
+        setDetailTablesToDelete(prev => [...new Set([...prev, detailIndex])]);
+
+        // 只更新前端状态，标记为待删除
         const newTables = detailTables.filter(dt => dt.key !== key);
         setDetailTables(newTables);
         if (activeDetailTab === key) {
           setActiveDetailTab(newTables[0]?.key || '');
         }
-        message.success('明细表已删除');
+        message.success('明细表已标记为待删除，请点击保存后生效');
       },
     });
   };
@@ -2081,6 +2111,26 @@ const TableDesign: React.FC = () => {
       message.error('请至少添加一个字段');
       return;
     }
+
+    // 定义系统默认字段
+    const systemFieldNames = new Set(['id', 'request_id', 'main_id', 'is_deleted', 'update_time', 'update_user', 'create_time', 'create_user', 'create_dept', 'tenant_id', 'modedatacreator', 'modedatacreatedate', 'modedatacreatetime', 'modedatamodifier', 'modedatamodifydate', 'modedatamodifytime', 'mode_uuid']);
+
+    // 校验主表是否只有默认字段
+    const mainNonSystemFields = fields.filter(f => !systemFieldNames.has((f.fieldName || '').toLowerCase()));
+    if (mainNonSystemFields.length === 0) {
+      message.error('主表只有默认字段，请至少添加一个自定义字段');
+      return;
+    }
+
+    // 校验每个明细表是否只有默认字段
+    for (let i = 0; i < detailTables.length; i++) {
+      const detailTable = detailTables[i];
+      const detailNonSystemFields = detailTable.fields.filter(f => !systemFieldNames.has((f.fieldName || '').toLowerCase()));
+      if (detailNonSystemFields.length === 0) {
+        message.error(`明细表 ${i + 1} 只有默认字段，请至少添加一个自定义字段`);
+        return;
+      }
+    }
     setSaving(true);
     try {
       // 1. 保存表单定义
@@ -2109,6 +2159,30 @@ const TableDesign: React.FC = () => {
       }
 
       // 2. 保存主表字段
+      console.log('[TableDesign] 开始保存主表字段，当前字段数:', fields.length);
+
+      // 0. 先处理待删除的明细表（保存时才执行实际删除）
+      if (detailTablesToDelete.length > 0 && formId) {
+        console.log('[TableDesign] 开始删除待删除的明细表:', detailTablesToDelete);
+        for (const detailIndex of detailTablesToDelete) {
+          try {
+            const result = await formApi.deleteDetailTable(formId, detailIndex);
+            if (!result.success) {
+              console.error('[TableDesign] 删除明细表失败:', detailIndex, result.msg);
+              message.warning(`删除明细表 ${detailIndex} 失败: ${result.msg}`);
+            } else {
+              console.log('[TableDesign] 已删除明细表:', detailIndex);
+            }
+          } catch (error: any) {
+            console.error('[TableDesign] 删除明细表异常:', detailIndex, error);
+            message.error(`删除明细表 ${detailIndex} 异常: ${error?.message || error}`);
+          }
+        }
+        // 清空待删除列表
+        setDetailTablesToDelete([]);
+      }
+
+      let savedMainCount = 0;
       for (const field of fields) {
         // 保留字段原有的 isMain 值，未设置时默认为主表字段(1)
         const fieldData = {
@@ -2116,17 +2190,28 @@ const TableDesign: React.FC = () => {
           formId,
           isMain: field.isMain !== undefined ? field.isMain : 1
         } as FieldDefinitionFormData;
-        if (field.id) {
-          await fieldApi.update(field.id, fieldData);
-        } else {
-          await fieldApi.create(fieldData);
+        console.log('[TableDesign] 保存主表字段:', field.fieldName, '| id:', field.id || '新增', '| isMain:', fieldData.isMain);
+        try {
+          if (field.id) {
+            await fieldApi.update(field.id, fieldData);
+          } else {
+            await fieldApi.create(fieldData);
+          }
+          savedMainCount++;
+        } catch (error: any) {
+          console.error('[TableDesign] 保存主表字段失败:', field.fieldName, error);
+          message.error(`保存字段 ${field.fieldName} 失败: ${error?.message || error}`);
         }
       }
+      console.log('[TableDesign] 主表字段保存完成，成功:', savedMainCount, '/', fields.length);
 
       // 3. 保存明细表字段
+      let savedDetailCount = 0;
       for (let dtIndex = 0; dtIndex < detailTables.length; dtIndex++) {
         const detailTable = detailTables[dtIndex];
-        const detailIndex = dtIndex + 1; // 明细表索引从1开始
+        // 从明细表的 key 中提取实际的索引（如 dt-3 提取 3）
+        const match = detailTable.key.match(/dt-(\d+)/);
+        const detailIndex = match ? parseInt(match[1]) : dtIndex + 1;
         for (const field of detailTable.fields) {
           const fieldData = {
             ...field,
@@ -2134,27 +2219,161 @@ const TableDesign: React.FC = () => {
             detailTable: detailIndex,
             isMain: 0, // 明细表字段
           } as FieldDefinitionFormData;
-          if (field.id) {
-            await fieldApi.update(field.id, fieldData);
-          } else {
-            await fieldApi.create(fieldData);
+          console.log('[TableDesign] 保存明细表字段:', field.fieldName, '| id:', field.id || '新增', '| detailTable:', detailIndex, '| key:', detailTable.key);
+          try {
+            if (field.id) {
+              // 更新字段时，保留原有的 detailTable 值，避免因为前端索引变化导致更新错误
+              const originalDetailTable = field.detailTable;
+              if (originalDetailTable !== undefined && originalDetailTable !== null && originalDetailTable !== 0) {
+                fieldData.detailTable = originalDetailTable;
+              }
+              await fieldApi.update(field.id, fieldData);
+            } else {
+              await fieldApi.create(fieldData);
+            }
+            savedDetailCount++;
+          } catch (error: any) {
+            console.error('[TableDesign] 保存明细表字段失败:', field.fieldName, error);
+            message.error(`保存明细表字段 ${field.fieldName} 失败: ${error?.message || error}`);
           }
         }
       }
-      message.success('表单定义保存成功');
+      console.log('[TableDesign] 明细表字段保存完成，成功:', savedDetailCount);
+      if (savedMainCount > 0 || savedDetailCount > 0) {
+        message.success('表单定义保存成功');
+      } else {
+        message.warning('没有字段需要保存');
+      }
 
-      // 4. 自动同步数据库表结构
+      // 4. 自动同步数据库表结构（使用前端传入的字段定义）
       try {
         if (!formId) {
           message.error('表单ID不存在');
         } else {
-          const result = await formApi.syncTableStructure(formId);
+          // 将主表字段和明细表字段合并，传递给后端
+          const systemFieldNames = new Set(['id', 'request_id', 'main_id', 'is_deleted', 'update_time', 'update_user', 'create_time', 'create_user', 'create_dept', 'tenant_id']);
+          const allFieldsToSync = [...fields]
+            .filter(f => !systemFieldNames.has((f.fieldName || '').toLowerCase()))
+            .map(f => ({
+              id: f.id,
+              fieldName: f.fieldName,
+              fieldLabel: f.fieldLabel,
+              fieldDbName: f.fieldDbName,
+              fieldHtmlType: f.fieldHtmlType,
+              fieldType: f.fieldType,
+              fieldDbType: f.fieldDbType,
+              fieldLength: f.fieldLength,
+              fieldDecimals: f.fieldDecimals,
+              isRequired: f.isRequired,
+              isReadOnly: f.isReadOnly,
+              defaultValue: f.defaultValue,
+              sort: f.sort,
+              status: f.status,
+              isSystemField: f.isSystemField,
+              listDisplay: f.listDisplay,
+              isMain: f.isMain ?? 1,
+              detailTable: f.detailTable,
+            }));
+
+          // 添加明细表字段
+          for (let i = 0; i < detailTables.length; i++) {
+            const dt = detailTables[i];
+            // 从 dt.key 中提取原始的明细表索引
+            const match = dt.key.match(/dt-(\d+)/);
+            const dtIdx = match ? parseInt(match[1]) : i + 1;
+            for (const f of dt.fields) {
+              if (systemFieldNames.has((f.fieldName || '').toLowerCase())) continue;
+              allFieldsToSync.push({
+                id: f.id,
+                fieldName: f.fieldName,
+                fieldLabel: f.fieldLabel,
+                fieldDbName: f.fieldDbName,
+                fieldHtmlType: f.fieldHtmlType,
+                fieldType: f.fieldType,
+                fieldDbType: f.fieldDbType,
+                fieldLength: f.fieldLength,
+                fieldDecimals: f.fieldDecimals,
+                isRequired: f.isRequired,
+                isReadOnly: f.isReadOnly,
+                defaultValue: f.defaultValue,
+                sort: f.sort,
+                status: f.status,
+                isSystemField: f.isSystemField,
+                listDisplay: f.listDisplay,
+                isMain: 0,
+                detailTable: dtIdx,
+              });
+            }
+          }
+
+          console.log('[TableDesign] 同步表结构，传入字段数量:', allFieldsToSync.length);
+
+          // 调用新接口，传入前端字段定义
+          const result = await formApi.syncTableStructureWithFields(formId, allFieldsToSync);
           if (result.success) {
             message.success(result.msg || '数据库表同步成功');
             if (result.warnings && result.warnings.length > 0) {
               result.warnings.forEach((warning: string) => {
                 message.warning(warning);
               });
+            }
+            // 同步成功后，重新加载字段定义，确保字段ID正确，避免下次保存重复创建
+            console.log('[TableDesign] 同步成功，重新加载字段定义');
+            const updatedFields = await fieldApi.getByFormId(formId);
+            if (updatedFields && updatedFields.length > 0) {
+              // 分离主表字段和明细表字段
+              const mainFields: Partial<FieldDefinitionFormData>[] = [];
+              const detailFieldsMap: { [key: number]: Partial<FieldDefinitionFormData>[] } = {};
+              const systemFieldNames = new Set(['id', 'request_id', 'main_id', 'is_deleted', 'update_time', 'update_user', 'create_time', 'create_user', 'create_dept', 'tenant_id']);
+
+              for (const f of updatedFields) {
+                const fieldName = f.fieldName || f.field_name || f.fieldname || '';
+                if (systemFieldNames.has(fieldName.toLowerCase())) continue;
+
+                const isMain = f.isMain !== undefined ? f.isMain : (f.is_main !== undefined ? f.is_main : f.ismain);
+                const detailTable = f.detailTable !== undefined ? f.detailTable : (f.detail_table !== undefined ? f.detail_table : f.detailtable);
+                const fieldItem: Partial<FieldDefinitionFormData> = {
+                  id: f.id,
+                  fieldName: fieldName,
+                  fieldLabel: f.fieldLabel || f.field_label || f.fieldlabel || f.fieldDbName || '',
+                  fieldHtmlType: f.fieldHtmlType ?? f.field_html_type ?? f.fieldhtmltype ?? 1,
+                  fieldType: f.fieldType ?? f.field_type ?? f.fieldtype ?? 1,
+                  fieldDbType: f.fieldDbType ?? f.field_db_type ?? f.fielddbtype ?? 'varchar',
+                  fieldLength: f.fieldLength ?? f.field_length ?? f.fieldlen ?? 255,
+                  fieldDecimals: f.fieldDecimals ?? f.field_decimals ?? f.decimaldigit ?? 0,
+                  isRequired: f.isRequired ?? f.is_required ?? f.isnull ?? 0,
+                  isReadOnly: f.isReadOnly ?? f.is_read_only ?? f.isreadonly ?? 0,
+                  defaultValue: f.defaultValue ?? f.default_value ?? f.defaultvalue ?? '',
+                  sort: f.sort ?? f.ds_order ?? f.dsOrder ?? 0,
+                  status: f.status ?? 1,
+                  isSystemField: f.isSystemField ?? f.is_system_field ?? f.issystemfield ?? 0,
+                  listDisplay: f.listDisplay ?? f.list_display ?? f.listdisplay ?? 1,
+                  isMain: isMain,
+                  detailTable: detailTable,
+                };
+
+                if (isMain === 0 && detailTable) {
+                  const dtIdx = Number(detailTable);
+                  if (!detailFieldsMap[dtIdx]) detailFieldsMap[dtIdx] = [];
+                  detailFieldsMap[dtIdx].push(fieldItem);
+                } else {
+                  mainFields.push(fieldItem);
+                }
+              }
+
+              // 更新本地状态，确保字段ID正确
+              setFields([...getDefaultSystemFields(), ...mainFields]);
+
+              // 更新明细表字段（从 dt.key 中提取原始索引）
+              const updatedDetailTables = detailTables.map((dt) => {
+                const match = dt.key.match(/dt-(\d+)/);
+                const dtIdx = match ? parseInt(match[1]) : 1;
+                return {
+                  ...dt,
+                  fields: detailFieldsMap[dtIdx] || [],
+                };
+              });
+              setDetailTables(updatedDetailTables);
             }
           } else {
             // 如果表中存在数据，显示友好的提示信息

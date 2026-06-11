@@ -214,6 +214,39 @@ export const workflowBillApi = {
     );
     return response;
   },
+
+  /**
+   * 同步表结构（使用前端传入的字段定义）
+   * @param id 表单ID
+   * @param fields 前端传入的字段定义列表
+   * @returns 同步结果，包含成功状态、消息和警告
+   */
+  syncTableStructureWithFields: async (id: string, fields: any[]) => {
+    const response = await request<BladeResponse<SyncResult>>(
+      `${FORM_DEFINITION_BASE_URL}/${id}/sync-table-structure-with-fields`,
+      {
+        method: 'POST',
+        data: fields,
+      },
+    );
+    return response;
+  },
+
+  /**
+   * 删除明细表（包括数据库表和字段定义）
+   * @param id 表单ID
+   * @param detailIndex 明细表索引（从1开始）
+   * @returns 删除结果
+   */
+  deleteDetailTable: async (id: string, detailIndex: number) => {
+    const response = await request<BladeResponse<boolean>>(
+      `${FORM_DEFINITION_BASE_URL}/${id}/detail-table/${detailIndex}`,
+      {
+        method: 'DELETE',
+      },
+    );
+    return response;
+  },
 };
 
 /**
@@ -297,7 +330,7 @@ export const fieldDefinitionApi = {
       isMain: data.isMain != null ? data.isMain : 1,
       remark: data.description || '',
     };
-    
+
     const response = await request<BladeResponse<FieldDefinition>>(FIELD_DEFINITION_BASE_URL, {
       method: 'POST',
       data: mappedData,
@@ -309,11 +342,52 @@ export const fieldDefinitionApi = {
    * 更新字段
    */
   update: async (id: string, data: FieldDefinitionFormData) => {
+    // 使用驼峰命名，与后端实体类字段名一致
+    // 注意：billId 使用字符串，避免精度丢失
+    const mappedData = {
+      id: parseInt(id), // 字段ID使用数字
+      billId: data.formId ? String(data.formId) : '0', // 表单ID使用字符串，避免精度丢失
+      fieldName: data.fieldName,
+      fieldLabel: data.fieldLabel || '', // 添加字段标签
+      fieldDbName: data.fieldName, // 使用字段名作为数据库列名
+      fieldHtmlType: data.fieldHtmlType,
+      fieldType: String(data.fieldType), // 后端是 String 类型
+      fieldDbType: data.fieldDbType || 'varchar',
+      fieldLen: data.fieldLength || 255,
+      decimalDigit: data.fieldDecimals || 0,
+      defaultValue: data.defaultValue || '',
+      dsOrder: data.sort || 0,
+      isNull: data.isRequired != null ? data.isRequired : 0,
+      uniqueValue: data.isUnique != null ? data.isUnique : 0,
+      fieldMsg: data.fieldMsg || '',
+      browType: String(data.browType || 0), // 后端是 String 类型
+      browserUrlId: data.browserUrlId || 0,
+      selectItem: data.selectItem || '',
+      detailTable: data.detailTable || 0,
+      isMain: data.isMain != null ? data.isMain : 1,
+      remark: data.description || '',
+      textHeight: data.textHeight || 4,
+      isMand: data.isMand != null ? data.isMand : 0,
+      fieldOrder: data.fieldOrder || 0,
+      isUsed: data.isUsed != null ? data.isUsed : 1,
+      description: data.description || '',
+      quickType: data.quickType || 0,
+      impCheck: data.impCheck != null ? data.impCheck : 0,
+      checkExpression: data.checkExpression || '',
+      placeholder: data.placeholder || '',
+      needLog: data.needLog != null ? data.needLog : 0,
+      needExcel: data.needExcel != null ? data.needExcel : 0,
+      isReadOnly: data.isReadOnly != null ? data.isReadOnly : 0,
+      isSystemField: data.isSystemField != null ? data.isSystemField : 0,
+      listDisplay: data.listDisplay != null ? data.listDisplay : 1,
+      status: data.status != null ? data.status : 1,
+    };
+
     const response = await request<BladeResponse<FieldDefinition>>(
       `${FIELD_DEFINITION_BASE_URL}/${id}`,
       {
         method: 'PUT',
-        data,
+        data: mappedData,
       },
     );
     return response.data;
