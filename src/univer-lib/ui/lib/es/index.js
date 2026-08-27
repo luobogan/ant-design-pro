@@ -1,6 +1,6 @@
 import { BaselineOffset, BorderStyleTypes, ColorKit, CommandType, DependentOn, Disposable, DocumentDataModel, DocumentFlavor, EDITOR_ACTIVATED, ErrorService, FOCUSING_FX_BAR_EDITOR, FOCUSING_UNIVER_EDITOR, ICommandService, IConfigService, IConfirmService, IContextService, ILocalStorageService, ILogService, IUndoRedoService, IUniverInstanceService, Inject, Injector, LifecycleService, LifecycleStages, LifecycleUnreachableError, LocaleService, NAMED_STYLE_MAP, NamedStyleType, Optional, Plugin, RedoCommand, ThemeService, Tools, UndoCommand, UniverInstanceType, Workbook, convertObservableToBehaviorSubject, createIdentifier, dedupeBy, generateRandomId, getBorderStyleType, isInternalEditorID, isRealNum, merge, mergeOverrideWithDependencies, registerDependencies, remove, throttle, toDisposable, touchDependencies } from "@univerjs/core";
 import { BehaviorSubject, Observable, ReplaySubject, Subject, animationFrameScheduler, combineLatest, debounceTime, distinctUntilChanged, filter, first, fromEvent, isObservable, map, merge as merge$1, of, scan, startWith, switchMap, throttleTime } from "rxjs";
-import { AddDigitsIcon, AddImageIcon, AdditionAndSubtractionIcon, AdjustHeightDoubleIcon, AdjustWidthDoubleIcon, AlignBottomIcon, AlignTextBothIcon, AlignTopIcon, AllBorderIcon, AmplifyIcon, AutoHeightDoubleIcon, AutoWidthDoubleIcon, AutowrapIcon, AvgIcon, BackSlashDoubleIcon, BoldIcon, BrushIcon, CancelFreezeIcon, CancelMergeIcon, CheckMarkIcon, ClearFormatDoubleIcon, CloseIcon, CntIcon, CodeIcon, ConditionsDoubleIcon, CopyDoubleIcon, CutIcon, DatabaseIcon, DeleteCellMoveDownDoubleIcon, DeleteCellShiftLeftDoubleIcon, DeleteCellShiftRightDoubleIcon, DeleteCellShiftUpDoubleIcon, DeleteColumnDoubleIcon, DeleteRowDoubleIcon, DirectExportIcon, DollarIcon, DownBorderDoubleIcon, DownloadImageIcon, EuroIcon, ExportIcon, EyeIcon, EyeOutlineIcon, FolderIcon, FontColorDoubleIcon, FontSizeIncreaseIcon, FontSizeReduceIcon, FreezeColumnIcon, FreezeRowIcon, FreezeToSelectedIcon, FunctionIcon, GridIcon, HeaderFooterIcon, HideDoubleIcon, HomeIcon, HorizontalBorderDoubleIcon, HorizontalMergeIcon, HorizontallyIcon, IncreaseIcon, InfoIcon, InnerBorderDoubleIcon, InsertCellDownDoubleIcon, InsertCellShiftRightDoubleIcon, InsertDoubleIcon, InsertIcon, InsertRowAboveDoubleIcon, InsertRowBelowDoubleIcon, ItalicIcon, KeyboardIcon, LeftBorderDoubleIcon, LeftDoubleDiagonalDoubleIcon, LeftInsertColumnDoubleIcon, LeftJustifyingIcon, LeftRotationFortyFiveDegreesIcon, LeftRotationNinetyDegreesIcon, LeftTridiagonalDoubleIcon, MaxIcon, MenuIcon, MergeAllIcon, MinIcon, MoreDownIcon, MoreFunctionIcon, MoreIcon, MoreLeftIcon, MoreRightIcon, NoBorderIcon, NoColorDoubleIcon, NoRotationIcon, OrderIcon, OuterBorderDoubleIcon, OverflowIcon, PaintBucketDoubleIcon, PasteSpecialDoubleIcon, PercentIcon, PipingIcon, RedoIcon, ReduceDigitsIcon, ReduceDoubleIcon, ReduceIcon, RightBorderDoubleIcon, RightDoubleDiagonalDoubleIcon, RightInsertColumnDoubleIcon, RightJustifyingIcon, RightRotationFortyFiveDegreesIcon, RightRotationNinetyDegreesIcon, RmbIcon, RoubleIcon, ShortcutIcon, SlashDoubleIcon, StrikethroughIcon, SubscriptIcon, SumIcon, SuperscriptIcon, TruncationIcon, UnderlineIcon, UndoIcon, UnorderIcon, UpBorderDoubleIcon, VerticalBorderDoubleIcon, VerticalCenterIcon, VerticalIntegrationIcon, VerticalTextIcon } from "@univerjs/icons";
+import { AddDigitsIcon, AddImageIcon, AdditionAndSubtractionIcon, AdjustHeightDoubleIcon, AdjustWidthDoubleIcon, AlignBottomIcon, AlignTextBothIcon, AlignTopIcon, AllBorderIcon, AmplifyIcon, AutoHeightDoubleIcon, AutoWidthDoubleIcon, AutowrapIcon, AvgIcon, BackSlashDoubleIcon, BoldIcon, BrushIcon, CancelFreezeIcon, CancelMergeIcon, CheckMarkIcon, ClearFormatDoubleIcon, CloseIcon, CntIcon, CodeIcon, ConditionsDoubleIcon, CopyDoubleIcon, CutIcon, DatabaseIcon, DeleteCellMoveDownDoubleIcon, DeleteCellShiftLeftDoubleIcon, DeleteCellShiftRightDoubleIcon, DeleteCellShiftUpDoubleIcon, DeleteColumnDoubleIcon, DeleteEmptyIcon, DeleteRowDoubleIcon, DirectExportIcon, DocSettingIcon, DollarIcon, DownBorderDoubleIcon, DownloadImageIcon, EuroIcon, ExportIcon, EyeIcon, EyeOutlineIcon, FolderIcon, FontColorDoubleIcon, FontSizeIncreaseIcon, FontSizeReduceIcon, FreezeColumnIcon, FreezeRowIcon, FreezeToSelectedIcon, FunctionIcon, GridIcon, HeaderFooterIcon, HideDoubleIcon, HomeIcon, HorizontalBorderDoubleIcon, HorizontalMergeIcon, HorizontallyIcon, IncreaseIcon, InfoIcon, InnerBorderDoubleIcon, InsertCellDownDoubleIcon, InsertCellShiftRightDoubleIcon, InsertDoubleIcon, InsertIcon, InsertRowAboveDoubleIcon, InsertRowBelowDoubleIcon, ItalicIcon, KeyboardIcon, LeftBorderDoubleIcon, LeftDoubleDiagonalDoubleIcon, LeftInsertColumnDoubleIcon, LeftJustifyingIcon, LeftRotationFortyFiveDegreesIcon, LeftRotationNinetyDegreesIcon, LeftTridiagonalDoubleIcon, LockIcon, MaxIcon, MenuIcon, MergeAllIcon, MinIcon, MoreDownIcon, MoreFunctionIcon, MoreIcon, MoreLeftIcon, MoreRightIcon, NoBorderIcon, NoColorDoubleIcon, NoRotationIcon, OrderIcon, OuterBorderDoubleIcon, OverflowIcon, PaintBucketDoubleIcon, PasteSpecialDoubleIcon, PenIcon, PercentIcon, PipingIcon, ProtectIcon, RedoIcon, ReduceDigitsIcon, ReduceDoubleIcon, ReduceIcon, RightBorderDoubleIcon, RightDoubleDiagonalDoubleIcon, RightInsertColumnDoubleIcon, RightJustifyingIcon, RightRotationFortyFiveDegreesIcon, RightRotationNinetyDegreesIcon, RmbIcon, RoubleIcon, ShortcutIcon, SlashDoubleIcon, StrikethroughIcon, SubscriptIcon, SumIcon, SuperscriptIcon, TruncationIcon, UnderlineIcon, UndoIcon, UnorderIcon, UpBorderDoubleIcon, VerticalBorderDoubleIcon, VerticalCenterIcon, VerticalIntegrationIcon, VerticalTextIcon } from "@univerjs/icons";
 import { Fragment, cloneElement, createContext, createElement, forwardRef, memo, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { RediConsumer, RediContext, RediProvider, WithDependency, connectDependencies, connectInjector, useDependency, useDependency as useDependency$1, useInjector, useObservable, useUpdateBinder } from "@wendellhu/redi/react-bindings";
 import { Fragment as Fragment$1, jsx, jsxs } from "react/jsx-runtime";
@@ -150,8 +150,10 @@ const iconList = {
 	DeleteCellShiftRightDoubleIcon,
 	DeleteCellShiftUpDoubleIcon,
 	DeleteColumnDoubleIcon,
+	DeleteEmptyIcon,
 	DeleteRowDoubleIcon,
 	DirectExportIcon,
+	DocSettingIcon,
 	DollarIcon,
 	DownBorderDoubleIcon,
 	DownloadImageIcon,
@@ -188,6 +190,7 @@ const iconList = {
 	LeftRotationFortyFiveDegreesIcon,
 	LeftRotationNinetyDegreesIcon,
 	LeftTridiagonalDoubleIcon,
+	LockIcon,
 	MaxIcon,
 	MenuIcon,
 	MergeAllIcon,
@@ -201,8 +204,10 @@ const iconList = {
 	OverflowIcon,
 	PaintBucketDoubleIcon,
 	PasteSpecialDoubleIcon,
+	PenIcon,
 	PercentIcon,
 	PipingIcon,
+	ProtectIcon,
 	RedoIcon,
 	ReduceDigitsIcon,
 	ReduceDoubleIcon,
@@ -2304,7 +2309,12 @@ let MenuManagerService = class MenuManagerService extends Disposable {
 				if (menuItem.item || menuItem.children) result.push(menuItem);
 			}
 		}
-		return result.sort((a, b) => normalizeMenuOrder(a.order) - normalizeMenuOrder(b.order));
+		const sorted = result.sort((a, b) => normalizeMenuOrder(a.order) - normalizeMenuOrder(b.order));
+		if (sorted.some((m) => m.key.includes("Readonly") || m.key.includes("Editable") || m.key.includes("Required") || m.key.includes("ClearCell") || m.key.includes("FieldProperty"))) console.log("[DEBUG _buildMenuSchema] keys:", sorted.map((m) => {
+			var _m$children;
+			return `${m.key} (order:${m.order}, hasItem:${!!m.item}, children:${((_m$children = m.children) === null || _m$children === void 0 ? void 0 : _m$children.length) || 0})`;
+		}).join(", "));
+		return sorted;
 	}
 	/**
 	* Get menu schema by position key

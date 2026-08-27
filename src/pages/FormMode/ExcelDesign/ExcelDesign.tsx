@@ -6,6 +6,8 @@ import {
   Card,
   Tabs,
   Spin,
+  Divider,
+  Tooltip,
 } from 'antd';
 import {
   SaveOutlined,
@@ -15,6 +17,8 @@ import {
   UndoOutlined,
   RedoOutlined,
   CheckCircleOutlined,
+  EditOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from '@umijs/max';
 import { DndProvider } from 'react-dnd';
@@ -43,6 +47,28 @@ const ExcelDesignContent: React.FC = () => {
   const [pendingField, setPendingField] = useState<any>(null);
   const [hoveredField, setHoveredField] = useState<any>(null);
 
+  // 字段属性状态
+  const [fieldAttr, setFieldAttr] = useState<'readonly' | 'editable' | 'required' | null>(null);
+
+  // ──────────────────────────────────────────────
+  // 字段属性操作（参照 ecology excel 设计器）- 供工具栏按钮使用
+  // ──────────────────────────────────────────────
+  const handleFieldAttrChange = useCallback((attr: 'readonly' | 'editable' | 'required') => {
+    const univerGrid = (window as any).univerExcelGrid;
+    if (!univerGrid) {
+      return;
+    }
+
+    const selection = univerGrid.getSelection?.();
+    if (!selection) {
+      return;
+    }
+
+    const attrValue = attr === 'readonly' ? 1 : attr === 'editable' ? 2 : 3;
+    univerGrid.setFieldAttr?.(selection.row, selection.col, attrValue);
+    setFieldAttr(attr);
+  }, []);
+
   // ──────────────────────────────────────────────
   // 加载表单布局数据
   // ──────────────────────────────────────────────
@@ -51,6 +77,32 @@ const ExcelDesignContent: React.FC = () => {
       loadFormLayout();
     }
   }, [formId]);
+
+  // ──────────────────────────────────────────────
+  // 监听 Univer 右键菜单事件
+  // ──────────────────────────────────────────────
+  useEffect(() => {
+    // 打开字段属性面板
+    const handleFieldPropertyOpen = () => {
+      const univerGrid = (window as any).univerExcelGrid;
+      if (!univerGrid) return;
+      try {
+        const selection = univerGrid.getSelection?.();
+        if (selection) {
+          const fieldMeta = univerGrid.getCellFieldMeta?.(selection.row, selection.col);
+          if (fieldMeta) {
+            setSelectedField(fieldMeta);
+          }
+        }
+      } catch (e) {
+        console.warn('[FieldPropertyEvent] 打开字段属性失败:', e);
+      }
+    };
+    window.addEventListener('univer-field-property-open', handleFieldPropertyOpen);
+    return () => {
+      window.removeEventListener('univer-field-property-open', handleFieldPropertyOpen);
+    };
+  }, []);
 
   const loadFormLayout = async () => {
     if (!formId) return;
@@ -111,7 +163,7 @@ const ExcelDesignContent: React.FC = () => {
       };
       await saveFormLayout(formData);
       message.success('保存成功');
-      
+
       // 保存成功后重新加载布局数据，确保页面显示最新数据
       await loadFormLayout();
     } catch (error) {
@@ -728,6 +780,38 @@ const ExcelDesignContent: React.FC = () => {
     <Button key="redo" icon={<RedoOutlined />} onClick={handleRedo}>
       重做
     </Button>,
+    // 字段属性按钮（参照 ecology excel 设计器）
+    <Divider key="field-attr-divider" type="vertical" style={{ height: 24, margin: '0 8px' }} />,
+    <Tooltip key="readonly-tooltip" title="设置字段为只读">
+      <Button
+        key="readonly"
+        icon={<LockOutlined />}
+        type={fieldAttr === 'readonly' ? 'primary' : 'default'}
+        onClick={() => handleFieldAttrChange('readonly')}
+      >
+        只读
+      </Button>
+    </Tooltip>,
+    <Tooltip key="editable-tooltip" title="设置字段为可编辑">
+      <Button
+        key="editable"
+        icon={<EditOutlined />}
+        type={fieldAttr === 'editable' ? 'primary' : 'default'}
+        onClick={() => handleFieldAttrChange('editable')}
+      >
+        编辑
+      </Button>
+    </Tooltip>,
+    <Tooltip key="required-tooltip" title="设置字段为必填">
+      <Button
+        key="required"
+        icon={<CheckCircleOutlined />}
+        type={fieldAttr === 'required' ? 'primary' : 'default'}
+        onClick={() => handleFieldAttrChange('required')}
+      >
+        必填
+      </Button>
+    </Tooltip>,
   ];
 
   // ──────────────────────────────────────────────

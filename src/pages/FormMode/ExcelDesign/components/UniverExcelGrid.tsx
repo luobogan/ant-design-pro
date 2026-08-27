@@ -486,6 +486,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // ──────────────────────────────────────
   const cellFieldMetaMap = useRef<Record<string, FieldMeta>>({});
 
+  // 标记是否正在放置字段（避免放置后立即触发重新加载）
+  const isPlacingFieldRef = useRef(false);
+
   const setCellField = useCallback((
     workbook: any,  // FWorkbook (Facade)
     sheet: any,    // FWorksheet (Facade)
@@ -497,8 +500,25 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       // Facade API: FWorksheet.getRange(row, col) 返回 FRange
       const range = sheet.getRange(row, col);
 
-      // 1. 设置显示值（优先使用字段标签，否则使用默认值）
-      const displayValue = fieldMeta.defaultValue || fieldMeta.fieldLabel || fieldMeta.fieldName;
+      // 1. 设置显示值（字段标签 + 字段名，带图标）
+      // 根据字段类型添加图标前缀（参考 ecology excel 设计器）
+      const iconMap: Record<string, string> = {
+        text: '📝',      // 单行文本
+        textarea: '',  // 多行文本
+        number: '🔢',    // 数字
+        wholeNumber: '🔢', // 整数
+        date: '📅',      // 日期
+        datetime: '',  // 日期时间
+        select: '🔽',    // 下拉框
+        checkbox: '☑️',   // 复选框
+        radio: '',     // 单选框
+        attachment: '📎', // 附件
+        richtext: '📝',  // 富文本
+        group: '📦',     // 分组框
+        custom: '⚙️',    // 自定义
+      };
+      const fieldIcon = iconMap[fieldMeta.fieldType] || '📝';
+      const displayValue = `${fieldIcon} ${fieldMeta.fieldLabel || fieldMeta.fieldName || fieldMeta.defaultValue}`;
       range.setValue(displayValue);
 
       // 2. 存储字段元数据到内存 Map（FRange 没有 setNote 方法）
@@ -552,11 +572,11 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       // 关键修复：加载新数据前先清空旧的元数据，避免删除的单元格数据残留
       console.log('[LoadLayout] 清空旧的单元格元数据');
       cellFieldMetaMap.current = {};
-      
+
       // workbook 是 FWorkbook (Facade)
       const fWorkbook: any = workbook;
       const sheet = fWorkbook.getActiveSheet(); // 返回 FWorksheet
-      
+
       // 关键修复：清空表格中所有单元格的内容（遍历固定范围）
       console.log('[LoadLayout] 清空表格所有单元格内容');
       for (let row = 0; row < 50; row++) {
@@ -650,15 +670,18 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
           // 跳过空值单元格
           if (value === null || value === undefined || value === '') continue;
-          
+
           // 获取字段元数据（从内存 Map）
           const fieldMeta = getCellFieldMeta(row, col);
-          
+
           // 关键验证：如果有元数据，检查元数据中的值是否与单元格值匹配
-          // 这样可以防止保存已删除但元数据仍存在的单元格
+          // 注意：单元格值可能带有图标前缀，需要去除图标后再比较
           if (fieldMeta) {
             const metaValue = fieldMeta.fieldLabel || fieldMeta.fieldName || fieldMeta.defaultValue || '';
-            if (String(value) !== String(metaValue)) {
+            // 去除单元格值中的图标前缀（图标通常是 emoji，占 1-2 个字符）
+            const cellValueStr = String(value);
+            const cleanCellValue = cellValueStr.replace(/^[\u{1F300}-\u{1F9FF}]\s*/u, '').trim();
+            if (cleanCellValue !== String(metaValue) && cellValueStr !== String(metaValue)) {
               console.log(`[Save] 单元格 (${row}, ${col}) 值不匹配，跳过: 实际值="${value}", 元数据值="${metaValue}"`);
               // 值不匹配，说明元数据已过期，清除它
               const cellKey = `${row}_${col}`;
@@ -807,6 +830,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         col,
         cellKey: `${row}_${col}`,
       });
+
+      // 标记正在放置字段，避免触发重新加载
+      isPlacingFieldRef.current = true;
       setCellField(workbook, sheet, row, col, fieldMeta);
 
       message.success(
@@ -818,9 +844,15 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       if (data) {
         onLayoutChange(data);
       }
+
+      // 延迟重置标记，确保 layoutData 变化已被处理
+      setTimeout(() => {
+        isPlacingFieldRef.current = false;
+      }, 200);
     } catch (error) {
       console.error('放置字段失败:', error);
       message.error('放置字段失败');
+      isPlacingFieldRef.current = false;
     }
   }, [workbook, setCellField, saveLayoutData, onLayoutChange]);
 
@@ -1240,7 +1272,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
               console.log(`[CellChange] 单元格值变化: (${row}, ${col}) ${oldValue} → ${newValue}`);
 
               // 关键修复：如果单元格值被删除（空），清除 cellFieldMetaMap 中的元数据
-              if ((newValue === null || newValue === undefined || newValue === '') && 
+              if ((newValue === null || newValue === undefined || newValue === '') &&
                   (oldValue !== null && oldValue !== undefined && oldValue !== '')) {
                 const cellKey = `${row}_${col}`;
                 if (cellFieldMetaMap.current[cellKey]) {
@@ -1380,6 +1412,63 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // ──────────────────────────────────────
   useEffect(() => {
     if (workbook) {
+      // 设置字段属性（参照 ecology excel 设计器）
+      const setFieldAttr = (row: number, col: number, attrValue: number) => {
+        const cellKey = `${row}_${col}`;
+        const fieldMeta = cellFieldMetaMap.current[cellKey];
+        if (fieldMeta) {
+          // 更新字段元数据中的属性
+          fieldMeta.fieldAttr = attrValue;
+          fieldMeta.required = attrValue === 3;
+          fieldMeta.readonly = attrValue === 1;
+
+          // 更新单元格样式（根据属性值设置背景色）
+          const sheet = workbook.getActiveSheet();
+          const range = sheet.getRange(row, col);
+
+          // 根据属性值设置不同的背景色
+          if (attrValue === 1) {
+            // 只读 - 灰色背景
+            range.setBackground('#f5f5f5');
+          } else if (attrValue === 2) {
+            // 可编辑 - 白色背景
+            range.setBackground('#ffffff');
+          } else if (attrValue === 3) {
+            // 必填 - 浅红色背景
+            range.setBackground('#fff1f0');
+          }
+
+          console.log(`[setFieldAttr] 设置字段属性: row=${row}, col=${col}, attr=${attrValue}`);
+        }
+      };
+
+      // 获取当前选中单元格
+      const getSelection = () => {
+        try {
+          const sheet = workbook.getActiveSheet();
+          const selection = sheet.getSelection();
+          if (!selection) return null;
+          const currentCell = selection.getCurrentCell();
+          if (!currentCell) return null;
+          return {
+            row: currentCell.actualRow,
+            col: currentCell.actualColumn,
+          };
+        } catch (e) {
+          console.warn('[getSelection] 获取选中单元格失败:', e);
+        }
+        return null;
+      };
+
+      // 清空单元格
+      const clearCell = (row: number, col: number) => {
+        const sheet = workbook.getActiveSheet();
+        const range = sheet.getRange(row, col);
+        range.setValue('');
+        const cellKey = `${row}_${col}`;
+        delete cellFieldMetaMap.current[cellKey];
+      };
+
       (window as any).univerExcelGrid = {
         saveLayoutData,
         loadLayoutData,
@@ -1388,6 +1477,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         getWorkbook: () => workbook,  // 返回 FWorkbook
         getActiveSheet: () => (workbook as any).getActiveSheet(),  // 返回 FWorksheet
         getWorkbookId: () => workbookRef.current?.getUnitId?.(),
+        setFieldAttr,  // 设置字段属性
+        getSelection,  // 获取选中单元格
+        clearCell,     // 清空单元格
       };
     }
   }, [workbook, saveLayoutData, loadLayoutData, handleFieldDrop, getCellFieldMeta]);
@@ -1397,6 +1489,12 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // ──────────────────────────────────────
   useEffect(() => {
     if (!workbook || !layoutData) return;
+
+    // 如果正在放置字段，跳过重新加载，避免清空刚放置的内容
+    if (isPlacingFieldRef.current) {
+      console.log('[Layout] 正在放置字段，跳过重新加载');
+      return;
+    }
 
     console.log('[Layout] layoutData 变化，重新加载', { sheetName, hasCellData: !!(layoutData.sheets || layoutData.cellData) });
 
@@ -1435,6 +1533,76 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       if (hoverTimerRef.current) {
         clearTimeout(hoverTimerRef.current);
       }
+    };
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────────
+  // 监听 univer 右键菜单字段属性变更事件（来自 univer 核心的 field-attr.command.ts）
+  // ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const handleFieldAttrChange = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail || detail.attr === undefined) return;
+
+      // 获取当前选中单元格
+      const workbook = workbookRef.current;
+      if (!workbook) return;
+
+      try {
+        const sheet = workbook.getActiveSheet();
+        const selection = sheet.getSelection();
+        if (!selection) return;
+        const currentCell = selection.getCurrentCell();
+        if (!currentCell) return;
+
+        const row = currentCell.actualRow;
+        const col = currentCell.actualColumn;
+        const cellKey = `${row}_${col}`;
+        const fieldMeta = cellFieldMetaMap.current[cellKey];
+
+        if (fieldMeta) {
+          // 通过 window 桥接调用 setFieldAttr（如果有暴露）
+          const gridApi = (window as any).univerExcelGrid;
+          if (gridApi && gridApi.setFieldAttr) {
+            gridApi.setFieldAttr(row, col, detail.attr);
+            console.log(`[FieldAttrEvent] 通过 univer 菜单设置字段属性: row=${row}, col=${col}, attr=${detail.attr}`);
+          }
+        } else {
+          console.warn('[FieldAttrEvent] 选中单元格没有字段元数据:', { row, col });
+        }
+      } catch (e) {
+        console.warn('[FieldAttrEvent] 处理字段属性变更失败:', e);
+      }
+    };
+
+    window.addEventListener('univer-field-attr-change', handleFieldAttrChange);
+
+    // 清空单元格事件
+    const handleCellClear = () => {
+      const workbook = workbookRef.current;
+      if (!workbook) return;
+      try {
+        const sheet = workbook.getActiveSheet();
+        const selection = sheet.getSelection();
+        if (!selection) return;
+        const currentCell = selection.getCurrentCell();
+        if (!currentCell) return;
+        const row = currentCell.actualRow;
+        const col = currentCell.actualColumn;
+        const gridApi = (window as any).univerExcelGrid;
+        if (gridApi && gridApi.clearCell) {
+          gridApi.clearCell(row, col);
+          console.log(`[CellClearEvent] 通过 univer 菜单清空单元格: row=${row}, col=${col}`);
+        }
+      } catch (e) {
+        console.warn('[CellClearEvent] 清空单元格失败:', e);
+      }
+    };
+    window.addEventListener('univer-cell-clear', handleCellClear);
+
+    return () => {
+      window.removeEventListener('univer-field-attr-change', handleFieldAttrChange);
+      window.removeEventListener('univer-cell-clear', handleCellClear);
     };
   }, []);
 
@@ -1587,6 +1755,102 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       container.removeEventListener('drop', handleNativeDrop);
     };
   }, [workbook, handleFieldDrop, getCellFromMouseEvent, containerRef.current]);
+
+  // ─────────────────────────────────────────────────────────────────
+  // ★★★ 核心：拖拽时禁用 Univer canvas 的 pointer-events ★★★
+  //
+  // 问题根因：Univer 内部渲染的 <canvas> 元素覆盖在 container 之上，
+  //          canvas 会拦截所有鼠标/拖放事件（dragenter/dragover/drop），
+  //          导致 react-dnd 的 useDrop 和原生 drop 监听器都无法收到事件。
+  //
+  // 解决方案：监听容器上的 dragenter/dragleave/drop/dragend 事件，
+  //           在拖拽进行中将 container 内所有 canvas 的 pointer-events 设为 none，
+  //           让事件穿透到下层的 drop target。拖拽结束后恢复。
+  // ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    /** 将 container 内所有 canvas 的 pointer-events 设为 none */
+    const disableCanvasPointerEvents = () => {
+      const canvases = container.querySelectorAll('canvas');
+      canvases.forEach((c) => {
+        (c as HTMLElement).style.pointerEvents = 'none';
+      });
+    };
+
+    /** 恢复 container 内所有 canvas 的 pointer-events */
+    const restoreCanvasPointerEvents = () => {
+      const canvases = container.querySelectorAll('canvas');
+      canvases.forEach((c) => {
+        (c as HTMLElement).style.pointerEvents = '';
+      });
+    };
+
+    let isDragOver = false;
+
+    const handleDragEnter = (e: DragEvent) => {
+      // 只响应外部拖入（从 FieldPalette 拖来的字段）
+      const pending = (window as any).__pendingField;
+      if (!pending) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      if (!isDragOver) {
+        isDragOver = true;
+        disableCanvasPointerEvents();
+        console.log('[CanvasBypass] 拖拽进入 Univer 区域，已禁用 canvas pointer-events');
+      }
+    };
+
+    const handleDragLeave = (e: DragEvent) => {
+      // 只有真正离开 container 时才恢复（避免子元素触发的 dragleave 误判）
+      const relatedTarget = e.relatedTarget as Node | null;
+      if (container.contains(relatedTarget)) return;
+
+      if (isDragOver) {
+        isDragOver = false;
+        restoreCanvasPointerEvents();
+        console.log('[CanvasBypass] 拖拽离开 Univer 区域，已恢复 canvas pointer-events');
+      }
+    };
+
+    const handleDragEnd = () => {
+      if (isDragOver) {
+        isDragOver = false;
+        restoreCanvasPointerEvents();
+        console.log('[CanvasBypass] 拖拽结束，已恢复 canvas pointer-events');
+      }
+    };
+
+    const handleDrop = (e: DragEvent) => {
+      if (isDragOver) {
+        isDragOver = false;
+        // 延迟一帧恢复，确保 drop 事件处理完成
+        requestAnimationFrame(() => restoreCanvasPointerEvents());
+        console.log('[CanvasBypass] drop 完成，已恢复 canvas pointer-events');
+      }
+    };
+
+    container.addEventListener('dragenter', handleDragEnter);
+    container.addEventListener('dragleave', handleDragLeave);
+    container.addEventListener('dragend', handleDragEnd);
+    container.addEventListener('drop', handleDrop);
+
+    // 全局 dragend 兜底：防止拖拽在 container 外结束导致未恢复
+    window.addEventListener('dragend', handleDragEnd);
+
+    console.log('[CanvasBypass] canvas pointer-events 穿透逻辑已注册');
+
+    return () => {
+      container.removeEventListener('dragenter', handleDragEnter);
+      container.removeEventListener('dragleave', handleDragLeave);
+      container.removeEventListener('dragend', handleDragEnd);
+      container.removeEventListener('drop', handleDrop);
+      window.removeEventListener('dragend', handleDragEnd);
+      restoreCanvasPointerEvents();
+    };
+  }, [containerRef.current]);
 
   // ──────────────────────────────────────
   // 渲染

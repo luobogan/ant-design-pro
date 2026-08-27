@@ -1,5 +1,5 @@
-import { BreakLineCommand, CoverContentCommand, DOCS_COMPONENT_MAIN_LAYER_INDEX, DOCS_VIEW_KEY, DOC_VERTICAL_PADDING, DeleteLeftCommand, DeleteRightCommand, DocSelectionRenderService, IEditorService, IMEInputCommand, MoveCursorOperation, MoveSelectionOperation, NodePositionConvertToCursor, ReplaceSnapshotCommand, SetInlineFormatBoldCommand, SetInlineFormatCommand, SetInlineFormatFontFamilyCommand, SetInlineFormatFontSizeCommand, SetInlineFormatItalicCommand, SetInlineFormatStrikethroughCommand, SetInlineFormatSubscriptCommand, SetInlineFormatSuperscriptCommand, SetInlineFormatTextColorCommand, SetInlineFormatUnderlineCommand, VIEWPORT_KEY, convertBodyToHtml, getCanvasOffsetByEngine, getLineBounding } from "@univerjs/docs-ui";
 import { AbsoluteRefType, BaselineOffset, BooleanNumber, BorderStyleTypes, CellModeEnum, CellValueType, ColorKit, CommandType, CustomRangeType, DEFAULT_EMPTY_DOCUMENT_VALUE, DEFAULT_STYLES, DEFAULT_WORKSHEET_COLUMN_COUNT, DEFAULT_WORKSHEET_COLUMN_WIDTH, DEFAULT_WORKSHEET_COLUMN_WIDTH_KEY, DEFAULT_WORKSHEET_ROW_COUNT, DEFAULT_WORKSHEET_ROW_HEIGHT, DOCS_FORMULA_BAR_EDITOR_UNIT_ID_KEY, DOCS_NORMAL_EDITOR_UNIT_ID_KEY, DataStreamTreeTokenType, DependentOn, Direction, Disposable, DisposableCollection, DocumentFlavor, EDITOR_ACTIVATED, ErrorService, FOCUSING_COMMENT_EDITOR, FOCUSING_COMMON_DRAWINGS, FOCUSING_EDITOR_BUT_HIDDEN, FOCUSING_EDITOR_INPUT_FORMULA, FOCUSING_EDITOR_STANDALONE, FOCUSING_FX_BAR_EDITOR, FOCUSING_SHAPE_TEXT_EDITOR, FOCUSING_SHEET, FOCUSING_UNIVER_EDITOR, FontItalic, FontWeight, HorizontalAlign, IAuthzIoService, ICommandService, IConfigService, IConfirmService, IContextService, ILogService, IPermissionService, IUndoRedoService, IUniverInstanceService, Inject, Injector, InterceptorEffectEnum, InterceptorManager, LRUMap, LocaleService, LocaleType, NilCommand, ObjectMatrix, Optional, Plugin, PresetListType, Quantity, RANGE_TYPE, Range, Rectangle, RxDisposable, ThemeService, Tools, UndoCommandId, UniverInstanceType, UserManagerService, VerticalAlign, Workbook, WrapStrategy, cloneCellData, cloneCellDataMatrix, cloneCellDataWithSpanAndDisplay, cloneValue, composeStyles, convertCellToRange, createIdentifier, createInterceptorKey, dateKit, debounce, extractPureTextFromCell, fromEventSubject, generateRandomId, get, getEmptyCell, getNumfmtParseValueFilter, getReverseDirection, handleStyleToString, isFormulaString, isNotNullOrUndefined, isRealNum, isSafeUrl, isTextFormat, isValidRange, merge, mergeOverrideWithDependencies, nameCharacterCheck, numfmt, registerDependencies, sequenceExecute, set, skipParseTagNames, sortRules, splitIntoGrid, throttle, toDisposable, touchDependencies, willLoseNumericPrecision } from "@univerjs/core";
+import { BreakLineCommand, CoverContentCommand, DOCS_COMPONENT_MAIN_LAYER_INDEX, DOCS_VIEW_KEY, DOC_VERTICAL_PADDING, DeleteLeftCommand, DeleteRightCommand, DocSelectionRenderService, IEditorService, IMEInputCommand, MoveCursorOperation, MoveSelectionOperation, NodePositionConvertToCursor, ReplaceSnapshotCommand, SetInlineFormatBoldCommand, SetInlineFormatCommand, SetInlineFormatFontFamilyCommand, SetInlineFormatFontSizeCommand, SetInlineFormatItalicCommand, SetInlineFormatStrikethroughCommand, SetInlineFormatSubscriptCommand, SetInlineFormatSuperscriptCommand, SetInlineFormatTextColorCommand, SetInlineFormatUnderlineCommand, VIEWPORT_KEY, convertBodyToHtml, getCanvasOffsetByEngine, getLineBounding } from "@univerjs/docs-ui";
 import { AnchoredContextMenu, BuiltInUIPart, COLOR_PICKER_COMPONENT, ComponentContainer, ComponentManager, ContextMenuGroup, ContextMenuPosition, CopyCommand, CutCommand, DISABLE_AUTO_FOCUS_KEY, FILE_PNG_CLIPBOARD_MIME_TYPE, FILE__BMP_CLIPBOARD_MIME_TYPE, FILE__JPEG_CLIPBOARD_MIME_TYPE, FILE__WEBP_CLIPBOARD_MIME_TYPE, FONT_FAMILY_COMPONENT, FONT_FAMILY_ITEM_COMPONENT, FONT_SIZE_COMPONENT, FONT_SIZE_LIST, HTML_CLIPBOARD_MIME_TYPE, ICanvasPopupService, IClipboardInterfaceService, IContextMenuService, IDialogService, ILayoutService, IMenuManagerService, IMessageService, INotificationService, IPlatformService, IShortcutService, ISidebarService, IUIPartsService, IZenZoneService, KeyCode, MenuItemType, MetaKeys, PLAIN_TEXT_CLIPBOARD_MIME_TYPE, PasteCommand, RibbonDataGroup, RibbonPosition, RibbonStartGroup, SheetPasteShortKeyCommandName, Slider, ToolbarItem, UI_PLUGIN_CONFIG_KEY, UniverMobileUIPlugin, connectInjector, getMenuHiddenObservable, handleStringToStyle, imageMimeTypeSet, sanitizeParsedHtml, textTrim, useComponentsOfPart, useConfigValue, useDependency, useEvent, useObservable, useSidebarClick, useVirtualList } from "@univerjs/ui";
 import { CURSOR_TYPE, DEFAULT_PADDING_DATA, DashedRect, DeviceInputEventType, FIX_ONE_PIXEL_BLUR_OFFSET, Group, IRenderManagerService, Layer, RENDER_CLASS_TYPE, RENDER_RAW_FORMULA_KEY, Rect, RegularPolygon, SHEET_EXTENSION_PREFIX, SHEET_VIEWPORT_KEY, ScrollBar, ScrollTimer, ScrollTimerType, Shape, SheetExtension, Spreadsheet, SpreadsheetColumnHeader, SpreadsheetRowHeader, TRANSFORM_CHANGE_OBSERVABLE_TYPE, Vector2, Viewport, cancelRequestFrame, convertTextRotation, convertTransformToOffsetX, convertTransformToOffsetY, fixLineWidthByScale, getCurrentTypeOfRenderer, getNextWheelZoomRatio, ptToPixel, requestNewFrame, withCurrentTypeOfRenderer } from "@univerjs/engine-render";
 import { AUTO_FILL_APPLY_TYPE, AUTO_FILL_HOOK_TYPE, AddMergeUndoMutationFactory, AddRangeProtectionCommand, AddRangeProtectionMutation, AddWorksheetMergeAllCommand, AddWorksheetMergeCommand, AddWorksheetMergeHorizontalCommand, AddWorksheetMergeMutation, AddWorksheetMergeVerticalCommand, AddWorksheetProtectionCommand, AutoClearContentCommand, AutoFillCommand, AutoFillController, BEFORE_CELL_EDIT, BorderStyleManagerService, COMMAND_LISTENER_SKELETON_CHANGE, COMMAND_LISTENER_VALUE_CHANGE, CancelFrozenCommand, CancelMarkDirtyRowAutoHeightOperation, ClearSelectionAllCommand, ClearSelectionContentCommand, ClearSelectionFormatCommand, CopySheetCommand, DeleteRangeMoveLeftCommand, DeleteRangeMoveUpCommand, DeleteRangeProtectionCommand, DeleteRangeProtectionMutation, DeleteWorksheetProtectionCommand, DeltaColumnWidthCommand, DeltaRowHeightCommand, EditStateEnum, IAutoFillService, IExclusiveRangeService, INTERCEPTOR_POINT, INumfmtService, IRefSelectionsService, InsertColBeforeCommand, InsertColCommand, InsertColMutation, InsertDefinedNameCommand, InsertMultiColsLeftCommand, InsertMultiColsRightCommand, InsertMultiRowsAboveCommand, InsertMultiRowsAfterCommand, InsertRangeMoveDownCommand, InsertRangeMoveRightCommand, InsertRowBeforeCommand, InsertRowCommand, InsertRowMutation, InsertSheetCommand, InsertSheetMutation, MAX_CELL_PER_SHEET_KEY, MERGE_CELL_INTERCEPTOR_CHECK, MarkDirtyRowAutoHeightOperation, MergeCellController, MoveColsCommand, MoveColsMutation, MoveRangeCommand, MoveRangeMutation, MoveRowsCommand, MoveRowsMutation, REF_SELECTIONS_ENABLED, RangeProtectionCache, RangeProtectionPermissionEditPoint, RangeProtectionPermissionViewPoint, RangeProtectionRuleModel, RefRangeService, RefSelectionsService, RefillCommand, RemoveColCommand, RemoveColMutation, RemoveDefinedNameCommand, RemoveMergeUndoMutationFactory, RemoveRowCommand, RemoveRowMutation, RemoveSheetCommand, RemoveSheetMutation, RemoveWorksheetMergeCommand, RemoveWorksheetMergeMutation, ResetBackgroundColorCommand, ResetTextColorCommand, SCOPE_WORKBOOK_VALUE_DEFINED_NAME, SELECTIONS_ENABLED, SELECTION_CONTROL_BORDER_BUFFER_COLOR, SELECTION_CONTROL_BORDER_BUFFER_WIDTH, SHEETS_PLUGIN_CONFIG_KEY, ScrollToCellOperation, SelectionMoveType, SetBackgroundColorCommand, SetBoldCommand, SetBorderBasicCommand, SetBorderCommand, SetColHiddenCommand, SetColHiddenMutation, SetColVisibleMutation, SetColWidthCommand, SetDefinedNameCommand, SetFontFamilyCommand, SetFontSizeCommand, SetFrozenCommand, SetFrozenMutation, SetFrozenMutationFactory, SetHorizontalTextAlignCommand, SetItalicCommand, SetProtectionCommand, SetRangeValuesCommand, SetRangeValuesMutation, SetRangeValuesUndoMutationFactory, SetRowHeightCommand, SetRowHiddenCommand, SetRowHiddenMutation, SetRowVisibleMutation, SetSelectedColsVisibleCommand, SetSelectedRowsVisibleCommand, SetSelectionsOperation, SetSpecificColsVisibleCommand, SetSpecificRowsVisibleCommand, SetStrikeThroughCommand, SetStyleCommand, SetTabColorCommand, SetTabColorMutation, SetTextColorCommand, SetTextRotationCommand, SetTextWrapCommand, SetUnderlineCommand, SetVerticalTextAlignCommand, SetWorksheetActivateCommand, SetWorksheetActiveOperation, SetWorksheetColWidthMutation, SetWorksheetColWidthMutationFactory, SetWorksheetHideCommand, SetWorksheetHideMutation, SetWorksheetNameCommand, SetWorksheetNameMutation, SetWorksheetOrderCommand, SetWorksheetOrderMutation, SetWorksheetPermissionPointsCommand, SetWorksheetRowAutoHeightMutation, SetWorksheetRowAutoHeightMutationFactory, SetWorksheetRowHeightMutation, SetWorksheetRowIsAutoHeightCommand, SetWorksheetRowIsAutoHeightMutation, SetWorksheetShowCommand, SheetCopyDownCommand, SheetCopyDownCommand as SheetCopyDownCommand$1, SheetCopyRightCommand, SheetCopyRightCommand as SheetCopyRightCommand$1, SheetInterceptorService, SheetPermissionCheckController, SheetPermissionInitController, SheetSkeletonService, SheetsSelectionsService, TextToNumberCommand, ToggleCellCheckboxCommand, ToggleGridlinesCommand, ToggleGridlinesMutation, UnitAction, UnitObject, UniverSheetsPlugin, ViewStateEnum, WorkbookCopyPermission, WorkbookCreateProtectPermission, WorkbookCreateSheetPermission, WorkbookDeleteColumnPermission, WorkbookDeleteRowPermission, WorkbookDeleteSheetPermission, WorkbookEditablePermission, WorkbookHideSheetPermission, WorkbookInsertColumnPermission, WorkbookInsertRowPermission, WorkbookManageCollaboratorPermission, WorkbookRenameSheetPermission, WorksheetCopyPermission, WorksheetDeleteColumnPermission, WorksheetDeleteProtectionPermission, WorksheetDeleteRowPermission, WorksheetEditPermission, WorksheetInsertColumnPermission, WorksheetInsertRowPermission, WorksheetManageCollaboratorPermission, WorksheetProtectionPointModel, WorksheetProtectionRuleModel, WorksheetSetCellStylePermission, WorksheetSetCellValuePermission, WorksheetSetColumnStylePermission, WorksheetSetRowStylePermission, WorksheetViewPermission, adjustRangeOnMutation, alignToMergedCellsBorders, attachPrimaryWithCoord, attachRangeWithCoord, attachSelectionWithCoord, baseProtectionActions, convertPrimaryWithCoordToPrimary, convertSelectionDataToRange, countCells, defaultLargeSheetOperationConfig, deserializeListOptions, discreteRangeToRange, expandToContinuousRange, getAddMergeMutationRangeByType, getAllWorksheetPermissionPoint, getCellAtRowCol, getClearContentMutationParamsForRanges, getMoveRangeCommandMutations, getPrimaryForRange, getSelectionsService, getSheetCommandTarget, rangeToDiscreteRange, serializeListOptions, setEndForRange, validateDefinedName } from "@univerjs/sheets";
@@ -14,6 +14,78 @@ import { FUNCTION_NAMES_MATH, FUNCTION_NAMES_STATISTICAL, FUNCTION_NAMES_TEXT, F
 import { ITelemetryService } from "@univerjs/telemetry";
 import { debounceTime, filter as filter$1, map as map$1, shareReplay as shareReplay$1, startWith as startWith$1, switchMap as switchMap$1 } from "rxjs/operators";
 
+//#region src/commands/commands/field-attr.command.ts
+/**
+* 字段属性值
+* 0: 不显示
+* 1: 只读
+* 2: 可编辑
+* 3: 必填
+*/
+let FieldAttrValue = /* @__PURE__ */ function(FieldAttrValue) {
+	FieldAttrValue[FieldAttrValue["NOT_SHOWN"] = 0] = "NOT_SHOWN";
+	FieldAttrValue[FieldAttrValue["READONLY"] = 1] = "READONLY";
+	FieldAttrValue[FieldAttrValue["EDITABLE"] = 2] = "EDITABLE";
+	FieldAttrValue[FieldAttrValue["REQUIRED"] = 3] = "REQUIRED";
+	return FieldAttrValue;
+}({});
+/**
+* 设置字段属性命令
+* 执行时通过 CustomEvent 通知应用层更新字段属性
+*/
+const SetFieldReadonlyCommand = {
+	id: "sheet.command.set-field-readonly",
+	type: CommandType.COMMAND,
+	handler: async (accessor) => {
+		window.dispatchEvent(new CustomEvent("univer-field-attr-change", { detail: { attr: 1 } }));
+		return true;
+	}
+};
+const SetFieldEditableCommand = {
+	id: "sheet.command.set-field-editable",
+	type: CommandType.COMMAND,
+	handler: async (accessor) => {
+		window.dispatchEvent(new CustomEvent("univer-field-attr-change", { detail: { attr: 2 } }));
+		return true;
+	}
+};
+const SetFieldRequiredCommand = {
+	id: "sheet.command.set-field-required",
+	type: CommandType.COMMAND,
+	handler: async (accessor) => {
+		window.dispatchEvent(new CustomEvent("univer-field-attr-change", { detail: { attr: 3 } }));
+		return true;
+	}
+};
+
+//#endregion
+//#region src/commands/commands/excel-design.command.ts
+/**
+* 清空单元格命令
+* 执行时通过 CustomEvent 通知应用层清空当前选中单元格
+*/
+const ClearCellCommand = {
+	id: "sheet.command.clear-cell",
+	type: CommandType.COMMAND,
+	handler: async (accessor) => {
+		window.dispatchEvent(new CustomEvent("univer-cell-clear", {}));
+		return true;
+	}
+};
+/**
+* 打开字段属性面板命令
+* 执行时通过 CustomEvent 通知应用层打开字段属性配置面板
+*/
+const OpenFieldPropertyCommand = {
+	id: "sheet.command.open-field-property",
+	type: CommandType.COMMAND,
+	handler: async (accessor) => {
+		window.dispatchEvent(new CustomEvent("univer-field-property-open", {}));
+		return true;
+	}
+};
+
+//#endregion
 //#region src/basics/editor/get-editor-object.ts
 function getEditorObject(unitId, renderManagerService) {
 	if (unitId == null) return;
@@ -19039,6 +19111,76 @@ function Text2NumberContextMenuItemFactory(accessor) {
 }
 
 //#endregion
+//#region src/menu/excel-design.menu.ts
+/**
+* 清空单元格菜单项工厂
+*/
+function ClearCellMenuItemFactory(accessor) {
+	return {
+		id: ClearCellCommand.id,
+		commandId: ClearCellCommand.id,
+		type: "button",
+		title: "sheets-ui.rightClick.clearCell",
+		icon: "DeleteEmptyIcon",
+		group: ContextMenuGroup.OTHERS,
+		positions: [ContextMenuPosition.MAIN_AREA]
+	};
+}
+/**
+* 打开字段属性面板菜单项工厂
+*/
+function OpenFieldPropertyMenuItemFactory(accessor) {
+	return {
+		id: OpenFieldPropertyCommand.id,
+		commandId: OpenFieldPropertyCommand.id,
+		type: "button",
+		title: "sheets-ui.rightClick.fieldProperty",
+		icon: "DocSettingIcon",
+		group: ContextMenuGroup.OTHERS,
+		positions: [ContextMenuPosition.MAIN_AREA]
+	};
+}
+
+//#endregion
+//#region src/menu/field-attr.menu.ts
+/**
+* 字段只读菜单项
+*/
+function SetFieldReadonlyMenuItemFactory(accessor) {
+	return {
+		id: SetFieldReadonlyCommand.id,
+		commandId: SetFieldReadonlyCommand.id,
+		type: MenuItemType.BUTTON,
+		title: "sheets-ui.rightClick.fieldReadonly",
+		icon: "LockIcon"
+	};
+}
+/**
+* 字段可编辑菜单项
+*/
+function SetFieldEditableMenuItemFactory(accessor) {
+	return {
+		id: SetFieldEditableCommand.id,
+		commandId: SetFieldEditableCommand.id,
+		type: MenuItemType.BUTTON,
+		title: "sheets-ui.rightClick.fieldEditable",
+		icon: "PenIcon"
+	};
+}
+/**
+* 字段必填菜单项
+*/
+function SetFieldRequiredMenuItemFactory(accessor) {
+	return {
+		id: SetFieldRequiredCommand.id,
+		commandId: SetFieldRequiredCommand.id,
+		type: MenuItemType.BUTTON,
+		title: "sheets-ui.rightClick.fieldRequired",
+		icon: "ProtectIcon"
+	};
+}
+
+//#endregion
 //#region src/menu/schema.ts
 const menuSchema = {
 	[RibbonPosition.START]: {
@@ -19154,6 +19296,26 @@ const menuSchema = {
 		menuItemFactory: Text2NumberToolbarMenuItemFactory
 	} } },
 	[ContextMenuPosition.MAIN_AREA]: {
+		[SetFieldReadonlyCommand.id]: {
+			order: -5,
+			menuItemFactory: SetFieldReadonlyMenuItemFactory
+		},
+		[SetFieldEditableCommand.id]: {
+			order: -4,
+			menuItemFactory: SetFieldEditableMenuItemFactory
+		},
+		[SetFieldRequiredCommand.id]: {
+			order: -3,
+			menuItemFactory: SetFieldRequiredMenuItemFactory
+		},
+		[ClearCellCommand.id]: {
+			order: -2,
+			menuItemFactory: ClearCellMenuItemFactory
+		},
+		[OpenFieldPropertyCommand.id]: {
+			order: -1,
+			menuItemFactory: OpenFieldPropertyMenuItemFactory
+		},
 		[ContextMenuGroup.QUICK]: {
 			quickLayout: "tile",
 			[SheetCopyCommand.name]: {
@@ -19310,6 +19472,26 @@ const menuSchema = {
 		[ContextMenuGroup.OTHERS]: { order: 3 }
 	},
 	[ContextMenuPosition.COL_HEADER]: {
+		[SetFieldReadonlyCommand.id]: {
+			order: -5,
+			menuItemFactory: SetFieldReadonlyMenuItemFactory
+		},
+		[SetFieldEditableCommand.id]: {
+			order: -4,
+			menuItemFactory: SetFieldEditableMenuItemFactory
+		},
+		[SetFieldRequiredCommand.id]: {
+			order: -3,
+			menuItemFactory: SetFieldRequiredMenuItemFactory
+		},
+		[ClearCellCommand.id]: {
+			order: -2,
+			menuItemFactory: ClearCellMenuItemFactory
+		},
+		[OpenFieldPropertyCommand.id]: {
+			order: -1,
+			menuItemFactory: OpenFieldPropertyMenuItemFactory
+		},
 		[ContextMenuGroup.QUICK]: {
 			quickLayout: "tile",
 			[SheetCopyCommand.name]: {
@@ -19442,6 +19624,26 @@ const menuSchema = {
 		[ContextMenuGroup.OTHERS]: { order: 3 }
 	},
 	[ContextMenuPosition.ROW_HEADER]: {
+		[SetFieldReadonlyCommand.id]: {
+			order: -5,
+			menuItemFactory: SetFieldReadonlyMenuItemFactory
+		},
+		[SetFieldEditableCommand.id]: {
+			order: -4,
+			menuItemFactory: SetFieldEditableMenuItemFactory
+		},
+		[SetFieldRequiredCommand.id]: {
+			order: -3,
+			menuItemFactory: SetFieldRequiredMenuItemFactory
+		},
+		[ClearCellCommand.id]: {
+			order: -2,
+			menuItemFactory: ClearCellMenuItemFactory
+		},
+		[OpenFieldPropertyCommand.id]: {
+			order: -1,
+			menuItemFactory: OpenFieldPropertyMenuItemFactory
+		},
 		[ContextMenuGroup.QUICK]: {
 			quickLayout: "tile",
 			[SheetCopyCommand.name]: {
@@ -24052,7 +24254,12 @@ let SheetUIController = class SheetUIController extends Disposable {
 			SetWorksheetColAutoWidthCommand,
 			SetRowHeaderWidthCommand,
 			SetColumnHeaderHeightCommand,
-			RepeatLastActionCommand
+			RepeatLastActionCommand,
+			SetFieldReadonlyCommand,
+			SetFieldEditableCommand,
+			SetFieldRequiredCommand,
+			ClearCellCommand,
+			OpenFieldPropertyCommand
 		].forEach((c) => {
 			this.disposeWithMe(this._commandService.registerCommand(c));
 		});
@@ -30898,4 +31105,4 @@ UniverSheetsUIPlugin = __decorate([
 ], UniverSheetsUIPlugin);
 
 //#endregion
-export { AddRangeProtectionFromContextMenuCommand, AddRangeProtectionFromSheetBarCommand, AddRangeProtectionFromToolbarCommand, ApplyFormatPainterCommand, AutoFillUIController, AutoHeightController, AutoWidthController, BaseSelectionRenderService, COPY_SPECIAL_MENU_ID, COPY_TYPE, CellAlertManagerService, CellAlertType, CellCustomRenderController, CellEditorManagerService, CellPopupManagerService, ChangeSheetProtectionFromSheetBarCommand, ChangeZoomRatioCommand, DeleteRangeMoveLeftConfirmCommand, DeleteRangeMoveUpConfirmCommand, DeleteRangeProtectionFromContextMenuCommand, DeleteWorksheetProtectionFormSheetBarCommand, DragManagerService, DragRenderController, EMBEDDING_FORMULA_EDITOR, EMBEDDING_FORMULA_EDITOR_COMPONENT_KEY, EditingRenderController, EditorBridgeService, ExpandSelectionCommand, FormatPainterStatus, FormulaBar, FormulaEditorController, HEADER_UNHIDE_RANGE_VISIBLE_CHECK, HeaderFreezeRenderController, HeaderMoveRenderController, HeaderResizeRenderController, HeaderUnhideRangeAxis, HeaderUnhideRangeService, HeaderUnhideRenderController, HideColConfirmCommand, HideRowConfirmCommand, HoverManagerService, HoverRenderController, ICellEditorManagerService, IEditorBridgeService, IFormatPainterService, IFormulaEditorManagerService, IMarkSelectionService, IRepeatLastActionService, ISheetCellDropdownManagerService, ISheetClipboardService, ISheetSelectionRenderService, IStatusBarService, InsertRangeMoveDownConfirmCommand, InsertRangeMoveRightConfirmCommand, JumpOver, MarkSelectionService, MobileSheetBar, MoveSelectionCommand, MoveSelectionEnterAndTabCommand, PASTE_SPECIAL_MENU_ID, PREDEFINED_HOOK_NAME, PREDEFINED_HOOK_NAME_COPY, PREDEFINED_HOOK_NAME_PASTE, RANGE_SELECTOR_COMPONENT_KEY, RANGE_SELECTOR_SYMBOLS, RemoveColConfirmCommand, RemoveRowConfirmCommand, RemoveSheetConfirmCommand, RenameSheetOperation, RenderSheetContent, RenderSheetFooter, RenderSheetHeader, RepeatLastActionPermission, ResetRangeTextColorCommand, ResetScrollCommand, SELECTION_SHAPE_DEPTH, SHEET_UI_PLUGIN_NAME, SHEET_VIEW_KEY, ScrollCommand, ScrollToCellCommand, ScrollToRangeOperation, SelectAllCommand, SelectionControl, SelectionControl as SelectionShape, SelectionShapeExtension, SetActivateCellEditOperation, SetCellEditVisibleArrowOperation, SetCellEditVisibleOperation, SetCellEditVisibleWithF2Operation, SetColumnFrozenCommand, SetColumnHeaderHeightCommand, SetFirstColumnFrozenCommand, SetFirstRowFrozenCommand, SetFormatPainterOperation, SetInfiniteFormatPainterCommand, SetOnceFormatPainterCommand, SetRangeBoldCommand, SetRangeFontDecreaseCommand, SetRangeFontFamilyCommand, SetRangeFontIncreaseCommand, SetRangeFontSizeCommand, SetRangeItalicCommand, SetRangeProtectionFromContextMenuCommand, SetRangeStrickThroughCommand, SetRangeSubscriptCommand, SetRangeSuperscriptCommand, SetRangeTextColorCommand, SetRangeUnderlineCommand, SetRowFrozenCommand, SetRowHeaderWidthCommand, SetScrollOperation, SetScrollRelativeCommand, SetSelectionFrozenCommand, SetWorksheetColAutoWidthCommand, SetZoomRatioCommand, SetZoomRatioOperation, SheetBar, SheetCanvasPopManagerService, SheetCellDropdownManagerService, SheetCellEditorResizeService, SheetClipboardController, SheetClipboardService, SheetCopyCommand, SheetCopyDownCommand, SheetCopyRightCommand, SheetCutCommand, SheetMenuPosition, SheetPasteBesidesBorderCommand, SheetPasteColWidthCommand, SheetPasteCommand, SheetPasteFormatCommand, SheetPasteShortKeyCommand, SheetPasteValueCommand, SheetPermissionCheckUIController, SheetPermissionOpenDialogOperation, SheetPermissionOpenPanelOperation, SheetPermissionRenderManagerService, SheetPermissionUserManagerService, SheetPrintInterceptorService, SheetRenderController, SheetScrollManagerService, SheetSelectionRenderService, SheetSkeletonManagerService, SheetUIController, SheetsRenderService, SheetsScrollRenderController, menuSchema as SheetsUIMenuSchema, SheetsUIPart, ShowMenuListCommand, SidebarDefinedNameOperation, StatusBarController, StatusBarService, UNIVER_SHEET_PERMISSION_USER_PART, UniverSheetsMobileUIPlugin, UniverSheetsUIPlugin, ViewSheetPermissionFromContextMenuCommand, ViewSheetPermissionFromSheetBarCommand, calculateDocSkeletonRects, matchedSelectionByRowColIndex as checkInHeaderRanges, deriveStateFromActiveSheet$, functionDisplayNames, genNormalSelectionStyle, genSelectionByRange, selectionDataForSelectAll as getAllSelection, getCellRealRange, getCoordByCell, getCoordByOffset, getCurrentExclusiveRangeInterest$, getCurrentRangeDisable$, getCustomRangePosition, getEditingCustomRangePosition, getEditorObject, getMatrixPlainText, getObservableWithExclusiveRange$, getRepeatRange, getSheetObject, getTopLeftSelectionOfCurrSheet, getTransformCoord, getViewportByCell, isEmbeddingFormulaEditor, isRangeSelector, menuClipboardDisabledObservable, mergeSetRangeValues, useActiveWorkbook, useActiveWorksheet, useHighlightRange, useKeyEventConfig, useWorkbooks, virtualizeDiscreteRanges, whenFormulaEditorActivated, whenSheetEditorActivated, whenSheetEditorFocused };
+export { AddRangeProtectionFromContextMenuCommand, AddRangeProtectionFromSheetBarCommand, AddRangeProtectionFromToolbarCommand, ApplyFormatPainterCommand, AutoFillUIController, AutoHeightController, AutoWidthController, BaseSelectionRenderService, COPY_SPECIAL_MENU_ID, COPY_TYPE, CellAlertManagerService, CellAlertType, CellCustomRenderController, CellEditorManagerService, CellPopupManagerService, ChangeSheetProtectionFromSheetBarCommand, ChangeZoomRatioCommand, ClearCellCommand, DeleteRangeMoveLeftConfirmCommand, DeleteRangeMoveUpConfirmCommand, DeleteRangeProtectionFromContextMenuCommand, DeleteWorksheetProtectionFormSheetBarCommand, DragManagerService, DragRenderController, EMBEDDING_FORMULA_EDITOR, EMBEDDING_FORMULA_EDITOR_COMPONENT_KEY, EditingRenderController, EditorBridgeService, ExpandSelectionCommand, FieldAttrValue, FormatPainterStatus, FormulaBar, FormulaEditorController, HEADER_UNHIDE_RANGE_VISIBLE_CHECK, HeaderFreezeRenderController, HeaderMoveRenderController, HeaderResizeRenderController, HeaderUnhideRangeAxis, HeaderUnhideRangeService, HeaderUnhideRenderController, HideColConfirmCommand, HideRowConfirmCommand, HoverManagerService, HoverRenderController, ICellEditorManagerService, IEditorBridgeService, IFormatPainterService, IFormulaEditorManagerService, IMarkSelectionService, IRepeatLastActionService, ISheetCellDropdownManagerService, ISheetClipboardService, ISheetSelectionRenderService, IStatusBarService, InsertRangeMoveDownConfirmCommand, InsertRangeMoveRightConfirmCommand, JumpOver, MarkSelectionService, MobileSheetBar, MoveSelectionCommand, MoveSelectionEnterAndTabCommand, OpenFieldPropertyCommand, PASTE_SPECIAL_MENU_ID, PREDEFINED_HOOK_NAME, PREDEFINED_HOOK_NAME_COPY, PREDEFINED_HOOK_NAME_PASTE, RANGE_SELECTOR_COMPONENT_KEY, RANGE_SELECTOR_SYMBOLS, RemoveColConfirmCommand, RemoveRowConfirmCommand, RemoveSheetConfirmCommand, RenameSheetOperation, RenderSheetContent, RenderSheetFooter, RenderSheetHeader, RepeatLastActionPermission, ResetRangeTextColorCommand, ResetScrollCommand, SELECTION_SHAPE_DEPTH, SHEET_UI_PLUGIN_NAME, SHEET_VIEW_KEY, ScrollCommand, ScrollToCellCommand, ScrollToRangeOperation, SelectAllCommand, SelectionControl, SelectionControl as SelectionShape, SelectionShapeExtension, SetActivateCellEditOperation, SetCellEditVisibleArrowOperation, SetCellEditVisibleOperation, SetCellEditVisibleWithF2Operation, SetColumnFrozenCommand, SetColumnHeaderHeightCommand, SetFieldEditableCommand, SetFieldReadonlyCommand, SetFieldRequiredCommand, SetFirstColumnFrozenCommand, SetFirstRowFrozenCommand, SetFormatPainterOperation, SetInfiniteFormatPainterCommand, SetOnceFormatPainterCommand, SetRangeBoldCommand, SetRangeFontDecreaseCommand, SetRangeFontFamilyCommand, SetRangeFontIncreaseCommand, SetRangeFontSizeCommand, SetRangeItalicCommand, SetRangeProtectionFromContextMenuCommand, SetRangeStrickThroughCommand, SetRangeSubscriptCommand, SetRangeSuperscriptCommand, SetRangeTextColorCommand, SetRangeUnderlineCommand, SetRowFrozenCommand, SetRowHeaderWidthCommand, SetScrollOperation, SetScrollRelativeCommand, SetSelectionFrozenCommand, SetWorksheetColAutoWidthCommand, SetZoomRatioCommand, SetZoomRatioOperation, SheetBar, SheetCanvasPopManagerService, SheetCellDropdownManagerService, SheetCellEditorResizeService, SheetClipboardController, SheetClipboardService, SheetCopyCommand, SheetCopyDownCommand, SheetCopyRightCommand, SheetCutCommand, SheetMenuPosition, SheetPasteBesidesBorderCommand, SheetPasteColWidthCommand, SheetPasteCommand, SheetPasteFormatCommand, SheetPasteShortKeyCommand, SheetPasteValueCommand, SheetPermissionCheckUIController, SheetPermissionOpenDialogOperation, SheetPermissionOpenPanelOperation, SheetPermissionRenderManagerService, SheetPermissionUserManagerService, SheetPrintInterceptorService, SheetRenderController, SheetScrollManagerService, SheetSelectionRenderService, SheetSkeletonManagerService, SheetUIController, SheetsRenderService, SheetsScrollRenderController, menuSchema as SheetsUIMenuSchema, SheetsUIPart, ShowMenuListCommand, SidebarDefinedNameOperation, StatusBarController, StatusBarService, UNIVER_SHEET_PERMISSION_USER_PART, UniverSheetsMobileUIPlugin, UniverSheetsUIPlugin, ViewSheetPermissionFromContextMenuCommand, ViewSheetPermissionFromSheetBarCommand, calculateDocSkeletonRects, matchedSelectionByRowColIndex as checkInHeaderRanges, deriveStateFromActiveSheet$, functionDisplayNames, genNormalSelectionStyle, genSelectionByRange, selectionDataForSelectAll as getAllSelection, getCellRealRange, getCoordByCell, getCoordByOffset, getCurrentExclusiveRangeInterest$, getCurrentRangeDisable$, getCustomRangePosition, getEditingCustomRangePosition, getEditorObject, getMatrixPlainText, getObservableWithExclusiveRange$, getRepeatRange, getSheetObject, getTopLeftSelectionOfCurrSheet, getTransformCoord, getViewportByCell, isEmbeddingFormulaEditor, isRangeSelector, menuClipboardDisabledObservable, mergeSetRangeValues, useActiveWorkbook, useActiveWorksheet, useHighlightRange, useKeyEventConfig, useWorkbooks, virtualizeDiscreteRanges, whenFormulaEditorActivated, whenSheetEditorActivated, whenSheetEditorFocused };

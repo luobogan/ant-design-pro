@@ -213,7 +213,12 @@ const locale = { "sheets-ui": {
 		removeProtectRange: "移除保护范围",
 		turnOnProtectRange: "新增保护范围",
 		viewAllProtectArea: "查看所有保护范围",
-		textToNumber: "文本转数字"
+		textToNumber: "文本转数字",
+		fieldReadonly: "只读",
+		fieldEditable: "可编辑",
+		fieldRequired: "必填",
+		clearCell: "清空单元格",
+		fieldProperty: "字段属性"
 	},
 	info: {
 		notChangeMerge: "不能对合并单元格做部分更改",

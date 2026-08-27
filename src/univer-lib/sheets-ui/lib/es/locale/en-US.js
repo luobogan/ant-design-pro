@@ -228,7 +228,12 @@ const locale = { "sheets-ui": {
 		removeProtectRange: "Remove Protection Range",
 		turnOnProtectRange: "Add Protection Range",
 		viewAllProtectArea: "View All Protection Ranges",
-		textToNumber: "Text to Number"
+		textToNumber: "Text to Number",
+		fieldReadonly: "Read Only",
+		fieldEditable: "Editable",
+		fieldRequired: "Required",
+		clearCell: "Clear Cell",
+		fieldProperty: "Field Property"
 	},
 	info: {
 		notChangeMerge: "You cannot make partial changes to the merged cells",

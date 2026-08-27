@@ -50,35 +50,95 @@ const getFieldIcon = (field: FieldDefinition): React.ReactNode => {
   return <FontSizeOutlined />;
 };
 
-// 可拖拽的字段项组件 - 双列布局：标签 + 字段
-const DraggableFieldItem: React.FC<{
+// 可拖拽的标签组件
+const DraggableLabelItem: React.FC<{
   field: FieldDefinition;
-  onFieldSelect: (field: any) => void;
-  onFieldHover?: (field: any | null) => void;
-}> = ({ field, onFieldSelect, onFieldHover }) => {
-  // 获取字段名称，支持多种属性名
-  const displayFieldName = field.fieldName || field.fieldDbName || field.name || field.columnName || '';
-  // 获取字段标签，支持多种属性名
-  const displayFieldLabel = field.fieldLabel || field.label || displayFieldName || '未命名字段';
-
+  displayFieldLabel: string;
+  displayFieldName: string;
+}> = ({ field, displayFieldLabel, displayFieldName }) => {
   const [{ isDragging }, dragRef] = useDrag(() => ({
     type: 'FIELD',
-    // 关键：传递完整 field 对象，确保 drop 时能获取所有属性
     item: {
       ...field,
-      type: 'formField',
+      type: 'formLabel', // 标识为标签类型
+      fieldName: displayFieldName,
+      fieldLabel: displayFieldLabel,
     },
     collect: (monitor) => ({
       isDragging: monitor.isDragging(),
     }),
-  }), [field]);
+  }), [field, displayFieldLabel, displayFieldName]);
 
-  /**
-   * 原生拖拽开始事件处理器
-   * 在 react-dnd 处理 dragstart 后，额外将字段数据写入 native dataTransfer
-   * 使 Univer canvas 的原生 dragover/drop 事件能读取到字段数据
-   */
-    const handleDragStart = (e: React.DragEvent) => {
+  const handleDragStart = (e: React.DragEvent) => {
+    const labelData = {
+      id: field.id,
+      fieldId: field.id,
+      fieldName: displayFieldName,
+      fieldLabel: displayFieldLabel,
+      fieldHtmlType: field.fieldHtmlType,
+      fieldType: field.fieldType,
+      type: 'formLabel', // 标识为标签类型
+      required: field.required || false,
+      readonly: field.readonly || false,
+      defaultValue: '',
+      placeholder: '',
+      options: [],
+    };
+
+    (window as any).__pendingField = labelData;
+    e.dataTransfer.setData('application/json', JSON.stringify(labelData));
+    e.dataTransfer.setData('text/plain', displayFieldLabel);
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
+  return (
+    <div
+      ref={dragRef as any}
+      onDragStart={handleDragStart}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        cursor: 'grab',
+        opacity: isDragging ? 0.5 : 1,
+        padding: '2px 4px',
+        borderRadius: 4,
+        transition: 'background-color 0.2s',
+        fontSize: '13px',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = '#e6f7ff';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = 'transparent';
+      }}
+      title="拖拽标签到表格"
+    >
+      <span style={{ marginRight: 6, color: '#1890ff' }}>{getFieldIcon(field)}</span>
+      <span>{displayFieldLabel}</span>
+    </div>
+  );
+};
+
+// 可拖拽的字段组件
+const DraggableFieldOnlyItem: React.FC<{
+  field: FieldDefinition;
+  displayFieldLabel: string;
+  displayFieldName: string;
+}> = ({ field, displayFieldLabel, displayFieldName }) => {
+  const [{ isDragging }, dragRef] = useDrag(() => ({
+    type: 'FIELD',
+    item: {
+      ...field,
+      type: 'formField', // 标识为字段类型
+      fieldName: displayFieldName,
+      fieldLabel: displayFieldLabel,
+    },
+    collect: (monitor) => ({
+      isDragging: monitor.isDragging(),
+    }),
+  }), [field, displayFieldLabel, displayFieldName]);
+
+  const handleDragStart = (e: React.DragEvent) => {
     const fieldData = {
       id: field.id,
       fieldId: field.id,
@@ -94,14 +154,9 @@ const DraggableFieldItem: React.FC<{
       options: field.options || [],
     };
 
-    // ★★★ 核心修复：直接拖拽时设置 __pendingField ★★★
-    (window as any).__pendingField = {
-      ...fieldData,
-      fieldLabel: displayFieldLabel,
-    };
-
+    (window as any).__pendingField = fieldData;
     e.dataTransfer.setData('application/json', JSON.stringify(fieldData));
-    e.dataTransfer.setData('text/plain', displayFieldLabel);
+    e.dataTransfer.setData('text/plain', displayFieldName);
     e.dataTransfer.effectAllowed = 'copy';
   };
 
@@ -114,10 +169,44 @@ const DraggableFieldItem: React.FC<{
         alignItems: 'center',
         cursor: 'grab',
         opacity: isDragging ? 0.5 : 1,
-        padding: '4px 0',
+        padding: '2px 4px',
         borderRadius: 4,
         transition: 'background-color 0.2s',
-        fontSize: '13px',
+        fontSize: '12px',
+        color: '#999',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = '#e6f7ff';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = 'transparent';
+      }}
+      title="拖拽字段到表格"
+    >
+      <span>{displayFieldName || '-'}</span>
+    </div>
+  );
+};
+
+// 字段项组件 - 双列布局：标签 + 字段（各自可拖动）
+const DraggableFieldItem: React.FC<{
+  field: FieldDefinition;
+  onFieldSelect: (field: any) => void;
+  onFieldHover?: (field: any | null) => void;
+}> = ({ field, onFieldSelect, onFieldHover }) => {
+  // 获取字段名称，支持多种属性名
+  const displayFieldName = field.fieldName || field.fieldDbName || field.name || field.columnName || '';
+  // 获取字段标签，支持多种属性名
+  const displayFieldLabel = field.fieldLabel || field.label || displayFieldName || '未命名字段';
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        padding: '2px 0',
+        borderRadius: 4,
+        transition: 'background-color 0.2s',
         width: '100%',
       }}
       onClick={() => onFieldSelect(field)}
@@ -130,23 +219,28 @@ const DraggableFieldItem: React.FC<{
         onFieldHover?.(null);
       }}
     >
-      {/* 第一列：图标 + 标签 */}
+      {/* 第一列：可拖动的标签 */}
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', paddingRight: 8 }}>
-        <span style={{ marginRight: 8, color: '#1890ff' }}>{getFieldIcon(field)}</span>
-        <span>{displayFieldLabel}</span>
+        <DraggableLabelItem
+          field={field}
+          displayFieldLabel={displayFieldLabel}
+          displayFieldName={displayFieldName}
+        />
       </div>
 
-      {/* 第二列：字段名称 */}
+      {/* 第二列：可拖动的字段 */}
       <div style={{
         flex: 1,
         display: 'flex',
         alignItems: 'center',
-        color: '#999',
-        fontSize: '12px',
         paddingLeft: 8,
         borderLeft: '1px solid #e8e8e8'
       }}>
-        <span>{displayFieldName || '-'}</span>
+        <DraggableFieldOnlyItem
+          field={field}
+          displayFieldLabel={displayFieldLabel}
+          displayFieldName={displayFieldName}
+        />
       </div>
     </div>
   );
@@ -190,14 +284,14 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
             // 兼容两种命名格式
             const deletedFlag = f.isDeleted !== undefined ? f.isDeleted : f.is_deleted;
             const statusValue = f.status;
-            
+
             const isDeleted = deletedFlag === 1 || statusValue === -1;
             if (isDeleted) {
               console.log('[FieldPalette] 过滤已删除字段:', f.fieldName, f.fieldLabel, '| isDeleted:', deletedFlag, '| status:', statusValue);
             }
             return !isDeleted;
           });
-          
+
           console.log('[FieldPalette] 原始字段数:', data.length, '过滤后字段数:', filteredData.length);
           setFields(filteredData);
 
