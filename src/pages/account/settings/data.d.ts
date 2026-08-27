@@ -4,13 +4,21 @@ export type TagType = {
 };
 
 export type GeographicItemType = {
-  name: string;
-  id: string;
+  name?: string;
+  id?: string;
+  label?: string;
+  key?: string;
 };
 
 export type GeographicType = {
-  province: GeographicItemType;
-  city: GeographicItemType;
+  province: {
+    label: string;
+    key: string;
+  };
+  city: {
+    label: string;
+    key: string;
+  };
 };
 
 export type NoticeType = {

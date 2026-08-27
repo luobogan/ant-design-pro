@@ -19,13 +19,31 @@ import {
   useIntl,
   useModel,
 } from '@umijs/max';
-import { Alert, App, Tabs } from 'antd';
+import { Alert, App, Button, Tabs } from 'antd';
 import { createStyles } from 'antd-style';
 import React, { startTransition, useState } from 'react';
 import { Footer } from '@/components';
 import { login } from '@/services/ant-design-pro/api';
 import { getFakeCaptcha } from '@/services/ant-design-pro/login';
 import Settings from '../../../../config/defaultSettings';
+
+/**
+ * Validate redirect URL to prevent open redirect attacks.
+ * Only allow same-origin relative paths starting with '/'.
+ */
+const getSafeRedirectUrl = (redirect: string | null): string => {
+  if (!redirect?.startsWith('/')) return '/';
+
+  if (redirect.startsWith('//')) return '/';
+
+  try {
+    const parsed = new URL(redirect, window.location.origin);
+    if (parsed.origin !== window.location.origin) return '/';
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return '/';
+  }
+};
 
 const useStyles = createStyles(({ token }) => {
   return {
@@ -117,27 +135,6 @@ const Login: React.FC = () => {
   const { message } = App.useApp();
   const intl = useIntl();
 
-  /**
-   * Validate redirect URL to prevent open redirect attacks
-   * Only allow same-origin relative paths starting with '/'
-   */
-  const getSafeRedirectUrl = (redirect: string | null): string => {
-    if (!redirect?.startsWith('/')) return '/';
-
-    // Block protocol-relative URLs (//example.com)
-    if (redirect.startsWith('//')) return '/';
-
-    try {
-      const parsed = new URL(redirect, window.location.origin);
-      // Only allow same-origin URLs
-      if (parsed.origin !== window.location.origin) return '/';
-      // Return the path with query and hash preserved
-      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
-    } catch {
-      return '/';
-    }
-  };
-
   const fetchUserInfo = async () => {
     const userInfo = await initialState?.fetchUserInfo?.();
     if (userInfo) {
@@ -166,15 +163,13 @@ const Login: React.FC = () => {
         window.location.href = redirectUrl;
         return;
       }
-      console.log(msg);
       // 如果失败去设置用户错误信息
       setUserLoginState(msg);
-    } catch (error) {
+    } catch {
       const defaultLoginFailureMessage = intl.formatMessage({
         id: 'pages.login.failure',
         defaultMessage: '登录失败，请重试！',
       });
-      console.log(error);
       message.error(defaultLoginFailureMessage);
     }
   };
@@ -397,17 +392,18 @@ const Login: React.FC = () => {
                 defaultMessage="自动登录"
               />
             </ProFormCheckbox>
-            <a
-              href="#"
+            <Button
+              type="link"
               style={{
                 float: 'right',
+                padding: 0,
               }}
             >
               <FormattedMessage
                 id="pages.login.forgotPassword"
                 defaultMessage="忘记密码"
               />
-            </a>
+            </Button>
           </div>
         </LoginForm>
       </div>

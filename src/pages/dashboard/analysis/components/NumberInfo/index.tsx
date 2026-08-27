@@ -5,6 +5,7 @@ import useStyles from './index.style';
 export type NumberInfoProps = {
   title?: React.ReactNode | string;
   subTitle?: React.ReactNode | string;
+  renderSubTitle?: () => React.ReactNode;
   total?: React.ReactNode | string;
   status?: 'up' | 'down';
   theme?: string;
@@ -17,6 +18,7 @@ const NumberInfo: React.FC<NumberInfoProps> = ({
   theme,
   title,
   subTitle,
+  renderSubTitle,
   total,
   subTotal,
   status,
@@ -25,6 +27,8 @@ const NumberInfo: React.FC<NumberInfoProps> = ({
   ...rest
 }) => {
   const { styles } = useStyles();
+  const subTitleNode = renderSubTitle?.() ?? subTitle;
+  const hasSubTitle = subTitleNode !== null && subTitleNode !== undefined;
   return (
     <div
       className={clsx({
@@ -40,12 +44,12 @@ const NumberInfo: React.FC<NumberInfoProps> = ({
           {title}
         </div>
       )}
-      {subTitle && (
+      {hasSubTitle && (
         <div
           className={styles.numberInfoSubTitle}
-          title={typeof subTitle === 'string' ? subTitle : ''}
+          title={typeof subTitleNode === 'string' ? subTitleNode : ''}
         >
-          {subTitle}
+          {subTitleNode}
         </div>
       )}
       <div

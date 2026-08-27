@@ -3,34 +3,41 @@ import React from 'react';
 
 type Unpacked<T> = T extends (infer U)[] ? U : T;
 
-const Action = (
-  <Switch checkedChildren="开" unCheckedChildren="关" defaultChecked />
+const notificationAction = (key: string) => (
+  <Switch
+    key={key}
+    checkedChildren="开"
+    unCheckedChildren="关"
+    defaultChecked
+  />
 );
 
-const NotificationView: React.FC = () => {
-  const getData = () => {
-    return [
-      {
-        title: '用户消息',
-        description: '其他用户的消息将以站内信的形式通知',
-        actions: [Action],
-      },
-      {
-        title: '系统消息',
-        description: '系统消息将以站内信的形式通知',
-        actions: [Action],
-      },
-      {
-        title: '待办任务',
-        description: '待办任务将以站内信的形式通知',
-        actions: [Action],
-      },
-    ];
-  };
+const notificationData = [
+  {
+    key: 'user-message',
+    title: '用户消息',
+    description: '其他用户的消息将以站内信的形式通知',
+    actions: [notificationAction('user-message-switch')],
+  },
+  {
+    key: 'system-message',
+    title: '系统消息',
+    description: '系统消息将以站内信的形式通知',
+    actions: [notificationAction('system-message-switch')],
+  },
+  {
+    key: 'todo-task',
+    title: '待办任务',
+    description: '待办任务将以站内信的形式通知',
+    actions: [notificationAction('todo-task-switch')],
+  },
+];
 
-  const data = getData();
+const NotificationView: React.FC = () => {
+  const data = notificationData;
   return (
     <List<Unpacked<typeof data>>
+      rowKey="key"
       itemLayout="horizontal"
       dataSource={data}
       renderItem={(item) => (
