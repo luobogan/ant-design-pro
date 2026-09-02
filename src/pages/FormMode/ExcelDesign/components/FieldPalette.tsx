@@ -55,9 +55,12 @@ const DraggableLabelItem: React.FC<{
   field: FieldDefinition;
   displayFieldLabel: string;
   displayFieldName: string;
-}> = ({ field, displayFieldLabel, displayFieldName }) => {
+  disabled?: boolean;
+}> = ({ field, displayFieldLabel, displayFieldName, disabled }) => {
   const [{ isDragging }, dragRef] = useDrag(() => ({
     type: 'FIELD',
+    // 已拖入的字段禁止再次拖动（保证同一个字段只放置一次）
+    canDrag: !disabled,
     item: {
       ...field,
       type: 'formLabel', // 标识为标签类型
@@ -67,7 +70,7 @@ const DraggableLabelItem: React.FC<{
     collect: (monitor) => ({
       isDragging: monitor.isDragging(),
     }),
-  }), [field, displayFieldLabel, displayFieldName]);
+  }), [field, displayFieldLabel, displayFieldName, disabled]);
 
   const handleDragStart = (e: React.DragEvent) => {
     const labelData = {
@@ -93,25 +96,26 @@ const DraggableLabelItem: React.FC<{
 
   return (
     <div
-      ref={dragRef as any}
+      ref={disabled ? undefined : (dragRef as any)}
       onDragStart={handleDragStart}
       style={{
         display: 'flex',
         alignItems: 'center',
-        cursor: 'grab',
-        opacity: isDragging ? 0.5 : 1,
+        cursor: disabled ? 'not-allowed' : 'grab',
+        opacity: disabled ? 0.4 : (isDragging ? 0.5 : 1),
         padding: '2px 4px',
         borderRadius: 4,
         transition: 'background-color 0.2s',
         fontSize: '13px',
+        color: disabled ? '#bbb' : undefined,
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.backgroundColor = '#e6f7ff';
+        e.currentTarget.style.backgroundColor = disabled ? 'transparent' : '#e6f7ff';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.backgroundColor = 'transparent';
       }}
-      title="拖拽标签到表格"
+      title={disabled ? '该标签已拖入表格，不能重复拖动（清空原单元格后可再次拖入）' : '拖拽标签到表格'}
     >
       <span style={{ marginRight: 6, color: '#1890ff' }}>{getFieldIcon(field)}</span>
       <span>{displayFieldLabel}</span>
@@ -124,9 +128,12 @@ const DraggableFieldOnlyItem: React.FC<{
   field: FieldDefinition;
   displayFieldLabel: string;
   displayFieldName: string;
-}> = ({ field, displayFieldLabel, displayFieldName }) => {
+  disabled?: boolean;
+}> = ({ field, displayFieldLabel, displayFieldName, disabled }) => {
   const [{ isDragging }, dragRef] = useDrag(() => ({
     type: 'FIELD',
+    // 已拖入的字段禁止再次拖动（保证同一个字段只放置一次）
+    canDrag: !disabled,
     item: {
       ...field,
       type: 'formField', // 标识为字段类型
@@ -136,7 +143,7 @@ const DraggableFieldOnlyItem: React.FC<{
     collect: (monitor) => ({
       isDragging: monitor.isDragging(),
     }),
-  }), [field, displayFieldLabel, displayFieldName]);
+  }), [field, displayFieldLabel, displayFieldName, disabled]);
 
   const handleDragStart = (e: React.DragEvent) => {
     const fieldData = {
@@ -162,26 +169,26 @@ const DraggableFieldOnlyItem: React.FC<{
 
   return (
     <div
-      ref={dragRef as any}
+      ref={disabled ? undefined : (dragRef as any)}
       onDragStart={handleDragStart}
       style={{
         display: 'flex',
         alignItems: 'center',
-        cursor: 'grab',
-        opacity: isDragging ? 0.5 : 1,
+        cursor: disabled ? 'not-allowed' : 'grab',
+        opacity: disabled ? 0.4 : (isDragging ? 0.5 : 1),
         padding: '2px 4px',
         borderRadius: 4,
         transition: 'background-color 0.2s',
         fontSize: '12px',
-        color: '#999',
+        color: disabled ? '#ccc' : '#999',
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.backgroundColor = '#e6f7ff';
+        e.currentTarget.style.backgroundColor = disabled ? 'transparent' : '#e6f7ff';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.backgroundColor = 'transparent';
       }}
-      title="拖拽字段到表格"
+      title={disabled ? '该字段已拖入表格，不能重复拖动（清空原单元格后可再次拖入）' : '拖拽字段到表格'}
     >
       <span>{displayFieldName || '-'}</span>
     </div>
@@ -193,11 +200,17 @@ const DraggableFieldItem: React.FC<{
   field: FieldDefinition;
   onFieldSelect: (field: any) => void;
   onFieldHover?: (field: any | null) => void;
-}> = ({ field, onFieldSelect, onFieldHover }) => {
+  usedFieldKeys?: Set<string>;
+}> = ({ field, onFieldSelect, onFieldHover, usedFieldKeys }) => {
   // 获取字段名称，支持多种属性名
   const displayFieldName = field.fieldName || field.fieldDbName || field.name || field.columnName || '';
   // 获取字段标签，支持多种属性名
   const displayFieldLabel = field.fieldLabel || field.label || displayFieldName || '未命名字段';
+
+  // 该字段的标签/字段是否已被拖入表格（已拖入则禁止再次拖动）
+  const fieldId = String((field as any).id ?? '');
+  const labelUsed = !!usedFieldKeys?.has(`${fieldId}_label`);
+  const fieldUsed = !!usedFieldKeys?.has(`${fieldId}_field`);
 
   return (
     <div
@@ -225,6 +238,7 @@ const DraggableFieldItem: React.FC<{
           field={field}
           displayFieldLabel={displayFieldLabel}
           displayFieldName={displayFieldName}
+          disabled={labelUsed}
         />
       </div>
 
@@ -240,6 +254,7 @@ const DraggableFieldItem: React.FC<{
           field={field}
           displayFieldLabel={displayFieldLabel}
           displayFieldName={displayFieldName}
+          disabled={fieldUsed}
         />
       </div>
     </div>
@@ -250,9 +265,11 @@ interface FieldPaletteProps {
   onFieldSelect: (field: any) => void;
   onFieldHover?: (field: any | null) => void;
   formId?: string;
+  /** 已拖入表格的字段集合，key 为 `${fieldId}_${cellType}`（已拖入的项会置灰且不可再拖） */
+  usedFieldKeys?: Set<string>;
 }
 
-const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover, formId }) => {
+const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover, formId, usedFieldKeys }) => {
   const [searchText, setSearchText] = useState('');
   const [loading, setLoading] = useState(false);
   const [fields, setFields] = useState<FieldDefinition[]>([]);
@@ -338,7 +355,7 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
           title: `主表字段 (${filteredMain.length})`,
           key: 'group-main',
           children: filteredMain.map(f => ({
-            title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} onFieldHover={onFieldHover} />,
+            title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} onFieldHover={onFieldHover} usedFieldKeys={usedFieldKeys} />,
             key: 'field-' + f.id,
           })),
         });
@@ -360,7 +377,7 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
           title: `明细表${num} (${filtered.length})`,
           key: `group-detail-${num}`,
           children: filtered.map(f => ({
-            title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} onFieldHover={onFieldHover} />,
+            title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} onFieldHover={onFieldHover} usedFieldKeys={usedFieldKeys} />,
             key: 'field-' + f.id,
           })),
         });

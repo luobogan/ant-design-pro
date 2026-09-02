@@ -20,6 +20,8 @@ interface FieldMeta {
   fieldName: string;
   fieldLabel: string;
   fieldType: string;
+  /** 单元格类型：label=静态标签文本（仅展示，不可输入），field=数据绑定字段（可输入） */
+  cellType?: 'label' | 'field';
   required: boolean;
   readonly: boolean;
   defaultValue?: string;
@@ -67,11 +69,24 @@ const FieldCell: React.FC<{
   col: number;
 }> = ({ cell, row, col }) => {
   const meta = cell.fieldMeta;
-  const displayValue = cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
+  const rawValue = cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
+  // 字段单元格在设计器中存的是模板占位符（如 "📝 ${xm}"），表示尚未填入真实数据。
+  // 预览时应按空值处理，避免把占位符当成输入框的默认值。
+  const cleanRaw = rawValue.replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, '').trim();
+  const displayValue = /^\$\{[^}]+\}$/.test(cleanRaw) ? '' : rawValue;
 
   // 纯文本/无字段元数据 → 直接显示文字
   if (!meta) {
     return <span style={{ color: '#333' }}>{displayValue || '\u00A0'}</span>;
+  }
+
+  // 标签单元格 → 静态说明文本，不渲染输入控件（与数据绑定字段区分）
+  if (meta.cellType === 'label') {
+    return (
+      <span style={{ color: '#333', fontWeight: 500 }}>
+        {meta.fieldLabel || displayValue || '\u00A0'}
+      </span>
+    );
   }
 
   const commonProps = {

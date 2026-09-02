@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   App,
@@ -268,6 +268,36 @@ const ExcelDesignContent: React.FC = () => {
   const handleLayoutChange = useCallback((data: any) => {
     setLayoutData((prev: any) => ({ ...prev, ...data }));
   }, []);
+
+  // ──────────────────────────────────────────────
+  // 已拖入表格的字段集合（供字段面板置灰，避免重复拖入）
+  // key 格式：`${fieldId}_${cellType}`，标签与字段占位符各自独立计数
+  // ──────────────────────────────────────────────
+  const usedFieldKeys = useMemo(() => {
+    const keys = new Set<string>();
+    const collectFromCellData = (cellData: any) => {
+      Object.values(cellData || {}).forEach((rowData: any) => {
+        Object.values(rowData || {}).forEach((cell: any) => {
+          const meta = cell?.fieldMeta;
+          if (meta && meta.fieldId !== undefined && meta.fieldId !== null && meta.fieldId !== '') {
+            keys.add(`${String(meta.fieldId)}_${meta.cellType}`);
+          }
+        });
+      });
+    };
+
+    try {
+      const sheets = layoutData?.sheets;
+      if (sheets) {
+        Object.values(sheets).forEach((sheet: any) => collectFromCellData(sheet?.cellData));
+      } else {
+        collectFromCellData(layoutData?.cellData);
+      }
+    } catch (e) {
+      console.warn('[ExcelDesign] 解析已放置字段失败:', e);
+    }
+    return keys;
+  }, [layoutData]);
 
   // ══════════════════════════════════════════════
   // Univer Event.Drop 原生拖拽放置事件处理
@@ -840,7 +870,12 @@ const ExcelDesignContent: React.FC = () => {
           <div style={{ display: 'flex', height: 'calc(100vh - 200px)' }}>
             {/* 左侧字段面板 */}
             <div style={{ width: 250, borderRight: '1px solid #f0f0f0', overflow: 'auto' }}>
-              <FieldPalette onFieldSelect={handleFieldSelect} onFieldHover={handleFieldHover} formId={formId || undefined} />
+              <FieldPalette
+                onFieldSelect={handleFieldSelect}
+                onFieldHover={handleFieldHover}
+                formId={formId || undefined}
+                usedFieldKeys={usedFieldKeys}
+              />
             </div>
 
             {/* 中间 Univer Excel 区域 */}
