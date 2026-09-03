@@ -1899,9 +1899,20 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     };
     const handleContextMenuCapture = (e: MouseEvent) => {
       // 只处理落在 Univer 容器内的右键，避免页面其它区域的右键污染命中格缓存
-      if (containerRef.current && e.target instanceof Node && !containerRef.current.contains(e.target)) return;
+      const targetEl = e.target as any;
+      const inside = !!(containerRef.current && e.target instanceof Node && containerRef.current.contains(e.target));
+      console.log('[CtxMenu] 捕获到右键事件:', {
+        inside,
+        targetTag: targetEl?.tagName,
+        targetClass: typeof targetEl?.className === 'string' ? targetEl.className.slice(0, 60) : targetEl?.className,
+        clientX: e.clientX,
+        clientY: e.clientY,
+        oldRef: rightClickCellRef.current,
+      });
+      // 位置始终记录（不受容器判定影响），保证「像素吸附」几何兜底始终有可用的右键点
       lastMousePosRef.current = { x: e.clientX, y: e.clientY };
       rightClickPosRef.current = { x: e.clientX, y: e.clientY };
+      if (!inside) return;
 
       // ── 诊断：右键时把坐标/尺寸/各定位结果全部打出，用于一次性定死映射关系 ──
       try {
@@ -1946,21 +1957,24 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         console.warn('[CtxMenuDiag] 诊断失败:', diagErr);
       }
 
-      // 必须与「字段落点」共用同一个解析函数 getCellFromMouseEvent，否则两边坐标系不一致，
-      // 切属性会作用到空格上，表现为「只读切不回可编辑 / 必填」。
+      // 命中格：hitTest 成功即采用（与 Univer 自身判定同源，最可靠）；
+      // hitTest 拿不到时，仅在点击确实落在容器内才用 getCellFromMouseEvent 的累加兜底，
+      // 避免页面其它区域的右键把缓存污染成无意义的格子。
       // 另：不能用 window.__univerFAPI，它可能是 HMR 残留的另一个 Univer 实例。
-      let row = -1;
-      let col = -1;
+      let cell: { row: number; col: number } | null = null;
       try {
-        const cell = getCellFromMouseEvent(e.clientX, e.clientY);
-        if (cell) {
-          row = cell.row;
-          col = cell.col;
+        const sheetHit: any = workbookRef.current?.getActiveSheet?.();
+        const hit = sheetHit && typeof sheetHit.hitTest === 'function' ? sheetHit.hitTest(e.clientX, e.clientY) : null;
+        if (hit && Number.isFinite(hit.row) && Number.isFinite(hit.column) && hit.row >= 0 && hit.column >= 0) {
+          cell = { row: hit.row, col: hit.column };
         }
       } catch { /* ignore */ }
-      if (row >= 0 && col >= 0) {
-        rightClickCellRef.current = { row, col };
-        console.log('[CtxMenu] 右键命中格:', { x: e.clientX, y: e.clientY, row, col });
+      if (!cell) {
+        try { cell = getCellFromMouseEvent(e.clientX, e.clientY) as any; } catch { /* ignore */ }
+      }
+      if (cell && cell.row >= 0 && cell.col >= 0) {
+        rightClickCellRef.current = { row: cell.row, col: cell.col };
+        console.log('[CtxMenu] 右键命中格:', { x: e.clientX, y: e.clientY, row: cell.row, col: cell.col });
       }
     };
     window.addEventListener('mousemove', handleMouseMove, true);
@@ -1975,6 +1989,25 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // 监听 univer 右键菜单字段属性变更事件（来自 univer 核心的 field-attr.command.ts）
   // ─────────────────────────────────────────────────────────────────
   useEffect(() => {
+    // 解析某坐标「附近」的字段元数据：先本格，再上下左右相邻格。
+    //
+    // 必须带相邻回退的原因：设计上一个字段占两格（前一格=标签，后一格=字段占位符），
+    // 而元数据挂在标签格上（实测 fieldKeys=['1_0']，但字段值 🔒📝${field_1} 在 (1,1)）。
+    // setFieldAttr 内部正是用 resolveCellFieldId（含相邻回退）按 fieldId 定位、
+    // 并让 label 与 field 同步生效；因此这里的门限判断必须同样带相邻回退，
+    // 否则右键字段格会被误判为「没有元数据」，setFieldAttr 永远得不到调用。
+    const findMetaNear = (r: number, c: number): { key: string; meta: any } | null => {
+      const direct = cellFieldMetaMap.current[`${r}_${c}`];
+      if (direct) return { key: `${r}_${c}`, meta: direct };
+      const neighbors = [[r, c - 1], [r, c + 1], [r - 1, c], [r + 1, c]];
+      for (const [nr, nc] of neighbors) {
+        if (nr < 0 || nc < 0) continue;
+        const m = cellFieldMetaMap.current[`${nr}_${nc}`];
+        if (m) return { key: `${nr}_${nc}`, meta: m };
+      }
+      return null;
+    };
+
     const handleFieldAttrChange = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!detail || detail.attr === undefined) return;
@@ -2009,12 +2042,31 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         let src = candidates[0]?.src ?? 'none';
         let fieldMeta: FieldMeta | null = null;
         for (const c of candidates) {
-          const m = cellFieldMetaMap.current[`${c.row}_${c.col}`];
-          if (m) {
+          const found = findMetaNear(c.row, c.col);
+          if (found) {
+            // 作用坐标仍用「右键命中的那一格」：setFieldAttr 内部会按 fieldId
+            // 找出标签格与字段格，让二者同步生效（resolveCellFieldId 亦含相邻回退）。
             row = c.row;
             col = c.col;
-            src = c.src;
-            fieldMeta = m as FieldMeta;
+            src = found.key === `${c.row}_${c.col}` ? c.src : `${c.src}+near(${found.key})`;
+            fieldMeta = found.meta as FieldMeta;
+
+            // 元数据补齐：若本格其实是「字段占位符」（形如 🔒 📝 ${field_1}）却没有元数据，
+            // 而相邻格（标签格）挂了同一字段，则把元数据克隆到本格并标记为 field。
+            // 否则 setFieldAttr 只会更新有元数据的格子，本格的图标/样式不会变，
+            // 表现为「切了只读/可编辑/必填但没效果」。
+            if (found.key !== `${c.row}_${c.col}`) {
+              try {
+                const cellVal = String(sheet?.getRange?.(c.row, c.col, 1, 1)?.getValue?.() ?? '');
+                if (cellVal.includes('${')) {
+                  cellFieldMetaMap.current[`${c.row}_${c.col}`] = {
+                    ...(found.meta as any),
+                    cellType: 'field',
+                  };
+                  console.log('[FieldAttrEvent] 已补齐字段格元数据:', `${c.row}_${c.col}`, '来源相邻格', found.key);
+                }
+              } catch { /* ignore */ }
+            }
             break;
           }
         }
@@ -2078,8 +2130,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           row = currentCell.actualRow;
           col = currentCell.actualColumn;
         }
-        // 与字段属性一致：索引查不到元数据时，用像素吸附兜底（约定漂移时也能命中）
-        if (!cellFieldMetaMap.current[`${row}_${col}`]) {
+        // 与字段属性一致：附近（本格 + 相邻格）查不到元数据时，才用像素吸附兜底
+        if (!findMetaNear(row, col)) {
           const snapped = findFieldCellByPosition();
           if (snapped) {
             row = snapped.row;
