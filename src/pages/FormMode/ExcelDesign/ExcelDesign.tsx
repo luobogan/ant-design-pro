@@ -26,6 +26,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import FieldPalette from './components/FieldPalette';
 import UniverExcelGrid from './components/UniverExcelGrid';
 import PropertyPanel from './components/PropertyPanel';
+import ExcelPreview from './components/ExcelPreview';
 import { saveFormLayout, getFormLayout } from '@/services/formmode/formLayoutApi';
 
 /**
@@ -47,8 +48,14 @@ const ExcelDesignContent: React.FC = () => {
   const [pendingField, setPendingField] = useState<any>(null);
   const [hoveredField, setHoveredField] = useState<any>(null);
 
+  // 预览弹窗状态
+  const [previewVisible, setPreviewVisible] = useState<boolean>(false);
+  const [previewData, setPreviewData] = useState<any>(null);
+
   // 字段属性状态
   const [fieldAttr, setFieldAttr] = useState<'readonly' | 'editable' | 'required' | null>(null);
+  // 属性按钮是否禁用：选中无字段元数据的单元格时禁用（参照 ecology controlOperLimits）
+  const [fieldAttrDisabled, setFieldAttrDisabled] = useState(false);
 
   // ──────────────────────────────────────────────
   // 字段属性操作（参照 ecology excel 设计器）- 供工具栏按钮使用
@@ -59,7 +66,7 @@ const ExcelDesignContent: React.FC = () => {
       return;
     }
 
-    const selection = univerGrid.getSelection?.();
+    const selection = univerGrid.getSelection?.() || univerGrid.getContextCell?.();
     if (!selection) {
       return;
     }
@@ -104,6 +111,32 @@ const ExcelDesignContent: React.FC = () => {
     };
   }, []);
 
+  // ──────────────────────────────────────────────
+  // 同步右键菜单设置的字段属性到工具栏高亮（只读/可编辑/必填）
+  // ──────────────────────────────────────────────
+  useEffect(() => {
+    const handleAttrApplied = (e: Event) => {
+      const attr = (e as CustomEvent).detail?.attr;
+      setFieldAttr(attr === 1 ? 'readonly' : attr === 2 ? 'editable' : attr === 3 ? 'required' : null);
+    };
+    window.addEventListener('univer-field-attr-applied', handleAttrApplied as EventListener);
+    return () => {
+      window.removeEventListener('univer-field-attr-applied', handleAttrApplied as EventListener);
+    };
+  }, []);
+
+  // 监听单元格选中状态 → 无字段元数据时禁用属性按钮（参照 ecology controlOperLimits 的禁用行为，不弹提示）
+  useEffect(() => {
+    const handleCellSelected = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setFieldAttrDisabled(detail?.hasField === false);
+    };
+    window.addEventListener('univer-cell-selected', handleCellSelected as EventListener);
+    return () => {
+      window.removeEventListener('univer-cell-selected', handleCellSelected as EventListener);
+    };
+  }, []);
+
   const loadFormLayout = async () => {
     if (!formId) return;
     setLoading(true);
@@ -135,6 +168,24 @@ const ExcelDesignContent: React.FC = () => {
   // ──────────────────────────────────────────────
   // 保存表单布局 - 从 UniverExcelGrid 获取数据
   // ──────────────────────────────────────────────
+  // 预览：获取当前布局数据并打开预览弹窗
+  const handlePreview = useCallback(() => {
+    const univerGrid = (window as any).univerExcelGrid;
+    if (!univerGrid) {
+      message.error('Excel组件未初始化');
+      return;
+    }
+
+    const data = univerGrid.saveLayoutData();
+    if (!data) {
+      message.warning('暂无可预览的布局数据，请先拖入字段');
+      return;
+    }
+
+    setPreviewData(data);
+    setPreviewVisible(true);
+  }, [message]);
+
   const handleSave = useCallback(async () => {
     if (!formId) {
       message.warning('请先选择表单');
@@ -795,7 +846,7 @@ const ExcelDesignContent: React.FC = () => {
     <Button key="save" type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saving}>
       保存
     </Button>,
-    <Button key="preview" icon={<EyeOutlined />}>
+    <Button key="preview" icon={<EyeOutlined />} onClick={handlePreview}>
       预览
     </Button>,
     <Button key="import" icon={<UploadOutlined />} onClick={handleImport}>
@@ -817,6 +868,7 @@ const ExcelDesignContent: React.FC = () => {
         key="readonly"
         icon={<LockOutlined />}
         type={fieldAttr === 'readonly' ? 'primary' : 'default'}
+        disabled={fieldAttrDisabled}
         onClick={() => handleFieldAttrChange('readonly')}
       >
         只读
@@ -827,6 +879,7 @@ const ExcelDesignContent: React.FC = () => {
         key="editable"
         icon={<EditOutlined />}
         type={fieldAttr === 'editable' ? 'primary' : 'default'}
+        disabled={fieldAttrDisabled}
         onClick={() => handleFieldAttrChange('editable')}
       >
         编辑
@@ -837,6 +890,7 @@ const ExcelDesignContent: React.FC = () => {
         key="required"
         icon={<CheckCircleOutlined />}
         type={fieldAttr === 'required' ? 'primary' : 'default'}
+        disabled={fieldAttrDisabled}
         onClick={() => handleFieldAttrChange('required')}
       >
         必填
@@ -921,6 +975,14 @@ const ExcelDesignContent: React.FC = () => {
           </div>
         </Spin>
       </PageContainer>
+
+      {/* 表单预览弹窗 */}
+      <ExcelPreview
+        layoutData={previewData}
+        open={previewVisible}
+        onClose={() => setPreviewVisible(false)}
+        title="表单预览"
+      />
     </DndProvider>
   );
 };

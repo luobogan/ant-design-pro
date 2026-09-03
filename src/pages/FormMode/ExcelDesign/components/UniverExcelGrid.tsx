@@ -96,6 +96,8 @@ interface FieldMeta {
   cellType?: 'label' | 'field';
   required: boolean;
   readonly: boolean;
+  /** 字段属性：1=只读 2=可编辑 3=必填（参照 ecology fieldAttrMap） */
+  fieldAttr?: number;
   defaultValue?: string;
   placeholder?: string;
   length?: number;
@@ -140,17 +142,45 @@ interface FieldMeta {
     const LOCKED_CELL_FONT = '#8c8c8c';
 
     /**
+     * 字段单元格视觉样式（唯一决策点，参照 ecology getCellFieldImage）
+     * 背景色由 fieldAttr 唯一决定，label 标签格不应用背景色：
+     *   1=只读 → 灰底灰字   2=可编辑 → 白底黑字   3=必填 → 浅红底黑字
+     *   setCellField 与 setFieldAttr 共用此函数，避免两处上色逻辑不一致导致"切不回去"。
+     */
+    const applyFieldAttrStyle = (range: any, meta: FieldMeta) => {
+      if (!range || !meta || meta.cellType !== 'field') return;
+      let bg = LOCKED_CELL_BG;
+      let font = LOCKED_CELL_FONT;
+      if (meta.fieldAttr === 1) {
+        bg = '#f5f5f5'; font = '#999999';
+      } else if (meta.fieldAttr === 2) {
+        bg = '#ffffff'; font = '#000000';
+      } else if (meta.fieldAttr === 3) {
+        bg = '#fff1f0'; font = '#000000';
+      }
+      try {
+        range.setBackground(bg);
+        range.setFontColor(font);
+      } catch (e) {
+        console.warn('[applyFieldAttrStyle] 设置样式失败', e);
+      }
+    };
+
+    /**
     * 计算单元格的期望显示值（设计器写入单元格的内容）
     * - 标签(cellType=label)：标签文字，静态说明文本
     * - 字段(cellType=field)：图标 + ${字段名} 占位符，标记数据绑定
     */
     const getCellDisplayValue = (meta: FieldMeta): string => {
     if (meta.cellType === 'label') {
-    return meta.fieldLabel || meta.fieldName || '';
+      return meta.fieldLabel || meta.fieldName || '';
     }
-    const icon = FIELD_ICON_MAP[meta.fieldType] ?? '📝';
+    const typeIcon = FIELD_ICON_MAP[meta.fieldType] ?? '📝';
+    // 字段属性图标（参照 ecology viewAttr）：1=只读🔒 3=必填⚠️；2=可编辑不额外加图标
+    const attrIcon = meta.fieldAttr === 1 ? '🔒' : meta.fieldAttr === 3 ? '⚠️' : '';
+    const iconPart = [attrIcon, typeIcon].filter(Boolean).join(' ');
     const placeholder = `\${${meta.fieldName}}`;
-    return icon ? `${icon} ${placeholder}` : placeholder;
+    return iconPart ? `${iconPart} ${placeholder}` : placeholder;
     };
 
     /** 剥离单元格值中的图标前缀（覆盖全部象形符号，含 ☑️、⚙️） */
@@ -219,6 +249,15 @@ interface UniverExcelGridProps {
   pendingField?: any;
   /** 悬停字段（从 FieldPalette hover）→ 高亮对应单元格 */
   hoveredField?: any;
+  /**
+   * 布局模板类型（参照 ecology layouttype）：
+   *   1=新建 / 2=编辑 → 可编辑模板（字段属性按字段设置生效）
+   *   0=显示 / 3=监控 / 4=打印 → 只读模板（加载时所有字段强制只读，对应 ecology resumeSheetData:808）
+   * 不传则回退读 data.layoutType，再无则视为可编辑模板。
+   */
+  layoutType?: number | string;
+  /** 直接声明只读（如预览态），优先级高于 layoutType */
+  readOnly?: boolean;
 }
 
 const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
@@ -228,6 +267,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   formId,
   pendingField,
   hoveredField,
+  layoutType,
+  readOnly,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const univerRef = useRef<any>(null);
@@ -539,12 +580,58 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // ──────────────────────────────────────
   const cellFieldMetaMap = useRef<Record<string, FieldMeta>>({});
 
+  /**
+   * 解析某坐标对应的字段 ID —— 字段属性按 fieldId 关联（参照 ecology：属性按字段ID存储，非按坐标）。
+   * 优先取本格；若本格无元数据（如右键/选中落在「标签格」，而元数据挂在「字段输入格」），
+   * 则回退到相邻格（上/下/左/右），覆盖「标签在字段左侧」的常规布局，确保总能定位到字段。
+   */
+  const resolveCellFieldId = (row: number, col: number): string | null => {
+    const direct = cellFieldMetaMap.current[`${row}_${col}`];
+    if (direct?.fieldId) return String(direct.fieldId);
+    const neighbors = [
+      [row, col - 1], [row, col + 1], [row - 1, col], [row + 1, col],
+    ];
+    for (const [nr, nc] of neighbors) {
+      if (nr < 0 || nc < 0) continue;
+      const m = cellFieldMetaMap.current[`${nr}_${nc}`];
+      if (m?.fieldId) return String(m.fieldId);
+    }
+    return null;
+  };
+
+  /** 解析某坐标对应的字段元数据（含相邻回退），供右键菜单高亮当前属性用 */
+  const resolveCellMeta = (row: number, col: number): FieldMeta | null => {
+    const fid = resolveCellFieldId(row, col);
+    if (!fid) return null;
+    const direct = cellFieldMetaMap.current[`${row}_${col}`];
+    if (direct?.fieldId) return direct as FieldMeta;
+    return (Object.values(cellFieldMetaMap.current).find((m: any) => String(m?.fieldId) === fid) as FieldMeta) || null;
+  };
+
   // 标记是否正在放置字段（避免放置后立即触发重新加载）
   const isPlacingFieldRef = useRef(false);
   // 标记是否正在回滚被篡改的字段单元格（避免回滚操作再次触发变更事件导致递归）
   const isRestoringRef = useRef(false);
   // 标记是否正在加载布局（程序自身批量写入单元格，不应触发保护回滚与自动保存）
   const isLoadingRef = useRef(false);
+
+  // 右键命中格子缓存：右键那一刻锁定光标所在格。
+  // 右键菜单统一使用 Univer 原生菜单（改过的 src/univer-lib 产物里注册了
+  // 只读/可编辑/必填/字段属性/清空 等菜单项，点击派发 univer-field-attr-change 等事件），
+  // 这些事件回调若改读 selection.getCurrentCell() 会拿到右键前的旧选区，
+  // 导致坐标错位、查不到字段元数据，所以这里统一复用右键那一刻锁定的命中格。
+  const rightClickCellRef = useRef<{ row: number; col: number } | null>(null);
+
+  // 右键那一刻的鼠标位置（client 坐标）。菜单项回调里鼠标已移到菜单上，
+  // 所以必须缓存右键瞬间的位置，供「按像素矩形吸附到字段格」兜底使用。
+  const rightClickPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  // 实时鼠标位置缓存：作为右键命中格缺失时的兜底，用与「字段落点」相同的坐标解析反算格子。
+  const lastMousePosRef = useRef<{ x: number; y: number } | null>(null);
+
+  // 保持最新的 onLayoutChange（供 setFieldAttr 持久化，避免闭包捕获旧值）
+  const onLayoutChangeRef = useRef(onLayoutChange);
+  onLayoutChangeRef.current = onLayoutChange;
 
   const setCellField = useCallback((
     workbook: any,  // FWorkbook (Facade)
@@ -574,14 +661,14 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       };
       cellFieldMetaMap.current[cellKey] = metaWithVersion as any;
 
-      // 3. 字段占位符用灰底+灰字表示"锁定/不可手动编辑"（视觉提示）
-      //    标签保持默认样式（它是说明文字，视觉上等同普通文本）
+      // 3. 字段占位符的视觉样式按 fieldAttr 区分（统一交由 applyFieldAttrStyle 处理，与 setFieldAttr 一致）
+      //    标签保持默认样式（它是说明文字，applyFieldAttrStyle 内部对非 field 格直接跳过）
+      //    注意：loadLayoutData 重载时也会走到这里，必须按 fieldAttr 上色，否则"切不回去"。
       if (fieldMeta.cellType === 'field') {
         try {
-          range.setBackgroundColor?.(LOCKED_CELL_BG);
-          range.setFontColor?.(LOCKED_CELL_FONT);
+          applyFieldAttrStyle(range, fieldMeta);
         } catch (styleErr) {
-          console.warn('设置字段单元格锁定样式失败:', styleErr);
+          console.warn('设置字段单元格样式失败:', styleErr);
         }
       }
 
@@ -613,11 +700,15 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // 使用 Facade API (FWorkbook/FWorksheet/FRange)
   // 参照迁移文档 §9.1 - Univer JSON 格式 + §9.2 - SpreadJS 兼容格式
   // ──────────────────────────────────────
-  const loadLayoutData = useCallback((data: any) => {
+  const loadLayoutData = useCallback((data: any, layoutTypeArg?: number | string) => {
     if (!workbook) return;
 
     // 标记正在加载：期间的批量写入是程序自身行为，不应触发保护回滚与自动保存
     isLoadingRef.current = true;
+    // 模板类型覆盖只读（参照 ecology resumeSheetData:808：显示/监控/打印布局统一置灰只读）
+    // layoutType 取值：1=新建 2=编辑（可编辑模板）；0=显示 3=监控 4=打印（只读模板）
+    const lt = layoutTypeArg ?? data?.layoutType ?? layoutType;
+    const isReadOnlyTemplate = !!readOnly || [0, 3, 4].includes(Number(lt));
     try {
       // 关键修复：加载新数据前先清空旧的元数据，避免删除的单元格数据残留
       console.log('[LoadLayout] 清空旧的单元格元数据');
@@ -653,11 +744,16 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
           // 解析字段元数据
           if ((cell as any).fieldMeta) {
-            // 存储到内存 Map
+            // 存储到内存 Map（复制一份，避免直接改源数据）
             const cellKey = `${row}_${col}`;
-            cellFieldMetaMap.current[cellKey] = (cell as any).fieldMeta;
-            // 设置单元格值
-            setCellField(workbook, sheet, row, col, (cell as any).fieldMeta as FieldMeta);
+            const loadedMeta: any = { ...(cell as any).fieldMeta };
+            // 只读模板（显示/监控/打印）→ 强制 fieldAttr=1，对应 ecology resumeSheetData:808 + getCellFieldImage:3745
+            if (isReadOnlyTemplate) {
+              loadedMeta.fieldAttr = 1;
+            }
+            cellFieldMetaMap.current[cellKey] = loadedMeta;
+            // 设置单元格值（按覆盖后的属性上色，确保 loadLayoutData 重载时样式一致，避免"切不回去"）
+            setCellField(workbook, sheet, row, col, loadedMeta as FieldMeta);
           } else if ((cell as any).v !== undefined && (cell as any).v !== null) {
             // Facade API: FWorksheet.getRange(row, col) 返回 FRange
             const range = sheet.getRange(row, col);
@@ -692,7 +788,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     } finally {
       isLoadingRef.current = false;
     }
-  }, [workbook, setCellField]);
+  }, [workbook, setCellField, layoutType, readOnly]);
 
   // ──────────────────────────────────────
   // 保存布局数据（Univer JSON 格式 + SpreadJS 兼容格式）
@@ -706,6 +802,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       // workbook 是 FWorkbook (Facade)
       const fWorkbook: any = workbook;
       const sheet = fWorkbook.getActiveSheet(); // FWorksheet
+
+      console.log('[Save] 保存前 Map keys =', Object.keys(cellFieldMetaMap.current));
 
       // 动态获取工作表实际行列数：硬编码范围会在工作表行列数不足时抛
       // "Range is out of bounds"（例如实际 22 列却访问第 23 列）
@@ -774,8 +872,31 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       }
 
       if (!hasData) {
-        console.log('没有数据需要保存');
-        return null;
+        // 关键修复：清空后仍需返回空布局并同步，否则
+        // 1) 保存按钮因返回 null 而无法持久化清空结果（问题：清空后保存不了）
+        // 2) 面板 usedFieldKeys 仍含已清空字段 → 无法重新拖入（问题：清空后不能重拖）
+        console.log('[Save] 没有数据，返回空布局以同步清空状态');
+        const emptyResult: any = {
+          id: 'wb-' + (formId || sheetName) + '-' + Date.now(),
+          sheetOrder: ['sheet1'],
+          version: 'univer-v2',
+          sheets: {
+            sheet1: {
+              id: 'sheet1',
+              name: sheetName,
+              cellData: {},
+              rowCount: maxRow,
+              colCount: maxCol,
+            },
+          },
+          sheetName,
+          cellData: {},
+          rowCount: maxRow,
+          colCount: maxCol,
+          spreadCompat: { version: '11.1.0', data: { dataTable: [] } },
+        };
+        onLayoutChange(emptyResult);
+        return emptyResult;
       }
 
       // 构建 Univer 格式结果（参照 §9.1）
@@ -947,103 +1068,102 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
   // ──────────────────────────────────────
   // 获取鼠标位置对应的单元格坐标
-  // 策略：使用 FWorksheet.getColumnWidth() / getRowHeight() 从 Facade API
-  // 获取实际列宽/行高进行计算，无需硬编码
+  //
+  // 首选 FWorksheet.hitTest()：内部走 skeleton.getCellByOffset()，是 Univer 自己
+  // 判定「点到了哪一格」的同一套逻辑，已正确处理滚动、缩放、表头偏移、合并单元格，
+  // 是「像素 → 单元格」唯一可靠的实现，落点与右键必须共用它。
+  //
+  // 兜底才用「列宽/行高累加」：不含表头偏移、不考虑滚动与缩放（本文件 350 行注释
+  // 亦标注该方案"不可靠，仅作兜底"），只在 hitTest 不可用（skeleton 未就绪）时顶替。
   // ──────────────────────────────────────
   const getCellFromMouseEvent = useCallback((clientX: number, clientY: number): { row: number; col: number } => {
-    console.log('[getCellFromMouseEvent] 开始执行', { clientX, clientY });
+    const sheet: any = workbookRef.current?.getActiveSheet?.() ?? (workbook as any)?.getActiveSheet?.();
 
-    // 优先使用 Facade API 的 hitTest 方法（最精准）
-    const fWorkbook: any = workbook;
-    const sheet = fWorkbook?.getActiveSheet?.();
-
-    console.log('[getCellFromMouseEvent] sheet 检查:', {
-      hasSheet: !!sheet,
-      hasHitTest: typeof sheet?.hitTest === 'function',
-      sheetType: typeof sheet
-    });
-
+    // 1) hitTest：最精准，与 Univer 自身点击选区判定同源
     if (sheet && typeof sheet.hitTest === 'function') {
       try {
-        const result = sheet.hitTest(clientX, clientY);
-        if (result && typeof result.row === 'number' && typeof result.column === 'number') {
-          console.log('[getCellFromMouseEvent] hitTest 成功:', { row: result.row, col: result.column });
-          return { row: result.row, col: result.column };
+        const hit = sheet.hitTest(clientX, clientY);
+        if (hit && Number.isFinite(hit.row) && Number.isFinite(hit.column) && hit.row >= 0 && hit.column >= 0) {
+          console.log('[getCellFromMouseEvent] hitTest:', { row: hit.row, col: hit.column });
+          return { row: hit.row, col: hit.column };
         }
       } catch (e) {
-        console.warn('[getCellFromMouseEvent] hitTest 失败，降级到坐标计算:', e);
+        console.warn('[getCellFromMouseEvent] hitTest 失败，降级:', e);
       }
     }
 
-    // 降级方案：使用坐标计算（原有逻辑）
+    // 2) 兜底：按列宽/行高累加（精度差）
+    const canvasEl = containerRef.current?.querySelector('canvas');
+    const canvasRect = canvasEl?.getBoundingClientRect();
+    if (!sheet || !canvasRect) {
+      console.warn('[getCellFromMouseEvent] sheet 或 canvas 缺失，返回 (0,0)');
+      return { row: 0, col: 0 };
+    }
+
+    const x = clientX - canvasRect.left;
+    const y = clientY - canvasRect.top;
+
     const DEFAULT_COL_WIDTH = 73;
     const DEFAULT_ROW_HEIGHT = 24;
 
-    // 获取 canvas 元素位置，用于计算相对坐标
-    const canvasEl = containerRef.current?.querySelector('canvas');
-    const canvasRect = canvasEl?.getBoundingClientRect();
-
-    if (!canvasRect) {
-      // 无 canvas 时降级：直接用 container 位置
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return { row: 0, col: 0 };
-      const relativeX = clientX - rect.left;
-      const relativeY = clientY - rect.top;
-      const col = Math.floor(relativeX / DEFAULT_COL_WIDTH);
-      const row = Math.floor(relativeY / DEFAULT_ROW_HEIGHT);
-      return { row: Math.max(0, row), col: Math.max(0, col) };
-    }
-
-    // 计算鼠标在 canvas 内的相对位置
-    const relX = clientX - canvasRect.left;
-    const relY = clientY - canvasRect.top;
-
-    console.log('[getCellFromMouseEvent] Canvas:', {
-      left: canvasRect.left.toFixed(0), top: canvasRect.top.toFixed(0),
-      width: canvasRect.width.toFixed(0), height: canvasRect.height.toFixed(0),
-    });
-    console.log('[getCellFromMouseEvent] 坐标:', { relX: relX.toFixed(1), relY: relY.toFixed(1) });
-
-    // 从 Facade API 获取实际列宽遍历计算列
-    let accumulatedX = 0;
+    // 列：按列宽累加
     let col = 0;
-    for (let c = 0; c < 100; c++) {
-      let w: number;
-      if (sheet && typeof sheet.getColumnWidth === 'function') {
-        w = sheet.getColumnWidth(c);
-      } else {
-        w = DEFAULT_COL_WIDTH;
-      }
-      // getColumnWidth 可能返回 0 或 undefined，用默认值兜底
+    let accX = 0;
+    for (let c = 0; c < 200; c++) {
+      let w = typeof sheet.getColumnWidth === 'function' ? sheet.getColumnWidth(c) : 0;
       if (!w || w <= 0) w = DEFAULT_COL_WIDTH;
-      accumulatedX += w;
-      if (relX < accumulatedX) {
-        col = c;
-        break;
-      }
+      accX += w;
+      if (x < accX) { col = c; break; }
     }
 
-    // 从 Facade API 获取实际行高遍历计算行
-    let accumulatedY = 0;
+    // 行：按行高累加
     let row = 0;
-    for (let r = 0; r < 200; r++) {
-      let h: number;
-      if (sheet && typeof sheet.getRowHeight === 'function') {
-        h = sheet.getRowHeight(r);
-      } else {
-        h = DEFAULT_ROW_HEIGHT;
-      }
+    let accY = 0;
+    for (let r = 0; r < 1000; r++) {
+      let h = typeof sheet.getRowHeight === 'function' ? sheet.getRowHeight(r) : 0;
       if (!h || h <= 0) h = DEFAULT_ROW_HEIGHT;
-      accumulatedY += h;
-      if (relY < accumulatedY) {
-        row = r;
-        break;
-      }
+      accY += h;
+      if (y < accY) { row = r; break; }
     }
 
-    console.log('[getCellFromMouseEvent] 降级计算结果:', { row, col });
+    console.log('[getCellFromMouseEvent] 累加兜底:', { x: x.toFixed(1), y: y.toFixed(1), row, col });
     return { row: Math.max(0, row), col: Math.max(0, col) };
   }, [workbook]);
+
+  // ──────────────────────────────────────
+  // 按像素矩形吸附到「挂了字段元数据的格子」
+  //
+  // 当索引约定出现偏差（历史数据、或落点/读取用过不同约定）导致按索引查不到元数据时，
+  // 用几何位置兜底：取右键那一刻的鼠标点，找 getCellRect 包含该点的字段格。
+  // getCellRect 由 Univer Skeleton 计算，已含滚动/缩放/表头偏移（见本文件 349-350 行），
+  // 与索引约定无关，因此可稳定命中用户实际看到的那一格。
+  // ──────────────────────────────────────
+  const findFieldCellByPosition = useCallback((): { row: number; col: number } | null => {
+    const pos = rightClickPosRef.current;
+    if (!pos) return null;
+    const sheet: any = workbookRef.current?.getActiveSheet?.();
+    const canvasEl = containerRef.current?.querySelector('canvas');
+    const canvasRect = canvasEl?.getBoundingClientRect();
+    if (!sheet || !canvasRect || typeof sheet.getCellRect !== 'function') return null;
+
+    const x = pos.x - canvasRect.left;
+    const y = pos.y - canvasRect.top;
+
+    for (const key of Object.keys(cellFieldMetaMap.current)) {
+      const [r, c] = key.split('_').map(Number);
+      if (!Number.isFinite(r) || !Number.isFinite(c)) continue;
+      let rect: any = null;
+      try { rect = sheet.getCellRect(r, c); } catch { continue; }
+      if (!rect) continue;
+      const inside = x >= rect.left && x <= rect.left + rect.width
+        && y >= rect.top && y <= rect.top + rect.height;
+      if (inside) {
+        console.log('[rectSnap] 像素吸附命中字段格:', { key, x: Math.round(x), y: Math.round(y), rect });
+        return { row: r, col: c };
+      }
+    }
+    return null;
+  }, []);
 
   // ──────────────────────────────────────
   // 拖放处理（必须放在 handleFieldDrop 之后，否则无法访问）
@@ -1391,6 +1511,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
                 if (newValue === null || newValue === undefined || newValue === '') {
                   console.log(`[CellChange] 单元格 (${row}, ${col}) 内容已删除，清除字段元数据`);
                   delete cellFieldMetaMap.current[cellKey];
+                  // 同步布局，确保面板 usedFieldKeys 刷新（可重新拖入该字段）
+                  try { saveLayoutData(); } catch (e) { console.warn('[CellChange] 同步布局失败:', e); }
                   return;
                 }
 
@@ -1470,6 +1592,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             // 单元格被清空 = 移除（标签和字段都允许通过清空移除）
             if (current === null || current === undefined || current === '') {
               delete cellFieldMetaMap.current[key];
+              // 同步布局，确保面板 usedFieldKeys 刷新（可重新拖入该字段）
+              try { saveLayoutData(); } catch (e) { console.warn('[Guard] 同步布局失败:', e); }
               return;
             }
 
@@ -1497,25 +1621,25 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         }, 800);
 
         // 添加选区变化事件（使用 FWorkbook）
-        // 用于检测拖拽操作完成后的选区变化
-        let lastSelection: any = null;
+        // 用于检测拖拽操作完成后的选区变化，并广播选中单元格是否含字段元数据
         let selectionDisposer: (() => void) | undefined;
         try {
           selectionDisposer = fWorkbook.onSelectionChange?.(
             (selection: any) => {
               if (!selection) return;
-
-              // 检测选区变化（拖拽后选区会变化）
-              const selStr = JSON.stringify(selection);
-              const lastStr = lastSelection ? JSON.stringify(lastSelection) : '';
-              if (selStr !== lastStr) {
-                // 检查是否有待放置的字段
-                const pending = (window as any).__pendingField || pendingField;
-                if (pending) {
-                  console.log(`[Drag] 选区变化:`, selection, `待放置字段:`, pending?.fieldLabel || pending?.label || pending?.fieldName || '未知');
-                }
-                lastSelection = selection;
-              }
+              // 提取当前激活单元格坐标（兼容数组 / 对象多种事件形态）
+              const selArr = Array.isArray(selection) ? selection : (selection.selection || [selection]);
+              const cur = selArr[0];
+              const row = cur?.actualRow ?? cur?.row ?? cur?.startRow;
+              const col = cur?.actualColumn ?? cur?.col ?? cur?.startColumn;
+              if (row == null || col == null) return;
+              // 按字段 ID 定位（标签格回退到相邻字段格，与右键菜单逻辑一致）
+              const hasField = !!resolveCellFieldId(row, col);
+              const meta = hasField ? resolveCellMeta(row, col) : null;
+              // 广播选中状态：无字段元数据 → 父组件禁用属性按钮（参照 ecology controlOperLimits 的禁用行为，不弹提示）
+              window.dispatchEvent(new CustomEvent('univer-cell-selected', {
+                detail: { row, col, hasField, fieldAttr: meta?.fieldAttr ?? null },
+              }));
             }
           );
         } catch (e) {
@@ -1552,7 +1676,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
           if (sheetData) {
             setTimeout(() => {
-              loadLayoutData(sheetData);
+              loadLayoutData(sheetData, layoutType);
             }, 300);
           } else {
             console.log('[Layout] 未找到对应 Sheet 的数据:', { sheetName, availableSheets: layoutData.sheets ? Object.keys(layoutData.sheets) : null });
@@ -1614,32 +1738,44 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     if (workbook) {
       // 设置字段属性（参照 ecology excel 设计器）
       const setFieldAttr = (row: number, col: number, attrValue: number) => {
-        const cellKey = `${row}_${col}`;
-        const fieldMeta = cellFieldMetaMap.current[cellKey];
-        if (fieldMeta) {
-          // 更新字段元数据中的属性
-          fieldMeta.fieldAttr = attrValue;
-          fieldMeta.required = attrValue === 3;
-          fieldMeta.readonly = attrValue === 1;
+        const sheet = workbook.getActiveSheet();
+        if (!sheet) return;
 
-          // 更新单元格样式（根据属性值设置背景色）
-          const sheet = workbook.getActiveSheet();
-          const range = sheet.getRange(row, col);
-
-          // 根据属性值设置不同的背景色
-          if (attrValue === 1) {
-            // 只读 - 灰色背景
-            range.setBackground('#f5f5f5');
-          } else if (attrValue === 2) {
-            // 可编辑 - 白色背景
-            range.setBackground('#ffffff');
-          } else if (attrValue === 3) {
-            // 必填 - 浅红色背景
-            range.setBackground('#fff1f0');
-          }
-
-          console.log(`[setFieldAttr] 设置字段属性: row=${row}, col=${col}, attr=${attrValue}`);
+        // 按字段 ID 定位（参照 ecology：属性按字段ID存储，label 与 field 同步生效）
+        const fieldId = resolveCellFieldId(row, col);
+        if (!fieldId) {
+          console.warn('[setFieldAttr] 未找到字段，row=' + row + ', col=' + col);
+          return;
         }
+
+        // 遍历所有同 fieldId 的单元格，统一更新属性并刷新显示/样式
+        Object.entries(cellFieldMetaMap.current).forEach(([key, meta]) => {
+          if (!meta || String(meta.fieldId) !== fieldId) return;
+          meta.fieldAttr = attrValue;
+          meta.required = attrValue === 3;
+          meta.readonly = attrValue === 1;
+          const [r, c] = key.split('_').map(Number);
+          try {
+            const range = sheet.getRange(r, c);
+            // 字段前面的图标随 fieldAttr 切换（只读🔒 / 必填⚠️，可编辑沿用类型图标）
+            range.setValue(getCellDisplayValue(meta));
+            applyFieldAttrStyle(range, meta);
+          } catch (e) {
+            console.warn('[setFieldAttr] 更新单元格失败:', e);
+          }
+        });
+
+        // 立即持久化布局，确保字段属性被保存
+        try {
+          const data = saveLayoutData();
+          if (data) onLayoutChangeRef.current?.(data);
+        } catch (e) {
+          console.warn('[setFieldAttr] 自动保存失败:', e);
+        }
+
+        console.log(`[setFieldAttr] 设置字段属性: fieldId=${fieldId}, attr=${attrValue}`);
+        // 通知设计器同步工具栏高亮状态（只读/可编辑/必填）
+        window.dispatchEvent(new CustomEvent('univer-field-attr-applied', { detail: { attr: attrValue } }));
       };
 
       // 获取当前选中单元格
@@ -1674,6 +1810,13 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         }
         const cellKey = `${row}_${col}`;
         delete cellFieldMetaMap.current[cellKey];
+        // 同步布局：saveLayoutData 内部会 onLayoutChange（含清空场景），
+        // 确保面板 usedFieldKeys 刷新（可重新拖入）且清空结果可被保存
+        try {
+          saveLayoutData();
+        } catch (e) {
+          console.warn('[clearCell] 同步布局失败:', e);
+        }
       };
 
       (window as any).univerExcelGrid = {
@@ -1681,6 +1824,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         loadLayoutData,
         handleFieldDrop,
         getCellFieldMeta,
+        getContextCell: () => rightClickCellRef.current,  // 右键命中的单元格（工具栏无选区时回退用）
         getWorkbook: () => workbook,  // 返回 FWorkbook
         getActiveSheet: () => (workbook as any).getActiveSheet(),  // 返回 FWorksheet
         getWorkbookId: () => workbookRef.current?.getUnitId?.(),
@@ -1727,7 +1871,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     if (sheetData) {
       // 使用微延迟确保表格已渲染
       setTimeout(() => {
-        loadLayoutData(sheetData);
+        loadLayoutData(sheetData, layoutType);
+        console.log('[Layout] reload 后 Map keys =', Object.keys(cellFieldMetaMap.current));
       }, 100);
     } else {
       console.log('[Layout] 未找到对应 Sheet 的数据:', { sheetName, availableSheets: layoutData.sheets ? Object.keys(layoutData.sheets) : null });
@@ -1744,6 +1889,89 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   }, []);
 
   // ─────────────────────────────────────────────────────────────────
+  // 持续记录鼠标实时位置 + 在右键那一刻（光标精确落在字段格上）用 hitTest 锁定命中格
+  // 右键菜单统一走 Univer 原生菜单，这里只在 window 捕获阶段先一步锁定命中格，
+  // 避免点击菜单项时鼠标已下移、导致反算偏到其它格子。
+  // ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+    };
+    const handleContextMenuCapture = (e: MouseEvent) => {
+      // 只处理落在 Univer 容器内的右键，避免页面其它区域的右键污染命中格缓存
+      if (containerRef.current && e.target instanceof Node && !containerRef.current.contains(e.target)) return;
+      lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+      rightClickPosRef.current = { x: e.clientX, y: e.clientY };
+
+      // ── 诊断：右键时把坐标/尺寸/各定位结果全部打出，用于一次性定死映射关系 ──
+      try {
+        const sheet: any = workbookRef.current?.getActiveSheet?.();
+        const canvasEl = containerRef.current?.querySelector('canvas');
+        const canvasRect = canvasEl?.getBoundingClientRect();
+        if (sheet && canvasRect) {
+          const rx = e.clientX - canvasRect.left;
+          const ry = e.clientY - canvasRect.top;
+          const widths = [0, 1, 2, 3].map((c) => { try { return sheet.getColumnWidth?.(c); } catch { return null; } });
+          const heights = [0, 1, 2, 3, 4].map((r) => { try { return sheet.getRowHeight?.(r); } catch { return null; } });
+          let hit: any = null;
+          try { hit = sheet.hitTest?.(e.clientX, e.clientY); } catch { /* ignore */ }
+
+          // 已知挂了元数据的字段格，逐个给出像素矩形，用来判断点击落在哪一格
+          const fieldKeys = Object.keys(cellFieldMetaMap.current);
+          const rects: Record<string, any> = {};
+          const vals: Record<string, any> = {};
+          for (const key of fieldKeys.slice(0, 6).concat(['1_1', '1_0'])) {
+            const [r, c] = key.split('_').map(Number);
+            if (!Number.isFinite(r) || !Number.isFinite(c)) continue;
+            try { rects[key] = sheet.getCellRect?.(r, c); } catch { /* ignore */ }
+            try { vals[key] = sheet.getRange?.(r, c, 1, 1)?.getValue?.(); } catch { /* ignore */ }
+          }
+
+          const handCalc = getCellFromMouseEvent(e.clientX, e.clientY);
+          const round = (n: any) => (typeof n === 'number' ? Math.round(n * 10) / 10 : n);
+          console.log('[CtxMenuDiag]', JSON.stringify({
+            client: { x: e.clientX, y: e.clientY },
+            canvas: { left: round(canvasRect.left), top: round(canvasRect.top) },
+            rel: { x: round(rx), y: round(ry) },
+            widths: widths.map(round),
+            heights: heights.map(round),
+            handCalc,
+            hitTest: hit ? { row: hit.row, col: hit.column } : null,
+            rects,
+            vals,
+            fieldKeys,
+          }));
+        }
+      } catch (diagErr) {
+        console.warn('[CtxMenuDiag] 诊断失败:', diagErr);
+      }
+
+      // 必须与「字段落点」共用同一个解析函数 getCellFromMouseEvent，否则两边坐标系不一致，
+      // 切属性会作用到空格上，表现为「只读切不回可编辑 / 必填」。
+      // 另：不能用 window.__univerFAPI，它可能是 HMR 残留的另一个 Univer 实例。
+      let row = -1;
+      let col = -1;
+      try {
+        const cell = getCellFromMouseEvent(e.clientX, e.clientY);
+        if (cell) {
+          row = cell.row;
+          col = cell.col;
+        }
+      } catch { /* ignore */ }
+      if (row >= 0 && col >= 0) {
+        rightClickCellRef.current = { row, col };
+        console.log('[CtxMenu] 右键命中格:', { x: e.clientX, y: e.clientY, row, col });
+      }
+    };
+    window.addEventListener('mousemove', handleMouseMove, true);
+    window.addEventListener('contextmenu', handleContextMenuCapture, true);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove, true);
+      window.removeEventListener('contextmenu', handleContextMenuCapture, true);
+    };
+  }, [getCellFromMouseEvent]);
+
+  // ─────────────────────────────────────────────────────────────────
   // 监听 univer 右键菜单字段属性变更事件（来自 univer 核心的 field-attr.command.ts）
   // ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1756,16 +1984,59 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       if (!workbook) return;
 
       try {
+        // 反算目标格子坐标：收集全部候选，取第一个「确实挂了字段元数据」的坐标。
+        // 旧实现只要第一个候选非负就直接使用，即使该格根本没有元数据也不再回退，
+        // 一旦坐标偏离（如右击不移动选区、取到旧格）就永远查不到字段，
+        // 表现为「只读切不回可编辑 / 必填」。
         const sheet = workbook.getActiveSheet();
-        const selection = sheet.getSelection();
-        if (!selection) return;
-        const currentCell = selection.getCurrentCell();
-        if (!currentCell) return;
+        const candidates: { row: number; col: number; src: string }[] = [];
 
-        const row = currentCell.actualRow;
-        const col = currentCell.actualColumn;
+        // 1) 右键命中缓存（右键那一刻锁定，最可靠）
+        const rc = rightClickCellRef.current;
+        if (rc && rc.row >= 0 && rc.col >= 0) {
+          candidates.push({ row: rc.row, col: rc.col, src: 'rightClickCellRef' });
+        }
+        // 2) 当前活动选区（次选：右击不移动选区，可能是旧格）
+        // 注：不再用「实时鼠标位置」反算——点击菜单项时鼠标已移到菜单上，
+        // 反算出来的格子是菜单遮挡处的格子，会误伤其它字段。
+        const currentCell = sheet?.getSelection?.()?.getCurrentCell?.();
+        if (currentCell) {
+          candidates.push({ row: currentCell.actualRow, col: currentCell.actualColumn, src: 'selection' });
+        }
+
+        let row = candidates[0]?.row ?? -1;
+        let col = candidates[0]?.col ?? -1;
+        let src = candidates[0]?.src ?? 'none';
+        let fieldMeta: FieldMeta | null = null;
+        for (const c of candidates) {
+          const m = cellFieldMetaMap.current[`${c.row}_${c.col}`];
+          if (m) {
+            row = c.row;
+            col = c.col;
+            src = c.src;
+            fieldMeta = m as FieldMeta;
+            break;
+          }
+        }
+
+        // 3) 兜底：按像素矩形吸附到字段格
+        //    索引约定若与写入时不一致（历史数据/约定漂移），按索引就永远查不到元数据，
+        //    此时改用几何位置判定：右键那一刻的点落在哪个字段格的矩形内。
+        if (!fieldMeta) {
+          const snapped = findFieldCellByPosition();
+          if (snapped) {
+            const m = cellFieldMetaMap.current[`${snapped.row}_${snapped.col}`];
+            if (m) {
+              row = snapped.row;
+              col = snapped.col;
+              src = 'rectSnap';
+              fieldMeta = m as FieldMeta;
+            }
+          }
+        }
+
         const cellKey = `${row}_${col}`;
-        const fieldMeta = cellFieldMetaMap.current[cellKey];
+        console.log('[FieldAttrEvent] 查找前 Map keys =', Object.keys(cellFieldMetaMap.current), '目标', cellKey, '来源', src, '候选', candidates);
 
         if (fieldMeta) {
           // 通过 window 桥接调用 setFieldAttr（如果有暴露）
@@ -1790,12 +2061,31 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       if (!workbook) return;
       try {
         const sheet = workbook.getActiveSheet();
-        const selection = sheet.getSelection();
-        if (!selection) return;
-        const currentCell = selection.getCurrentCell();
-        if (!currentCell) return;
-        const row = currentCell.actualRow;
-        const col = currentCell.actualColumn;
+        // 与字段属性一致：优先用右键那一刻锁定的命中格 rightClickCellRef，其次活动选区。
+        // 不用「实时鼠标位置」反算：点击菜单项时鼠标已移到菜单上，会反算出菜单遮挡处的格子。
+        let row = -1;
+        let col = -1;
+        const rc = rightClickCellRef.current;
+        if (rc && rc.row >= 0 && rc.col >= 0) {
+          row = rc.row;
+          col = rc.col;
+        }
+        if (row < 0 || col < 0) {
+          const selection = sheet?.getSelection?.();
+          if (!selection) return;
+          const currentCell = selection.getCurrentCell();
+          if (!currentCell) return;
+          row = currentCell.actualRow;
+          col = currentCell.actualColumn;
+        }
+        // 与字段属性一致：索引查不到元数据时，用像素吸附兜底（约定漂移时也能命中）
+        if (!cellFieldMetaMap.current[`${row}_${col}`]) {
+          const snapped = findFieldCellByPosition();
+          if (snapped) {
+            row = snapped.row;
+            col = snapped.col;
+          }
+        }
         const gridApi = (window as any).univerExcelGrid;
         if (gridApi && gridApi.clearCell) {
           gridApi.clearCell(row, col);
@@ -1811,7 +2101,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       window.removeEventListener('univer-field-attr-change', handleFieldAttrChange);
       window.removeEventListener('univer-cell-clear', handleCellClear);
     };
-  }, []);
+  }, [getCellFromMouseEvent, findFieldCellByPosition]);
 
   // ─────────────────────────────────────────────────────────────────
   // ★★★ 全局 window 级别原生 drop 监听器（终极兜底方案）★★★
@@ -2159,6 +2449,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           />
         )}
       </div>
+
       {/* 加载中遮罩 */}
       {!initialized && !initError && (
         <div

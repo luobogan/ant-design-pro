@@ -1,11 +1,12 @@
-import React, { useMemo } from 'react';
-import { Modal, Button, Space, Typography, Table, Input, Select, DatePicker, Checkbox, Radio, InputNumber } from 'antd';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import { Modal, Button, Space, Typography, Table, Input, Select, DatePicker, Checkbox, Radio, InputNumber, message } from 'antd';
 import {
   PrinterOutlined,
   DownloadOutlined,
   CloseOutlined,
   FileTextOutlined,
   PaperClipOutlined,
+  SendOutlined,
 } from '@ant-design/icons';
 
 const { Text } = Typography;
@@ -24,6 +25,8 @@ interface FieldMeta {
   cellType?: 'label' | 'field';
   required: boolean;
   readonly: boolean;
+  /** 字段属性：1=只读 2=可编辑 3=必填（参照 ecology viewAttr） */
+  fieldAttr?: number;
   defaultValue?: string;
   placeholder?: string;
   length?: number;
@@ -59,15 +62,34 @@ interface WorkbookLayoutData {
   version: string;
 }
 
+// 单元格值 key：sheetId + 行列，保证唯一
+const cellKey = (sheetId: string, row: number, col: number) => `${sheetId}__${row}__${col}`;
+
+// 判断必填项是否为空（参照 ecology：required 字段提交时校验非空）
+const isEmptyValue = (fieldType: string | undefined, v: any): boolean => {
+  if (fieldType === 'checkbox') return !v; // 必填复选框必须勾选
+  return v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
+};
+
 // ──────────────────────────────────────────────
 // 单元格渲染：根据 fieldMeta 返回对应的 Ant Design 组件
+// 作为真实表单呈现：
+//   fieldAttr=1 只读  → 控件禁用
+//   fieldAttr=2 可编辑 → 正常可输入
+//   fieldAttr=3 必填  → 可输入 + 红色 * + 提交校验非空
 // ──────────────────────────────────────────────
 
 const FieldCell: React.FC<{
   cell: CellDataItem;
   row: number;
   col: number;
-}> = ({ cell, row, col }) => {
+  sheetId: string;
+  value: any;
+  onChange: (v: any) => void;
+  error?: boolean;
+  /** 预览态只读：对应 ecology 显示/监控/打印布局（layouttype 0/3/4）强制只读 */
+  readOnly?: boolean;
+}> = ({ cell, sheetId, row, col, value, onChange, error, readOnly }) => {
   const meta = cell.fieldMeta;
   const rawValue = cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
   // 字段单元格在设计器中存的是模板占位符（如 "📝 ${xm}"），表示尚未填入真实数据。
@@ -89,147 +111,194 @@ const FieldCell: React.FC<{
     );
   }
 
+  // 字段属性以 fieldAttr 为权威（参照 ecology：1=只读 2=可编辑 3=必填），兼容旧 readonly/required 布尔
+  const fieldAttr = meta?.fieldAttr;
+  // 预览态（readOnly）整体只读：对应 ecology 显示/监控/打印布局（layouttype 0/3/4）强制只读
+  const disabled = !!readOnly || fieldAttr === 1 || meta?.readonly === true;
+  const isRequired = fieldAttr === 3 || meta?.required === true;
+  // 必填标记
+  const reqLabel = isRequired ? (
+    <Text type="danger" style={{ marginRight: 2 }}>*</Text>
+  ) : null;
+  // 必填校验未通过 → 红色边框
+  const status = error ? 'error' : '';
+
+  const errTip = error ? (
+    <div style={{ color: '#ff4d4f', fontSize: 12, lineHeight: '18px' }}>该项为必填</div>
+  ) : null;
+
   const commonProps = {
-    disabled: true,          // 预览模式全部禁用
+    disabled,
     size: 'small' as const,
+    status,
     style: { width: '100%' },
   };
 
-  // 必填标记
-  const reqLabel = meta.required ? (
-    <Text type="danger" style={{ marginRight: 2 }}>*</Text>
-  ) : null;
+  const body = (() => {
+    switch (meta.fieldType) {
+      case 'text':
+        return (
+          <Input
+            {...commonProps}
+            value={value}
+            placeholder={meta.placeholder || ''}
+            maxLength={meta.length || 200}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        );
 
-  switch (meta.fieldType) {
-    case 'text':
-      return (
-        <Space size={0}>
-          {reqLabel}
-          <Input {...commonProps} placeholder={meta.placeholder || ''} maxLength={meta.length || 200} defaultValue={displayValue} />
-        </Space>
-      );
+      case 'textarea':
+        return (
+          <TextArea
+            {...commonProps}
+            rows={3}
+            value={value}
+            placeholder={meta.placeholder || ''}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        );
 
-    case 'textarea':
-      return (
-        <Space direction="vertical" size={2} style={{ width: '100%' }}>
-          {reqLabel}
-          <TextArea {...commonProps} rows={3} placeholder={meta.placeholder || ''} defaultValue={displayValue} />
-        </Space>
-      );
+      case 'number':
+        return (
+          <InputNumber
+            {...commonProps}
+            step="any"
+            value={value === undefined ? undefined : value}
+            onChange={(v) => onChange(v)}
+          />
+        );
 
-    case 'number':
-      return (
-        <Space size={0}>
-          {reqLabel}
-          <InputNumber {...commonProps} step="any" defaultValue={parseFloat(displayValue) || undefined} />
-        </Space>
-      );
+      case 'wholeNumber':
+        return (
+          <InputNumber
+            {...commonProps}
+            step={1}
+            value={value === undefined ? undefined : value}
+            onChange={(v) => onChange(v)}
+          />
+        );
 
-    case 'wholeNumber':
-      return (
-        <Space size={0}>
-          {reqLabel}
-          <InputNumber {...commonProps} step={1} defaultValue={parseInt(displayValue, 10) || undefined} />
-        </Space>
-      );
+      case 'date':
+        return (
+          <DatePicker
+            {...commonProps}
+            style={{ width: '100%' }}
+            format="YYYY-MM-DD"
+            value={value || null}
+            onChange={(d) => onChange(d)}
+          />
+        );
 
-    case 'date':
-      return (
-        <Space size={0}>
-          {reqLabel}
-          <DatePicker {...commonProps} style={{ width: '100%' }} format="YYYY-MM-DD" />
-        </Space>
-      );
+      case 'datetime':
+        return (
+          <DatePicker
+            {...commonProps}
+            showTime
+            style={{ width: '100%' }}
+            format="YYYY-MM-DD HH:mm:ss"
+            value={value || null}
+            onChange={(d) => onChange(d)}
+          />
+        );
 
-    case 'datetime':
-      return (
-        <Space size={0}>
-          {reqLabel}
-          <DatePicker {...commonProps} showTime format="YYYY-MM-DD HH:mm:ss" />
-        </Space>
-      );
+      case 'select':
+        return (
+          <Select
+            {...commonProps}
+            placeholder="请选择"
+            value={value === undefined ? undefined : value}
+            onChange={(v) => onChange(v)}
+            options={(meta.options || []).map((o) => ({ label: o.label, value: o.value }))}
+          />
+        );
 
-    case 'select':
-      return (
-        <Space size={0}>
-          {reqLabel}
-          <Select {...commonProps} placeholder="请选择" options={[
-            ...(meta.options || []).map(o => ({ label: o.label, value: o.value })),
-          ]} defaultValue={undefined} />
-        </Space>
-      );
+      case 'radio':
+        return (
+          <Radio.Group
+            disabled={disabled}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            options={(meta.options || []).map((o) => ({ label: o.label, value: o.value }))}
+          />
+        );
 
-    case 'radio':
-      return (
-        <Space size={0}>
-          {reqLabel}
-          <Radio.Group disabled options={(meta.options || []).map(o => ({
-            label: o.label,
-            value: o.value,
-          }))} defaultValue={meta.options?.[0]?.value} />
-        </Space>
-      );
+      case 'checkbox':
+        return <Checkbox disabled={disabled} checked={!!value} onChange={(e) => onChange(e.target.checked)}>同意</Checkbox>;
 
-    case 'checkbox':
-      return <Checkbox disabled defaultChecked={!!cell.v}>同意</Checkbox>;
+      case 'attachment':
+        return (
+          <Button icon={<PaperClipOutlined />} disabled size="small">
+            上传附件
+          </Button>
+        );
 
-    case 'attachment':
-      return (
-        <Button icon={<PaperClipOutlined />} disabled size="small">
-          上传附件
-        </Button>
-      );
+      case 'richtext':
+        return (
+          <div
+            contentEditable={false}
+            style={{
+              border: '1px solid #d9d9d9',
+              borderRadius: 4,
+              padding: '4px 8px',
+              minHeight: 50,
+              background: '#fff',
+              color: '#333',
+            }}
+          >
+            {displayValue || <Text type="secondary">（富文本内容）</Text>}
+          </div>
+        );
 
-    case 'richtext':
-      return (
-        <div
-          contentEditable={false}
-          style={{
-            border: '1px solid #d9d9d9',
-            borderRadius: 4,
-            padding: '4px 8px',
-            minHeight: 50,
-            background: '#fff',
-            color: '#333',
-          }}
-        >
-          {displayValue || <Text type="secondary">（富文本内容）</Text>}
-        </div>
-      );
+      case 'group':
+        return (
+          <fieldset
+            style={{
+              border: '1px solid #d9d9d9',
+              borderRadius: 4,
+              padding: '8px 12px',
+              margin: 0,
+            }}
+          >
+            <legend style={{ fontWeight: 600, color: '#555', padding: '0 6px' }}>
+              {displayValue || meta.fieldLabel}
+            </legend>
+          </fieldset>
+        );
 
-    case 'group':
-      return (
-        <fieldset
-          style={{
-            border: '1px solid #d9d9d9',
-            borderRadius: 4,
-            padding: '8px 12px',
-            margin: 0,
-          }}
-        >
-          <legend style={{ fontWeight: 600, color: '#555', padding: '0 6px' }}>
-            {displayValue || meta.fieldLabel}
-          </legend>
-        </fieldset>
-      );
+      case 'custom':
+        return (
+          <Text strong style={{ color: '#1890ff' }}>
+            [自定义] {displayValue || meta.fieldLabel}
+          </Text>
+        );
 
-    case 'custom':
-      return (
-        <Text strong style={{ color: '#1890ff' }}>
-          [自定义] {displayValue || meta.fieldLabel}
-        </Text>
-      );
+      default:
+        return <span>{displayValue}</span>;
+    }
+  })();
 
-    default:
-      return <span>{displayValue}</span>;
-  }
+  return (
+    <div>
+      <Space size={0}>
+        {reqLabel}
+        {body}
+      </Space>
+      {errTip}
+    </div>
+  );
 };
 
 // ──────────────────────────────────────────────
 // Sheet 预览表格组件
 // ──────────────────────────────────────────────
 
-const SheetPreviewTable: React.FC<{ sheet: SheetLayoutData }> = ({ sheet }) => {
+const SheetPreviewTable: React.FC<{
+  sheet: SheetLayoutData;
+  formValues: Record<string, any>;
+  errors: Record<string, boolean>;
+  onFieldChange: (key: string, v: any) => void;
+  readOnly?: boolean;
+}> = ({ sheet, formValues, errors, onFieldChange, readOnly }) => {
   const tableData = useMemo(() => {
     const cellData = sheet.cellData || {};
     const rows: any[] = [];
@@ -268,17 +337,29 @@ const SheetPreviewTable: React.FC<{ sheet: SheetLayoutData }> = ({ sheet }) => {
         title: String.fromCharCode(65 + c),
         dataIndex: `col_${c}`,
         key: `col_${c}`,
-        width: c === 0 ? 120 : 160,
+        width: c === 0 ? 120 : 200,
         render: (_: any, record: any) => {
           const cell = record[`col_${c}`];
           if (!cell) return <span style={{ color: '#ccc' }}>-</span>;
-          return <FieldCell cell={cell} row={record._rowKey} col={c} />;
+          const key = cellKey(sheet.id, record._rowKey, c);
+          return (
+            <FieldCell
+              cell={cell}
+              row={record._rowKey}
+              col={c}
+              sheetId={sheet.id}
+              value={formValues[key]}
+              onChange={(v) => onFieldChange(key, v)}
+              error={errors[key]}
+              readOnly={readOnly}
+            />
+          );
         },
       });
     }
 
     return { rows, columns };
-  }, [sheet]);
+  }, [sheet, formValues, errors, onFieldChange]);
 
   if (tableData.rows.length === 0) {
     return (
@@ -302,7 +383,7 @@ const SheetPreviewTable: React.FC<{ sheet: SheetLayoutData }> = ({ sheet }) => {
           {sheet.name}
         </Text>
       )}
-      scroll={{ x: Math.max(tableData.columns.length * 140, 600) }}
+      scroll={{ x: Math.max(tableData.columns.length * 160, 600) }}
     />
   );
 };
@@ -320,6 +401,8 @@ interface ExcelPreviewProps {
   onClose: () => void;
   /** 预览标题 */
   title?: string;
+  /** 预览态只读：true 时所有字段控件禁用，对应 ecology 显示/监控/打印布局（layouttype 0/3/4） */
+  readOnly?: boolean;
 }
 
 /**
@@ -328,23 +411,71 @@ interface ExcelPreviewProps {
  * 使用 Ant Design 原生组件（Input、Select、DatePicker 等）直接渲染布局数据，
  * 不生成 HTML 字符串，保持与设计器一致的 React 技术栈。
  *
- * 对应 Ecology excelPreView.jsp 的功能：
- *   - 将设计好的模板以表单形式展示
- *   - 所有控件为只读状态
- *   - 支持打印和导出
+ * 对应 Ecology excelPreView.jsp 的功能，并作为真实表单呈现：
+ *   - readonly（fieldAttr=1）字段禁用输入
+ *   - required（fieldAttr=3）字段显示红色 * 并在提交时校验非空
+ *   - editable（fieldAttr=2）字段正常可输入
  */
 const ExcelPreview: React.FC<ExcelPreviewProps> = ({
   layoutData,
   open,
   onClose,
   title = '表单预览',
+  readOnly = false,
 }) => {
   // 解析出所有 sheet 列表
   const sheets = useMemo(() => {
     if (!layoutData?.sheets) return [];
     const order = layoutData.sheetOrder || Object.keys(layoutData.sheets);
-    return order.map(id => layoutData.sheets![id]).filter(Boolean);
+    return order.map((id) => layoutData.sheets![id]).filter(Boolean);
   }, [layoutData]);
+
+  // 表单受控值 & 必填校验错误
+  const [formValues, setFormValues] = useState<Record<string, any>>({});
+  const [errors, setErrors] = useState<Record<string, boolean>>({});
+
+  // 弹窗打开时重置
+  useEffect(() => {
+    if (open) {
+      setFormValues({});
+      setErrors({});
+    }
+  }, [open]);
+
+  // 字段值变化：同步 state 并清除该字段的错误标记
+  const handleFieldChange = useCallback((key: string, v: any) => {
+    setFormValues((prev) => ({ ...prev, [key]: v }));
+    setErrors((prev) => (prev[key] ? { ...prev, [key]: false } : prev));
+  }, []);
+
+  // 提交校验：遍历所有必填字段，未填写则标记错误
+  const handleSubmit = () => {
+    const newErrors: Record<string, boolean> = {};
+    sheets.forEach((sheet) => {
+      const cellData = sheet.cellData || {};
+      Object.entries(cellData).forEach(([rk, rowData]) => {
+        const r = parseInt(rk, 10);
+        Object.entries(rowData || {}).forEach(([ck, cell]) => {
+          const c = parseInt(ck, 10);
+          const meta = (cell as CellDataItem).fieldMeta;
+          if (!meta || meta.cellType !== 'field' || !(meta.fieldAttr === 3 || meta.required)) return;
+          const key = cellKey(sheet.id, r, c);
+          const v = formValues[key];
+          if (isEmptyValue(meta.fieldType, v)) {
+            newErrors[key] = true;
+          }
+        });
+      });
+    });
+
+    setErrors(newErrors);
+    const cnt = Object.keys(newErrors).length;
+    if (cnt > 0) {
+      message.error(`有 ${cnt} 个必填项未填写，请检查标红字段`);
+    } else {
+      message.success('校验通过，所有必填项均已填写');
+    }
+  };
 
   // 导出布局 JSON
   const handleDownload = () => {
@@ -371,6 +502,9 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
       width={1000}
       footer={[
         <Space key="actions">
+          <Button icon={<SendOutlined />} type="primary" onClick={handleSubmit}>
+            提交校验
+          </Button>
           <Button icon={<PrinterOutlined />} onClick={handlePrint}>
             打印
           </Button>
@@ -407,7 +541,13 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
         <div className="excel-preview-react-container">
           {sheets.map((sheet, idx) => (
             <div key={sheet.id || idx} style={{ marginBottom: idx < sheets.length - 1 ? 24 : 0 }}>
-              <SheetPreviewTable sheet={sheet} />
+              <SheetPreviewTable
+                sheet={sheet}
+                formValues={formValues}
+                errors={errors}
+                onFieldChange={handleFieldChange}
+                readOnly={readOnly}
+              />
             </div>
           ))}
         </div>
