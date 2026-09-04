@@ -18172,10 +18172,15 @@ function TextRotateMenuItemFactory(accessor) {
 function menuClipboardDisabledObservable(injector) {
 	return new Observable((subscriber) => {
 		const supportClipboard = injector.get(IClipboardInterfaceService).supportClipboard;
+		// 修复：先发初始值，再订阅 lastCopyId$。
+		// 原顺序下，lastCopyId$ 是 BehaviorSubject，订阅时的同步首帧会算出正确值
+		// （复制后 lastCopyId 非空 → !supportClipboard && !lastCopyId === false），
+		// 但紧接着的 subscriber.next(!supportClipboard) 会把它覆盖回 true，
+		// 导致非安全上下文（supportClipboard === false）下「粘贴」菜单项恒灰。
+		subscriber.next(!supportClipboard);
 		const subscription = injector.get(ISheetClipboardService).copyContentCache().lastCopyId$.subscribe((lastCopyId) => {
 			subscriber.next(!supportClipboard && !lastCopyId);
 		});
-		subscriber.next(!supportClipboard);
 		return () => subscription.unsubscribe();
 	});
 }

@@ -2074,6 +2074,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
     // 复制/剪切前：若源格是字段，暂存其元数据（含源坐标）
     const captureSourceFieldMeta = () => {
+      // 每次粘贴前先清空：避免「上次复制了字段但没粘贴，本次复制的是普通单元格」时误用过期元数据
+      clipboardFieldMetaRef.current = null;
       const sel = getPrimaryCell();
       if (!sel) return;
       let meta = getCellFieldMeta(sel.row, sel.col);
@@ -2129,9 +2131,23 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       }
     };
 
+    // 诊断：粘贴菜单项受 Univer 的 disabled$ 控制（剪贴板不支持且无内部缓存 → 灰；或缺编辑权限 → 灰）
+    const supportClipboard =
+      typeof navigator.clipboard !== 'undefined' &&
+      typeof navigator.clipboard.readText !== 'undefined';
+    console.log('[Clipboard] supportClipboard =', supportClipboard,
+      '(false 说明非 localhost/https，navigator.clipboard 不可用，粘贴依赖 Univer 内部 copyId)');
+
+    // 复制命令是否真的执行：若未打印说明 copy() 提前 return（无选区或 copyContent 为空），
+    // 内部 copyId 不会被写入 → 粘贴按钮会一直置灰。
+    const d0 = fUniver.onCopy?.(() => {
+      console.log('[Clipboard] CopyCommand 已执行（内部 copyId 应已写入）');
+    });
+
     const d1 = fUniver.onBeforePaste?.(captureSourceFieldMeta);
     const d2 = fUniver.onPaste?.(handlePasteFieldMeta);
     return () => {
+      d0?.dispose?.();
       d1?.dispose?.();
       d2?.dispose?.();
     };
