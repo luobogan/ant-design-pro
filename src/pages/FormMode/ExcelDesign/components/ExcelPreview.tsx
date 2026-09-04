@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { Modal, Button, Space, Typography, Table, Input, Select, DatePicker, Checkbox, Radio, InputNumber, message } from 'antd';
+import { Modal, Button, Space, Typography, Form, Input, Select, DatePicker, Checkbox, Radio, InputNumber, message, Table } from 'antd';
 import {
   PrinterOutlined,
   DownloadOutlined,
@@ -7,10 +7,27 @@ import {
   FileTextOutlined,
   PaperClipOutlined,
   SendOutlined,
+  PlusOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 
 const { Text } = Typography;
 const { TextArea } = Input;
+
+// ──────────────────────────────────────────────
+// E9 预览样式常量
+// ──────────────────────────────────────────────
+const E9_COLORS = {
+  primary: '#1890ff',
+  required: '#ff4d4f',
+  label: '#666',
+  value: '#333',
+  sectionBg: '#fafafa',
+  sectionBorder: '#e8e8e8',
+  cardBorder: '#f0f0f0',
+  readOnlyBg: '#fafafa',
+  readOnlyBorder: '#e8e8e8',
+} as const;
 
 // ──────────────────────────────────────────────
 // 类型定义 - 与 UniverExcelGrid 保持一致
@@ -52,6 +69,8 @@ interface SheetLayoutData {
   colCount: number;
   rowData?: Record<string, { h: number }>;
   columnData?: Record<string, { w: number }>;
+  /** 合并单元格信息：保留 Excel 网格布局（预览还原合并单元格） */
+  mergedCells?: { row: number; col: number; rowSpan: number; colSpan: number }[];
 }
 
 interface WorkbookLayoutData {
@@ -79,6 +98,35 @@ const isEmptyValue = (fieldType: string | undefined, v: any): boolean => {
 //   fieldAttr=3 必填  → 可输入 + 红色 * + 提交校验非空
 // ──────────────────────────────────────────────
 
+/**
+ * 将保存的单元格样式（Univer IStyleData）映射为 React CSS。
+ *
+ * 关键点：Excel / Univer 的字号单位是「磅（pt）」，而 CSS 用的是 px。
+ * 1pt = 4/3 px，若直接把 pt 当 px 用，预览字号会明显小于设计器中的字号，
+ * 因此这里统一换算后再下发，保证预览字号与 Excel 配置一致。
+ */
+const cellStyleToCss = (s: any): React.CSSProperties => {
+  if (!s || typeof s !== 'object') return {};
+  const css: any = {};
+  if (s.ff) css.fontFamily = s.ff;
+  if (s.fs && s.fs > 0) css.fontSize = `${Math.round((s.fs * 4) / 3)}px`;
+  if (s.cl && s.cl.rgb) css.color = s.cl.rgb;
+  if (s.bg && s.bg.rgb) css.background = s.bg.rgb;
+  if (s.bl) css.fontWeight = 'bold';
+  if (s.it) css.fontStyle = 'italic';
+  if (s.ul && s.ul.s && s.st && s.st.s) css.textDecoration = 'underline line-through';
+  else if (s.ul && s.ul.s) css.textDecoration = 'underline';
+  else if (s.st && s.st.s) css.textDecoration = 'line-through';
+  // Univer 的 JUSTIFIED 对应 CSS 的 justify，直接小写会得到非法值
+  if (s.ht) {
+    const ht = String(s.ht).toLowerCase();
+    css.textAlign = ht === 'justified' ? 'justify' : ht;
+  }
+  if (s.vt) css.verticalAlign = String(s.vt).toLowerCase();
+  if (s.tb) css.whiteSpace = 'pre-wrap';
+  return css;
+};
+
 const FieldCell: React.FC<{
   cell: CellDataItem;
   row: number;
@@ -89,7 +137,9 @@ const FieldCell: React.FC<{
   error?: boolean;
   /** 预览态只读：对应 ecology 显示/监控/打印布局（layouttype 0/3/4）强制只读 */
   readOnly?: boolean;
-}> = ({ cell, sheetId, row, col, value, onChange, error, readOnly }) => {
+  /** 单元格样式（Univer IStyleData），用于让控件沿用 Excel 的字体/颜色/背景 */
+  cellStyle?: any;
+}> = ({ cell, sheetId, row, col, value, onChange, error, readOnly, cellStyle }) => {
   const meta = cell.fieldMeta;
   const rawValue = cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
   // 字段单元格在设计器中存的是模板占位符（如 "📝 ${xm}"），表示尚未填入真实数据。
@@ -98,40 +148,56 @@ const FieldCell: React.FC<{
   const displayValue = /^\$\{[^}]+\}$/.test(cleanRaw) ? '' : rawValue;
 
   // 纯文本/无字段元数据 → 直接显示文字
+  // 注意：不要硬编码颜色/字重，否则会覆盖 Excel 单元格样式（外层 <td> 已套用 s）。
   if (!meta) {
-    return <span style={{ color: '#333' }}>{displayValue || '\u00A0'}</span>;
+    return <span>{displayValue || '\u00A0'}</span>;
   }
 
   // 标签单元格 → 静态说明文本，不渲染输入控件（与数据绑定字段区分）
+  // 同样不硬编码颜色/字重，由外层 <td> 上的 Excel 单元格样式（s）决定颜色与加粗。
   if (meta.cellType === 'label') {
-    return (
-      <span style={{ color: '#333', fontWeight: 500 }}>
-        {meta.fieldLabel || displayValue || '\u00A0'}
-      </span>
-    );
+    return <span>{meta.fieldLabel || displayValue || '\u00A0'}</span>;
   }
 
   // 字段属性以 fieldAttr 为权威（参照 ecology：1=只读 2=可编辑 3=必填），兼容旧 readonly/required 布尔
   const fieldAttr = meta?.fieldAttr;
   // 预览态（readOnly）整体只读：对应 ecology 显示/监控/打印布局（layouttype 0/3/4）强制只读
   const disabled = !!readOnly || fieldAttr === 1 || meta?.readonly === true;
-  const isRequired = fieldAttr === 3 || meta?.required === true;
-  // 必填标记
-  const reqLabel = isRequired ? (
-    <Text type="danger" style={{ marginRight: 2 }}>*</Text>
-  ) : null;
-  // 必填校验未通过 → 红色边框
+  // 必填校验未通过 → 控件红色边框（必填 * 与错误文案由外层 Form.Item 统一渲染）
   const status = error ? 'error' : '';
 
-  const errTip = error ? (
-    <div style={{ color: '#ff4d4f', fontSize: 12, lineHeight: '18px' }}>该项为必填</div>
-  ) : null;
+  // 沿用 Excel 单元格样式：AntD 的 Input / Select 等控件**不会继承** <td> 的 font，
+  // 必须把字体/字号/字重显式下发到控件本体，否则预览里全是 AntD 默认字体，
+  // 与 Excel 配置的字体不一致。
+  const excelCss: any = cellStyleToCss(cellStyle);
+  const excelFont: React.CSSProperties = {
+    ...(excelCss.fontFamily ? { fontFamily: excelCss.fontFamily } : {}),
+    ...(excelCss.fontSize ? { fontSize: excelCss.fontSize } : {}),
+    ...(excelCss.fontWeight ? { fontWeight: excelCss.fontWeight } : {}),
+  };
+
+  // E9 预览样式：只读字段浅灰背景 + 细边框，可编辑白底；
+  // 若该单元格在 Excel 里设置了背景色/字体色，则优先沿用 Excel 配置。
+  const fieldStyle: React.CSSProperties = disabled
+    ? {
+        width: '100%',
+        background: E9_COLORS.readOnlyBg,
+        borderColor: E9_COLORS.readOnlyBorder,
+        color: '#999',
+        ...excelFont,
+      }
+    : {
+        width: '100%',
+        ...(excelCss.background ? { background: excelCss.background } : {}),
+        ...(excelCss.color ? { color: excelCss.color } : {}),
+        ...excelFont,
+      };
 
   const commonProps = {
     disabled,
     size: 'small' as const,
     status,
-    style: { width: '100%' },
+    style: fieldStyle,
   };
 
   const body = (() => {
@@ -277,91 +343,161 @@ const FieldCell: React.FC<{
     }
   })();
 
-  return (
-    <div>
-      <Space size={0}>
-        {reqLabel}
-        {body}
-      </Space>
-      {errTip}
-    </div>
-  );
+  // 只返回控件本身：标签、必填 * 与错误提示统一由外层 Form.Item 渲染
+  return <>{body}</>;
 };
 
 // ──────────────────────────────────────────────
-// Sheet 预览表格组件
+// Sheet 预览「表单」组件 — 对齐泛微 E9 ExcelDesign 预览格式
+//
+// 参照 ecology：src4js/pc4mobx/cube/src/components/excel-layout/
+// E9 以 <table className="excelMainTable"> 渲染 Excel 布局：
+//   - <colgroup> 列宽 + <tbody> 每行 <tr>（高度=行高）
+//   - 每格 <td>（携带 rowSpan/colSpan 还原合并单元格）
+//   - 单元格内容：标签(etype=2)→文本；字段(etype=3)→控件；静态文本→文本
+// 本组件等比还原该网格结构（保留 Excel 行列与合并单元格），而非把字段拍平成横向表单。
 // ──────────────────────────────────────────────
 
-const SheetPreviewTable: React.FC<{
+// 渲染单元格内容：标签文本 / 字段控件 / 静态文本
+const renderCellNode = (
+  cell: CellDataItem,
+  key: string,
+  sheetId: string,
+  formValues: Record<string, any>,
+  errors: Record<string, boolean>,
+  onFieldChange: (k: string, v: any) => void,
+  readOnly: boolean,
+  requiredStar: boolean,
+): React.ReactNode => {
+  const meta = cell.fieldMeta;
+  const rawValue = cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
+  const cleanRaw = rawValue.replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, '').trim();
+  const displayValue = /^\$\{[^}]+\}$/.test(cleanRaw) ? '' : rawValue;
+
+  // 纯文本 / 无字段元数据
+  if (!meta) {
+    return <span>{displayValue || ' '}</span>;
+  }
+  // 标签单元格 → 静态说明文本（必填 * 由 requiredStar 控制，E9 风格 * 在标签后）
+  if (meta.cellType === 'label') {
+    return (
+      <span>
+        {meta.fieldLabel || displayValue || ' '}
+        {requiredStar && <span style={{ color: E9_COLORS.required, marginLeft: 2 }}>*</span>}
+      </span>
+    );
+  }
+  // 字段单元格 → 渲染控件（必填校验红色边框由 FieldCell 处理）
+  const err = !!errors[key];
+  return (
+    <FieldCell
+      cell={cell}
+      row={0}
+      col={0}
+      sheetId={sheetId}
+      value={formValues[key]}
+      onChange={(v) => onFieldChange(key, v)}
+      error={err}
+      readOnly={readOnly}
+      cellStyle={cell.s}
+    />
+  );
+};
+
+const SheetPreviewForm: React.FC<{
   sheet: SheetLayoutData;
   formValues: Record<string, any>;
   errors: Record<string, boolean>;
   onFieldChange: (key: string, v: any) => void;
   readOnly?: boolean;
 }> = ({ sheet, formValues, errors, onFieldChange, readOnly }) => {
-  const tableData = useMemo(() => {
+  const model = useMemo(() => {
     const cellData = sheet.cellData || {};
-    const rows: any[] = [];
-    let maxCol = 0;
+    const mergedCells = sheet.mergedCells || [];
 
-    // 收集所有单元格
-    Object.entries(cellData).forEach(([rowKey, rowData]) => {
-      const row = parseInt(rowKey, 10);
-      if (isNaN(row)) return;
-
-      const rowRecord: any = { _rowKey: row };
-      let hasData = false;
-
-      Object.entries(rowData || {}).forEach(([colKey, cell]) => {
-        const col = parseInt(colKey, 10);
+    // 收集有值格子，并计算实际占用行列范围（含合并单元格覆盖区域）
+    const localGrid: Record<number, Record<number, CellDataItem>> = {};
+    let minRow = Infinity, maxRow = -Infinity, minCol = Infinity, maxCol = -Infinity;
+    Object.entries(cellData).forEach(([rk, rowData]) => {
+      const r = parseInt(rk, 10);
+      if (isNaN(r)) return;
+      localGrid[r] = localGrid[r] || {};
+      Object.entries(rowData || {}).forEach(([ck, c]) => {
+        const col = parseInt(ck, 10);
         if (isNaN(col)) return;
-        maxCol = Math.max(maxCol, col);
-
-        if (cell.v !== null && cell.v !== undefined && cell.v !== '') {
-          hasData = true;
-          rowRecord[`col_${col}`] = cell;
-          rowRecord[`_col_${col}_meta`] = cell.fieldMeta;
-        }
+        localGrid[r][col] = c as CellDataItem;
+        if (r < minRow) minRow = r;
+        if (r > maxRow) maxRow = r;
+        if (col < minCol) minCol = col;
+        if (col > maxCol) maxCol = col;
       });
-
-      if (hasData) rows.push(rowRecord);
     });
 
-    // 按 row 排序
-    rows.sort((a, b) => a._rowKey - b._rowKey);
+    // 合并单元格：原点映射 + 被覆盖格集合（用于还原 Excel 网格合并）
+    const cov = new Set<string>();
+    const mMap = new Map<string, { rowSpan: number; colSpan: number }>();
+    mergedCells.forEach((m) => {
+      mMap.set(`${m.row}_${m.col}`, { rowSpan: m.rowSpan, colSpan: m.colSpan });
+      for (let dr = 0; dr < m.rowSpan; dr++) {
+        for (let dc = 0; dc < m.colSpan; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const rr = m.row + dr, cc = m.col + dc;
+          cov.add(`${rr}_${cc}`);
+          if (rr > maxRow) maxRow = rr;
+          if (cc > maxCol) maxCol = cc;
+        }
+      }
+    });
 
-    // 构建列定义（只生成有数据的列）
-    const columns: any[] = [];
-    for (let c = 0; c <= maxCol; c++) {
-      columns.push({
-        title: String.fromCharCode(65 + c),
-        dataIndex: `col_${c}`,
-        key: `col_${c}`,
-        width: c === 0 ? 120 : 200,
-        render: (_: any, record: any) => {
-          const cell = record[`col_${c}`];
-          if (!cell) return <span style={{ color: '#ccc' }}>-</span>;
-          const key = cellKey(sheet.id, record._rowKey, c);
-          return (
-            <FieldCell
-              cell={cell}
-              row={record._rowKey}
-              col={c}
-              sheetId={sheet.id}
-              value={formValues[key]}
-              onChange={(v) => onFieldChange(key, v)}
-              error={errors[key]}
-              readOnly={readOnly}
-            />
-          );
-        },
+    const r0 = isFinite(minRow) ? minRow : 0;
+    const r1 = maxRow >= minRow ? maxRow : (sheet.rowCount || 1) - 1;
+    const c0 = isFinite(minCol) ? minCol : 0;
+    const c1 = maxCol >= minCol ? maxCol : (sheet.colCount || 1) - 1;
+
+    // 必填标签集合：必填字段左侧相邻（标签格）追加红色 *（E9 风格 * 在标签后）
+    const reqLabels = new Set<string>();
+    Object.entries(localGrid).forEach(([rk, rowData]) => {
+      const r = parseInt(rk, 10);
+      Object.entries(rowData || {}).forEach(([ck, c]) => {
+        const col = parseInt(ck, 10);
+        const meta = (c as CellDataItem).fieldMeta;
+        const isReq = meta && meta.cellType === 'field' && (meta.fieldAttr === 3 || meta.required);
+        if (isReq) {
+          const left = localGrid[r]?.[col - 1];
+          if (left && left.fieldMeta?.cellType === 'label') reqLabels.add(`${r}_${col - 1}`);
+        }
       });
+    });
+
+    // 列宽 / 行高
+    const columnData = sheet.columnData || {};
+    const rowDataMap = sheet.rowData || {};
+    const cw: (number | undefined)[] = [];
+    const rh: (number | undefined)[] = [];
+    for (let c = c0; c <= c1; c++) {
+      const w = columnData[String(c)]?.w;
+      cw.push(w && w > 0 ? w : undefined);
+    }
+    for (let r = r0; r <= r1; r++) {
+      const h = rowDataMap[String(r)]?.h;
+      rh.push(h && h > 0 ? h : undefined);
     }
 
-    return { rows, columns };
-  }, [sheet, formValues, errors, onFieldChange]);
+    return {
+      grid: localGrid,
+      rowCount: r1 - r0 + 1,
+      colCount: c1 - c0 + 1,
+      startRow: r0,
+      startCol: c0,
+      covered: cov,
+      mergeMap: mMap,
+      requiredLabels: reqLabels,
+      colWidths: cw,
+      rowHeights: rh,
+    };
+  }, [sheet]);
 
-  if (tableData.rows.length === 0) {
+  if (model.rowCount <= 0 || model.colCount <= 0) {
     return (
       <div style={{ textAlign: 'center', padding: 40 }}>
         <Text type="secondary">工作表 "{sheet.name}" 暂无数据</Text>
@@ -369,22 +505,74 @@ const SheetPreviewTable: React.FC<{
     );
   }
 
+  // ── 对齐 E9 excelMainTable：以 <table> 还原 Excel 网格布局（行列 + 合并单元格）──
   return (
-    <Table
-      dataSource={tableData.rows}
-      columns={tableData.columns}
-      pagination={false}
-      bordered
-      size="small"
-      rowKey="_rowKey"
-      title={() => (
-        <Text strong style={{ color: '#1890ff', fontSize: 14 }}>
-          <FileTextOutlined style={{ marginRight: 6 }} />
-          {sheet.name}
-        </Text>
-      )}
-      scroll={{ x: Math.max(tableData.columns.length * 160, 600) }}
-    />
+    <div style={{ background: '#fff', border: `1px solid ${E9_COLORS.cardBorder}`, borderRadius: 8, overflow: 'hidden' }}>
+      <table
+        className="excelMainTable"
+        style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed', background: '#fff' }}
+      >
+        <colgroup>
+          {model.colWidths.map((w, i) => (
+            <col key={i} style={{ width: w ? `${w}px` : undefined }} />
+          ))}
+        </colgroup>
+        <tbody>
+          {Array.from({ length: model.rowCount }).map((_, ri) => {
+            const r = model.startRow + ri;
+            return (
+              <tr key={r} style={{ height: model.rowHeights[ri] ? `${model.rowHeights[ri]}px` : undefined }}>
+                {Array.from({ length: model.colCount }).map((_, ci) => {
+                  const c = model.startCol + ci;
+                  const key = `${r}_${c}`;
+                  if (model.covered.has(key)) return null; // 被合并单元格覆盖，跳过
+                  const merge = model.mergeMap.get(key);
+                  const cell = model.grid[r]?.[c];
+                  const isLabel = cell?.fieldMeta?.cellType === 'label';
+                  const isField = cell?.fieldMeta?.cellType === 'field';
+                  const isBig = !!merge && (merge.colSpan > 1 || merge.rowSpan > 1);
+                  // 文本对齐：标签右对齐（贴近字段）；跨列静态文本居中（标题/分组）；其余左对齐
+                  let align: 'left' | 'right' | 'center' = 'left';
+                  if (isLabel) align = 'right';
+                  else if (!isField && isBig) align = 'center';
+                  return (
+                    <td
+                      key={c}
+                      rowSpan={merge?.rowSpan}
+                      colSpan={merge?.colSpan}
+                      style={{
+                        border: `1px solid ${E9_COLORS.readOnlyBorder}`,
+                        padding: '4px 8px',
+                        verticalAlign: 'middle',
+                        textAlign: align,
+                        fontSize: 13,
+                        color: '#333',
+                        background: '#fff',
+                        overflow: 'hidden',
+                        ...cellStyleToCss(cell?.s),
+                      }}
+                    >
+                      {cell
+                        ? renderCellNode(
+                            cell,
+                            cellKey(sheet.id, r, c),
+                            sheet.id,
+                            formValues,
+                            errors,
+                            onFieldChange,
+                            readOnly as boolean,
+                            model.requiredLabels.has(key),
+                          )
+                        : ' '}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 };
 
@@ -403,6 +591,11 @@ interface ExcelPreviewProps {
   title?: string;
   /** 预览态只读：true 时所有字段控件禁用，对应 ecology 显示/监控/打印布局（layouttype 0/3/4） */
   readOnly?: boolean;
+  /**
+   * 独立页面模式：true 时不套 Modal，直接全屏渲染表单内容。
+   * 用于「新标签页预览」，对齐 ecology excelPreView 打开独立预览页的行为。
+   */
+  standalone?: boolean;
 }
 
 /**
@@ -422,6 +615,7 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
   onClose,
   title = '表单预览',
   readOnly = false,
+  standalone = false,
 }) => {
   // 解析出所有 sheet 列表
   const sheets = useMemo(() => {
@@ -494,64 +688,95 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
     window.print();
   };
 
+  // 预览主体（空态 / 工作表列表）：弹窗与独立页面共用
+  const content = !layoutData ? (
+    <div style={{ textAlign: 'center', padding: '60px 0' }}>
+      <FileTextOutlined style={{ fontSize: 48, color: '#ccc', marginBottom: 16 }} />
+      <div>
+        <Text type="secondary">暂无布局数据，请先在设计器中编辑并保存</Text>
+      </div>
+    </div>
+  ) : sheets.length === 0 ? (
+    <div style={{ textAlign: 'center', padding: '60px 0' }}>
+      <Text type="warning">布局数据中没有工作表</Text>
+    </div>
+  ) : (
+    <div className="excel-preview-react-container">
+      {sheets.map((sheet, idx) => (
+        <div key={sheet.id || idx} style={{ marginBottom: idx < sheets.length - 1 ? 24 : 0 }}>
+          <SheetPreviewForm
+            sheet={sheet}
+            formValues={formValues}
+            errors={errors}
+            onFieldChange={handleFieldChange}
+            readOnly={readOnly}
+          />
+        </div>
+      ))}
+    </div>
+  );
+
+  // 操作按钮：弹窗里作为 footer，独立页面里作为顶部工具栏
+  const actions = (
+    <Space>
+      <Button icon={<SendOutlined />} type="primary" onClick={handleSubmit}>
+        提交校验
+      </Button>
+      <Button icon={<PrinterOutlined />} onClick={handlePrint}>
+        打印
+      </Button>
+      <Button icon={<DownloadOutlined />} onClick={handleDownload}>
+        导出JSON
+      </Button>
+      <Button icon={<CloseOutlined />} onClick={onClose}>
+        {standalone ? '关闭页面' : '关闭'}
+      </Button>
+    </Space>
+  );
+
+  // 独立页面模式：不套 Modal，全屏渲染（用于新标签页预览，避免打开空白页签）
+  if (standalone) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#f0f2f5', padding: 24, boxSizing: 'border-box' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 16,
+            background: '#fff',
+            padding: '12px 16px',
+            borderRadius: 8,
+          }}
+        >
+          <Typography.Title level={4} style={{ margin: 0 }}>
+            {title}
+          </Typography.Title>
+          {actions}
+        </div>
+        {content}
+      </div>
+    );
+  }
+
   return (
     <Modal
       title={title}
       open={open}
       onCancel={onClose}
       width={1000}
-      footer={[
-        <Space key="actions">
-          <Button icon={<SendOutlined />} type="primary" onClick={handleSubmit}>
-            提交校验
-          </Button>
-          <Button icon={<PrinterOutlined />} onClick={handlePrint}>
-            打印
-          </Button>
-          <Button icon={<DownloadOutlined />} onClick={handleDownload}>
-            导出JSON
-          </Button>
-          <Button icon={<CloseOutlined />} onClick={onClose}>
-            关闭
-          </Button>
-        </Space>,
-      ]}
+      footer={actions}
       destroyOnHidden
       styles={{
         body: {
-          padding: '16px 24px',
+          padding: '0',
           height: 'calc(100vh - 130px)',
           overflow: 'auto',
-          background: '#f5f5f5',
+          background: '#f0f2f5',
         },
       }}
     >
-      {!layoutData ? (
-        <div style={{ textAlign: 'center', padding: '60px 0' }}>
-          <FileTextOutlined style={{ fontSize: 48, color: '#ccc', marginBottom: 16 }} />
-          <div>
-            <Text type="secondary">暂无布局数据，请先在设计器中编辑并保存</Text>
-          </div>
-        </div>
-      ) : sheets.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px 0' }}>
-          <Text type="warning">布局数据中没有工作表</Text>
-        </div>
-      ) : (
-        <div className="excel-preview-react-container">
-          {sheets.map((sheet, idx) => (
-            <div key={sheet.id || idx} style={{ marginBottom: idx < sheets.length - 1 ? 24 : 0 }}>
-              <SheetPreviewTable
-                sheet={sheet}
-                formValues={formValues}
-                errors={errors}
-                onFieldChange={handleFieldChange}
-                readOnly={readOnly}
-              />
-            </div>
-          ))}
-        </div>
-      )}
+      {content}
     </Modal>
   );
 };

@@ -60,6 +60,31 @@ import '@univerjs/sheets-ui/lib/index.css';
 import '@univerjs/sheets-formula-ui/lib/index.css';
 import '@univerjs/sheets-numfmt-ui/lib/index.css';
 
+/**
+ * 将保存的单元格样式（IStyleData）应用到 range。
+ * 逐个属性还原，单属性失败不影响整表加载。覆盖：字体(ff/fs/cl)、粗体/斜体/下划线/删除线(bl/it/ul/st)、
+ * 背景(bg)、水平/垂直对齐(ht/vt)、自动换行(tb)。
+ * 注：边框(bd)结构较复杂，此处不还原（网格线由 Univer 自带，避免误设破坏布局）。
+ */
+const applyCellStyle = (range: any, style: any) => {
+  if (!range || !style || typeof style !== 'object') return;
+  const safe = (fn: () => void) => {
+    try { fn(); } catch { /* 单个样式属性失败不影响整体加载 */ }
+  };
+  if (style.bl !== undefined && style.bl !== null) safe(() => range.setFontWeight(style.bl ? 'bold' : 'normal'));
+  if (style.it !== undefined && style.it !== null) safe(() => range.setFontStyle(style.it ? 'italic' : 'normal'));
+  if (style.ul && style.ul.s) safe(() => range.setFontLine('underline'));
+  else if (style.ul !== undefined) safe(() => range.setFontLine('none'));
+  if (style.st && style.st.s) safe(() => range.setFontLine('line-through'));
+  if (style.ff) safe(() => range.setFontFamily(style.ff));
+  if (style.fs) safe(() => range.setFontSize(style.fs));
+  if (style.cl && style.cl.rgb) safe(() => range.setFontColor(style.cl.rgb));
+  if (style.bg && style.bg.rgb) safe(() => range.setBackgroundColor(style.bg.rgb));
+  if (style.ht) safe(() => range.setHorizontalAlignment(style.ht));
+  if (style.vt) safe(() => range.setVerticalAlignment(style.vt));
+  if (typeof style.tb !== 'undefined') safe(() => range.setWrap(!!style.tb));
+};
+
 // ──────────────────────────────────────
 // 字段类型常量 - 与 FieldPalette 保持一致
 // 参照迁移文档 §6.2 数据验证类型映射
@@ -205,7 +230,7 @@ interface CellDataItem {
   v: string | number | boolean | null;  // 单元格显示值
   m?: string;                            // 原始值（SpreadJS 兼容）
   t?: number;                            // 单元格类型标记
-  s?: number;                            // 样式索引
+  s?: any;                               // 单元格样式（IStyleData，含字体/背景/对齐/边框等）
   fieldMeta?: FieldMeta;                 // 字段元数据
   tag?: string;                          // 自定义标签
 }
@@ -222,6 +247,8 @@ interface SheetLayoutData {
   colCount: number;
   rowData?: Record<string, { h: number }>;
   columnData?: Record<string, { w: number }>;
+  /** 合并单元格信息：保留 Excel 网格布局（预览还原合并单元格） */
+  mergedCells?: { row: number; col: number; rowSpan: number; colSpan: number }[];
 }
 
 /**
@@ -585,27 +612,69 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
    * 优先取本格；若本格无元数据（如右键/选中落在「标签格」，而元数据挂在「字段输入格」），
    * 则回退到相邻格（上/下/左/右），覆盖「标签在字段左侧」的常规布局，确保总能定位到字段。
    */
-  const resolveCellFieldId = (row: number, col: number): string | null => {
-    const direct = cellFieldMetaMap.current[`${row}_${col}`];
-    if (direct?.fieldId) return String(direct.fieldId);
-    const neighbors = [
-      [row, col - 1], [row, col + 1], [row - 1, col], [row + 1, col],
-    ];
-    for (const [nr, nc] of neighbors) {
-      if (nr < 0 || nc < 0) continue;
-      const m = cellFieldMetaMap.current[`${nr}_${nc}`];
-      if (m?.fieldId) return String(m.fieldId);
+  /**
+   * 从多来源解析单元格字段元数据（含相邻回退）：
+   *   1) 内存 cellFieldMetaMap（当前会话最实时）
+   *   2) 持久化 layoutDataRef（刷新后 Map 可能因时序被清空，但布局已加载、含 fieldMeta）
+   * 命中 layoutData 时同步回写 Map，避免后续操作再次查不到。
+   * 这是「刷新后右键只读/可编辑/必填切不了」「属性高亮失效」的根治：
+   * setFieldAttr / resolveCellFieldId 不再单点依赖易失的 Map。
+   */
+  const lookupCellMeta = (row: number, col: number): { key: string; meta: any } | null => {
+    // 候选窗口：本格 + 相邻(±1) + 扩展(±3列/±1行)。
+    // 右击常落在字段右缘外侧（实测偏移 2 列：字段在 (1,1)、命中 (1,3)），
+    // 仅查相邻 4 格够不到，必须扩大窗口并按距离优先取最近字段。
+    const R = 1, C = 3;
+    const candidates: Array<[number, number]> = [];
+    for (let dr = -R; dr <= R; dr++) {
+      for (let dc = -C; dc <= C; dc++) {
+        const r = row + dr, c = col + dc;
+        if (r >= 0 && c >= 0) candidates.push([r, c]);
+      }
+    }
+    candidates.sort(
+      (a, b) =>
+        Math.abs(a[0] - row) + Math.abs(a[1] - col) - (Math.abs(b[0] - row) + Math.abs(b[1] - col)),
+    );
+
+    // 1) 内存 Map（当前会话最实时）
+    for (const [r, c] of candidates) {
+      const m = cellFieldMetaMap.current[`${r}_${c}`];
+      if (m?.fieldId) return { key: `${r}_${c}`, meta: m };
+    }
+
+    // 2) 持久化布局兜底（刷新后 Map 可能为空，但 layoutData 已加载、含 fieldMeta）
+    const data = layoutDataRef.current;
+    const sheetData = data ? resolveSheetData(data) : null;
+    const cellData = sheetData?.cellData;
+    if (cellData) {
+      for (const [r, c] of candidates) {
+        const cell = cellData[r]?.[c] || cellData[String(r)]?.[String(c)];
+        const fm = cell?.fieldMeta;
+        if (fm?.fieldId) {
+          const key = `${r}_${c}`;
+          cellFieldMetaMap.current[key] = fm; // 同步回 Map
+          return { key, meta: fm };
+        }
+      }
     }
     return null;
   };
 
-  /** 解析某坐标对应的字段元数据（含相邻回退），供右键菜单高亮当前属性用 */
+  const resolveCellFieldId = (row: number, col: number): string | null => {
+    const r = lookupCellMeta(row, col);
+    return r ? String(r.meta.fieldId) : null;
+  };
+
+  /** 解析某坐标对应的字段元数据（含相邻回退 + 布局兜底），供右键菜单高亮当前属性用 */
   const resolveCellMeta = (row: number, col: number): FieldMeta | null => {
-    const fid = resolveCellFieldId(row, col);
-    if (!fid) return null;
+    const r = lookupCellMeta(row, col);
+    if (!r) return null;
     const direct = cellFieldMetaMap.current[`${row}_${col}`];
     if (direct?.fieldId) return direct as FieldMeta;
-    return (Object.values(cellFieldMetaMap.current).find((m: any) => String(m?.fieldId) === fid) as FieldMeta) || null;
+    return (Object.values(cellFieldMetaMap.current).find(
+      (m: any) => String(m?.fieldId) === String(r.meta.fieldId)
+    ) as FieldMeta) || (r.meta as FieldMeta) || null;
   };
 
   // 标记是否正在放置字段（避免放置后立即触发重新加载）
@@ -632,6 +701,78 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // 保持最新的 onLayoutChange（供 setFieldAttr 持久化，避免闭包捕获旧值）
   const onLayoutChangeRef = useRef(onLayoutChange);
   onLayoutChangeRef.current = onLayoutChange;
+
+  // 最近一次选区的激活单元格（复制/剪切/粘贴时定位源/目标格用）
+  const lastSelectionCellRef = useRef<{ row: number; col: number } | null>(null);
+  // 复制/剪切时暂存的字段元数据（含源格坐标），粘贴时据此跟随或去重
+  const clipboardFieldMetaRef = useRef<{ row: number; col: number; meta: any } | null>(null);
+  // FUniver 外观实例（持有 onBeforeCopy/onBeforePaste/onCopy/onPaste 钩子）
+  const fUniverRef = useRef<any>(null);
+
+  // 保持最新的 layoutData：Univer 初始化等「只跑一次」的闭包里若直接读 layoutData，
+  // 会捕获到初始的空对象 {}，导致用空数据加载布局（见下方 hasLayoutContent 说明）。
+  const layoutDataRef = useRef(layoutData);
+  layoutDataRef.current = layoutData;
+
+  /**
+   * 判断布局数据是否含实际内容，用于区分两种「空」：
+   *   - 尚未加载的初始 {}（无 sheets / cellData / dataTable）→ 不能加载
+   *   - 用户清空后保存的空布局（有 sheets 或 cellData 键，值为 {}）→ 需要加载以清空表格
+   * ⚠️ 必须用空布局调用 loadLayoutData 才是清空，用「未加载」的 {} 调用则是误清空。
+   */
+  const hasLayoutContent = (data: any): boolean =>
+    !!data && !!(data.sheets || data.cellData || data.data?.dataTable);
+
+  /**
+   * 从布局数据中解析目标工作表数据（兼容两种形状 + sheet 名大小写差异）：
+   *   1) { sheets: { sheet1: { cellData } } } —— saveLayoutData 返回的 result
+   *   2) { cellData, ... }                    —— saveLayoutData 内部回调的 parentData
+   */
+  const resolveSheetData = (data: any): any | null => {
+    if (!data) return null;
+    if (data.sheets) {
+      const keys = Object.keys(data.sheets);
+      return (
+        data.sheets[sheetName] ||
+        data.sheets[sheetName.toLowerCase()] ||
+        (data.sheetOrder?.length ? data.sheets[data.sheetOrder[0]] : undefined) ||
+        (keys.length ? data.sheets[keys[0]] : undefined) ||
+        null
+      );
+    }
+    return data;
+  };
+
+  /**
+   * 收集布局数据中已放置的字段标识，用于唯一性校验兜底：
+   * 刷新页面后内存 Map 依赖 loadLayoutData 重建，若加载时序异常导致 Map 为空，
+   * 仅靠内存判断会让同一字段被重复拖入。
+   *
+   * 同时按 fieldId 与 fieldName 收集两套 key（格式均为 `${标识}_${cellType}`）：
+   * fieldName 是数据绑定的真实身份（占位符为 `${fieldName}`），
+   * 当 id 缺失、或拖入时与保存时取的 id 字段不一致时，用 fieldName 仍能正确识别同一字段。
+   */
+  const collectPlacedFields = (data: any): { byId: Set<string>; byName: Set<string> } => {
+    const byId = new Set<string>();
+    const byName = new Set<string>();
+    if (!data) return { byId, byName };
+    const scan = (cellData: any) => {
+      Object.values(cellData || {}).forEach((rowData: any) => {
+        Object.values(rowData || {}).forEach((cell: any) => {
+          const meta = (cell as any)?.fieldMeta;
+          if (!meta) return;
+          if (meta.fieldId) byId.add(`${String(meta.fieldId)}_${meta.cellType}`);
+          if (meta.fieldName) byName.add(`${String(meta.fieldName)}_${meta.cellType}`);
+        });
+      });
+    };
+    if (data.sheets) {
+      Object.values(data.sheets).forEach((s: any) => scan((s as any)?.cellData));
+    } else {
+      scan(data.cellData);
+    }
+    return { byId, byName };
+  };
 
   const setCellField = useCallback((
     workbook: any,  // FWorkbook (Facade)
@@ -742,11 +883,16 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           if (isNaN(col)) return;
           cellCount++;
 
+          const cellKey = `${row}_${col}`;
+          // Facade API: FWorksheet.getRange(row, col) 返回 FRange
+          let range: any = null;
+          try { range = sheet.getRange(row, col); } catch { /* 越界忽略 */ }
+
           // 解析字段元数据
-          if ((cell as any).fieldMeta) {
-            // 存储到内存 Map（复制一份，避免直接改源数据）
-            const cellKey = `${row}_${col}`;
-            const loadedMeta: any = { ...(cell as any).fieldMeta };
+          const loadedMeta: any = (cell as any).fieldMeta ? { ...(cell as any).fieldMeta } : null;
+          const isFieldCell = loadedMeta?.cellType === 'field';
+
+          if (loadedMeta) {
             // 只读模板（显示/监控/打印）→ 强制 fieldAttr=1，对应 ecology resumeSheetData:808 + getCellFieldImage:3745
             if (isReadOnlyTemplate) {
               loadedMeta.fieldAttr = 1;
@@ -755,9 +901,23 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             // 设置单元格值（按覆盖后的属性上色，确保 loadLayoutData 重载时样式一致，避免"切不回去"）
             setCellField(workbook, sheet, row, col, loadedMeta as FieldMeta);
           } else if ((cell as any).v !== undefined && (cell as any).v !== null) {
-            // Facade API: FWorksheet.getRange(row, col) 返回 FRange
-            const range = sheet.getRange(row, col);
-            range.setValue((cell as any).v);
+            if (range) range.setValue((cell as any).v);
+            else sheet.getRange(row, col).setValue((cell as any).v);
+          }
+
+          // 还原 Excel 单元格样式（字体/对齐/颜色/背景等）
+          // ⚠️ 字段占位符格的「背景色」由 fieldAttr 唯一决定（只读灰 / 可编辑白 / 必填浅红）。
+          // 这里若连带还原 s.bg，会把 setCellField 刚上的属性底色覆盖掉，
+          // 表现就是"只读/可编辑/必填切了没效果"。因此字段格跳过背景还原。
+          if (range && (cell as any).s) {
+            const restoredStyle = { ...(cell as any).s };
+            if (isFieldCell) delete restoredStyle.bg;
+            applyCellStyle(range, restoredStyle);
+          }
+
+          // 属性底色最后应用（唯一决策点），确保 fieldAttr 视觉一定生效
+          if (range && isFieldCell) {
+            applyFieldAttrStyle(range, loadedMeta as FieldMeta);
           }
         });
       });
@@ -777,6 +937,18 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             }
           }
         }
+      }
+
+      // 还原列宽与行高（与保存对应，确保 Excel 布局尺寸保留）
+      if (data.columnData) {
+        Object.entries(data.columnData).forEach(([c, d]: [string, any]) => {
+          try { sheet.setColumnWidth(Number(c), d.w); } catch { /* 越界忽略 */ }
+        });
+      }
+      if (data.rowData) {
+        Object.entries(data.rowData).forEach(([r, d]: [string, any]) => {
+          try { sheet.setRowHeight(Number(r), d.h); } catch { /* 越界忽略 */ }
+        });
       }
 
       if (cellCount > 0) {
@@ -822,9 +994,12 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           // Facade API: FWorksheet.getRange(row, col) 返回 FRange
           // 单个单元格越界不应中断整个保存过程
           let value: any;
+          let cellStyle: any = null;
           try {
             const range = sheet.getRange(row, col);
             value = range.getValue();
+            // 捕获单元格样式（composed，含字体/背景/对齐等，用于保存后还原 Excel 样式）
+            cellStyle = range.getCellStyleData();
           } catch (rangeErr) {
             console.warn(`[Save] 读取单元格 (${row}, ${col}) 失败，跳过:`, rangeErr);
             continue;
@@ -846,11 +1021,19 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
                 // 保持标签身份并正常保存，避免被当作过期元数据删除
                 fieldMeta.fieldLabel = String(value ?? '');
               } else {
-                // 字段占位符被破坏：元数据已过期，清除并跳过该单元格
-                console.log(`[Save] 单元格 (${row}, ${col}) 值不匹配，跳过: 实际值="${value}", 期望值="${getCellDisplayValue(fieldMeta)}"`);
-                const cellKey = `${row}_${col}`;
-                delete cellFieldMetaMap.current[cellKey];
-                continue;
+                // 字段占位符被破坏 → 按「字段禁止手动改文本」的约定还原正确显示值，并保留元数据。
+                // ⚠️ 不能删除元数据：一旦删除，该字段会从 cellFieldMetaMap 与保存结果中消失，
+                // 下一次 loadLayoutData 重载后元数据丢失，导致：
+                //   1) 唯一性校验失效 → 同一个字段可以被重复拖入
+                //   2) 右键「只读/可编辑/必填」因 resolveCellFieldId 查不到字段而失效
+                const expected = getCellDisplayValue(fieldMeta);
+                console.log(`[Save] 单元格 (${row}, ${col}) 值不匹配，还原为期望值: 实际值="${value}", 期望值="${expected}"`);
+                try {
+                  sheet.getRange(row, col).setValue(expected);
+                } catch (e) {
+                  console.warn('[Save] 还原字段显示值失败:', e);
+                }
+                value = expected;
               }
             }
           }
@@ -862,6 +1045,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
           cellData[row][col] = {
             v: value,
+            s: cellStyle || undefined,
             fieldMeta: fieldMeta || undefined,
           };
 
@@ -870,6 +1054,50 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           dataTable[row][col] = value;
         }
       }
+
+      // 捕获合并单元格信息（用于预览保留 Excel 网格布局，还原合并单元格）
+      let mergedCells: { row: number; col: number; rowSpan: number; colSpan: number }[] = [];
+      try {
+        const mergeRanges: any[] = typeof (sheet as any).getMergeData === 'function' ? (sheet as any).getMergeData() : [];
+        mergedCells = mergeRanges
+          .map((m: any) => {
+            const r = typeof m.getRange === 'function' ? m.getRange() : (m._range || m);
+            return {
+              row: r.startRow,
+              col: r.startColumn,
+              rowSpan: r.endRow - r.startRow + 1,
+              colSpan: r.endColumn - r.startColumn + 1,
+            };
+          })
+          .filter((m: any) => m.rowSpan > 1 || m.colSpan > 1);
+      } catch (e) {
+        console.warn('[Save] 读取合并单元格失败:', e);
+      }
+
+      // 捕获列宽与行高（保留 Excel 布局尺寸，避免保存后列宽/行高丢失）
+      const columnData: Record<string, { w: number }> = {};
+      const rowData: Record<string, { h: number }> = {};
+      for (let c = 0; c < maxCol; c++) {
+        try {
+          const w = sheet.getColumnWidth(c);
+          if (w && w > 0) columnData[c] = { w };
+        } catch { /* 读取列宽失败忽略 */ }
+      }
+      for (let r = 0; r < maxRow; r++) {
+        try {
+          const h = sheet.getRowHeight(r);
+          if (h && h > 0) rowData[r] = { h };
+        } catch { /* 读取行高失败忽略 */ }
+      }
+
+      // 诊断：本次保存实际写入了多少个 fieldMeta（确认字段元数据是否真的进了持久化 JSON）
+      let savedFieldMetaCount = 0;
+      Object.values(cellData).forEach((rowData: any) => {
+        Object.values(rowData || {}).forEach((cell: any) => {
+          if (cell?.fieldMeta) savedFieldMetaCount++;
+        });
+      });
+      console.log('[Save] 写入的 fieldMeta 数量 =', savedFieldMetaCount, 'Map 剩余 keys =', Object.keys(cellFieldMetaMap.current).length);
 
       if (!hasData) {
         // 关键修复：清空后仍需返回空布局并同步，否则
@@ -887,6 +1115,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
               cellData: {},
               rowCount: maxRow,
               colCount: maxCol,
+              mergedCells: [],
+              columnData: {},
+              rowData: {},
             },
           },
           sheetName,
@@ -911,6 +1142,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             cellData,
             rowCount: maxRow,
             colCount: maxCol,
+            mergedCells,
+            columnData,
+            rowData,
           },
         },
       };
@@ -993,19 +1227,104 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       // 区分标签与字段（FieldPalette 拖动时写入 type：formLabel=标签 / formField=字段）
       const isLabel = actualField.type === 'formLabel';
 
-      // ── 唯一性校验：同一个字段（按 字段ID + 标签/字段 区分）只能拖入一次 ──
+      // ── 唯一性校验：同一个字段（按 字段ID/字段名 + 标签/字段 区分）只能拖入一次 ──
       // 依据 cellFieldMetaMap 动态计算已放置的字段，因此：
       // - 清空单元格（移除字段）后自动释放，可再次拖入
       // - 刷新页面/加载布局后自动保持正确，无需额外持久化
-      const dropFieldId = String(actualField.id || actualField.fieldId || '');
+      //
+      // 身份标识同时用 fieldId 与 fieldName 两套：fieldName 是数据绑定的真实身份
+      // （占位符为 ${fieldName}），当 id 字段缺失或前后取值不一致时仍能正确识别同一字段。
+      const fieldIdOf = (f: any) =>
+        String(f?.id ?? f?.fieldId ?? f?.fieldid ?? f?.field_code ?? '');
+      const dropFieldId = fieldIdOf(actualField);
+      const dropName = String(actualField.fieldName || actualField.name || '');
+      const dropLabel = String(actualField.fieldLabel || actualField.label || '');
       const dropType = isLabel ? 'label' : 'field';
-      const alreadyPlaced = Object.values(cellFieldMetaMap.current).some(
-        (meta: any) => `${String(meta?.fieldId ?? '')}_${meta?.cellType}` === `${dropFieldId}_${dropType}`
+      const dropIdKey = `${dropFieldId}_${dropType}`;
+      const dropNameKey = `${dropName}_${dropType}`;
+
+      // 内存 Map 已放置的标识集合（id / name 两套）
+      const mapEntries = Object.values(cellFieldMetaMap.current) as any[];
+      const placedInMapById = mapEntries.some(
+        (meta) => `${String(meta?.fieldId ?? '')}_${meta?.cellType}` === dropIdKey
       );
-      if (alreadyPlaced) {
-        console.log(`[handleFieldDrop] 字段已拖入，拒绝重复放置: ${dropFieldId}_${dropType}`);
+      const placedInMapByName = !!dropName && mapEntries.some(
+        (meta) => meta?.cellType === dropType && String(meta?.fieldName ?? '') === dropName
+      );
+
+      // 兜底：刷新页面后内存 Map 需等 loadLayoutData 重建，可能因时序异常为空；
+      // 此时查一次持久化布局数据（同时覆盖 id / name）。
+      const layoutFields = collectPlacedFields(layoutDataRef.current);
+      const placedInLayoutById = layoutFields.byId.has(dropIdKey);
+      const placedInLayoutByName = !!dropName && layoutFields.byName.has(dropNameKey);
+
+      // 3) 兜底之二：直接扫描当前 Excel 表格，看是否已存在该字段的占位符 / 标签文字。
+      //    刷新页面后，loadLayoutData 可能因时序把 cellFieldMetaMap 清空，但字段仍真实画在表格里
+      //    （只剩显示值、丢了元数据）。此时前两种校验都查不到，会出现"重复拖入未被拦截"。
+      //    直接扫表格单元格的值最可靠：字段占位符为 ${fieldName}，标签为标签文字。
+      let placedInSheet = false;
+      let zombieCell: { r: number; c: number } | null = null;
+      if (dropName) {
+        try {
+          const maxR = typeof sheet.getMaxRows === 'function' ? Math.min(sheet.getMaxRows(), 200) : 50;
+          const maxC = typeof sheet.getMaxColumns === 'function' ? Math.min(sheet.getMaxColumns(), 50) : 26;
+          for (let r = 0; r < maxR && !placedInSheet; r++) {
+            for (let c = 0; c < maxC; c++) {
+              let v: any;
+              try { v = sheet.getRange(r, c).getValue(); } catch { continue; }
+              if (v == null || v === '') continue;
+              const sv = String(v);
+              const hit =
+                (dropType === 'field' && sv.includes('${' + dropName + '}')) ||
+                (dropType === 'label' &&
+                  ((dropName && sv.includes(dropName)) || (dropLabel && sv.includes(dropLabel))));
+              if (hit) { placedInSheet = true; zombieCell = { r, c }; break; }
+            }
+          }
+        } catch (scanErr) {
+          console.warn('[DropCheck] 扫描表格失败:', scanErr);
+        }
+      }
+
+      // 真正"已放置"= 内存 Map 或持久化布局里有完整元数据（id / name 两套）。
+      // 仅 placedInSheet 命中（表格残留占位符值、但无元数据）属于刷新后常见的"僵尸格"，
+      // 不应拒绝，而应允许重新绑定元数据（否则会出现"值在了却永远查不到元数据"的死循环）。
+      const properlyPlaced =
+        placedInMapById || placedInMapByName || placedInLayoutById || placedInLayoutByName;
+
+      // ── 诊断日志：定位"重复拖入未被拦截"的根因 ──
+      console.log('[DropCheck] 校验', {
+        dropIdKey,
+        dropNameKey,
+        actualFieldType: actualField?.type,
+        actualFieldId: actualField?.id,
+        actualFieldFieldId: actualField?.fieldId,
+        actualFieldName: actualField?.fieldName,
+        mapEntries: mapEntries.map((m) => `${String(m?.fieldId)}|${String(m?.fieldName)}|${m?.cellType}`),
+        layoutById: Array.from(layoutFields.byId),
+        layoutByName: Array.from(layoutFields.byName),
+        layoutShape: layoutDataRef.current ? Object.keys(layoutDataRef.current) : null,
+        placedInSheet,
+        zombieCell,
+        result: { properlyPlaced, placedInSheet },
+      });
+
+      // 有完整元数据的真实重复 → 拒绝
+      if (properlyPlaced) {
+        console.log(`[handleFieldDrop] 字段已拖入，拒绝重复放置: ${dropIdKey}`);
         message.warning('该字段已拖入表格，不能重复拖动；如需调整请先清空原单元格');
         return;
+      }
+
+      // 僵尸格（仅残留值、无元数据）：重新绑定。若残留值位于其他单元格，先清空以免重复。
+      if (placedInSheet && zombieCell && (zombieCell.r !== row || zombieCell.c !== col)) {
+        try {
+          const zr = sheet.getRange(zombieCell.r, zombieCell.c);
+          if (zr && typeof zr.setValue === 'function') zr.setValue('');
+          console.log(`[handleFieldDrop] 清空僵尸占位符格 (${zombieCell.r}, ${zombieCell.c}) 以重新绑定`);
+        } catch (clearErr) {
+          console.warn('[handleFieldDrop] 清空僵尸格失败:', clearErr);
+        }
       }
 
       // 解析正确的 fieldType：
@@ -1447,6 +1766,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         // 保存 Facade 引用
         workbookRef.current = fWorkbook;
         univerRef.current = univer;
+        fUniverRef.current = fUniver;
         setWorkbook(fWorkbook); // fWorkbook 是 FWorkbook (Facade)
         setInitialized(true);
         setInitError('');
@@ -1633,6 +1953,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
               const row = cur?.actualRow ?? cur?.row ?? cur?.startRow;
               const col = cur?.actualColumn ?? cur?.col ?? cur?.startColumn;
               if (row == null || col == null) return;
+              lastSelectionCellRef.current = { row, col };
               // 按字段 ID 定位（标签格回退到相邻字段格，与右键菜单逻辑一致）
               const hasField = !!resolveCellFieldId(row, col);
               const meta = hasField ? resolveCellMeta(row, col) : null;
@@ -1654,34 +1975,29 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         console.log('[Drag] 视觉反馈: 半透明蓝色填充 + 亮色边框预览');
 
         // 加载布局数据
-        if (layoutData) {
-          // 支持两种格式：
-          // 1. 直接包含 cellData 的格式
-          // 2. Univer 完整格式：{sheets: {sheet1: {cellData: {...}}}}
-          let sheetData = layoutData;
-
-          // 尝试按 sheetName 查找（处理大小写不匹配问题）
-          if (layoutData.sheets) {
-            // 优先精确匹配
-            sheetData = layoutData.sheets[sheetName];
-            // 如果没找到，尝试小写匹配
-            if (!sheetData) {
-              sheetData = layoutData.sheets[sheetName.toLowerCase()];
-            }
-            // 如果还没找到，尝试第一个 sheet
-            if (!sheetData && layoutData.sheetOrder && layoutData.sheetOrder.length > 0) {
-              sheetData = layoutData.sheets[layoutData.sheetOrder[0]];
-            }
+        // ⚠️ 两处关键修正（修复「保存后刷新页面，同一字段仍可重复拖入」）：
+        // 1) 在定时器「触发时」通过 layoutDataRef 读取最新数据：本 effect 依赖只有 [sheetName]，
+        //    直接读 layoutData 会捕获到初始的空 {}（真实布局是异步从后端取回的）。
+        // 2) 空布局绝不能调用 loadLayoutData：它会先清空 cellFieldMetaMap 再清空整表。
+        //    本处延时 300ms，晚于主 effect（100ms）的真实数据加载，
+        //    一旦用空数据执行，就会把刚恢复的字段元数据全部抹掉，
+        //    表现为刷新后「同一字段可重复拖入」且「只读/可编辑/必填」失效。
+        setTimeout(() => {
+          const latest = layoutDataRef.current;
+          if (!hasLayoutContent(latest)) {
+            console.log('[Layout] 初始化时布局数据尚未加载，跳过（避免抹掉已恢复的字段元数据）');
+            return;
           }
-
+          const sheetData = resolveSheetData(latest);
           if (sheetData) {
-            setTimeout(() => {
-              loadLayoutData(sheetData, layoutType);
-            }, 300);
+            loadLayoutData(sheetData, layoutType);
           } else {
-            console.log('[Layout] 未找到对应 Sheet 的数据:', { sheetName, availableSheets: layoutData.sheets ? Object.keys(layoutData.sheets) : null });
+            console.log('[Layout] 未找到对应 Sheet 的数据:', {
+              sheetName,
+              availableSheets: latest?.sheets ? Object.keys(latest.sheets) : null,
+            });
           }
-        }
+        }, 300);
 
         // 调试：输出 canvas 尺寸（确认手动计算方案的基础数据）
         setTimeout(() => {
@@ -1731,6 +2047,96 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     };
   }, [sheetName]);
 
+  // ──────────────────────────────────────────────
+  // 复制 / 剪切 / 粘贴：字段元数据跟随与防重复
+  // - 复制字段 → 粘贴会产生重复绑定 → 清除目标值并提示「字段不能复制」
+  // - 剪切字段 → 粘贴后字段元数据跟随到新位置（避免绑定丢失）
+  // 说明：Univer 的 beforeCommandExecuted 仅通知、无法取消，故在粘贴侧拦截处理；
+  //       复制/剪切前用 onBeforePaste 暂存源字段元数据，粘贴后用 onPaste 处理目标。
+  // ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!initialized || !fUniverRef.current) return;
+    const fUniver = fUniverRef.current;
+
+    // 取当前激活单元格坐标（优先实时选区，回退到最近缓存）
+    const getPrimaryCell = (): { row: number; col: number } | null => {
+      try {
+        const sheet: any = workbookRef.current?.getActiveSheet?.();
+        const sel: any = sheet?.getSelection?.();
+        const arr = Array.isArray(sel) ? sel : (sel?.selection || [sel]);
+        const cur = arr?.[0];
+        const row = cur?.actualRow ?? cur?.row ?? cur?.startRow;
+        const col = cur?.actualColumn ?? cur?.col ?? cur?.startColumn;
+        if (row != null && col != null) return { row, col };
+      } catch { /* ignore */ }
+      return lastSelectionCellRef.current;
+    };
+
+    // 复制/剪切前：若源格是字段，暂存其元数据（含源坐标）
+    const captureSourceFieldMeta = () => {
+      const sel = getPrimaryCell();
+      if (!sel) return;
+      let meta = getCellFieldMeta(sel.row, sel.col);
+      if (!meta) {
+        // 兜底：刷新后 Map 可能为空，但值残留 → 从 ${fieldName} 还原最小元数据
+        try {
+          const sheet: any = workbookRef.current?.getActiveSheet?.();
+          const v = sheet?.getRange?.(sel.row, sel.col)?.getValue?.();
+          if (v && String(v).includes('${')) {
+            const name = (String(v).match(/\$\{([^}]+)\}/) || [])[1];
+            if (name) meta = { fieldName: name, cellType: 'field', fieldAttr: 0 } as any;
+          }
+        } catch { /* ignore */ }
+      }
+      if (meta) clipboardFieldMetaRef.current = { row: sel.row, col: sel.col, meta };
+    };
+
+    // 粘贴后：依据源是否仍保留值判断剪切/复制
+    const handlePasteFieldMeta = () => {
+      const clip = clipboardFieldMetaRef.current;
+      clipboardFieldMetaRef.current = null;
+      if (!clip) return; // 普通粘贴，无需处理
+      const dest = getPrimaryCell();
+      if (!dest) return;
+      const sheet: any = workbookRef.current?.getActiveSheet?.();
+      if (!sheet) return;
+      const srcKey = `${clip.row}_${clip.col}`;
+      const destKey = `${dest.row}_${dest.col}`;
+      if (srcKey === destKey) return; // 原地粘贴
+
+      let srcValue: any = '';
+      try { srcValue = sheet.getRange(clip.row, clip.col)?.getValue?.() ?? ''; } catch { /* ignore */ }
+      const isCut = srcValue == null || srcValue === '';
+
+      if (isCut) {
+        // 剪切：字段元数据跟随到新位置
+        delete cellFieldMetaMap.current[srcKey];
+        cellFieldMetaMap.current[destKey] = clip.meta;
+        try {
+          setCellField(workbookRef.current, sheet, dest.row, dest.col, clip.meta);
+        } catch (e) {
+          console.warn('[Clipboard] 重新绑定字段元数据失败:', e);
+        }
+        message.success('字段已移动到新位置');
+        try {
+          const data = saveLayoutData();
+          if (data) onLayoutChangeRef.current?.(data);
+        } catch (e) { console.warn('[Clipboard] 同步布局失败:', e); }
+      } else {
+        // 复制：产生重复字段绑定 → 禁止，清除目标值
+        try { sheet.getRange(dest.row, dest.col)?.setValue?.(''); } catch { /* ignore */ }
+        message.warning('字段不能复制，已清除粘贴内容');
+      }
+    };
+
+    const d1 = fUniver.onBeforePaste?.(captureSourceFieldMeta);
+    const d2 = fUniver.onPaste?.(handlePasteFieldMeta);
+    return () => {
+      d1?.dispose?.();
+      d2?.dispose?.();
+    };
+  }, [initialized, getCellFieldMeta, setCellField, saveLayoutData]);
+
   // 暴露接口给父组件（通过 window 桥接）
   // 使用 Facade API (FWorkbook/FWorksheet)
   // ──────────────────────────────────────
@@ -1746,6 +2152,23 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         if (!fieldId) {
           console.warn('[setFieldAttr] 未找到字段，row=' + row + ', col=' + col);
           return;
+        }
+
+        // 刷新后 Map 可能只有部分单元格（甚至为空）：从持久化布局补全该 fieldId 的全部单元格，
+        // 否则只更新 Map 里已有的那一格，label/field 双格不同步、保存也会丢字段元数据。
+        const lData = layoutDataRef.current;
+        const lSheet = lData ? resolveSheetData(lData) : null;
+        const lCellData = lSheet?.cellData;
+        if (lCellData) {
+          Object.entries(lCellData).forEach(([rk, rd]: any) => {
+            const r = Number(rk);
+            Object.entries(rd || {}).forEach(([ck, cell]: any) => {
+              const fm = (cell as any)?.fieldMeta;
+              if (fm && String(fm.fieldId) === fieldId) {
+                cellFieldMetaMap.current[`${r}_${Number(ck)}`] = fm;
+              }
+            });
+          });
         }
 
         // 遍历所有同 fieldId 的单元格，统一更新属性并刷新显示/样式
@@ -1847,26 +2270,17 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       return;
     }
 
+    // 未加载的空 {} 不触发加载：loadLayoutData 会先清空 cellFieldMetaMap 再清空整表，
+    // 用「尚未加载」的空对象执行会把已恢复的字段元数据抹掉。
+    if (!hasLayoutContent(layoutData)) {
+      console.log('[Layout] 布局数据为空（尚未加载），跳过重新加载');
+      return;
+    }
+
     console.log('[Layout] layoutData 变化，重新加载', { sheetName, hasCellData: !!(layoutData.sheets || layoutData.cellData) });
 
-    // 支持两种格式：
-    // 1. 直接包含 cellData 的格式
-    // 2. Univer 完整格式：{sheets: {sheet1: {cellData: {...}}}}
-    let sheetData = layoutData;
-
-    // 尝试按 sheetName 查找（处理大小写不匹配问题）
-    if (layoutData.sheets) {
-      // 优先精确匹配
-      sheetData = layoutData.sheets[sheetName];
-      // 如果没找到，尝试小写匹配
-      if (!sheetData) {
-        sheetData = layoutData.sheets[sheetName.toLowerCase()];
-      }
-      // 如果还没找到，尝试第一个 sheet
-      if (!sheetData && layoutData.sheetOrder && layoutData.sheetOrder.length > 0) {
-        sheetData = layoutData.sheets[layoutData.sheetOrder[0]];
-      }
-    }
+    // 支持两种格式（解析逻辑与 Univer 初始化处共用 resolveSheetData）
+    const sheetData = resolveSheetData(layoutData);
 
     if (sheetData) {
       // 使用微延迟确保表格已渲染
@@ -1997,13 +2411,40 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     // 并让 label 与 field 同步生效；因此这里的门限判断必须同样带相邻回退，
     // 否则右键字段格会被误判为「没有元数据」，setFieldAttr 永远得不到调用。
     const findMetaNear = (r: number, c: number): { key: string; meta: any } | null => {
-      const direct = cellFieldMetaMap.current[`${r}_${c}`];
-      if (direct) return { key: `${r}_${c}`, meta: direct };
-      const neighbors = [[r, c - 1], [r, c + 1], [r - 1, c], [r + 1, c]];
-      for (const [nr, nc] of neighbors) {
-        if (nr < 0 || nc < 0) continue;
-        const m = cellFieldMetaMap.current[`${nr}_${nc}`];
-        if (m) return { key: `${nr}_${nc}`, meta: m };
+      // 窗口：本格 + 相邻(±1) + 扩展(±3列/±1行)，按到点击点距离优先。
+      // 右击常落在字段右缘外侧（实测偏移 2 列：字段在 (1,1)、命中 (1,3)），
+      // 仅查相邻 4 格够不到，必须扩大窗口；并在 Map 为空时回退到持久化 layoutData。
+      const R = 1, C = 3;
+      const cand: Array<[number, number]> = [];
+      for (let dr = -R; dr <= R; dr++) {
+        for (let dc = -C; dc <= C; dc++) {
+          const rr = r + dr, cc = c + dc;
+          if (rr >= 0 && cc >= 0) cand.push([rr, cc]);
+        }
+      }
+      cand.sort(
+        (a, b) =>
+          Math.abs(a[0] - r) + Math.abs(a[1] - c) - (Math.abs(b[0] - r) + Math.abs(b[1] - c)),
+      );
+
+      // 1) 内存 Map（当前会话最实时）
+      for (const [rr, cc] of cand) {
+        const m = cellFieldMetaMap.current[`${rr}_${cc}`];
+        if (m) return { key: `${rr}_${cc}`, meta: m };
+      }
+      // 2) 持久化布局兜底（刷新后 Map 可能为空，但 layoutData 已加载、含 fieldMeta）
+      const data = layoutDataRef.current;
+      const sd = data ? resolveSheetData(data) : null;
+      const cd = sd?.cellData;
+      if (cd) {
+        for (const [rr, cc] of cand) {
+          const cell = cd[rr]?.[cc] || cd[String(rr)]?.[String(cc)];
+          const fm = (cell as any)?.fieldMeta;
+          if (fm) {
+            cellFieldMetaMap.current[`${rr}_${cc}`] = fm; // 同步回 Map
+            return { key: `${rr}_${cc}`, meta: fm };
+          }
+        }
       }
       return null;
     };
@@ -2098,7 +2539,20 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             console.log(`[FieldAttrEvent] 通过 univer 菜单设置字段属性: row=${row}, col=${col}, attr=${detail.attr}`);
           }
         } else {
-          console.warn('[FieldAttrEvent] 选中单元格没有字段元数据:', { row, col });
+          // 诊断：持久化布局里到底有没有 fieldMeta（区分"坐标偏差"还是"元数据根本没落库"）
+          let layoutFieldCount = 0;
+          try {
+            const sd = layoutDataRef.current ? resolveSheetData(layoutDataRef.current) : null;
+            const cd = sd?.cellData;
+            if (cd) {
+              Object.entries(cd).forEach(([, rd]: any) => {
+                Object.entries(rd || {}).forEach(([, cell]: any) => {
+                  if ((cell as any)?.fieldMeta) layoutFieldCount++;
+                });
+              });
+            }
+          } catch { /* ignore */ }
+          console.warn('[FieldAttrEvent] 选中单元格没有字段元数据:', { row, col, layoutFieldCount });
         }
       } catch (e) {
         console.warn('[FieldAttrEvent] 处理字段属性变更失败:', e);

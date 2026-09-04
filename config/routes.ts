@@ -22,6 +22,13 @@ export default [
       },
     ],
   },
+  // Excel 表单预览「独立页面」：由设计器「预览」按钮在新标签页打开。
+  // layout: false 表示不套 ProLayout/菜单外壳，整页只渲染表单，对齐 ecology excelPreView。
+  {
+    path: '/formmode/exceldesign/ExcelPreviewPage',
+    layout: false,
+    component: './FormMode/ExcelDesign/ExcelPreviewPage',
+  },
   {
     path: '/',
     routes: [

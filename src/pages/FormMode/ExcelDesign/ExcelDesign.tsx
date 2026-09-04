@@ -27,6 +27,7 @@ import FieldPalette from './components/FieldPalette';
 import UniverExcelGrid from './components/UniverExcelGrid';
 import PropertyPanel from './components/PropertyPanel';
 import ExcelPreview from './components/ExcelPreview';
+import { EXCEL_PREVIEW_DATA_KEY } from './ExcelPreviewPage';
 import { saveFormLayout, getFormLayout } from '@/services/formmode/formLayoutApi';
 
 /**
@@ -43,6 +44,9 @@ const ExcelDesignContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('Sheet1');
   const [selectedField, setSelectedField] = useState<any>(null);
   const [layoutData, setLayoutData] = useState<any>({});
+  // 镜像 ref：在异步回调里读取最新的 layoutData，避免闭包捕获到初始空对象
+  const layoutDataRef = useRef(layoutData);
+  layoutDataRef.current = layoutData;
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [pendingField, setPendingField] = useState<any>(null);
@@ -137,7 +141,7 @@ const ExcelDesignContent: React.FC = () => {
     };
   }, []);
 
-  const loadFormLayout = async () => {
+  const loadFormLayout = async (force = false) => {
     if (!formId) return;
     setLoading(true);
     try {
@@ -154,7 +158,19 @@ const ExcelDesignContent: React.FC = () => {
             layoutJson = {};
           }
         }
+
+        // 竞态防护：初始异步加载若晚于用户拖入字段才返回，会覆盖掉已带字段元数据的布局，
+        // 进而触发 loadLayoutData 清空内存 Map → 随后的显式保存读到空 Map → 字段元数据丢失（无法持久化）。
+        // 非强制加载（挂载/初次）时，若当前已有布局内容，则跳过，保留用户编辑结果。
+        if (!force && layoutDataRef.current && Object.keys(layoutDataRef.current).length > 0) {
+          console.log('[LoadFormLayout] 跳过覆盖：当前已有布局数据（避免异步加载覆盖用户编辑）', {
+            currentKeys: Object.keys(layoutDataRef.current),
+          });
+          return;
+        }
+
         setLayoutData(layoutJson || {});
+        console.log('[LoadFormLayout] 已加载布局数据', { hasFieldMeta: JSON.stringify(layoutJson).includes('fieldMeta') });
         message.success('布局数据加载成功');
       }
     } catch (error) {
@@ -168,7 +184,9 @@ const ExcelDesignContent: React.FC = () => {
   // ──────────────────────────────────────────────
   // 保存表单布局 - 从 UniverExcelGrid 获取数据
   // ──────────────────────────────────────────────
-  // 预览：获取当前布局数据并打开预览弹窗
+  // 预览：取当前布局数据，在**新标签页**打开独立预览页。
+  // 对齐 ecology excelPreView 的行为（预览是独立页面而非设计器内弹窗）。
+  // 数据通过 localStorage 跨标签页传递（sessionStorage 按标签页隔离，新标签页读不到）。
   const handlePreview = useCallback(() => {
     const univerGrid = (window as any).univerExcelGrid;
     if (!univerGrid) {
@@ -182,8 +200,22 @@ const ExcelDesignContent: React.FC = () => {
       return;
     }
 
-    setPreviewData(data);
-    setPreviewVisible(true);
+    // 先缓存数据，再开窗，保证新标签页一定能读到
+    try {
+      localStorage.setItem(EXCEL_PREVIEW_DATA_KEY, JSON.stringify(data));
+    } catch (e) {
+      console.warn('[预览] 布局数据写入本地存储失败，回退为弹窗预览:', e);
+    }
+
+    const url = `/formmode/exceldesign/ExcelPreviewPage?t=${Date.now()}`;
+    const win = window.open(url, '_blank');
+
+    // 新标签页被浏览器拦截时，回退为弹窗预览，保证功能不失效
+    if (!win) {
+      message.info('新标签页被浏览器拦截，已改用弹窗预览');
+      setPreviewData(data);
+      setPreviewVisible(true);
+    }
   }, [message]);
 
   const handleSave = useCallback(async () => {
@@ -215,8 +247,8 @@ const ExcelDesignContent: React.FC = () => {
       await saveFormLayout(formData);
       message.success('保存成功');
 
-      // 保存成功后重新加载布局数据，确保页面显示最新数据
-      await loadFormLayout();
+      // 保存成功后重新加载布局数据，确保页面显示最新数据（强制刷新，覆盖用户编辑）
+      await loadFormLayout(true);
     } catch (error) {
       console.error('保存失败:', error);
       message.error('保存失败');
@@ -317,7 +349,11 @@ const ExcelDesignContent: React.FC = () => {
   // 布局变更回调
   // ──────────────────────────────────────────────
   const handleLayoutChange = useCallback((data: any) => {
-    setLayoutData((prev: any) => ({ ...prev, ...data }));
+    // 直接替换，不要与 prev 合并。
+    // saveLayoutData 会先用 parentData（顶层 cellData）回调一次，再以 result（sheets）回调一次；
+    // 若合并就会残留上一次的 sheets（过期数据），而 UniverExcelGrid 解析布局时优先取 sheets，
+    // 于是会把过期布局重新灌回表格（如"清空单元格后又自动恢复"、字段元数据回滚）。
+    setLayoutData(data);
   }, []);
 
   // ──────────────────────────────────────────────
