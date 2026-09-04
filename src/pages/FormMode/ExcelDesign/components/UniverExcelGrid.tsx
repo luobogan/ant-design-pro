@@ -2072,6 +2072,21 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       return lastSelectionCellRef.current;
     };
 
+    // 供 Univer 原生菜单判定「当前格是否为字段占位符格」→ 用于把「复制」菜单项置灰。
+    // Univer 侧实现：univer/packages/sheets-ui/src/menu/menu.ts 的 getExcelDesignFieldCellDisable$
+    (window as any).__excelDesignIsFieldCell = (row: number, col: number) => {
+      try {
+        const meta = getCellFieldMeta(row, col);
+        if (meta) return meta.cellType === 'field';
+        // 兜底：刷新后 Map 可能为空，改按值判断（字段占位符形如 "📝 ${field_1}"）
+        const sheet: any = workbookRef.current?.getActiveSheet?.();
+        const v = sheet?.getRange?.(row, col)?.getValue?.();
+        return typeof v === 'string' && v.includes('${');
+      } catch {
+        return false;
+      }
+    };
+
     // 复制/剪切前：若源格是字段，暂存其元数据（含源坐标）
     const captureSourceFieldMeta = () => {
       // 每次粘贴前先清空：避免「上次复制了字段但没粘贴，本次复制的是普通单元格」时误用过期元数据
@@ -2111,7 +2126,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       const isCut = srcValue == null || srcValue === '';
 
       if (isCut) {
-        // 剪切：字段元数据跟随到新位置
+        // 剪切：元数据跟随到新位置（标签格 / 字段占位符格都跟随，保证绑定不丢）
         delete cellFieldMetaMap.current[srcKey];
         cellFieldMetaMap.current[destKey] = clip.meta;
         try {
@@ -2124,11 +2139,12 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           const data = saveLayoutData();
           if (data) onLayoutChangeRef.current?.(data);
         } catch (e) { console.warn('[Clipboard] 同步布局失败:', e); }
-      } else {
-        // 复制：产生重复字段绑定 → 禁止，清除目标值
+      } else if (clip.meta.cellType === 'field') {
+        // 复制「字段占位符格」→ 会产生重复字段绑定 → 禁止，清除目标值
         try { sheet.getRange(dest.row, dest.col)?.setValue?.(''); } catch { /* ignore */ }
         message.warning('字段不能复制，已清除粘贴内容');
       }
+      // 复制「标签格」：允许，作为普通文本粘贴（不写入元数据，不产生重复绑定）
     };
 
     // 诊断：粘贴菜单项受 Univer 的 disabled$ 控制（剪贴板不支持且无内部缓存 → 灰；或缺编辑权限 → 灰）
@@ -2150,6 +2166,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       d0?.dispose?.();
       d1?.dispose?.();
       d2?.dispose?.();
+      delete (window as any).__excelDesignIsFieldCell;
     };
   }, [initialized, getCellFieldMeta, setCellField, saveLayoutData]);
 

@@ -18184,6 +18184,26 @@ function menuClipboardDisabledObservable(injector) {
 		return () => subscription.unsubscribe();
 	});
 }
+// Excel 设计器：判断当前选中格是否为「字段占位符格」（如 `📝 ${field_1}`）。
+// 判定由应用层注入 window.__excelDesignIsFieldCell(row, col)；未注册时恒为 false，不影响原生行为。
+// 用 selectionChanged$ 驱动，保证选区变化时菜单禁用态实时刷新。
+function getExcelDesignFieldCellDisable$(injector) {
+	const selectionManagerService = injector.get(SheetsSelectionsService);
+	return selectionManagerService.selectionChanged$.pipe(startWith(null), map(() => {
+		const isFieldCell = globalThis.__excelDesignIsFieldCell;
+		if (typeof isFieldCell !== "function") return false;
+		try {
+			const primary = selectionManagerService.getCurrentLastSelection()?.primary;
+			if (!primary) return false;
+			const row = primary.actualRow ?? primary.startRow;
+			const col = primary.actualColumn ?? primary.startColumn;
+			if (row == null || col == null) return false;
+			return !!isFieldCell(row, col);
+		} catch (_e) {
+			return false;
+		}
+	}));
+}
 function CopyMenuItemFactory(accessor) {
 	return {
 		id: SheetCopyCommand.name,
@@ -18191,11 +18211,15 @@ function CopyMenuItemFactory(accessor) {
 		type: MenuItemType.BUTTON,
 		title: "sheets-ui.rightClick.copy",
 		icon: "CopyDoubleIcon",
-		disabled$: getCurrentRangeDisable$(accessor, {
-			workbookTypes: [WorkbookCopyPermission],
-			worksheetTypes: [WorksheetCopyPermission],
-			rangeTypes: [RangeProtectionPermissionViewPoint]
-		}),
+		disabled$: combineLatest([
+			getCurrentRangeDisable$(accessor, {
+				workbookTypes: [WorkbookCopyPermission],
+				worksheetTypes: [WorksheetCopyPermission],
+				rangeTypes: [RangeProtectionPermissionViewPoint]
+			}),
+			// Excel 设计器：字段占位符格禁止复制（复制会破坏字段绑定 / 产生重复绑定）
+			getExcelDesignFieldCellDisable$(accessor)
+		]).pipe(map(([d1, d2]) => d1 || d2)),
 		hidden$: getMenuHiddenObservable(accessor, UniverInstanceType.UNIVER_SHEET)
 	};
 }
