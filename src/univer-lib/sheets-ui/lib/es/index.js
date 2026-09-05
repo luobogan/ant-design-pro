@@ -19181,7 +19181,8 @@ function SetFieldReadonlyMenuItemFactory(accessor) {
 		commandId: SetFieldReadonlyCommand.id,
 		type: MenuItemType.BUTTON,
 		title: "sheets-ui.rightClick.fieldReadonly",
-		icon: "LockIcon"
+		icon: "LockIcon",
+		hidden$: of(typeof window !== "undefined" && window.__univerRightClickLabelCell === true)
 	};
 }
 /**
@@ -19193,7 +19194,8 @@ function SetFieldEditableMenuItemFactory(accessor) {
 		commandId: SetFieldEditableCommand.id,
 		type: MenuItemType.BUTTON,
 		title: "sheets-ui.rightClick.fieldEditable",
-		icon: "PenIcon"
+		icon: "PenIcon",
+		hidden$: of(typeof window !== "undefined" && window.__univerRightClickLabelCell === true)
 	};
 }
 /**
@@ -19205,7 +19207,8 @@ function SetFieldRequiredMenuItemFactory(accessor) {
 		commandId: SetFieldRequiredCommand.id,
 		type: MenuItemType.BUTTON,
 		title: "sheets-ui.rightClick.fieldRequired",
-		icon: "ProtectIcon"
+		icon: "ProtectIcon",
+		hidden$: of(typeof window !== "undefined" && window.__univerRightClickLabelCell === true)
 	};
 }
 

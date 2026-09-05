@@ -1627,6 +1627,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
     // 同步布局：删除的行/列已不在 sheet，存活字段按新坐标落库；usedFieldKeys 释放被删字段 → 可重新拖入
     try { saveLayoutData(); } catch (e) { console.warn('[RowColStructural] 同步布局失败:', e); }
+    // 即便 saveLayoutData 因实例已销毁等提前 return，也强制广播一次最新已放置字段，确保面板立即刷新
+    notifyFieldsChanged();
   }, [workbook, saveLayoutData]);
 
   // ──────────────────────────────────────
@@ -2329,23 +2331,35 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
               handleMoveRange(command?.params?.fromRange, command?.params?.toRange);
               return;
             }
-            // 删除内容（Ctrl+A + Delete 等走此命令，内部再派发 set-range-values）。
-            // 若清除范围覆盖全部字段，直接整表移除，确保即便 set-range-values 未枚举到字段格也能可靠释放。
+            // 删除内容（Ctrl+A + Delete / 右键「清除内容」等走此命令，内部通常再派发 set-range-values）。
+            // 无论 set-range-values 是否枚举到字段格，这里都按「清除范围覆盖到的字段」直接整字段移除，
+            // 确保右键/快捷键删除后字段面板（usedFieldKeys）立即由灰变黑、字段可重新拖入。
             if (cmdId === 'sheet.command.auto-clear-content') {
-              const clearRange = command?.params?.clearRange;
+              const clearRange = command?.params?.clearRange || command?.params?.range;
               if (clearRange && Object.keys(cellFieldMetaMap.current).length > 0) {
+                const inRange = (r: number, c: number) =>
+                  r >= (clearRange.startRow ?? 0) && r <= (clearRange.endRow ?? r) &&
+                  c >= (clearRange.startColumn ?? 0) && c <= (clearRange.endColumn ?? c);
                 const allCovered = Object.entries(cellFieldMetaMap.current).every(([key, meta]) => {
                   if (!meta) return false;
                   const [r, c] = key.split('_').map(Number);
-                  return (
-                    r >= (clearRange.startRow ?? 0) && r <= (clearRange.endRow ?? r) &&
-                    c >= (clearRange.startColumn ?? 0) && c <= (clearRange.endColumn ?? c)
-                  );
+                  return inRange(r, c);
                 });
                 if (allCovered) {
                   console.log('[ClearContent] 清除范围覆盖全部字段，整表移除');
                   removeAllFieldsFromMap();
                   scheduleAutoSave();
+                } else {
+                  // 局部删除：清除范围命中了部分字段格/标签格 → 直接整字段移除
+                  // （标签格或字段格任一格命中都移除整字段，与 clearCell / 右键清空语义一致）
+                  const toRemove = new Map<string, { fieldId: string; fieldName: string }>();
+                  Object.entries(cellFieldMetaMap.current).forEach(([key, meta]) => {
+                    if (!meta) return;
+                    const [r, c] = key.split('_').map(Number);
+                    if (inRange(r, c)) toRemove.set(`${meta.fieldId}_${meta.fieldName}`, { fieldId: String(meta.fieldId), fieldName: String(meta.fieldName) });
+                  });
+                  console.log('[ClearContent] 清除范围命中字段数 =', toRemove.size);
+                  toRemove.forEach(({ fieldId, fieldName }) => removeFieldCompletely(fieldId, fieldName));
                 }
               }
               return;
@@ -3002,6 +3016,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       // 位置始终记录（不受容器判定影响），保证「像素吸附」几何兜底始终有可用的右键点
       lastMousePosRef.current = { x: e.clientX, y: e.clientY };
       rightClickPosRef.current = { x: e.clientX, y: e.clientY };
+      // 每次右键先复位「字段标签名」标记；命中 label 格时再置 true（见下方命中格分支）
+      (window as any).__univerRightClickLabelCell = false;
       if (!inside) return;
 
       // ── 诊断：右键时把坐标/尺寸/各定位结果全部打出，用于一次性定死映射关系 ──
@@ -3062,10 +3078,25 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       if (!cell) {
         try { cell = getCellFromMouseEvent(e.clientX, e.clientY) as any; } catch { /* ignore */ }
       }
+      // 命中格：记录是否是「字段标签名」单元格（cellType==='label'）。
+      // 供 Univer 原生右键菜单隐藏 只读/可编辑/必填 等字段属性项（标签格不承载这些属性）。
+      let isRightClickLabelCell = false;
       if (cell && cell.row >= 0 && cell.col >= 0) {
         rightClickCellRef.current = { row: cell.row, col: cell.col };
         console.log('[CtxMenu] 右键命中格:', { x: e.clientX, y: e.clientY, row: cell.row, col: cell.col });
+        const rk = `${cell.row}_${cell.col}`;
+        const rm = cellFieldMetaMap.current[rk];
+        if (rm && rm.cellType === 'label') {
+          isRightClickLabelCell = true;
+        } else {
+          // 兜底：内存 Map 未同步时，从持久化布局读取该格元数据
+          const _sd = layoutDataRef.current ? resolveSheetData(layoutDataRef.current) : null;
+          const _cd = _sd?.cellData;
+          const _co = (_cd && (_cd[cell.row]?.[cell.col] || _cd[String(cell.row)]?.[String(cell.col)])) || undefined;
+          if (_co?.fieldMeta?.cellType === 'label') isRightClickLabelCell = true;
+        }
       }
+      (window as any).__univerRightClickLabelCell = isRightClickLabelCell;
     };
     window.addEventListener('mousemove', handleMouseMove, true);
     window.addEventListener('contextmenu', handleContextMenuCapture, true);
