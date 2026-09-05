@@ -357,10 +357,54 @@ const ExcelDesignContent: React.FC = () => {
   }, []);
 
   // ──────────────────────────────────────────────
+  // 表格实时上报的「已放置字段集合」
+  // UniverExcelGrid 在每次保存/重载后都会广播 univer-fields-changed，
+  // 面板置灰优先用它，避免只依赖 layoutData 推导时「清空后面板不刷新」。
+  // ──────────────────────────────────────────────
+  const [gridUsedKeys, setGridUsedKeys] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    const onFieldsChanged = (e: Event) => {
+      const keys = (e as CustomEvent)?.detail?.keys;
+      console.log('[ExcelDesign] 收到 univer-fields-changed =', keys ? Array.from(keys) : null);
+      if (keys instanceof Set) setGridUsedKeys(new Set(keys));
+    };
+    window.addEventListener('univer-fields-changed', onFieldsChanged);
+    return () => window.removeEventListener('univer-fields-changed', onFieldsChanged);
+  }, []);
+
+  // ── 轮询兜底：直接向表格查询「当前已放置字段」──
+  // 事件链路（表格 dispatch → window 监听 → setState）任一环失效，都会表现为
+  // 「删除字段后面板不变黑」。这里每 700ms 主动向表格查询一次作为兜底，
+  // 使面板置灰状态必然与表格实际内容一致，不再依赖事件是否送达。
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const api = (window as any).univerExcelGrid;
+      if (!api || typeof api.getUsedFieldKeys !== 'function') return;
+      let keys: Set<string>;
+      try {
+        keys = api.getUsedFieldKeys();
+      } catch {
+        return;
+      }
+      if (!(keys instanceof Set)) return;
+      setGridUsedKeys((prev) => {
+        // 集合内容未变化时保持原引用，避免无谓重渲染
+        if (prev && prev.size === keys.size && Array.from(prev).every((k) => keys.has(k))) return prev;
+        console.log('[ExcelDesign] 轮询校正已放置字段 =', Array.from(keys));
+        return new Set(keys);
+      });
+    }, 700);
+    return () => clearInterval(timer);
+  }, []);
+
+  // ──────────────────────────────────────────────
   // 已拖入表格的字段集合（供字段面板置灰，避免重复拖入）
   // key 格式：`${fieldId}_${cellType}`，标签与字段占位符各自独立计数
   // ──────────────────────────────────────────────
   const usedFieldKeys = useMemo(() => {
+    // 表格已上报 → 直接用（清空/拖入后即时刷新）
+    if (gridUsedKeys) return gridUsedKeys;
+
     const keys = new Set<string>();
     const collectFromCellData = (cellData: any) => {
       Object.values(cellData || {}).forEach((rowData: any) => {
@@ -383,8 +427,10 @@ const ExcelDesignContent: React.FC = () => {
     } catch (e) {
       console.warn('[ExcelDesign] 解析已放置字段失败:', e);
     }
+    // 诊断：面板置灰由 keys 决定，清空字段后这里应相应减少（若不变说明 layoutData 未更新）
+    console.log('[ExcelDesign] usedFieldKeys 重算 =', Array.from(keys), 'layoutData.cellData?', !!layoutData?.cellData, 'layoutData.sheets?', !!layoutData?.sheets);
     return keys;
-  }, [layoutData]);
+  }, [layoutData, gridUsedKeys]);
 
   // ══════════════════════════════════════════════
   // Univer Event.Drop 原生拖拽放置事件处理

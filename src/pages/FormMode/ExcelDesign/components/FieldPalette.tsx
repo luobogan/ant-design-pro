@@ -102,12 +102,17 @@ const DraggableLabelItem: React.FC<{
         display: 'flex',
         alignItems: 'center',
         cursor: disabled ? 'not-allowed' : 'grab',
-        opacity: disabled ? 0.4 : (isDragging ? 0.5 : 1),
+        opacity: disabled ? 0.45 : 1,
         padding: '2px 4px',
         borderRadius: 4,
-        transition: 'background-color 0.2s',
+        // 置灰语义（三态要能一眼区分）：
+        //   已拖入(禁用) = 浅灰 #bfbfbf ← 从表格删除后字段会「由灰变黑」回到可拖状态
+        //   可拖入(静止) = 近黑 #262626
+        //   拖动中       = 纯黑 #000 并加粗（释放后若已放置则回到浅灰）
+        color: disabled ? '#bfbfbf' : (isDragging ? '#000' : '#262626'),
+        fontWeight: isDragging ? 600 : 400,
+        transition: 'background-color 0.2s, color 0.2s, opacity 0.2s',
         fontSize: '13px',
-        color: disabled ? '#bbb' : undefined,
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.backgroundColor = disabled ? 'transparent' : '#e6f7ff';
@@ -117,7 +122,7 @@ const DraggableLabelItem: React.FC<{
       }}
       title={disabled ? '该标签已拖入表格，不能重复拖动（清空原单元格后可再次拖入）' : '拖拽标签到表格'}
     >
-      <span style={{ marginRight: 6, color: '#1890ff' }}>{getFieldIcon(field)}</span>
+      <span style={{ marginRight: 6, color: disabled ? '#d9d9d9' : '#1890ff' }}>{getFieldIcon(field)}</span>
       <span>{displayFieldLabel}</span>
     </div>
   );
@@ -175,12 +180,17 @@ const DraggableFieldOnlyItem: React.FC<{
         display: 'flex',
         alignItems: 'center',
         cursor: disabled ? 'not-allowed' : 'grab',
-        opacity: disabled ? 0.4 : (isDragging ? 0.5 : 1),
+        opacity: disabled ? 0.45 : 1,
         padding: '2px 4px',
         borderRadius: 4,
-        transition: 'background-color 0.2s',
+        // 置灰语义（三态要能一眼区分）：
+        //   已拖入(禁用) = 浅灰 #bfbfbf ← 从表格删除后字段会「由灰变黑」回到可拖状态
+        //   可拖入(静止) = 近黑 #262626
+        //   拖动中       = 纯黑 #000 并加粗（释放后若已放置则回到浅灰）
+        color: disabled ? '#bfbfbf' : (isDragging ? '#000' : '#262626'),
+        fontWeight: isDragging ? 600 : 400,
+        transition: 'background-color 0.2s, color 0.2s, opacity 0.2s',
         fontSize: '12px',
-        color: disabled ? '#ccc' : '#999',
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.backgroundColor = disabled ? 'transparent' : '#e6f7ff';
