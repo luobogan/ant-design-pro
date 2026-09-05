@@ -2119,6 +2119,19 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         // 当单元格内容变更时触发，包括：手动编辑、拖拽移动（MoveRangeCommand）等
         let changeTimer: any = null;
         let valueChangeDisposer: (() => void) | undefined;
+
+        // 防抖自动保存布局（拖拽/删除字段后调用），延迟等待操作完全结束
+        const scheduleAutoSave = () => {
+          if (changeTimer) clearTimeout(changeTimer);
+          changeTimer = setTimeout(() => {
+            const data = saveLayoutData();
+            if (data) {
+              console.log('[CellChange] 自动保存布局数据');
+              onLayoutChange(data);
+            }
+          }, 500);
+        };
+
         try {
           // 注意：Facade 没有 onCellValueChange，需通过命令事件监听单元格值变更
           // 命令 id 为 'sheet.mutation.set-range-values'
@@ -2131,6 +2144,27 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
               cmdId === 'sheet.command.insert-row' || cmdId === 'sheet.command.insert-col'
             ) {
               handleRowColStructural(cmdId, command?.params);
+              return;
+            }
+            // 删除内容（Ctrl+A + Delete 等走此命令，内部再派发 set-range-values）。
+            // 若清除范围覆盖全部字段，直接整表移除，确保即便 set-range-values 未枚举到字段格也能可靠释放。
+            if (cmdId === 'sheet.command.auto-clear-content') {
+              const clearRange = command?.params?.clearRange;
+              if (clearRange && Object.keys(cellFieldMetaMap.current).length > 0) {
+                const allCovered = Object.entries(cellFieldMetaMap.current).every(([key, meta]) => {
+                  if (!meta) return false;
+                  const [r, c] = key.split('_').map(Number);
+                  return (
+                    r >= (clearRange.startRow ?? 0) && r <= (clearRange.endRow ?? r) &&
+                    c >= (clearRange.startColumn ?? 0) && c <= (clearRange.endColumn ?? c)
+                  );
+                });
+                if (allCovered) {
+                  console.log('[ClearContent] 清除范围覆盖全部字段，整表移除');
+                  cellFieldMetaMap.current = {};
+                  scheduleAutoSave();
+                }
+              }
               return;
             }
             if (cmdId !== 'sheet.mutation.set-range-values') return;
@@ -2146,6 +2180,10 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             // 程序自身的批量写入（放置字段/加载布局/回滚）不参与保护与自动保存
             if (isPlacingFieldRef.current || isRestoringRef.current || isLoadingRef.current) return;
 
+            // 两阶段处理：先收集「被清字段格 / 被清标签格 / 被篡改格」，再决定批量整移除还是逐格处理
+            // 这样整表清空（Ctrl+A + Delete）可一次性移除全部字段，避免逐格循环 2600+ 次且反复 saveLayoutData
+            const clearedFieldCells: Array<{ row: number; col: number; meta: FieldMeta }> = [];
+            const clearedLabelKeys: string[] = [];
             const tamperedCells: Array<{ row: number; col: number; meta: FieldMeta }> = [];
 
             Object.entries(cellValue).forEach(([rowKey, rowData]: [string, any]) => {
@@ -2162,17 +2200,10 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
                 const newValue = cellData?.v;
 
-                // 清空 = 移除：字段占位符格清空 → 整字段移除（标签+输入一起释放，可完整重拖）；
-                //          标签格清空 → 仅释放标签，字段输入保留（用户可能只是想改标签文字）
+                // 清空：字段占位符格 → 待整字段移除；标签格 → 待仅释放标签
                 if (newValue === null || newValue === undefined || newValue === '') {
-                  if ((meta as any).cellType === 'field') {
-                    console.log(`[CellChange] 字段占位符 (${row}, ${col}) 已删除，整字段移除`);
-                    removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName);
-                  } else {
-                    console.log(`[CellChange] 标签格 (${row}, ${col}) 已清空，仅释放标签`);
-                    delete cellFieldMetaMap.current[cellKey];
-                    try { saveLayoutData(); } catch (e) { console.warn('[CellChange] 同步布局失败:', e); }
-                  }
+                  if ((meta as any).cellType === 'field') clearedFieldCells.push({ row, col, meta });
+                  else clearedLabelKeys.push(cellKey);
                   return;
                 }
 
@@ -2204,16 +2235,28 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
               return; // 内容被篡改，不触发保存
             }
 
-            // 延迟触发保存（防抖），等待拖拽操作完全结束
-            if (changeTimer) clearTimeout(changeTimer);
-            changeTimer = setTimeout(() => {
-              // 拖拽可能导致字段元数据位置变化，需要重新保存布局
-              const data = saveLayoutData();
-              if (data) {
-                console.log('[CellChange] 自动保存布局数据');
-                onLayoutChange(data);
-              }
-            }, 500);
+            const totalFieldCells = Object.values(cellFieldMetaMap.current).filter((m) => (m as any)?.cellType === 'field').length;
+
+            // 整表清空（Ctrl+A + Delete 等）：所有字段格都被清空 → 一次性移除全部字段，高效且可靠
+            if (totalFieldCells > 0 && clearedFieldCells.length === totalFieldCells) {
+              console.log('[CellChange] 检测到整表清空，移除全部字段');
+              cellFieldMetaMap.current = {};
+              scheduleAutoSave();
+              return;
+            }
+
+            // 局部清空：逐格处理（字段格整移除，标签格仅释放）
+            clearedFieldCells.forEach(({ row, col, meta }) => {
+              console.log(`[CellChange] 字段占位符 (${row}, ${col}) 已删除，整字段移除`);
+              removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName);
+            });
+            clearedLabelKeys.forEach((key) => {
+              console.log(`[CellChange] 标签格 (${key}) 已清空，仅释放标签`);
+              delete cellFieldMetaMap.current[key];
+              try { saveLayoutData(); } catch (e) { console.warn('[CellChange] 同步布局失败:', e); }
+            });
+
+            if (clearedFieldCells.length > 0 || clearedLabelKeys.length > 0) scheduleAutoSave();
           });
         } catch (e) {
           console.warn('[Univer Init] 添加值变化事件失败:', e);
