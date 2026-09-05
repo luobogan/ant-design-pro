@@ -25,7 +25,7 @@ const E9_COLORS = {
   sectionBg: '#fafafa',
   sectionBorder: '#e8e8e8',
   cardBorder: '#f0f0f0',
-  readOnlyBg: '#fafafa',
+  readOnlyBg: '#f5f5f5',
   readOnlyBorder: '#e8e8e8',
 } as const;
 
@@ -139,7 +139,9 @@ const FieldCell: React.FC<{
   readOnly?: boolean;
   /** 单元格样式（Univer IStyleData），用于让控件沿用 Excel 的字体/颜色/背景 */
   cellStyle?: any;
-}> = ({ cell, sheetId, row, col, value, onChange, error, readOnly, cellStyle }) => {
+  /** 字段属性底色（只读灰底/必填浅红底），与设计师一致，优先级高于 Excel 单元格背景色 */
+  attrBg?: string;
+}> = ({ cell, sheetId, row, col, value, onChange, error, readOnly, cellStyle, attrBg }) => {
   const meta = cell.fieldMeta;
   const rawValue = cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
   // 字段单元格在设计器中存的是模板占位符（如 "📝 ${xm}"），表示尚未填入真实数据。
@@ -176,22 +178,17 @@ const FieldCell: React.FC<{
     ...(excelCss.fontWeight ? { fontWeight: excelCss.fontWeight } : {}),
   };
 
-  // E9 预览样式：只读字段浅灰背景 + 细边框，可编辑白底；
-  // 若该单元格在 Excel 里设置了背景色/字体色，则优先沿用 Excel 配置。
-  const fieldStyle: React.CSSProperties = disabled
-    ? {
-        width: '100%',
-        background: E9_COLORS.readOnlyBg,
-        borderColor: E9_COLORS.readOnlyBorder,
-        color: '#999',
-        ...excelFont,
-      }
-    : {
-        width: '100%',
-        ...(excelCss.background ? { background: excelCss.background } : {}),
-        ...(excelCss.color ? { color: excelCss.color } : {}),
-        ...excelFont,
-      };
+  // 字段属性底色（与设计师一致，优先级高于 Excel 单元格背景色）：
+  //   1=只读 → 灰底(#f5f5f5) + 灰字 + 禁用
+  //   2=可编辑 → 白底（或沿用 Excel 背景色）
+  //   3=必填 → 浅红底(#fff1f0)
+  const fieldStyle: React.CSSProperties = {
+    width: '100%',
+    background: attrBg || excelCss.background || (disabled ? E9_COLORS.readOnlyBg : '#fff'),
+    ...(disabled ? { color: '#999', borderColor: E9_COLORS.readOnlyBorder } : {}),
+    ...(excelCss.color && !disabled ? { color: excelCss.color } : {}),
+    ...excelFont,
+  };
 
   const commonProps = {
     disabled,
@@ -339,7 +336,15 @@ const FieldCell: React.FC<{
         );
 
       default:
-        return <span>{displayValue}</span>;
+        // 未知字段类型兜底为普通文本框，确保字段始终渲染为可交互控件（而非纯文本）
+        return (
+          <Input
+            {...commonProps}
+            value={value}
+            placeholder={meta.placeholder || ''}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        );
     }
   })();
 
@@ -368,6 +373,7 @@ const renderCellNode = (
   onFieldChange: (k: string, v: any) => void,
   readOnly: boolean,
   requiredStar: boolean,
+  attrBg?: string,
 ): React.ReactNode => {
   const meta = cell.fieldMeta;
   const rawValue = cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
@@ -400,6 +406,7 @@ const renderCellNode = (
       error={err}
       readOnly={readOnly}
       cellStyle={cell.s}
+      attrBg={attrBg}
     />
   );
 };
@@ -530,11 +537,22 @@ const SheetPreviewForm: React.FC<{
                   const cell = model.grid[r]?.[c];
                   const isLabel = cell?.fieldMeta?.cellType === 'label';
                   const isField = cell?.fieldMeta?.cellType === 'field';
+                  const cellAttr = isField ? cell?.fieldMeta?.fieldAttr : undefined;
                   const isBig = !!merge && (merge.colSpan > 1 || merge.rowSpan > 1);
                   // 文本对齐：标签右对齐（贴近字段）；跨列静态文本居中（标题/分组）；其余左对齐
                   let align: 'left' | 'right' | 'center' = 'left';
                   if (isLabel) align = 'right';
                   else if (!isField && isBig) align = 'center';
+
+                  // 字段属性底色（与设计师一致，优先级高于 Excel 单元格背景色）：
+                  //   1=只读 → 灰底(#f5f5f5) + 灰字   2=可编辑 → 白底   3=必填 → 浅红底(#fff1f0)
+                  const excelCellCss = cellStyleToCss(cell?.s);
+                  let tdBackground = excelCellCss.background || '#fff';
+                  let tdColor = excelCellCss.color || '#333';
+                  let attrBg: string | undefined;
+                  if (cellAttr === 1) { tdBackground = '#f5f5f5'; tdColor = '#999'; attrBg = '#f5f5f5'; }
+                  else if (cellAttr === 3) { tdBackground = '#fff1f0'; attrBg = '#fff1f0'; }
+
                   return (
                     <td
                       key={c}
@@ -546,10 +564,10 @@ const SheetPreviewForm: React.FC<{
                         verticalAlign: 'middle',
                         textAlign: align,
                         fontSize: 13,
-                        color: '#333',
-                        background: '#fff',
+                        ...excelCellCss,
+                        background: tdBackground,
+                        color: tdColor,
                         overflow: 'hidden',
-                        ...cellStyleToCss(cell?.s),
                       }}
                     >
                       {cell
@@ -562,6 +580,7 @@ const SheetPreviewForm: React.FC<{
                             onFieldChange,
                             readOnly as boolean,
                             model.requiredLabels.has(key),
+                            attrBg,
                           )
                         : ' '}
                     </td>
