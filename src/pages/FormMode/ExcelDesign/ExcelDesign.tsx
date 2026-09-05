@@ -362,6 +362,9 @@ const ExcelDesignContent: React.FC = () => {
   // 面板置灰优先用它，避免只依赖 layoutData 推导时「清空后面板不刷新」。
   // ──────────────────────────────────────────────
   const [gridUsedKeys, setGridUsedKeys] = useState<Set<string> | null>(null);
+  // 撤销/重做按钮可用状态：由表格侧 IUndoRedoService.undoRedoStatus$ 实时上报
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
   useEffect(() => {
     const onFieldsChanged = (e: Event) => {
       const keys = (e as CustomEvent)?.detail?.keys;
@@ -372,27 +375,52 @@ const ExcelDesignContent: React.FC = () => {
     return () => window.removeEventListener('univer-fields-changed', onFieldsChanged);
   }, []);
 
-  // ── 轮询兜底：直接向表格查询「当前已放置字段」──
+  // 表格侧订阅 IUndoRedoService.undoRedoStatus$ 后广播的撤销/重做栈状态，用于切换按钮可用/禁用
+  useEffect(() => {
+    const onStatus = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (!detail) return;
+      setCanUndo(!!detail.canUndo);
+      setCanRedo(!!detail.canRedo);
+    };
+    window.addEventListener('univer-undoredo-status', onStatus);
+    return () => window.removeEventListener('univer-undoredo-status', onStatus);
+  }, []);
+
+  // ── 轮询兜底：直接向表格查询「当前已放置字段」与「撤销/重做状态」──
   // 事件链路（表格 dispatch → window 监听 → setState）任一环失效，都会表现为
   // 「删除字段后面板不变黑」。这里每 700ms 主动向表格查询一次作为兜底，
-  // 使面板置灰状态必然与表格实际内容一致，不再依赖事件是否送达。
+  // 使面板置灰状态与撤销/重做按钮可用状态必然与表格实际一致，不再依赖事件是否送达。
   useEffect(() => {
     const timer = setInterval(() => {
       const api = (window as any).univerExcelGrid;
-      if (!api || typeof api.getUsedFieldKeys !== 'function') return;
-      let keys: Set<string>;
-      try {
-        keys = api.getUsedFieldKeys();
-      } catch {
-        return;
+      if (!api) return;
+      // 已放置字段轮询兜底
+      if (typeof api.getUsedFieldKeys === 'function') {
+        try {
+          const keys = api.getUsedFieldKeys();
+          if (keys instanceof Set) {
+            setGridUsedKeys((prev) => {
+              // 集合内容未变化时保持原引用，避免无谓重渲染
+              if (prev && prev.size === keys.size && Array.from(prev).every((k) => keys.has(k))) return prev;
+              console.log('[ExcelDesign] 轮询校正已放置字段 =', Array.from(keys));
+              return new Set(keys);
+            });
+          }
+        } catch { /* 忽略单次查询异常 */ }
       }
-      if (!(keys instanceof Set)) return;
-      setGridUsedKeys((prev) => {
-        // 集合内容未变化时保持原引用，避免无谓重渲染
-        if (prev && prev.size === keys.size && Array.from(prev).every((k) => keys.has(k))) return prev;
-        console.log('[ExcelDesign] 轮询校正已放置字段 =', Array.from(keys));
-        return new Set(keys);
-      });
+      // 撤销/重做状态轮询兜底
+      if (typeof api.getUndoRedoStatus === 'function') {
+        try {
+          const st = api.getUndoRedoStatus();
+          if (st) {
+            const cu = !!st.canUndo;
+            const cr = !!st.canRedo;
+            setCanUndo((p) => (p === cu ? p : cu));
+            setCanRedo((p) => (p === cr ? p : cr));
+          }
+        } catch { /* 忽略单次查询异常 */ }
+      }
     }, 700);
     return () => clearInterval(timer);
   }, []);
@@ -860,10 +888,24 @@ const ExcelDesignContent: React.FC = () => {
   */
 
   // ──────────────────────────────────────────────
-  // 重做/撤销（占位）
+  // 撤销 / 重做：委托给表格侧 Univer 内置 Undo/RedoCommand
   // ──────────────────────────────────────────────
-  const handleUndo = () => message.info('撤销功能开发中');
-  const handleRedo = () => message.info('重做功能开发中');
+  const handleUndo = () => {
+    const api = (window as any).univerExcelGrid;
+    if (!api || typeof api.undo !== 'function') {
+      message.info('撤销功能开发中');
+      return;
+    }
+    try { api.undo(); } catch (e) { console.warn('[Undo] 调用失败:', e); }
+  };
+  const handleRedo = () => {
+    const api = (window as any).univerExcelGrid;
+    if (!api || typeof api.redo !== 'function') {
+      message.info('重做功能开发中');
+      return;
+    }
+    try { api.redo(); } catch (e) { console.warn('[Redo] 调用失败:', e); }
+  };
 
   // ──────────────────────────────────────────────
   // 导出布局为 JSON（参照迁移文档 JSON 格式）
@@ -937,10 +979,10 @@ const ExcelDesignContent: React.FC = () => {
     <Button key="export" icon={<DownloadOutlined />} onClick={handleExport}>
       导出
     </Button>,
-    <Button key="undo" icon={<UndoOutlined />} onClick={handleUndo}>
+    <Button key="undo" icon={<UndoOutlined />} onClick={handleUndo} disabled={!canUndo}>
       撤销
     </Button>,
-    <Button key="redo" icon={<RedoOutlined />} onClick={handleRedo}>
+    <Button key="redo" icon={<RedoOutlined />} onClick={handleRedo} disabled={!canRedo}>
       重做
     </Button>,
     // 字段属性按钮（参照 ecology excel 设计器）

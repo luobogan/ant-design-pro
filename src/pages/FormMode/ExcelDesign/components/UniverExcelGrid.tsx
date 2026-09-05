@@ -605,6 +605,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // 重新拖入该字段(handleFieldDrop)或重新加载布局(loadLayoutData)时清除墓碑。
   // ──────────────────────────────────────
   const removedFieldKeysRef = useRef<Set<string>>(new Set());
+  // 已移除字段元数据的「暂存」：删除字段时把其元数据原样存下，供【撤销】把单元格值恢复后
+  // 重新登记，使字段面板重新置灰（否则撤销只恢复了单元格文字、字段元数据丢失、面板不反应）。
+  const removedFieldMetaRef = useRef<Record<string, FieldMeta>>({}); // key = `${fieldId}_${cellType}`
   const tombstoneKey = (meta: any) => `${String(meta?.fieldId ?? '')}_${meta?.cellType ?? ''}`;
   const isTombstoned = (meta: any) => {
     const k = tombstoneKey(meta);
@@ -626,6 +629,17 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     // 整表移除后必须立即广播空集合，否则面板会停留在上一次的置灰状态
     // （调用方 auto-clear-content 分支在它之后只调了防抖的 scheduleAutoSave）
     notifyFieldsChanged();
+  };
+  // 按单元格显示值反查「被暂存的已移除字段元数据」（撤销恢复用）。
+  // 撤销会把单元格值原样写回，但该值对应的字段元数据此前已被整字段移除，
+  // 这里用显示值精确匹配暂存元数据，找到即说明是「删除→撤销」回灌，应重新登记。
+  const findStashedMetaByValue = (value: string): FieldMeta | null => {
+    const v = String(value ?? '').trim();
+    if (!v) return null;
+    for (const meta of Object.values(removedFieldMetaRef.current)) {
+      if (meta && getCellDisplayValue(meta as FieldMeta) === v) return meta as FieldMeta;
+    }
+    return null;
   };
   // ──────────────────────────────────────
   // 向父组件实时上报「当前已放置的字段项」（${fieldId}_${cellType} 集合）。
@@ -672,6 +686,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         console.log(`[Prune] 清理孤儿字段元数据: ${key}（单元格已为空）`);
         // 打墓碑（仅本 cellType），防止 tier-2 从旧 layoutData 把它复活
         removedFieldKeysRef.current.add(tombstoneKey(m));
+        // 暂存元数据供撤销恢复（单元格被程序化清空后，若用户撤销清空操作可将字段重新登记）
+        if (m) removedFieldMetaRef.current[`${String((m as any).fieldId)}_${(m as any).cellType}`] = m as any;
         delete cellFieldMetaMap.current[key];
         removed++;
       }
@@ -1046,6 +1062,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       // 加载的是权威布局（DB/父组件），此前「已移除」的墓碑不再适用，需清空，
       // 否则新布局里的字段会因墓碑被 tier-2/3 忽略而显示异常。
       removedFieldKeysRef.current.clear();
+      // 同样清空「已移除元数据暂存」，避免撤销恢复逻辑误把旧字段重新登记到新布局
+      removedFieldMetaRef.current = {};
 
       // workbook 是 FWorkbook (Facade)
       const fWorkbook: any = workbook;
@@ -1543,6 +1561,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     try {
       matchedKeys.forEach((key) => {
         const meta = cellFieldMetaMap.current[key];
+        // 暂存被移除的元数据（key=fieldId_cellType），供撤销后按显示值原样恢复
+        if (meta) removedFieldMetaRef.current[`${String((meta as any).fieldId)}_${(meta as any).cellType}`] = meta as any;
         const [r, c] = key.split('_').map(Number);
         try { sheet?.getRange?.(r, c)?.setValue?.(''); } catch { /* 忽略单格失败 */ }
         // 打墓碑：阻止 tier-2 从「旧的持久化 layoutData」把该字段复活并写回 Map/保存结果
@@ -2392,10 +2412,36 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
                 if (Number.isNaN(col)) return;
 
                 const cellKey = `${row}_${col}`;
-                const meta = cellFieldMetaMap.current[cellKey];
-                if (!meta) return;
-
                 const newValue = cellData?.v;
+                const meta = cellFieldMetaMap.current[cellKey];
+
+                // 撤销/重做恢复：单元格被重新写入字段占位符（或标签文字）、但内存 Map 已无该字段元数据
+                // （此前被整字段移除过）→ 从暂存里按显示值原样恢复并重新登记，使字段面板重新置灰。
+                if (!meta) {
+                  if (newValue !== null && newValue !== undefined && String(newValue) !== '') {
+                    const restored = findStashedMetaByValue(String(newValue));
+                    if (restored) {
+                      console.log(`[UndoRestore] 撤销恢复字段 (${row}, ${col})，重新登记元数据 fieldId=${String((restored as any).fieldId)}_${(restored as any).cellType}`);
+                      // 标记为程序自身写入，避免嵌套的 set-range-values 触发「防篡改回滚 / 自动保存」
+                      isRestoringRef.current = true;
+                      try {
+                        const restoreSheet = fWorkbook.getActiveSheet?.() || sheetRef.current;
+                        if (restoreSheet) setCellField(fWorkbook, restoreSheet, row, col, restored as FieldMeta);
+                      } catch (e) {
+                        console.warn('[UndoRestore] 重新登记字段失败:', e);
+                      } finally {
+                        setTimeout(() => { isRestoringRef.current = false; }, 0);
+                      }
+                      // 清除墓碑，避免守护定时器 / prune 再次移除；并广播 + 保存，使面板立即置灰
+                      removedFieldKeysRef.current.delete(`${String((restored as any).fieldId)}_${(restored as any).cellType}`);
+                      delete removedFieldMetaRef.current[`${String((restored as any).fieldId)}_${(restored as any).cellType}`];
+                      notifyFieldsChanged();
+                      scheduleAutoSave();
+                      return;
+                    }
+                  }
+                  return;
+                }
 
                 // 清空：字段占位符格 / 标签格 → 统一待整字段移除（两格一起释放，避免残留）
                 if (newValue === null || newValue === undefined || newValue === '') {
@@ -2920,6 +2966,34 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         }
       };
 
+      // ── 撤销/重做：订阅 IUndoRedoService.undoRedoStatus$，实时广播栈状态 ──
+      // 这样无论走按钮还是快捷键（Univer 内置 Ctrl+Z / Ctrl+Y），只要撤销/重做栈变化，
+      // 字段面板的撤销/重做按钮就能在「可用(黑)/禁用(灰)」间即时切换；
+      // 字段面板的拖入/清空等操作若产生撤销记录，按钮也会同步变化。
+      const univerInst = univerRef.current;
+      let undoRedoSub: { unsubscribe: () => void } | null = null;
+      if (univerInst && typeof (univerInst as any).__getInjector === 'function') {
+        try {
+          const injector = (univerInst as any).__getInjector();
+          const undoRedoSvc = injector.get?.('univer.undo-redo.service');
+          if (undoRedoSvc && undoRedoSvc.undoRedoStatus$) {
+            const emitStatus = (s: any) => {
+              const detail = {
+                canUndo: (s?.undos || 0) > 0,
+                canRedo: (s?.redos || 0) > 0,
+                undos: s?.undos || 0,
+                redos: s?.redos || 0,
+              };
+              (window as any).__univerUndoRedoStatus = detail;
+              window.dispatchEvent(new CustomEvent('univer-undoredo-status', { detail }));
+            };
+            undoRedoSub = undoRedoSvc.undoRedoStatus$.subscribe(emitStatus);
+          }
+        } catch (e) {
+          console.warn('[UndoRedo] 获取 undo/redo 状态服务失败:', e);
+        }
+      }
+
       (window as any).univerExcelGrid = {
         saveLayoutData,
         loadLayoutData,
@@ -2935,6 +3009,33 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         // 当前已放置字段的 key 集合：供父组件轮询兜底，
         // 使「删除字段后面板置灰刷新」不依赖事件链路是否通畅
         getUsedFieldKeys: collectUsedFieldKeys,
+        // 撤销：执行 Univer 内置 UndoCommand（'univer.command.undo'）
+        undo: () => {
+          try {
+            const inj = univerRef.current?.__getInjector?.();
+            const cs = inj?.get?.('univer.core.command-service');
+            return cs?.executeCommand?.('univer.command.undo');
+          } catch (e) {
+            console.warn('[Undo] 执行失败:', e);
+          }
+        },
+        // 重做：执行 Univer 内置 RedoCommand（'univer.command.redo'）
+        redo: () => {
+          try {
+            const inj = univerRef.current?.__getInjector?.();
+            const cs = inj?.get?.('univer.core.command-service');
+            return cs?.executeCommand?.('univer.command.redo');
+          } catch (e) {
+            console.warn('[Redo] 执行失败:', e);
+          }
+        },
+        // 供父组件轮询兜底：读取最近一次 undo/redo 栈状态
+        getUndoRedoStatus: () =>
+          (window as any).__univerUndoRedoStatus || { canUndo: false, canRedo: false, undos: 0, redos: 0 },
+      };
+
+      return () => {
+        undoRedoSub?.unsubscribe?.();
       };
     }
   }, [workbook, saveLayoutData, loadLayoutData, handleFieldDrop, getCellFieldMeta, removeFieldCompletely]);
