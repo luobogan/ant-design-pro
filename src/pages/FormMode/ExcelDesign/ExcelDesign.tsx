@@ -297,7 +297,9 @@ const ExcelDesignContent: React.FC = () => {
       return;
     }
 
-    const univerGrid = (window as any).univerExcelGrid;
+    // 优先用主画布 API：打开明细表子画布时 window.univerExcelGrid 会被子实例覆盖，
+    // 此时若直接保存会只拿到子画布布局；用 mainGridApiRef 保证始终拿到主表布局。
+    const univerGrid = mainGridApiRef.current || (window as any).univerExcelGrid;
     if (!univerGrid) {
       message.error('Excel组件未初始化');
       return;
@@ -309,12 +311,19 @@ const ExcelDesignContent: React.FC = () => {
       return;
     }
 
+    // 合并明细表子画布布局：主画布 saveLayoutData() 只返回主表布局（detailTables 由父组件维护），
+    // 必须一并写入后端，否则「总保存」后明细表布局丢失（预览页 handlePreview 已做同样合并，此处补齐）。
+    const finalLayoutData = {
+      ...sheetLayoutData,
+      detailTables: (layoutDataRef.current && layoutDataRef.current.detailTables) || detailLayouts || {},
+    };
+
     setSaving(true);
     try {
       const formData = {
         formId: String(formId),  // 保持字符串格式，避免 JavaScript 大整数精度丢失
         layoutName: `表单${formId}的布局`,
-        layoutJson: JSON.stringify(sheetLayoutData),  // 转换为 JSON 字符串
+        layoutJson: JSON.stringify(finalLayoutData),  // 转换为 JSON 字符串（含明细表子画布布局）
         status: 1,
       };
       await saveFormLayout(formData);
