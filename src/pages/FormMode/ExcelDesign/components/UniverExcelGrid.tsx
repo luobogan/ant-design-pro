@@ -1028,15 +1028,21 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           const spot = labelTextIndex[label];
           if (put(`${spot.r}_${spot.c}`, meta)) { changed = true; return; }
         }
-        // ③ 回退：字段占位符左侧一格（经典相邻布局），仅当目标未被其它 meta 认领
-        let home = fieldContentIndex[name];
-        if (!home) {
-          const found = scanForFieldCell(sheet, name, S_ROWS, S_COLS);
-          if (found) home = found;
+        // ① ② 都未命中：本格已不是本标签文字。区分三种情况：
+        //   (a) 本格被清空 → 用户删除了标签 → 整字段移除（面板由灰变黑、可重拖）；
+        //   (b) 本格被改成别的文字 → 视为「重命名标签」→ 同步 fieldLabel 并保留在本格
+        //       （set-range-values 处理器对标签编辑是 return 忽略的，这里补上同步，避免改名被当删除）；
+        //   (c) 本格变成了别的字段占位符 → 本 meta 是陈旧孤儿 → 整字段移除。
+        //   注意：结构性平移后文字仍在表中 → ② 已命中搬回，不会走到这里；只有文字确实被抹除/改写才走下面。
+        if (cur === null || cur === undefined || String(cur) === '') {
+          removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName); changed = true; return;
         }
-        if (home && home.c - 1 >= 0 && put(`${home.r}_${home.c - 1}`, meta)) { changed = true; return; }
-        // ④ 兜底：原地保留（宁可贵暂时错位，也绝不覆盖别人的 meta → 字段不再凭空丢失）
-        put(key, meta);
+        const curName = extractFieldNameFromDisplay(cur);
+        if (curName) {
+          removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName); changed = true; return;
+        }
+        (meta as any).fieldLabel = String(cur);
+        if (put(key, meta)) changed = true;
       });
 
       // 第三遍：明细表标记等不参与重排，原样保留
@@ -3167,10 +3173,17 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
                   if (!nm) return true;
                   let f = fIdx[nm] || scanForFieldCell(chkSheet, nm, 1500, 400);
                   if (!f) return true; // 占位符消失 → 移除整字段
+                  // ★ 判断「占位符是否仍在原坐标」不能再用「标签右侧一格」的相邻假设：
+                  //   标签允许与字段分开拖到不相邻位置（标签可自由摆放），此时 f.c !== lc+1 恒成立，
+                  //   会被误判成「内容被结构性平移」而保留 → 清空标签后字段面板灰不变黑、字段无法重拖。
+                  //   正确判据：占位符真实坐标上仍挂着本字段自己的 field meta（= 未发生平移）→ 是用户主动清空标签。
+                  const fk = `${f.r}_${f.c}`;
+                  const metaAtF: any = cellFieldMetaMap.current[fk];
+                  if (metaAtF && String(metaAtF.fieldName ?? '') === nm) return true;
                   const [lr, lc] = key.split('_').map(Number);
-                  // 字段仍紧贴标签右侧一格（未平移）→ 视为「仅清空标签」→ 按原语义移除整字段
+                  // 兼容经典相邻布局（meta 坐标尚未落到占位符上时的兜底）
                   if (f.r === lr && f.c === lc + 1) return true;
-                  return false; // 字段已移走（结构性平移）→ 保留，交给 reconcile
+                  return false; // 占位符确被结构性平移到别处 → 保留，交给 reconcile
                 });
               }
             }
