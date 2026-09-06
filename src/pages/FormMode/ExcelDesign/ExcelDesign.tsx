@@ -8,6 +8,8 @@ import {
   Spin,
   Divider,
   Tooltip,
+  Modal,
+  Dropdown,
 } from 'antd';
 import {
   SaveOutlined,
@@ -19,6 +21,7 @@ import {
   CheckCircleOutlined,
   EditOutlined,
   LockOutlined,
+  TableOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from '@umijs/max';
 import { DndProvider } from 'react-dnd';
@@ -29,6 +32,7 @@ import PropertyPanel from './components/PropertyPanel';
 import ExcelPreview from './components/ExcelPreview';
 import { EXCEL_PREVIEW_DATA_KEY } from './ExcelPreviewPage';
 import { saveFormLayout, getFormLayout } from '@/services/formmode/formLayoutApi';
+import { fieldDefinitionApi } from '@/services/formmode';
 
 /**
  * Excel设计器主页面
@@ -51,6 +55,33 @@ const ExcelDesignContent: React.FC = () => {
   const [saving, setSaving] = useState<boolean>(false);
   const [pendingField, setPendingField] = useState<any>(null);
   const [hoveredField, setHoveredField] = useState<any>(null);
+
+  // ──────────────────────────────────────────────
+  // 明细表「标记 + 子画布」模型（对齐 ecology formmode/exceldesign）：
+  // - detailLayouts：各明细表独立的 Excel 布局（随主布局 detailTables[idx] 一并持久化）
+  // - editingDetail：当前打开编辑的明细表序号（null=在主画布）
+  // - detailTableOptions：本表单拥有的明细表序号（用于「插入明细表」下拉）
+  // ──────────────────────────────────────────────
+  const [detailLayouts, setDetailLayouts] = useState<Record<number, any>>({});
+  const [editingDetail, setEditingDetail] = useState<number | null>(null);
+  const [detailTableOptions, setDetailTableOptions] = useState<{ idx: number; count: number }[]>([]);
+  // 主画布 UniverExcelGrid 的 window API 引用：打开明细子画布时会被子实例覆盖，
+  // 关闭子画布后据此恢复，避免主画布拖放/操作失效。
+  const mainGridApiRef = useRef<any>(null);
+  // 每个明细表序号对应的「布局变更回调」稳定实例（避免子画布因 onLayoutChange 变化而反复重建 Univer）
+  const detailLayoutChangeRef = useRef<Record<number, (data: any) => void>>({});
+  const getDetailLayoutChange = (idx: number) => {
+    if (!detailLayoutChangeRef.current[idx]) {
+      detailLayoutChangeRef.current[idx] = (data: any) => {
+        setDetailLayouts((prev) => ({ ...prev, [idx]: data }));
+        setLayoutData((prev) => ({
+          ...prev,
+          detailTables: { ...(prev.detailTables || {}), [idx]: data },
+        }));
+      };
+    }
+    return detailLayoutChangeRef.current[idx];
+  };
 
   // 预览弹窗状态
   const [previewVisible, setPreviewVisible] = useState<boolean>(false);
@@ -87,6 +118,39 @@ const ExcelDesignContent: React.FC = () => {
     if (formId) {
       loadFormLayout();
     }
+  }, [formId]);
+
+  // ──────────────────────────────────────────────
+  // 加载本表单拥有的明细表序号（用于「插入明细表」下拉）
+  // ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!formId) {
+      setDetailTableOptions([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fieldDefinitionApi.getByFormId(formId);
+        if (cancelled || !data || !Array.isArray(data)) return;
+        const counts: Record<number, number> = {};
+        data.forEach((f: any) => {
+          if (f.isMain === 0 && f.detailTable && Number(f.detailTable) > 0) {
+            const idx = Number(f.detailTable);
+            counts[idx] = (counts[idx] || 0) + 1;
+          }
+        });
+        const list = Object.keys(counts)
+          .map(Number)
+          .sort((a, b) => a - b)
+          .map((idx) => ({ idx, count: counts[idx] }));
+        setDetailTableOptions(list);
+      } catch (e) {
+        console.warn('[ExcelDesign] 加载明细表列表失败:', e);
+        setDetailTableOptions([]);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [formId]);
 
   // ──────────────────────────────────────────────
@@ -170,6 +234,8 @@ const ExcelDesignContent: React.FC = () => {
         }
 
         setLayoutData(layoutJson || {});
+        // 明细表子画布布局随主布局的 detailTables 一并加载
+        setDetailLayouts((layoutJson && layoutJson.detailTables) || {});
         console.log('[LoadFormLayout] 已加载布局数据', { hasFieldMeta: JSON.stringify(layoutJson).includes('fieldMeta') });
         message.success('布局数据加载成功');
       }
@@ -200,9 +266,16 @@ const ExcelDesignContent: React.FC = () => {
       return;
     }
 
+    // 合并明细表子画布布局：detailTables 维护在父组件 layoutData 中，
+    // 主画布 saveLayoutData() 只返回主表布局，需手动并入，预览才能渲染嵌套明细表。
+    const previewData = {
+      ...data,
+      detailTables: (layoutDataRef.current && layoutDataRef.current.detailTables) || detailLayouts || {},
+    };
+
     // 先缓存数据，再开窗，保证新标签页一定能读到
     try {
-      localStorage.setItem(EXCEL_PREVIEW_DATA_KEY, JSON.stringify(data));
+      localStorage.setItem(EXCEL_PREVIEW_DATA_KEY, JSON.stringify(previewData));
     } catch (e) {
       console.warn('[预览] 布局数据写入本地存储失败，回退为弹窗预览:', e);
     }
@@ -353,7 +426,40 @@ const ExcelDesignContent: React.FC = () => {
     // saveLayoutData 会先用 parentData（顶层 cellData）回调一次，再以 result（sheets）回调一次；
     // 若合并就会残留上一次的 sheets（过期数据），而 UniverExcelGrid 解析布局时优先取 sheets，
     // 于是会把过期布局重新灌回表格（如"清空单元格后又自动恢复"、字段元数据回滚）。
-    setLayoutData(data);
+    // 但需保留明细表子画布布局（detailTables），否则主画布保存会把它丢掉的。
+    setLayoutData((prev) => ({ ...data, detailTables: prev.detailTables || {} }));
+  }, []);
+
+  // ──────────────────────────────────────────────
+  // 打开 / 关闭明细表子画布
+  // ──────────────────────────────────────────────
+  const openDetailCanvas = useCallback((idx: number) => {
+    // 记下沉主画布 API，待子画布关闭后恢复（子实例会把 window.univerExcelGrid 覆盖为自身）
+    mainGridApiRef.current = (window as any).univerExcelGrid;
+    setEditingDetail(idx);
+  }, []);
+
+  // 主表画布中某明细表标记被删除（整行/整列删除、清空内容、快捷键删除等）时，
+  // 级联清理对应的明细表子画布布局，避免「孤儿明细表」（标记没了但子画布布局还在，数据关联失效）。
+  const handleDetailMarkerRemoved = useCallback((idx: number) => {
+    setDetailLayouts((prev) => {
+      const next = { ...prev };
+      delete next[idx];
+      return next;
+    });
+    setLayoutData((prev) => {
+      const next = { ...prev, detailTables: { ...(prev.detailTables || {}) } };
+      delete next.detailTables[idx];
+      return next;
+    });
+  }, []);
+
+  const closeDetailCanvas = useCallback(() => {
+    setEditingDetail(null);
+    // 恢复主画布 API，避免主画布拖放/属性操作失效
+    if (mainGridApiRef.current) {
+      (window as any).univerExcelGrid = mainGridApiRef.current;
+    }
   }, []);
 
   // ──────────────────────────────────────────────
@@ -967,6 +1073,31 @@ const ExcelDesignContent: React.FC = () => {
           </Button>,
         ]
       : []),
+    <Dropdown
+      key="insert-detail"
+      disabled={detailTableOptions.length === 0}
+      menu={{
+        disabled: detailTableOptions.length === 0,
+        items: detailTableOptions.map((o) => ({
+          key: String(o.idx),
+          label: `明细表${o.idx}（${o.count} 字段）`,
+          onClick: () => {
+            const grid = (window as any).univerExcelGrid;
+            if (!grid || typeof grid.insertDetailMarker !== 'function') {
+              message.warning('请先在主表画布中选中一个单元格');
+              return;
+            }
+            const ok = grid.insertDetailMarker(o.idx);
+            if (ok) openDetailCanvas(o.idx);
+          },
+        })),
+      }}
+    >
+      <Button icon={<TableOutlined />} disabled={detailTableOptions.length === 0}>
+        插入明细表
+      </Button>
+    </Dropdown>,
+    <Divider key="detail-divider" type="vertical" style={{ height: 24, margin: '0 8px' }} />,
     <Button key="save" type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saving}>
       保存
     </Button>,
@@ -1037,6 +1168,8 @@ const ExcelDesignContent: React.FC = () => {
         formId={formId || undefined}
         pendingField={selectedField || (window as any).__pendingField}
         hoveredField={hoveredField}
+        onDetailMarkerOpen={openDetailCanvas}
+        onDetailMarkerRemoved={handleDetailMarkerRemoved}
       />
     ),
   }));
@@ -1107,6 +1240,56 @@ const ExcelDesignContent: React.FC = () => {
         onClose={() => setPreviewVisible(false)}
         title="表单预览"
       />
+
+      {/* 明细表子画布：点击主表「明细表标记」或工具栏「插入明细表」打开，
+          使用独立的 UniverExcelGrid 实例编辑该明细表的 Excel 布局 */}
+      <Modal
+        open={editingDetail !== null}
+        title={`明细表${editingDetail ?? ''} 设计`}
+        width="92%"
+        style={{ top: 24 }}
+        footer={null}
+        onCancel={closeDetailCanvas}
+        destroyOnClose
+        maskClosable={false}
+      >
+        {editingDetail !== null && (
+          <div style={{ display: 'flex', height: '72vh' }}>
+            {/* 左侧字段面板：仅显示该明细表的字段 */}
+            <div style={{ width: 250, borderRight: '1px solid #f0f0f0', overflow: 'auto' }}>
+              <FieldPalette
+                onFieldSelect={handleFieldSelect}
+                onFieldHover={handleFieldHover}
+                formId={formId || undefined}
+                usedFieldKeys={usedFieldKeys}
+                detailTableFilter={editingDetail}
+              />
+            </div>
+
+            {/* 中间明细表 Excel 画布 */}
+            <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
+              <Card>
+                <UniverExcelGrid
+                  key={editingDetail}
+                  isDetailCanvas
+                  detailTableFilterIdx={editingDetail}
+                  sheetName="Sheet1"
+                  layoutData={detailLayouts[editingDetail] || {}}
+                  onLayoutChange={getDetailLayoutChange(editingDetail)}
+                  formId={formId || undefined}
+                  pendingField={selectedField || (window as any).__pendingField}
+                  hoveredField={hoveredField}
+                />
+              </Card>
+            </div>
+
+            {/* 右侧属性面板 */}
+            <div style={{ width: 300, borderLeft: '1px solid #f0f0f0', overflow: 'auto' }}>
+              <PropertyPanel selectedField={selectedField} />
+            </div>
+          </div>
+        )}
+      </Modal>
     </DndProvider>
   );
 };

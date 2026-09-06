@@ -117,8 +117,14 @@ interface FieldMeta {
   fieldName: string;
   fieldLabel: string;
   fieldType: FieldType;
-  /** 单元格类型：label=静态标签文本（仅展示，不可输入），field=数据绑定字段（可输入） */
-  cellType?: 'label' | 'field';
+  /** 单元格类型：
+   *  - label=静态标签文本（仅展示，不可输入）
+   *  - field=数据绑定字段（可输入）
+   *  - detailTableMarker=主表中的「明细表标记」格（点击打开该明细表的独立 Excel 画布）
+   */
+  cellType?: 'label' | 'field' | 'detailTableMarker';
+  /** 所属明细表索引（>0）：明细字段归属的明细表序号；detailTableMarker 用它定位打开哪个明细画布 */
+  detailTable?: number;
   required: boolean;
   readonly: boolean;
   /** 字段属性：1=只读 2=可编辑 3=必填（参照 ecology fieldAttrMap） */
@@ -197,6 +203,9 @@ interface FieldMeta {
     * - 字段(cellType=field)：图标 + ${字段名} 占位符，标记数据绑定
     */
     const getCellDisplayValue = (meta: FieldMeta): string => {
+    if (meta.cellType === 'detailTableMarker') {
+      return meta.fieldLabel || `明细表${meta.detailTable ?? ''}`;
+    }
     if (meta.cellType === 'label') {
       return meta.fieldLabel || meta.fieldName || '';
     }
@@ -267,6 +276,14 @@ interface WorkbookLayoutData {
   };
 }
 
+/**
+ * 主表 → 明细表「标记」模型（对齐 ecology formmode/exceldesign）：
+ *  - 主表画布插入一颗「明细表标记」格（cellType=detailTableMarker，携带 detailTable 序号）；
+ *  - 点击该标记 → 打开该明细表的独立 Excel 画布（由父组件用单独的 UniverExcelGrid 实例承载）；
+ *  - 各明细表有自己的 layoutData，随主布局的 detailTables[idx] 一并持久化；
+ *  - 列宽/列序在各自的画布内由 Univer 原生列宽 + 物理列序维护。
+ */
+
 interface UniverExcelGridProps {
   sheetName: string;
   layoutData: any;
@@ -285,7 +302,61 @@ interface UniverExcelGridProps {
   layoutType?: number | string;
   /** 直接声明只读（如预览态），优先级高于 layoutType */
   readOnly?: boolean;
+  /**
+   * 点击主表中的「明细表标记」格时触发（参数为该标记的 detailTable 序号），
+   * 由父组件打开对应明细表的独立 Excel 画布。
+   */
+  onDetailMarkerOpen?: (detailTableIdx: number) => void;
+  /**
+   * 主表中的「明细表标记」格被删除（整行/整列删除、清空内容、快捷键删除等均会触发）时回调，
+   * 参数为被删标记的 detailTable 序号；由父组件级联清理对应的 detailTables[idx]，
+   * 避免「孤儿明细表」（标记没了但子画布布局还在，数据关联失效）。
+   */
+  onDetailMarkerRemoved?: (detailTableIdx: number) => void;
+  /**
+   * 是否为「明细表子画布」实例：true 时明细字段按普通字段落格（不再重定向到标记），
+   * 并配合 FieldPalette 的 detailTableFilterIdx 只展示该明细表的字段。
+   */
+  isDetailCanvas?: boolean;
+  /** 子画布模式下，仅渲染该序号对应的明细表字段（用于筛选 FieldPalette） */
+  detailTableFilterIdx?: number;
 }
+
+// 稳定序列化：递归排序 key，保证「内容相同但引用/插入顺序不同」的两个对象得到相同字符串。
+// 用于判断「layoutData 的回流变化是否由本组件自身保存产生」：父组件 handleLayoutChange 会把我们
+// 保存的数据包进 {...data, detailTables} 新对象（引用不等），纯引用比较会失效 → 触发不必要的整表重载死循环。
+const stableStringify = (obj: any): string => {
+  const sortKeys = (o: any): any => {
+    if (o === null || o === undefined || typeof o !== 'object') return o;
+    if (Array.isArray(o)) return o.map(sortKeys);
+    const out: any = {};
+    Object.keys(o)
+      .sort()
+      .forEach((k) => { out[k] = sortKeys(o[k]); });
+    return out;
+  };
+  try {
+    return JSON.stringify(sortKeys(obj));
+  } catch {
+    return '';
+  }
+};
+
+// 剔除父组件注入的 detailTables（明细表子画布布局，由父组件维护，不属主表自保存内容），
+// 使自保存内容与回流 prop 在比较时只针对主表布局。
+const stripDetailTables = (obj: any): any => {
+  if (!obj || typeof obj !== 'object') return obj;
+  const { detailTables, ...rest } = obj;
+  return rest;
+};
+
+// 从单元格显示值中提取字段名（占位符 `${字段名}` 中的内容）。用于保存自愈时判断
+// 「当前单元格实际是哪一个字段的占位符」，从而把错位的元数据搬回正确坐标，而不是覆盖别的字段。
+const extractFieldNameFromDisplay = (v: any): string | null => {
+  if (v == null) return null;
+  const m = String(v).match(/\$\{(.+?)\}/);
+  return m ? m[1].trim() : null;
+};
 
 const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   sheetName,
@@ -296,6 +367,10 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   hoveredField,
   layoutType,
   readOnly,
+  onDetailMarkerOpen,
+  onDetailMarkerRemoved,
+  isDetailCanvas,
+  detailTableFilterIdx,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const univerRef = useRef<any>(null);
@@ -597,6 +672,16 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   const cellFieldMetaMap = useRef<Record<string, FieldMeta>>({});
 
   // ──────────────────────────────────────
+  // onDetailMarkerOpen 的 ref 镜像：init effect 闭包只捕获首次渲染的 props，
+  // 用 ref 始终指向最新回调，避免点击标记时调用到过期引用。
+  // ──────────────────────────────────────
+  const onDetailMarkerOpenRef = useRef<((idx: number) => void) | undefined>(onDetailMarkerOpen);
+  onDetailMarkerOpenRef.current = onDetailMarkerOpen;
+  // onDetailMarkerRemoved 的 ref 镜像：标记被删除时级联清理父组件 detailTables[idx]（防孤儿）
+  const onDetailMarkerRemovedRef = useRef<((idx: number) => void) | undefined>(onDetailMarkerRemoved);
+  onDetailMarkerRemovedRef.current = onDetailMarkerRemoved;
+
+  // ──────────────────────────────────────
   // 「墓碑」集合：记录本会话中被显式移除的字段项（key = `${fieldId}_${cellType}`）。
   // 背景：lookupCellMeta / findMetaNear 的 tier-2 兜底会从「持久化 layoutData」回读 fieldMeta
   // 并写回内存 Map。删除字段后、新布局生效前，layoutData 仍是旧数据，
@@ -605,6 +690,11 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // 重新拖入该字段(handleFieldDrop)或重新加载布局(loadLayoutData)时清除墓碑。
   // ──────────────────────────────────────
   const removedFieldKeysRef = useRef<Set<string>>(new Set());
+  // 最近一次「本组件自保存」产生的布局内容签名（剔除 detailTables 后的稳定序列化）。
+  // 用于精确判断 layoutData 的回流变化是否来自自身保存：父组件 handleLayoutChange 会把数据
+  // 包进 {...data, detailTables} 新对象（引用不等），纯引用比较（selfSavedLayoutsRef）会失效，
+  // 导致每次自保存都触发整表重载 → 重载清单元格又触发保存 → 死循环（字段被反复清空/丢失/"多出"）。
+  const selfSavedSigRef = useRef<string>('');
   // 已移除字段元数据的「暂存」：删除字段时把其元数据原样存下，供【撤销】把单元格值恢复后
   // 重新登记，使字段面板重新置灰（否则撤销只恢复了单元格文字、字段元数据丢失、面板不反应）。
   const removedFieldMetaRef = useRef<Record<string, FieldMeta>>({}); // key = `${fieldId}_${cellType}`
@@ -619,11 +709,22 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     if (fid === undefined || fid === null || fid === '') return;
     removedFieldKeysRef.current.add(`${String(fid)}_label`);
     removedFieldKeysRef.current.add(`${String(fid)}_field`);
+    // 明细表标记被删除 → 级联清理父组件 detailTables[idx]，避免孤儿明细表（数据关联失效）
+    if (meta?.cellType === 'detailTableMarker' && meta?.detailTable != null) {
+      const idx = Number(meta.detailTable);
+      removedFieldKeysRef.current.add(`${String(fid)}_detailTableMarker`);
+      onDetailMarkerRemovedRef.current?.(idx);
+    }
   };
   // 整表移除全部字段：先给所有 meta 打墓碑，再清空 Map
   const removeAllFieldsFromMap = () => {
-    Object.values(cellFieldMetaMap.current).forEach((m) => {
-      if (m) removedFieldKeysRef.current.add(tombstoneKey(m));
+    Object.values(cellFieldMetaMap.current).forEach((m: any) => {
+      if (!m) return;
+      removedFieldKeysRef.current.add(tombstoneKey(m));
+      // 整表清空（如 Ctrl+A + Delete）若含明细表标记，同样级联清理对应 detailTables[idx]
+      if (m.cellType === 'detailTableMarker' && m.detailTable != null) {
+        onDetailMarkerRemovedRef.current?.(Number(m.detailTable));
+      }
     });
     cellFieldMetaMap.current = {};
     // 整表移除后必须立即广播空集合，否则面板会停留在上一次的置灰状态
@@ -695,6 +796,96 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     return removed;
   };
 
+  /**
+   * 内容驱动的自愈：把 cellFieldMetaMap 重新对齐到「单元格实际内容」。
+   * 不再依赖命令顺序/标志位去预测 Univer 内部平移（易错、易双重平移），
+   * 而是直接扫描单元格，按 `${字段名}` 占位符找到每个字段真实所在坐标，把错位的 meta 搬回去。
+   *  - 字段格：找到本字段内容 → 搬回（绝不覆盖别人）；找不到 → 当前格若是别的字段占位符则释放本 meta(陈旧孤儿)，
+   *    当前格若是普通文本(被手动改)则还原（保留「字段禁止改文本」约定）。
+   *  - 标签格：随其字段内容同位移（标签在字段左侧一格）搬回。
+   * 返回是否发生过变更。调用方负责 notifyFieldsChanged / scheduleAutoSave。
+   * 该函数用于「实时防篡改轮询」与「结构性操作后校正」，使错位/多出/覆盖在地图层面自愈，不再破坏内容。
+   */
+  const reconcileMetaWithContent = useCallback((sheet: any): boolean => {
+    if (!sheet) return false;
+    // 扫描范围必须覆盖真实布局：插入/删除行列会把字段推到较大的行/列索引，
+    // 若上限过小（如原 50 列）会漏扫刚插入列的字段 → home 为空 → 误删 → 面板灰变黑。
+    const maxRow = Math.min(sheet.getMaxRows?.() ?? 200, 1000);
+    const maxCol = Math.min(sheet.getMaxColumns?.() ?? 50, 200);
+
+    // 1) 建立 字段名 -> 实际内容坐标 索引（首个出现为准）
+    const fieldContentIndex: Record<string, { r: number; c: number }> = {};
+    for (let r = 0; r < maxRow; r++) {
+      for (let c = 0; c < maxCol; c++) {
+        let v: any;
+        try { v = sheet.getRange(r, c).getValue(); } catch { continue; }
+        if (v == null || v === '') continue;
+        const fn = extractFieldNameFromDisplay(v);
+        if (fn && !fieldContentIndex[fn]) fieldContentIndex[fn] = { r, c };
+      }
+    }
+
+    const getCur = (r: number, c: number): any => {
+      try { return sheet.getRange(r, c).getValue(); } catch { return null; }
+    };
+
+    isRestoringRef.current = true; // 包裹内部 setValue，避免触发防篡改/变更处理器递归
+    let changed = false;
+    try {
+      const newMap: Record<string, any> = {};
+      Object.entries(cellFieldMetaMap.current).forEach(([key, meta]) => {
+        if (!meta) { newMap[key] = meta; return; }
+        const [rStr, cStr] = key.split('_');
+        const r = Number(rStr), c = Number(cStr);
+        const name = String((meta as any).fieldName ?? '');
+
+        if ((meta as any).cellType === 'field') {
+          const home = fieldContentIndex[name];
+          if (home && (home.r !== r || home.c !== c)) {
+            // 本字段内容真实在 home → 搬过去（不乱写当前格，绝不覆盖别的字段）
+            newMap[`${home.r}_${home.c}`] = meta; changed = true; return;
+          }
+          if (!home) {
+            const cur = getCur(r, c);
+            const curName = extractFieldNameFromDisplay(cur);
+            if (curName && curName !== name) {
+              // 当前格是别的字段 → 本 meta 是陈旧孤儿，整字段释放（防 tier-2 复活）
+              removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName); changed = true; return;
+            }
+            // 当前格为空(被清空) → 视为删除；当前格为普通文本(被手动改) → 还原占位符
+            if (cur === null || cur === undefined || String(cur) === '') {
+              removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName); changed = true; return;
+            }
+            try { sheet.getRange(r, c).setValue(getCellDisplayValue(meta)); } catch { /* 忽略 */ }
+            changed = true; newMap[key] = meta; return;
+          }
+          newMap[key] = meta; return;
+        }
+
+        if ((meta as any).cellType === 'label') {
+          const home = fieldContentIndex[name];
+          if (home && home.c - 1 >= 0 && (home.r !== r || home.c - 1 !== c)) {
+            newMap[`${home.r}_${home.c - 1}`] = meta; changed = true; return;
+          }
+          if (!home) {
+            // 字段内容已不在 → 标签也失效，整字段释放
+            removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName); changed = true; return;
+          }
+          newMap[key] = meta; return;
+        }
+
+        // detailTableMarker 等不参与重排，原样保留
+        newMap[key] = meta;
+      });
+      if (changed) cellFieldMetaMap.current = newMap;
+    } finally {
+      setTimeout(() => { isRestoringRef.current = false; }, 0);
+    }
+    return changed;
+  // 注：removeFieldCompletely 定义在文件更靠后，此处不列入 deps 以免定义期 TDZ；
+  // 其引用仅在调用时求值（彼时已赋值），函数体闭包捕获同一词法绑定，行为正确。
+  }, [markFieldRemoved, getCellDisplayValue]);
+
   const notifyFieldsChanged = (force = false) => {
     try {
       const keys = collectUsedFieldKeys();
@@ -742,8 +933,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       }
     } catch { /* ignore */ }
 
-    const maxRows = typeof sheet.getMaxRows === 'function' ? Math.min(sheet.getMaxRows(), 200) : 50;
-    const maxCols = typeof sheet.getMaxColumns === 'function' ? Math.min(sheet.getMaxColumns(), 50) : 26;
+    const maxRows = typeof sheet.getMaxRows === 'function' ? Math.min(sheet.getMaxRows(), 1000) : 200;
+    const maxCols = typeof sheet.getMaxColumns === 'function' ? Math.min(sheet.getMaxColumns(), 200) : 50;
     let hitKey: string | null = null;
     const found: Array<[string, any]> = [];
 
@@ -878,6 +1069,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   const isRestoringRef = useRef(false);
   // 标记是否正在加载布局（程序自身批量写入单元格，不应触发保护回滚与自动保存）
   const isLoadingRef = useRef(false);
+  // 标记是否正在执行「结构性行/列插入或删除」：期间让守护定时器与单元格变更处理器跳过，
+  // 避免把 Univer 平移内容造成的"合法位移"当成手动改格而自动还原（否则抵消平移 → 字段错位/多出）。
+  const isStructuralRef = useRef(false);
 
   // 右键命中格子缓存：右键那一刻锁定光标所在格。
   // 右键菜单统一使用 Univer 原生菜单（改过的 src/univer-lib 产物里注册了
@@ -1015,6 +1209,21 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           applyFieldAttrStyle(range, fieldMeta);
         } catch (styleErr) {
           console.warn('设置字段单元格样式失败:', styleErr);
+        }
+      }
+
+      // 明细表标记格：蓝底白字加粗 + 居中，视觉上区别于普通字段（点击打开该明细表的独立画布）
+      if (fieldMeta.cellType === 'detailTableMarker') {
+        try {
+          applyCellStyle(range, {
+            bl: 1,
+            bg: { rgb: '#0958d9' },
+            cl: { rgb: '#ffffff' },
+            ht: 'center',
+            vt: 'middle',
+          });
+        } catch (styleErr) {
+          console.warn('设置明细表标记格样式失败:', styleErr);
         }
       }
 
@@ -1246,11 +1455,13 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // 参照迁移文档 §9.1 - Univer JSON 格式 + §9.2 转换工具
   // ──────────────────────────────────────
   const saveLayoutData = useCallback(() => {
-    if (!workbook) return null;
+    // 必须用 workbookRef.current：本函数通过 onCommandExecuted / 定时器等多种闭包调用，
+    // 闭包里的 workbook 状态可能仍为 null（首帧注册时），导致整段跳过保存。
+    const fWorkbook: any = workbookRef.current;
+    if (!fWorkbook) return null;
 
     try {
       // workbook 是 FWorkbook (Facade)
-      const fWorkbook: any = workbook;
       // 防御：实例可能在 HMR/卸载后被销毁，此时 getActiveSheet() 会抛
       // InjectorAlreadyDisposedError。静默跳过保存，不打错误日志（否则开发期告警刷屏）。
       let sheet: any;
@@ -1283,6 +1494,13 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       const dataTable: any[][] = [];
       let hasData = false;
 
+      // 保存自愈支撑结构：
+      //  - fieldNameIndex：单元格值→坐标（建立「字段名→实际所在格」索引，用于把错位 meta 搬回去）
+      //  - pendingRehome：扫描中发现「meta 落错坐标（当前格是别的字段占位符）」的待修正项，
+      //    循环结束后再统一搬回，避免 saveLayoutData 把别的字段内容覆盖掉（「增加行列后覆盖」根因）。
+      const fieldNameIndex: Record<string, { r: number; c: number }> = {};
+      const pendingRehome: Array<{ fromKey: string; meta: any; fieldName: string }> = [];
+
       for (let row = 0; row < maxRow; row++) {
         let rowHasData = false;
         for (let col = 0; col < maxCol; col++) {
@@ -1303,8 +1521,33 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           // 跳过空值单元格
           if (value === null || value === undefined || value === '') continue;
 
+          // 建立「字段名→实际坐标」索引（首个出现为准），供下方错位 meta 自愈搬回使用
+          const idxName = extractFieldNameFromDisplay(value);
+          if (idxName && !fieldNameIndex[idxName]) fieldNameIndex[idxName] = { r: row, c: col };
+
           // 获取字段元数据（从内存 Map）
-          const fieldMeta = getCellFieldMeta(row, col);
+          let fieldMeta = getCellFieldMeta(row, col);
+
+          // 安全网：明细表标记「值被平移但元数据未平移」时（结构性行/列删除命令未被
+          // handleRowColStructural 捕获的兜底场景），按显示值把脱离元数据的标记认领回新坐标，
+          // 避免「明细表N」被当成普通文本反复出现、且点击打不开明细。
+          if (!fieldMeta && value !== null && value !== undefined && String(value) !== '') {
+            const orphan = Object.entries(cellFieldMetaMap.current).find(([k, m]) => {
+              if (!m || (m as any).cellType !== 'detailTableMarker') return false;
+              const [or, oc] = k.split('_').map(Number);
+              let oldVal = '';
+              try { oldVal = String(sheet.getRange(or, oc).getValue() ?? ''); } catch { oldVal = ''; }
+              // 旧坐标已空（值已被平移走）且显示值（标记文字）匹配 → 认领
+              return oldVal === '' && String((m as any).fieldLabel ?? '') === String(value);
+            });
+            if (orphan) {
+              const [ok] = orphan;
+              const m = cellFieldMetaMap.current[ok];
+              delete cellFieldMetaMap.current[ok];
+              cellFieldMetaMap.current[`${row}_${col}`] = m as any;
+              fieldMeta = m as any;
+            }
+          }
 
           // 关键验证：如果有元数据，检查元数据中的值是否与单元格值匹配
           // 注意：单元格值可能带有图标前缀，需要去除图标后再比较
@@ -1315,14 +1558,30 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
                 // 标签允许修改文字：同步更新 fieldLabel（fieldMeta 是内存 Map 的引用），
                 // 保持标签身份并正常保存，避免被当作过期元数据删除
                 fieldMeta.fieldLabel = String(value ?? '');
+              } else if (fieldMeta.cellType === 'field') {
+                // 关键修复：当前单元格是「别的字段」的占位符（meta 坐标错位，而非占位符被破坏）。
+                // 若这里强制 setValue(expected) 把期望值写回，会把当前格里「别的字段」的内容覆盖掉
+                // （表现为「增加/删除行列后，下面的单元格把其他字段覆盖」）。
+                // 正确做法：不覆盖当前格内容，把错位 meta 记录下来，循环结束后搬回它自己字段内容所在坐标。
+                const cellName = extractFieldNameFromDisplay(value);
+                const metaName = String((fieldMeta as any).fieldName ?? '');
+                if (cellName && cellName !== metaName) {
+                  console.log(`[Save] 单元格 (${row}, ${col}) 的 meta(${metaName}) 错位：当前格是字段 ${cellName} 的内容，记入待搬回列表`);
+                  pendingRehome.push({ fromKey: `${row}_${col}`, meta: fieldMeta, fieldName: metaName });
+                } else {
+                  // 同字段（仅图标/前缀差异，如只读🔒未刷新）或纯文本占位符被破坏 → 还原期望值，保留元数据
+                  const expected = getCellDisplayValue(fieldMeta);
+                  console.log(`[Save] 单元格 (${row}, ${col}) 值不匹配，还原为期望值: 实际值="${value}", 期望值="${expected}"`);
+                  try {
+                    sheet.getRange(row, col).setValue(expected);
+                  } catch (e) {
+                    console.warn('[Save] 还原字段显示值失败:', e);
+                  }
+                  value = expected;
+                }
               } else {
-                // 字段占位符被破坏 → 按「字段禁止手动改文本」的约定还原正确显示值，并保留元数据。
-                // ⚠️ 不能删除元数据：一旦删除，该字段会从 cellFieldMetaMap 与保存结果中消失，
-                // 下一次 loadLayoutData 重载后元数据丢失，导致：
-                //   1) 唯一性校验失效 → 同一个字段可以被重复拖入
-                //   2) 右键「只读/可编辑/必填」因 resolveCellFieldId 查不到字段而失效
+                // 明细表标记等：原样还原期望值
                 const expected = getCellDisplayValue(fieldMeta);
-                console.log(`[Save] 单元格 (${row}, ${col}) 值不匹配，还原为期望值: 实际值="${value}", 期望值="${expected}"`);
                 try {
                   sheet.getRange(row, col).setValue(expected);
                 } catch (e) {
@@ -1348,6 +1607,38 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           if (!dataTable[row]) dataTable[row] = [];
           dataTable[row][col] = value;
         }
+      }
+
+      // ── 保存自愈：把错位 meta 搬回它自己字段内容所在坐标 ──
+      // 结构性操作（增删行列）或历史原因可能导致 cellFieldMetaMap 坐标与单元格实际内容错位
+      // （例如 meta 在 (2,1) 但 (2,1) 实际是 field_10 的内容、field_9 内容在 (1,1)）。
+      // 若在此处强制 setValue 还原期望值，会把别的字段内容覆盖掉（"增加行列后覆盖"根因）。
+      // 因此改为：扫描期只记录 pendingRehome，这里统一把 meta 搬到 fieldNameIndex 指向的真实坐标，
+      // 找不到本字段内容（确实被删）才释放该字段。最后用自愈后的地图把 fieldMeta 重新同步进 cellData。
+      if (pendingRehome.length) {
+        console.log('[Save] 自愈错位 meta 数量 =', pendingRehome.length, JSON.stringify(pendingRehome.map((p) => ({ from: p.fromKey, name: p.fieldName }))));
+        // 防碰撞：先整体复制当前地图并删掉所有待搬来源，再把每个 meta 放到其字段内容真实所在坐标
+        // （fieldNameIndex 按字段名唯一，home 坐标唯一，sources≠homes，不会产生覆盖冲突）。
+        const sources = new Set(pendingRehome.map((p) => p.fromKey));
+        const newMap: Record<string, any> = { ...cellFieldMetaMap.current };
+        sources.forEach((k) => { delete newMap[k]; });
+        pendingRehome.forEach(({ meta, fieldName }) => {
+          const home = fieldNameIndex[fieldName];
+          if (home) {
+            newMap[`${home.r}_${home.c}`] = meta;
+          } else {
+            // 本字段内容已不在表内 → meta 失效，释放（打墓碑）供重新拖入，绝不破坏当前格内容
+            markFieldRemoved(meta);
+          }
+        });
+        cellFieldMetaMap.current = newMap;
+        // 自愈后地图已修正，把正确 meta 重新同步进 cellData（rehome 改变了地图坐标）
+        Object.keys(cellData).forEach((r) => {
+          Object.keys(cellData[r as any]).forEach((c) => {
+            cellData[r as any][c as any].fieldMeta = getCellFieldMeta(Number(r), Number(c)) || undefined;
+          });
+        });
+        notifyFieldsChanged();
       }
 
       // 捕获合并单元格信息（用于预览保留 Excel 网格布局，还原合并单元格）
@@ -1470,6 +1761,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         };
         if (selfSavedLayoutsRef.current.size > 6) selfSavedLayoutsRef.current.clear();
         selfSavedLayoutsRef.current.add(emptyResult);
+        selfSavedSigRef.current = stableStringify(emptyResult);
         onLayoutChange(emptyResult);
         return emptyResult;
       }
@@ -1519,6 +1811,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       if (selfSavedLayoutsRef.current.size > 6) selfSavedLayoutsRef.current.clear();
       selfSavedLayoutsRef.current.add(parentData);
       selfSavedLayoutsRef.current.add(result);
+      // 用「内容签名」而非引用记录自保存：父组件 handleLayoutChange 会把数据包进
+      // {...data, detailTables} 新对象（引用不等），引用比较会失效 → 死循环重载。
+      selfSavedSigRef.current = stableStringify(parentData);
       onLayoutChange(parentData);
       return result;
     } catch (error) {
@@ -1591,18 +1886,31 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // params.range：删行→startRow/endRow；删列→startColumn/endColumn
   // ──────────────────────────────────────
   const handleRowColStructural = useCallback((commandId: string, params: any) => {
-    const range = params?.range;
+    // 兼容 params.range（单区域）与 params.ranges（数组，部分 Univer 版本/入口用此形状）
+    const range = params?.range || (Array.isArray(params?.ranges) ? params.ranges[0] : undefined);
     if (!range) return;
-    const isRow = commandId === 'sheet.command.remove-row' || commandId === 'sheet.command.insert-row';
-    const isRemove = commandId === 'sheet.command.remove-row' || commandId === 'sheet.command.remove-col';
-    const start = isRow ? range.startRow : range.startColumn;
-    const end = isRow ? range.endRow : range.endColumn;
+    // 不依赖精确字符串，避免 Univer 不同版本命令 id 形态（remove-row / remove-rows / delete-row 等）漏匹配
+    const isRow = /row/i.test(commandId);
+    const isRemove = /(remove|delete)/i.test(commandId);
+    // 不同 Univer 版本 range 字段命名不一：startRow/endRow 或 start/end
+    const start = isRow ? (range.startRow ?? range.start) : (range.startColumn ?? range.start);
+    const end = isRow ? (range.endRow ?? range.end) : (range.endColumn ?? range.end);
     if (start == null || end == null || end < start) return;
     const count = end - start + 1;
     // delta：删除→坐标 -count（向上/左）；插入→坐标 +count（向下/右）
     const delta = isRemove ? -count : count;
 
-    const sheet: any = (workbook as any).getActiveSheet?.();
+    // 标记结构性操作进行中：避免守护定时器 / 单元格变更处理器把 Univer 平移内容造成的"合法位移"
+    // 当成手动改格而自动还原（否则会抵消平移 → 字段错位 + 多出）。用 ref 而非闭包变量，
+    // 保证任何时机进入此函数都能正确置位。
+    isStructuralRef.current = true;
+    setTimeout(() => { isStructuralRef.current = false; }, 0);
+
+    // 注意：必须用 workbookRef.current 而非闭包里的 workbook —— onCommandExecuted 监听器在
+    // workbook 仍为 null 的首帧就已注册，闭包捕获的是 null，会导致 "(null).getActiveSheet" 抛异常、
+    // 平移逻辑整段不执行 → Map 不随内容移动 → 字段错位 + 多出。
+    const sheet: any = workbookRef.current?.getActiveSheet?.();
+    if (!sheet) return;
 
     // 删除模式：收集落入删除区间的字段 key（整字段移除，含其相邻那格）
     const doomedKeys = new Set<string>();
@@ -1627,11 +1935,22 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         markFieldRemoved(meta); // 打墓碑：整字段被删，防 tier-2 从旧 layoutData 复活
         return;
       }
-      const nr = isRow ? r + delta : r;
-      const nc = isRow ? c : c + delta;
+      const pos = isRow ? r : c;
+      // 仅「落在变更点之后」的字段才需要平移（与 Univer 实际移动单元格内容的规则一致，
+      // 否则全部字段统一 +/-count 会让内存 Map 与表格真实内容错位 → 字段/字段名错位且"多出来"）：
+      //  - 插入（delta=+count）：pos >= start 的字段整体下移/右移 count（pos<start 不动）
+      //  - 删除（delta=-count）：pos > end 的字段整体上移/左移 count（pos<start 不动；pos∈[start,end]已被 doomed 移除）
+      const shouldShift = isRemove ? pos > end : pos >= start;
+      const shift = shouldShift ? delta : 0;
+      const nr = isRow ? r + shift : r;
+      const nc = isRow ? c : c + shift;
       newMap[`${nr}_${nc}`] = meta;
     });
     cellFieldMetaMap.current = newMap;
+
+    // 平移后做一次内容驱动自愈：纠正任何「双重平移/边界错位」残留（reconcile 现以内容为正、
+    // 扫描上限已放宽，不会因插入行列把字段推远而误删 → 面板不再灰变黑）。
+    try { reconcileMetaWithContent(sheet); } catch (e) { /* 自愈失败不阻断后续保存/广播 */ }
 
     // 删列场景：同字段存活那格仍在表里，清掉其占位符值（行删除时同字段两格都在删除行内，无残留）
     if (isRemove && survivorsToClear.length) {
@@ -1660,11 +1979,36 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // ──────────────────────────────────────
   const handleMoveRange = useCallback((fromRange: any, toRange: any) => {
     if (!fromRange || !toRange) return;
+    // 结构性行/列增删期间（handleRowColStructural 已设置 isStructuralRef 并负责平移地图），
+    // 其内部派发的整幅 move-range 必须跳过，否则会与 handleRowColStructural 双重平移 →
+    // meta 坐标比单元格内容多移一行/列 → 错位且"覆盖"。用 ref 而非维度猜测，避免漏判。
+    if (isStructuralRef.current) {
+      console.log('[MoveRange] 结构性操作进行中，跳过（交由 handleRowColStructural 统一平移）');
+      return;
+    }
     const fR0 = fromRange.startRow, fR1 = fromRange.endRow;
     const fC0 = fromRange.startColumn, fC1 = fromRange.endColumn;
     if ([fR0, fR1, fC0, fC1, toRange.startRow, toRange.startColumn].some((v) => v == null)) return;
     const dRow = toRange.startRow - fR0;
     const dCol = toRange.startColumn - fC0;
+
+    // 关键修复：Univer 删除/插入行或列时，内部会用 move-range 把整块内容上/下/左/右平移来压缩/腾位，
+    // 这条 move-range 与 onCommandExecuted 里的 remove-row/insert-row（handleRowColStructural）是「同一动作」，
+    // 若这里再次平移 Map，会与 handleRowColStructural 的平移叠加 → 字段/字段名被平移两次 → 错位且"多出"。
+    // 因此：仅当移动是「整行宽（列从 0 到末列）的纵向平移」或「整列高（行从 0 到末行）的横向平移」时，
+    // 判定为结构性行/列变更，跳过此处处理，交由 handleRowColStructural 统一平移（避免双重平移）。
+    // 普通用户拖拽（局部范围、非整幅）仍正常处理。
+    try {
+      const sheet = workbookRef.current?.getActiveSheet?.();
+      if (sheet) {
+        const maxCols = typeof sheet.getMaxColumns === 'function' ? sheet.getMaxColumns() : 50;
+        const maxRows = typeof sheet.getMaxRows === 'function' ? sheet.getMaxRows() : 200;
+        const fullWidth = fC0 <= 0 && fC1 >= maxCols - 1;   // 覆盖全部列 → 行结构性变更
+        const fullHeight = fR0 <= 0 && fR1 >= maxRows - 1;  // 覆盖全部行 → 列结构性变更
+        if (dRow !== 0 && fullWidth) return;  // 删除/插入行：整行宽上/下平移，跳过
+        if (dCol !== 0 && fullHeight) return; // 删除/插入列：整列高左/右平移，跳过
+      }
+    } catch { /* 取行列数失败不阻断拖拽处理 */ }
 
     const newMap: Record<string, any> = { ...cellFieldMetaMap.current };
     const toMove: Array<{ key: string; meta: any; nr: number; nc: number }> = [];
@@ -1705,6 +2049,66 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     // fieldhtmltype=9 树形选择 → select
     if (htmlType === 9) return 'select';
     return 'text';
+  };
+
+  // ──────────────────────────────────────
+  // 在主表画布插入「明细表标记」格（cellType=detailTableMarker）。
+  // 对齐 ecology doInsertDetail：在活动单元格写入带样式的标记，标记携带 detailTable 序号；
+  // 点击该标记由父组件 onDetailMarkerOpen 打开对应明细表的独立 Excel 画布。同一明细表只插入一个标记。
+  // ──────────────────────────────────────
+  const insertDetailMarker = (detailTableIdx: number, title?: string): boolean => {
+    try {
+      if (!workbook) return false;
+      const sheet: any = workbook.getActiveSheet?.();
+      if (!sheet) return false;
+
+      // 已存在该明细表的标记则不重复插入
+      const already = Object.values(cellFieldMetaMap.current).some(
+        (m) => (m as any).cellType === 'detailTableMarker' && Number((m as any).detailTable) === detailTableIdx,
+      );
+      if (already) return true;
+
+      // 重插场景：此前可能因删除/清空被打了墓碑，需清掉，否则 tier-2/3 兜底会把它当「已移除」再次清理，导致重插后失效
+      removedFieldKeysRef.current.delete(`detailMarker_${detailTableIdx}_detailTableMarker`);
+
+      // 落点：优先活动单元格，回退到最近一次选中的单元格，再回退 (0,0)
+      let r = 0;
+      let c = 0;
+      try {
+        const sel = sheet.getSelection?.();
+        const arr = Array.isArray(sel) ? sel : (sel?.selection || [sel]);
+        const cur = arr?.[0];
+        r = cur?.actualRow ?? cur?.row ?? cur?.startRow ?? lastSelectionCellRef.current?.row ?? 0;
+        c = cur?.actualColumn ?? cur?.col ?? cur?.startColumn ?? lastSelectionCellRef.current?.col ?? 0;
+      } catch { /* 取活动单元格失败用回退坐标 */ }
+
+      const label = title || `明细表${detailTableIdx}`;
+      const markerMeta: FieldMeta = {
+        fieldId: `detailMarker_${detailTableIdx}`,
+        fieldName: '',
+        fieldLabel: label,
+        fieldType: 'label',
+        cellType: 'detailTableMarker',
+        detailTable: detailTableIdx,
+        required: false,
+        readonly: false,
+      };
+
+      isPlacingFieldRef.current = true;
+      setCellField(workbook, sheet, r, c, markerMeta);
+      notifyFieldsChanged();
+
+      const data = saveLayoutData();
+      if (data) onLayoutChange(data);
+
+      setTimeout(() => { isPlacingFieldRef.current = false; }, 200);
+      return true;
+    } catch (e) {
+      console.error('[insertDetailMarker] 插入明细表标记失败:', e);
+      isPlacingFieldRef.current = false;
+      message.error('插入明细表标记失败');
+      return false;
+    }
   };
 
   // ──────────────────────────────────────
@@ -1883,6 +2287,17 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         col,
         cellKey: `${row}_${col}`,
       });
+
+      // ── 明细表字段（detailTable>0）在主画布中的处理 ──
+      // 对齐 ecology：主表画布不直接摆放明细字段，而是插入「明细表标记」并打开该明细表的
+      // 独立 Excel 画布；字段的实际摆放发生在子画布（isDetailCanvas=true 时走普通落位）。
+      const dtIdxDetail = Number(actualField?.detailTable ?? 0);
+      if (dtIdxDetail > 0 && fieldMeta.fieldName && !isDetailCanvas) {
+        insertDetailMarker(dtIdxDetail);
+        onDetailMarkerOpenRef.current?.(dtIdxDetail);
+        message.success(`已插入「明细表${dtIdxDetail}」标记，请在明细表画布中编辑字段`);
+        return;
+      }
 
       // 标记正在放置字段，避免触发重新加载
       isPlacingFieldRef.current = true;
@@ -2339,10 +2754,10 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           valueChangeDisposer = fWorkbook.onCommandExecuted?.((command: any) => {
             // 整行/整列 插入或删除：结构性变更，需重排元数据坐标（删除还会释放被删字段供重拖）
             const cmdId = command?.id;
-            if (
-              cmdId === 'sheet.command.remove-row' || cmdId === 'sheet.command.remove-col' ||
-              cmdId === 'sheet.command.insert-row' || cmdId === 'sheet.command.insert-col'
-            ) {
+            // 行列结构性变更（删/插/移除 行/列）：重排元数据坐标、释放被删字段。
+            // 不写死精确 id：Univer 不同版本可能是 remove-row / remove-rows / delete-row 等，
+            // 一旦漏匹配，cellFieldMetaMap 不平移 → 明细表标记被平移成「孤儿普通文本」反复出现。
+            if (cmdId && /sheet\.command\.(remove|delete|insert)-(row|col)/i.test(cmdId)) {
               handleRowColStructural(cmdId, command?.params);
               return;
             }
@@ -2395,7 +2810,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             if (params.subUnitId && activeSheetId && params.subUnitId !== activeSheetId) return;
 
             // 程序自身的批量写入（放置字段/加载布局/回滚）不参与保护与自动保存
-            if (isPlacingFieldRef.current || isRestoringRef.current || isLoadingRef.current) return;
+            if (isPlacingFieldRef.current || isRestoringRef.current || isLoadingRef.current || isStructuralRef.current) return;
 
             // 两阶段处理：先收集「被清字段格 / 被清标签格 / 被篡改格」，再决定批量整移除还是逐格处理
             // 这样整表清空（Ctrl+A + Delete）可一次性移除全部字段，避免逐格循环 2600+ 次且反复 saveLayoutData
@@ -2445,6 +2860,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
                 // 清空：字段占位符格 / 标签格 → 统一待整字段移除（两格一起释放，避免残留）
                 if (newValue === null || newValue === undefined || newValue === '') {
+                  if (isStructuralRef.current) return; // 结构性平移中：格暂空是合法的（内容已移走），不移除字段
                   if ((meta as any).cellType === 'field') clearedFieldCells.push({ row, col, meta });
                   else clearedLabelKeys.push(cellKey);
                   return;
@@ -2455,6 +2871,14 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
                 // 字段单元格由设计器管理：被改成其他内容则记录，稍后统一还原
                 if (!isCellValueMatchMeta(newValue, meta)) {
+                  // 结构性操作进行中：内容正在被 Univer 平移，跳过防篡改还原，避免把被平移过来的
+                  // 其它字段覆盖掉（交给 reconcile 自愈把 meta 搬回正确坐标）。
+                  if (isStructuralRef.current) return;
+                  // 当前值其实是「别的字段」占位符 → 这是 meta 错位（历史双重平移/坐标漂移），
+                  // 不能 setValue 写回期望值覆盖掉它，交给 reconcile 把本 meta 搬回正确坐标即可。
+                  const newName = extractFieldNameFromDisplay(newValue);
+                  const metaName = String((meta as any).fieldName ?? '');
+                  if (newName && newName !== metaName) return;
                   console.log(`[CellChange] 单元格 (${row}, ${col}) 为设计器字段单元格，禁止手动修改，将自动还原`);
                   tamperedCells.push({ row, col, meta });
                 }
@@ -2515,7 +2939,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         // 说明：Univer Facade 事件覆盖不全（编辑单元格可能不走 SetRangeValuesMutation），
         // 因此不依赖事件，改为定期扫描：只要字段/标签单元格的值不符合预期就还原。
         const guardTimer: any = setInterval(() => {
-          if (isPlacingFieldRef.current || isRestoringRef.current || isLoadingRef.current) return;
+          if (isPlacingFieldRef.current || isRestoringRef.current || isLoadingRef.current || isStructuralRef.current) return;
 
           // 实例可能在 HMR/卸载后被销毁，此时 getActiveSheet() 会抛
           // InjectorAlreadyDisposedError。静默跳过本次扫描，不打错误日志（否则开发期告警刷屏）。
@@ -2527,13 +2951,6 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           }
           if (!guardSheet) return;
 
-          // ★ 全量校正：逐条比对 Map 与单元格实际内容，清掉所有「表格里已经没有了」的
-          //   孤儿元数据。这样面板上**所有**被误置灰的字段会一次性由灰变黑，
-          //   而不只是处理当前正在删除的那一个。
-          if (pruneOrphanFieldMeta(guardSheet) > 0) {
-            notifyFieldsChanged();
-          }
-
           const keys = Object.keys(cellFieldMetaMap.current);
           if (keys.length === 0) {
             // Map 已空（整表清空 / 所有字段被删）也要广播一次空集合，
@@ -2542,64 +2959,38 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             return;
           }
 
-          const tamperedCells: Array<{ row: number; col: number; meta: FieldMeta }> = [];
-
-          keys.forEach((key) => {
+          // 轻量预检：仅检查 meta 所在格，判断是否需要全表扫描自愈（避免每 800ms 全表扫描）。
+          // 命中「格已空」或「字段格值不匹配」才进入 reconcile（内容驱动自愈）。
+          let needReconcile = false;
+          for (const key of keys) {
             const [rowStr, colStr] = key.split('_');
-            const row = Number(rowStr);
-            const col = Number(colStr);
-            if (Number.isNaN(row) || Number.isNaN(col)) return;
-
+            const row = Number(rowStr), col = Number(colStr);
+            if (Number.isNaN(row) || Number.isNaN(col)) continue;
             const meta = cellFieldMetaMap.current[key];
-            if (!meta) return;
-
+            if (!meta) continue;
             let current: any;
-            try {
-              current = guardSheet.getRange?.(row, col)?.getValue?.();
-            } catch {
-              return;
-            }
-
-            // 单元格被清空 = 移除（与 onCommandExecuted / clearCell 语义一致：字段格、标签格统一整字段移除）
+            try { current = guardSheet.getRange?.(row, col)?.getValue?.(); } catch { continue; }
             if (current === null || current === undefined || current === '') {
-              if ((meta as any).cellType === 'field') {
-                console.log(`[Guard] 字段占位符 (${row}, ${col}) 已清空，整字段移除`);
-                removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName);
-              } else {
-                // 与 clearCell 保持一致：清空标签格同样整字段移除，
-                // 否则字段占位符格的 key 与 `${xx}` 残留 → 面板仍置灰、字段无法完整重拖。
-                console.log(`[Guard] 标签格 (${row}, ${col}) 已清空，整字段移除`);
-                removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName);
-              }
-              return;
+              needReconcile = true; break; // 格空了：可能是被平移走(需搬回)或真删除(需移除)，交 reconcile 判定
             }
-
-            // 仅保护数据绑定字段；标签允许自由修改文字
-            if (meta.cellType !== 'field') return;
-
-            if (!isCellValueMatchMeta(current, meta)) {
-              tamperedCells.push({ row, col, meta });
+            if (meta.cellType === 'field' && !isCellValueMatchMeta(current, meta)) {
+              needReconcile = true; break;
             }
-          });
-
-          // 每轮扫描结束统一广播：无论本轮是移除、还原还是无变化，都保证面板置灰与内存 Map
-          // 最终一致。这样即便某条删除路径（命令拦截 / 右键菜单 / 键盘 Delete）未被捕获，
-          // 也会在 800ms 内自动收敛，不会出现「字段删了但面板不变黑」。
-          notifyFieldsChanged();
-
-          if (tamperedCells.length === 0) return;
-
-          console.log('[Guard] 检测到设计器单元格被修改，自动还原:', tamperedCells.map(c => `${c.row}_${c.col}`));
-          isRestoringRef.current = true;
-          try {
-            tamperedCells.forEach(({ row, col, meta }) => {
-              guardSheet.getRange?.(row, col)?.setValue?.(getCellDisplayValue(meta));
-            });
-          } catch (restoreErr) {
-            console.warn('[Guard] 还原字段单元格失败:', restoreErr);
           }
-          message.warning('该单元格由设计器管理，不可手动修改；如需移除请清空单元格');
-          setTimeout(() => { isRestoringRef.current = false; }, 0);
+
+          if (needReconcile) {
+            // ★ 内容驱动自愈（关键修复）：把错位 meta 搬回字段真实坐标 / 真删除才移除 / 手动改文本才还原，
+            // 绝不把别的字段内容覆盖掉。这解决了「插入/删除行列后字段被覆盖、多出」的问题——
+            // 之前是检测到值不匹配就直接 setValue 写回期望值，会覆盖掉被平移过来的其它字段。
+            const changed = reconcileMetaWithContent(guardSheet);
+            if (changed) {
+              notifyFieldsChanged();
+              scheduleAutoSave();
+            }
+          } else {
+            // 无错位：仍每轮广播，保证面板置灰与内存 Map 最终一致
+            notifyFieldsChanged();
+          }
         }, 800);
 
         // 添加选区变化事件（使用 FWorkbook）
@@ -2616,6 +3007,27 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
               const col = cur?.actualColumn ?? cur?.col ?? cur?.startColumn;
               if (row == null || col == null) return;
               lastSelectionCellRef.current = { row, col };
+
+              // 仅「单个单元格」选区才允许打开明细画布：
+              // 整行/整列选择（点行号/列号）是跨行列的范围选区，其首格会被解析为 (行,0)，
+              // 若此前该行激活列恰为标记列（锚点保留），就会误命中标记 → 未点击标记格也弹出明细设置框。
+              const startRow = cur?.startRow ?? cur?.actualRow ?? row;
+              const endRow = cur?.endRow ?? cur?.actualRow ?? row;
+              const startCol = cur?.startColumn ?? cur?.actualColumn ?? col;
+              const endCol = cur?.endColumn ?? cur?.actualColumn ?? col;
+              const isSingleCell = startRow === endRow && startCol === endCol;
+
+              if (isSingleCell && !isLoadingRef.current) {
+                // 命中「明细表标记」格 → 打开对应的明细表独立画布（对齐 ecology 双击标记开窗）
+                const markerMeta = cellFieldMetaMap.current[`${row}_${col}`];
+                if (markerMeta && markerMeta.cellType === 'detailTableMarker') {
+                  const idx = Number(markerMeta.detailTable);
+                  if (!Number.isNaN(idx) && onDetailMarkerOpenRef.current) {
+                    onDetailMarkerOpenRef.current(idx);
+                  }
+                  return;
+                }
+              }
               // 按字段 ID 定位（标签格回退到相邻字段格，与右键菜单逻辑一致）
               const hasField = !!resolveCellFieldId(row, col);
               const meta = hasField ? resolveCellMeta(row, col) : null;
@@ -2842,48 +3254,110 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         const sheet = workbook.getActiveSheet();
         if (!sheet) return;
 
-        // 按字段 ID 定位（参照 ecology：属性按字段ID存储，label 与 field 同步生效）
-        const fieldId = resolveCellFieldId(row, col);
-        if (!fieldId) {
-          console.warn('[setFieldAttr] 未找到字段，row=' + row + ', col=' + col);
+        // ① 先把内存 Map 与「表格当前内容」对齐：插入/删除行列后 Univer 会把字段占位符平移到新坐标，
+        //    而 Map 的键仍停在旧坐标。先 realign 再读写，才能按字段真实位置落属性。
+        //    （旧实现此处 reconcileMetaWithContent() 漏传 sheet → 空操作，是错位/覆盖的根因之一）
+        try { reconcileMetaWithContent(sheet); } catch (e) { /* 对齐失败不阻断属性写入 */ }
+
+        // ② 以「被点击单元格的真实内容」解析目标字段名（而非信任可能过期的 Map 坐标）。
+        //    标签格在字段左侧一格：本格若为纯文本标签，则右邻一格才是字段占位符 ${name}。
+        const resolveTargetName = (): string | null => {
+          const nameAt = (r: number, c: number): string | null => {
+            let v: any;
+            try { v = sheet.getRange(r, c).getValue(); } catch { return null; }
+            if (v == null || v === '') return null;
+            return extractFieldNameFromDisplay(v);
+          };
+          const n = nameAt(row, col);
+          if (n) return n;
+          const maxC = sheet.getMaxColumns?.() ?? 26;
+          if (col + 1 < maxC) { const n2 = nameAt(row, col + 1); if (n2) return n2; }
+          if (col - 1 >= 0) { const n3 = nameAt(row, col - 1); if (n3) return n3; }
+          return null;
+        };
+        const name = resolveTargetName();
+        if (!name) {
+          console.warn('[setFieldAttr] 未找到字段（单元格无占位符），row=' + row + ', col=' + col);
           return;
         }
 
-        // 刷新后 Map 可能只有部分单元格（甚至为空）：从持久化布局补全该 fieldId 的全部单元格，
-        // 否则只更新 Map 里已有的那一格，label/field 双格不同步、保存也会丢字段元数据。
-        const lData = layoutDataRef.current;
-        const lSheet = lData ? resolveSheetData(lData) : null;
-        const lCellData = lSheet?.cellData;
-        if (lCellData) {
-          Object.entries(lCellData).forEach(([rk, rd]: any) => {
-            const r = Number(rk);
-            Object.entries(rd || {}).forEach(([ck, cell]: any) => {
-              const fm = (cell as any)?.fieldMeta;
-              if (fm && String(fm.fieldId) === fieldId) {
-                cellFieldMetaMap.current[`${r}_${Number(ck)}`] = fm;
-              }
+        // ③ 取该字段的权威元数据（按字段名在 Map/布局里取任一格即可，坐标不重要）
+        let baseMeta: any = null;
+        Object.values(cellFieldMetaMap.current).forEach((m) => {
+          if (m && String((m as any).fieldName) === name) baseMeta = m;
+        });
+        if (!baseMeta) {
+          const lCellData = resolveSheetData(layoutDataRef.current)?.cellData;
+          if (lCellData) {
+            Object.values(lCellData).forEach((rd: any) => {
+              Object.values(rd || {}).forEach((cell: any) => {
+                const fm = cell?.fieldMeta;
+                if (fm && String(fm.fieldName) === name) baseMeta = fm;
+              });
             });
-          });
+          }
+        }
+        if (!baseMeta) {
+          console.warn('[setFieldAttr] 未找到字段元数据，name=' + name);
+          return;
         }
 
-        // 遍历所有同 fieldId 的单元格，统一更新属性并刷新显示/样式
-        Object.entries(cellFieldMetaMap.current).forEach(([key, meta]) => {
-          if (!meta || String(meta.fieldId) !== fieldId) return;
-          meta.fieldAttr = attrValue;
-          meta.required = attrValue === 3;
-          meta.readonly = attrValue === 1;
-          const [r, c] = key.split('_').map(Number);
-          try {
-            const range = sheet.getRange(r, c);
-            // 字段前面的图标随 fieldAttr 切换（只读🔒 / 必填⚠️，可编辑沿用类型图标）
-            range.setValue(getCellDisplayValue(meta));
-            applyFieldAttrStyle(range, meta);
-          } catch (e) {
-            console.warn('[setFieldAttr] 更新单元格失败:', e);
+        const fieldId = String(baseMeta.fieldId);
+
+        // ④ 更新属性（baseMeta 是引用，Map/布局里同一对象会被同步）
+        baseMeta.fieldAttr = attrValue;
+        baseMeta.required = attrValue === 3;
+        baseMeta.readonly = attrValue === 1;
+
+        // ⑤ 遍历对齐后的 Map 中该 fieldId 的全部条目写回显示/样式。
+        //    reconcile 已确保 Map 键落在字段真实位置，故不会错格覆盖其它字段、也不丢标签/字段条目。
+        //    仅当 Map 中确无该 fieldId（极端：重载后 Map 尚未填充）才退回用布局坐标写回。
+        isRestoringRef.current = true; // 包裹写入，避免触发防篡改/变更处理器递归
+        let updated = false;
+        try {
+          Object.entries(cellFieldMetaMap.current).forEach(([key, meta]) => {
+            if (!meta || String((meta as any).fieldId) !== fieldId) return;
+            const [r, c] = key.split('_').map(Number);
+            try {
+              const range = sheet.getRange(r, c);
+              // 字段前面的图标随 fieldAttr 切换（只读🔒 / 必填⚠️，可编辑沿用类型图标）
+              range.setValue(getCellDisplayValue(meta as any));
+              applyFieldAttrStyle(range, meta as any);
+              updated = true;
+            } catch (e) {
+              console.warn('[setFieldAttr] 更新单元格失败:', e);
+            }
+          });
+          // 兜底：Map 为空时按持久化布局坐标写回（载入即刻，坐标即权威）
+          if (!updated) {
+            const lCellData = resolveSheetData(layoutDataRef.current)?.cellData;
+            if (lCellData) {
+              Object.entries(lCellData).forEach(([rk, rd]: any) => {
+                const r = Number(rk);
+                Object.entries(rd || {}).forEach(([ck, cell]: any) => {
+                  const fm = cell?.fieldMeta;
+                  if (fm && String(fm.fieldId) === fieldId) {
+                    const c = Number(ck);
+                    const key = `${r}_${c}`;
+                    cellFieldMetaMap.current[key] = fm;
+                    try {
+                      const range = sheet.getRange(r, c);
+                      range.setValue(getCellDisplayValue(fm));
+                      applyFieldAttrStyle(range, fm);
+                    } catch (e) {
+                      console.warn('[setFieldAttr] 兜底更新单元格失败:', e);
+                    }
+                  }
+                });
+              });
+            }
           }
-        });
+        } finally {
+          setTimeout(() => { isRestoringRef.current = false; }, 0);
+        }
 
         // 立即持久化布局，确保字段属性被保存
+        notifyFieldsChanged();
         try {
           const data = saveLayoutData();
           if (data) onLayoutChangeRef.current?.(data);
@@ -2891,7 +3365,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           console.warn('[setFieldAttr] 自动保存失败:', e);
         }
 
-        console.log(`[setFieldAttr] 设置字段属性: fieldId=${fieldId}, attr=${attrValue}`);
+        console.log(`[setFieldAttr] 设置字段属性: fieldId=${fieldId}, attr=${attrValue}, name=${name}`);
         // 通知设计器同步工具栏高亮状态（只读/可编辑/必填）
         window.dispatchEvent(new CustomEvent('univer-field-attr-applied', { detail: { attr: attrValue } }));
       };
@@ -3006,6 +3480,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         setFieldAttr,  // 设置字段属性
         getSelection,  // 获取选中单元格
         clearCell,     // 清空单元格
+        // 在主表画布插入「明细表标记」格（cellType=detailTableMarker），并返回是否成功
+        insertDetailMarker,
         // 当前已放置字段的 key 集合：供父组件轮询兜底，
         // 使「删除字段后面板置灰刷新」不依赖事件链路是否通畅
         getUsedFieldKeys: collectUsedFieldKeys,
@@ -3055,9 +3531,12 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     // 本次变化由本组件保存产生：表格此刻已是最新状态，再 loadLayoutData 会用快照覆盖当前
     // 状态并清空墓碑，使刚删除的字段「复活」（表现为清空后面板永远不变黑，且守护定时器
     // 反复打印「已清空，整字段移除」）。这里直接跳过自身保存引发的回流重载。
-    if (selfSavedLayoutsRef.current.has(layoutData)) {
-      selfSavedLayoutsRef.current.delete(layoutData);
-      console.log('[Layout] 本次变化由本组件保存产生，跳过 reload');
+    // 用「内容签名」比较（剔除父组件注入的 detailTables）而非引用：父组件 handleLayoutChange 会把数据
+    // 包进 {...data, detailTables} 新对象，纯引用比较会失效 → 每次自保存都触发整表重载死循环
+    // （重载清单元格又触发保存 → 字段被反复清空/丢失/"多出"，日志表现为 4→3→4→3 振荡）。
+    const incomingSig = stableStringify(stripDetailTables(layoutData));
+    if (selfSavedSigRef.current && selfSavedSigRef.current === incomingSig) {
+      console.log('[Layout] 本次变化由本组件保存产生（签名一致），跳过 reload');
       return;
     }
 

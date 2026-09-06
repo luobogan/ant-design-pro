@@ -84,6 +84,13 @@ interface WorkbookLayoutData {
 // 单元格值 key：sheetId + 行列，保证唯一
 const cellKey = (sheetId: string, row: number, col: number) => `${sheetId}__${row}__${col}`;
 
+// 从布局数据（主表或明细表子画布）提取 sheet 列表（与 ExcelPreview 内部解析逻辑一致）
+const extractSheets = (layout: any): SheetLayoutData[] => {
+  if (!layout?.sheets) return [];
+  const order = layout.sheetOrder || Object.keys(layout.sheets);
+  return order.map((id: string) => layout.sheets[id]).filter(Boolean);
+};
+
 // 判断必填项是否为空（参照 ecology：required 字段提交时校验非空）
 const isEmptyValue = (fieldType: string | undefined, v: any): boolean => {
   if (fieldType === 'checkbox') return !v; // 必填复选框必须勾选
@@ -384,6 +391,28 @@ const renderCellNode = (
   if (!meta) {
     return <span>{displayValue || ' '}</span>;
   }
+  // 明细表标记格 → 蓝色徽标（设计器中点击可打开对应明细表的独立画布；
+  // 预览中此处仅作占位标识，真正的明细表布局在下方「明细表N」嵌套区块渲染，
+  // 以保证主表 + 明细表完整预览且数据关联可见）
+  if (meta.cellType === 'detailTableMarker') {
+    const dtIdx = meta.detailTable ?? '';
+    const label = meta.fieldLabel || `明细表${dtIdx}`;
+    return (
+      <span
+        style={{
+          display: 'inline-block',
+          background: '#0958d9',
+          color: '#fff',
+          fontWeight: 600,
+          borderRadius: 4,
+          padding: '1px 8px',
+          fontSize: 12,
+        }}
+      >
+        {label}
+      </span>
+    );
+  }
   // 标签单元格 → 静态说明文本（必填 * 由 requiredStar 控制，E9 风格 * 在标签后）
   if (meta.cellType === 'label') {
     return (
@@ -417,7 +446,9 @@ const SheetPreviewForm: React.FC<{
   errors: Record<string, boolean>;
   onFieldChange: (key: string, v: any) => void;
   readOnly?: boolean;
-}> = ({ sheet, formValues, errors, onFieldChange, readOnly }) => {
+  /** 表单值 key 前缀：主表传空，明细表子画布传 'dt{idx}__'，避免命名空间冲突 */
+  keyPrefix?: string;
+}> = ({ sheet, formValues, errors, onFieldChange, readOnly, keyPrefix }) => {
   const model = useMemo(() => {
     const cellData = sheet.cellData || {};
     const mergedCells = sheet.mergedCells || [];
@@ -573,7 +604,7 @@ const SheetPreviewForm: React.FC<{
                       {cell
                         ? renderCellNode(
                             cell,
-                            cellKey(sheet.id, r, c),
+                            keyPrefix ? `${keyPrefix}${cellKey(sheet.id, r, c)}` : cellKey(sheet.id, r, c),
                             sheet.id,
                             formValues,
                             errors,
@@ -643,6 +674,19 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
     return order.map((id) => layoutData.sheets![id]).filter(Boolean);
   }, [layoutData]);
 
+  // 解析各明细表子画布布局（detailTables[idx]），按序号升序；
+  // 用于在预览中渲染「嵌套明细表」，与主表标记（detailTableMarker）一一对应，保证数据关联可见。
+  // keyPrefix 用于隔离各明细表与主表的表单值命名空间，避免 sheetId 相同导致冲突。
+  const detailBlocks = useMemo(() => {
+    const dt = (layoutData as any)?.detailTables;
+    if (!dt) return [];
+    return Object.keys(dt)
+      .map((k) => Number(k))
+      .filter((idx) => dt[idx] && extractSheets(dt[idx]).length > 0)
+      .sort((a, b) => a - b)
+      .map((idx) => ({ idx, layout: dt[idx], prefix: `dt${idx}__` }));
+  }, [layoutData]);
+
   // 表单受控值 & 必填校验错误
   const [formValues, setFormValues] = useState<Record<string, any>>({});
   const [errors, setErrors] = useState<Record<string, boolean>>({});
@@ -661,22 +705,29 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
     setErrors((prev) => (prev[key] ? { ...prev, [key]: false } : prev));
   }, []);
 
-  // 提交校验：遍历所有必填字段，未填写则标记错误
+  // 提交校验：遍历所有必填字段（含各明细表子画布），未填写则标记错误
   const handleSubmit = () => {
     const newErrors: Record<string, boolean> = {};
-    sheets.forEach((sheet) => {
-      const cellData = sheet.cellData || {};
-      Object.entries(cellData).forEach(([rk, rowData]) => {
-        const r = parseInt(rk, 10);
-        Object.entries(rowData || {}).forEach(([ck, cell]) => {
-          const c = parseInt(ck, 10);
-          const meta = (cell as CellDataItem).fieldMeta;
-          if (!meta || meta.cellType !== 'field' || !(meta.fieldAttr === 3 || meta.required)) return;
-          const key = cellKey(sheet.id, r, c);
-          const v = formValues[key];
-          if (isEmptyValue(meta.fieldType, v)) {
-            newErrors[key] = true;
-          }
+    // 主表 + 各明细表统一遍历，明细字段 key 带各自 keyPrefix 命名空间
+    const blocks: { sheets: SheetLayoutData[]; prefix: string }[] = [
+      { sheets, prefix: '' },
+      ...detailBlocks.map((b) => ({ sheets: extractSheets(b.layout), prefix: b.prefix })),
+    ];
+    blocks.forEach(({ sheets: blockSheets, prefix }) => {
+      blockSheets.forEach((sheet) => {
+        const cellData = sheet.cellData || {};
+        Object.entries(cellData).forEach(([rk, rowData]) => {
+          const r = parseInt(rk, 10);
+          Object.entries(rowData || {}).forEach(([ck, cell]) => {
+            const c = parseInt(ck, 10);
+            const meta = (cell as CellDataItem).fieldMeta;
+            if (!meta || meta.cellType !== 'field' || !(meta.fieldAttr === 3 || meta.required)) return;
+            const key = `${prefix}${cellKey(sheet.id, r, c)}`;
+            const v = formValues[key];
+            if (isEmptyValue(meta.fieldType, v)) {
+              newErrors[key] = true;
+            }
+          });
         });
       });
     });
@@ -715,14 +766,14 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
         <Text type="secondary">暂无布局数据，请先在设计器中编辑并保存</Text>
       </div>
     </div>
-  ) : sheets.length === 0 ? (
+  ) : sheets.length === 0 && detailBlocks.length === 0 ? (
     <div style={{ textAlign: 'center', padding: '60px 0' }}>
       <Text type="warning">布局数据中没有工作表</Text>
     </div>
   ) : (
     <div className="excel-preview-react-container">
       {sheets.map((sheet, idx) => (
-        <div key={sheet.id || idx} style={{ marginBottom: idx < sheets.length - 1 ? 24 : 0 }}>
+        <div key={sheet.id || idx} style={{ marginBottom: idx < sheets.length - 1 || detailBlocks.length > 0 ? 24 : 0 }}>
           <SheetPreviewForm
             sheet={sheet}
             formValues={formValues}
@@ -732,6 +783,47 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
           />
         </div>
       ))}
+      {/* 嵌套明细表：按 detailTables[idx] 渲染各明细表子画布布局，与主表标记一一对应 */}
+      {detailBlocks.map((b) => {
+        const dtSheets = extractSheets(b.layout);
+        return (
+          <div
+            key={`dt-${b.idx}`}
+            style={{
+              marginTop: 24,
+              background: '#fff',
+              border: `1px solid ${E9_COLORS.cardBorder}`,
+              borderRadius: 8,
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                padding: '8px 12px',
+                background: '#e6f4ff',
+                borderBottom: `1px solid ${E9_COLORS.cardBorder}`,
+                fontWeight: 600,
+                color: '#0958d9',
+              }}
+            >
+              明细表{b.idx}
+            </div>
+            <div style={{ padding: 12 }}>
+              {dtSheets.map((sheet, i) => (
+                <SheetPreviewForm
+                  key={sheet.id || i}
+                  sheet={sheet}
+                  formValues={formValues}
+                  errors={errors}
+                  onFieldChange={handleFieldChange}
+                  readOnly={readOnly}
+                  keyPrefix={b.prefix}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 

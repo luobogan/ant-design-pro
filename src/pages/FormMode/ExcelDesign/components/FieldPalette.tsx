@@ -277,9 +277,11 @@ interface FieldPaletteProps {
   formId?: string;
   /** 已拖入表格的字段集合，key 为 `${fieldId}_${cellType}`（已拖入的项会置灰且不可再拖） */
   usedFieldKeys?: Set<string>;
+  /** 仅显示指定明细表序号的字段（用于明细表子画布）；不传则显示主表 + 全部明细表 */
+  detailTableFilter?: number;
 }
 
-const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover, formId, usedFieldKeys }) => {
+const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover, formId, usedFieldKeys, detailTableFilter }) => {
   const [searchText, setSearchText] = useState('');
   const [loading, setLoading] = useState(false);
   const [fields, setFields] = useState<FieldDefinition[]>([]);
@@ -323,15 +325,23 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
           setFields(filteredData);
 
           // 分离主表字段和明细表字段
-          const mainFields = filteredData.filter(f => f.isMain === 1 || f.detailTable === 0 || f.detailTable === undefined);
+          // 判定规则（对齐后端语义：isMain=1 主表字段，isMain=0 且 detailTable>0 明细表字段）：
+          //   - 明细字段：isMain===0，或 isMain 缺失但 detailTable>0
+          //   - 其余（isMain===1，或 isMain 缺失且 detailTable 无效）= 主表字段
+          // 这样可避免「明细表字段但 detailTable 为 0/undefined」被误归入主表分组。
+          const toNum = (v: any) => (typeof v === 'number' ? v : Number(v));
+          const isDetailField = (f: FieldDefinition) =>
+            f.isMain === 0 || (f.isMain == null && toNum(f.detailTable) > 0);
+          const mainFields = filteredData.filter(f => !isDetailField(f));
           const detailFields: Record<number, FieldDefinition[]> = {};
 
           filteredData.forEach(f => {
-            if (f.isMain === 0 && f.detailTable && f.detailTable > 0) {
-              if (!detailFields[f.detailTable]) {
-                detailFields[f.detailTable] = [];
+            if (isDetailField(f) && toNum(f.detailTable) > 0) {
+              const num = toNum(f.detailTable);
+              if (!detailFields[num]) {
+                detailFields[num] = [];
               }
-              detailFields[f.detailTable].push(f);
+              detailFields[num].push(f);
             }
           });
 
@@ -349,10 +359,39 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
   }, [formId]);
 
   // 构建树形数据
+  // 展示规则（对齐 ecology「主表标记 + 子画布」模型）：
+  //   - 主画布（detailTableFilter 未设定）：只展示【主表字段】，过滤掉所有明细表字段
+  //     （明细字段属于各自子画布，主画布只负责插入明细表标记）
+  //   - 子画布（detailTableFilter 已设定）：只展示【该明细表】的字段，不展示主表字段
   const buildTreeData = () => {
     const groups: any[] = [];
 
-    // 主表字段
+    // 子画布模式：仅展示指定明细表的字段（不含主表字段）
+    if (detailTableFilter != null) {
+      const num = detailTableFilter;
+      const fields = detailTableFields[num];
+      if (fields && fields.length > 0) {
+        const filtered = searchText
+          ? fields.filter(f =>
+              f.fieldLabel.includes(searchText) || f.fieldName.includes(searchText)
+            )
+          : fields;
+
+        if (filtered.length > 0) {
+          groups.push({
+            title: `明细表${num} (${filtered.length})`,
+            key: `group-detail-${num}`,
+            children: filtered.map(f => ({
+              title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} onFieldHover={onFieldHover} usedFieldKeys={usedFieldKeys} />,
+              key: 'field-' + f.id,
+            })),
+          });
+        }
+      }
+      return groups;
+    }
+
+    // 主画布模式：仅展示主表字段（过滤掉所有明细表字段）
     if (mainTableFields.length > 0) {
       const filteredMain = searchText
         ? mainTableFields.filter(f =>
@@ -372,34 +411,15 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
       }
     }
 
-    // 明细表字段
-    Object.keys(detailTableFields).forEach(detailTableNum => {
-      const num = Number(detailTableNum);
-      const fields = detailTableFields[num];
-      const filtered = searchText
-        ? fields.filter(f =>
-            f.fieldLabel.includes(searchText) || f.fieldName.includes(searchText)
-          )
-        : fields;
-
-      if (filtered.length > 0) {
-        groups.push({
-          title: `明细表${num} (${filtered.length})`,
-          key: `group-detail-${num}`,
-          children: filtered.map(f => ({
-            title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} onFieldHover={onFieldHover} usedFieldKeys={usedFieldKeys} />,
-            key: 'field-' + f.id,
-          })),
-        });
-      }
-    });
-
     return groups;
   };
 
   const treeData = buildTreeData();
 
-  const totalCount = mainTableFields.length + Object.values(detailTableFields).reduce((sum, arr) => sum + arr.length, 0);
+  // 计数徽标反映当前可见范围：主画布只计主表字段，子画布只计该明细表字段
+  const totalCount = detailTableFilter != null
+    ? (detailTableFields[detailTableFilter]?.length ?? 0)
+    : mainTableFields.length;
 
   if (!formId) {
     return (
