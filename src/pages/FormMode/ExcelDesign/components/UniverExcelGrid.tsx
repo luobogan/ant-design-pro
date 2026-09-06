@@ -902,6 +902,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           return;
         }
         const newKey = `${nr}_${nc}`;
+        // 防覆盖：目标坐标已被其它字段的 meta 认领时保留原位（绝不覆盖 → 字段不再凭空丢失）
+        if (newKey !== key && cellFieldMetaMap.current[newKey]) return;
         cellFieldMetaMap.current[newKey] = meta;
         if (newKey !== key) delete cellFieldMetaMap.current[key];
         return;
@@ -940,6 +942,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     //   命令执行回调里既慢（最多 400×120）又易触发 redi 循环依赖污染注入器；本函数每次结构性
     //   操作与 setFieldAttr 都会调用，必须零 redi。
     const fieldContentIndex: Record<string, { r: number; c: number }> = {};
+    const labelTextIndex: Record<string, { r: number; c: number }> = {};
     const cellMatrix = sheet?.getCellMatrix?.();
     const readCell = (rr: number, cc: number): any =>
       (cellMatrix && typeof cellMatrix.getValue === 'function')
@@ -950,7 +953,10 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         const v: any = readCell(r, c);
         if (v == null || v === '') continue;
         const fn = extractFieldNameFromDisplay(v);
-        if (fn && !fieldContentIndex[fn]) fieldContentIndex[fn] = { r, c };
+        if (fn) { if (!fieldContentIndex[fn]) fieldContentIndex[fn] = { r, c }; continue; }
+        // 非占位符的普通文本 → 标签文字索引（标签允许自由改文字，按实际文本定位标签格）
+        const s = String(v);
+        if (!labelTextIndex[s]) labelTextIndex[s] = { r, c };
       }
     }
 
@@ -959,56 +965,86 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     isRestoringRef.current = true; // 包裹内部 setValue，避免触发防篡改/变更处理器递归
     let changed = false;
     try {
+      // ★ 两遍处理 + put() 防覆盖：field 先按占位符真实坐标认领，label 再落位。
+      //   旧实现单遍 forEach 且 label 强制搬到 home.c-1：当「字段」与「字段名(标签)」被分开拖到
+      //   不相邻位置（标签允许自由摆放），插入/删除行列后 label 的 home.c-1 可能正好是别的字段
+      //   占位符的坐标 → newMap 同 key 后写覆盖前写 → 那个字段的 meta 凭空消失 → 面板灰变黑
+      //   （Excel 内容还在）。put() 保证任何分支都不覆盖已认领坐标。
       const newMap: Record<string, any> = {};
-      Object.entries(cellFieldMetaMap.current).forEach(([key, meta]) => {
-        if (!meta) { newMap[key] = meta; return; }
+      const claimed = new Set<string>();
+      const put = (key: string, meta: any): boolean => {
+        if (claimed.has(key)) return false;
+        claimed.add(key);
+        newMap[key] = meta;
+        return true;
+      };
+      const entries = Object.entries(cellFieldMetaMap.current);
+
+      // 第一遍：字段格（按占位符真实位置认领）
+      entries.forEach(([key, meta]) => {
+        if (!meta) { put(key, meta); return; }
+        if ((meta as any).cellType !== 'field') return;
         const [rStr, cStr] = key.split('_');
         const r = Number(rStr), c = Number(cStr);
         const name = String((meta as any).fieldName ?? '');
-
-        if ((meta as any).cellType === 'field') {
-          const home = fieldContentIndex[name];
-          if (home && (home.r !== r || home.c !== c)) {
-            // 本字段内容真实在 home → 搬过去（不乱写当前格，绝不覆盖别的字段）
-            newMap[`${home.r}_${home.c}`] = meta; changed = true; return;
-          }
-          if (!home) {
-            // 先在整个表更大范围内确认本字段占位符是否真的消失：
-            // 插入/删除行列后内容被平移到新坐标、旧坐标变空，若直接判删会把字段从 Excel 清掉。
-            const found = scanForFieldCell(sheet, name, S_ROWS, S_COLS);
-            if (found) { newMap[`${found.r}_${found.c}`] = meta; changed = true; return; }
-            const cur = getCur(r, c);
-            const curName = extractFieldNameFromDisplay(cur);
-            if (curName && curName !== name) {
-              // 当前格是别的字段 → 本 meta 是陈旧孤儿，整字段释放（防 tier-2 复活）
-              removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName); changed = true; return;
-            }
-            // 当前格为空(被清空) → 视为删除；当前格为普通文本(被手动改) → 还原占位符
-            if (cur === null || cur === undefined || String(cur) === '') {
-              removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName); changed = true; return;
-            }
-            try { sheet.getRange(r, c).setValue(getCellDisplayValue(meta)); } catch { /* 忽略 */ }
-            changed = true; newMap[key] = meta; return;
-          }
-          newMap[key] = meta; return;
+        let home = fieldContentIndex[name];
+        if (!home) {
+          // 先在整个表更大范围内确认本字段占位符是否真的消失：
+          // 插入/删除行列后内容被平移到新坐标、旧坐标变空，若直接判删会把字段从 Excel 清掉。
+          const found = scanForFieldCell(sheet, name, S_ROWS, S_COLS);
+          if (found) home = found;
         }
-
-        if ((meta as any).cellType === 'label') {
-          const home = fieldContentIndex[name];
-          if (home && home.c - 1 >= 0 && (home.r !== r || home.c - 1 !== c)) {
-            newMap[`${home.r}_${home.c - 1}`] = meta; changed = true; return;
-          }
-          if (!home) {
-            // 字段内容已不在 → 标签也失效；但先更大范围确认占位符是否只是被平移走（误删保护）
-            const found = scanForFieldCell(sheet, name, S_ROWS, S_COLS);
-            if (found && found.c - 1 >= 0) { newMap[`${found.r}_${found.c - 1}`] = meta; changed = true; return; }
-            removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName); changed = true; return;
-          }
-          newMap[key] = meta; return;
+        if (home) {
+          const homeKey = `${home.r}_${home.c}`;
+          if (put(homeKey, meta) && homeKey !== key) changed = true;
+          return;
         }
+        const cur = getCur(r, c);
+        const curName = extractFieldNameFromDisplay(cur);
+        if (curName && curName !== name) {
+          // 当前格是别的字段 → 本 meta 是陈旧孤儿，整字段释放（防 tier-2 复活）
+          removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName); changed = true; return;
+        }
+        // 当前格为空(被清空) → 视为删除；当前格为普通文本(被手动改) → 还原占位符
+        if (cur === null || cur === undefined || String(cur) === '') {
+          removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName); changed = true; return;
+        }
+        try { sheet.getRange(r, c).setValue(getCellDisplayValue(meta)); } catch { /* 忽略 */ }
+        changed = true; put(key, meta); return;
+      });
 
-        // detailTableMarker 等不参与重排，原样保留
-        newMap[key] = meta;
+      // 第二遍：标签格（按标签文字实际位置落位，不再强假设「字段左侧一格」）
+      entries.forEach(([key, meta]) => {
+        if (!meta || (meta as any).cellType !== 'label') return;
+        const [rStr, cStr] = key.split('_');
+        const r = Number(rStr), c = Number(cStr);
+        const name = String((meta as any).fieldName ?? '');
+        const label = String((meta as any).fieldLabel ?? '');
+        // ① 本格仍是本标签文字 → 位置正确（支持标签与字段不相邻的自由摆放）
+        const cur = getCur(r, c);
+        if (label && cur != null && String(cur) === label) { put(key, meta); return; }
+        // ② 按标签文字在全表定位（插入/删除行列后文字随内容平移到新坐标）
+        if (label && labelTextIndex[label]) {
+          const spot = labelTextIndex[label];
+          if (put(`${spot.r}_${spot.c}`, meta)) { changed = true; return; }
+        }
+        // ③ 回退：字段占位符左侧一格（经典相邻布局），仅当目标未被其它 meta 认领
+        let home = fieldContentIndex[name];
+        if (!home) {
+          const found = scanForFieldCell(sheet, name, S_ROWS, S_COLS);
+          if (found) home = found;
+        }
+        if (home && home.c - 1 >= 0 && put(`${home.r}_${home.c - 1}`, meta)) { changed = true; return; }
+        // ④ 兜底：原地保留（宁可贵暂时错位，也绝不覆盖别人的 meta → 字段不再凭空丢失）
+        put(key, meta);
+      });
+
+      // 第三遍：明细表标记等不参与重排，原样保留
+      entries.forEach(([key, meta]) => {
+        if (!meta) { put(key, meta); return; }
+        const t = (meta as any).cellType;
+        if (t === 'field' || t === 'label') return;
+        put(key, meta);
       });
       if (changed) cellFieldMetaMap.current = newMap;
     } finally {
