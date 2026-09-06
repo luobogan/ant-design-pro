@@ -35,6 +35,42 @@ import { saveFormLayout, getFormLayout } from '@/services/formmode/formLayoutApi
 import { fieldDefinitionApi } from '@/services/formmode';
 
 /**
+ * 收集主表布局中实际存在的明细表标记序号（cellType==='detailTableMarker' 的 fieldMeta.detailTable）。
+ * 用于剔除「标记被替换/删除后仍残留在 detailTables 的孤儿明细表」，避免保存/预览时把已不存在的明细表一并写出。
+ */
+const collectUsedDetailTables = (layout: any): Set<number> => {
+  const used = new Set<number>();
+  if (!layout) return used;
+  const sheets = layout.sheets ? Object.values(layout.sheets) : [];
+  sheets.forEach((sheet: any) => {
+    const cellData = sheet?.cellData || {};
+    Object.values(cellData).forEach((row: any) => {
+      if (!row) return;
+      Object.values(row).forEach((cell: any) => {
+        const meta = cell?.fieldMeta;
+        if (meta && meta.cellType === 'detailTableMarker' && meta.detailTable != null) {
+          used.add(Number(meta.detailTable));
+        }
+      });
+    });
+  });
+  return used;
+};
+
+// 仅保留主表中仍有标记存在的明细表子画布布局（剔除孤儿）
+const pruneDetailTables = (
+  detailTables: Record<number, any> | undefined,
+  used: Set<number>,
+): Record<number, any> => {
+  const src = detailTables || {};
+  const next: Record<number, any> = {};
+  Object.keys(src).forEach((k) => {
+    if (used.has(Number(k))) next[Number(k)] = src[Number(k)];
+  });
+  return next;
+};
+
+/**
  * Excel设计器主页面
  * 集成Univer表格、字段面板、属性配置面板
  * 参照 SpreadJS迁移到Univer方案.md 实现字段元数据完整集成
@@ -268,9 +304,14 @@ const ExcelDesignContent: React.FC = () => {
 
     // 合并明细表子画布布局：detailTables 维护在父组件 layoutData 中，
     // 主画布 saveLayoutData() 只返回主表布局，需手动并入，预览才能渲染嵌套明细表。
+    // 只保留主表仍有标记的明细表，剔除「被替换/删除后残留的孤儿明细表」（如明细表1被明细表2替换）。
+    const usedDetailPreview = collectUsedDetailTables(data);
     const previewData = {
       ...data,
-      detailTables: (layoutDataRef.current && layoutDataRef.current.detailTables) || detailLayouts || {},
+      detailTables: pruneDetailTables(
+        (layoutDataRef.current && layoutDataRef.current.detailTables) || detailLayouts || {},
+        usedDetailPreview,
+      ),
     };
 
     // 先缓存数据，再开窗，保证新标签页一定能读到
@@ -313,9 +354,14 @@ const ExcelDesignContent: React.FC = () => {
 
     // 合并明细表子画布布局：主画布 saveLayoutData() 只返回主表布局（detailTables 由父组件维护），
     // 必须一并写入后端，否则「总保存」后明细表布局丢失（预览页 handlePreview 已做同样合并，此处补齐）。
+    // 只保留主表仍有标记的明细表，剔除「被替换/删除后残留的孤儿明细表」（如明细表1被明细表2替换后，明细表1不再写出）。
+    const usedDetail = collectUsedDetailTables(sheetLayoutData);
     const finalLayoutData = {
       ...sheetLayoutData,
-      detailTables: (layoutDataRef.current && layoutDataRef.current.detailTables) || detailLayouts || {},
+      detailTables: pruneDetailTables(
+        (layoutDataRef.current && layoutDataRef.current.detailTables) || detailLayouts || {},
+        usedDetail,
+      ),
     };
 
     setSaving(true);

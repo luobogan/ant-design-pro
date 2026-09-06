@@ -85,10 +85,37 @@ interface WorkbookLayoutData {
 const cellKey = (sheetId: string, row: number, col: number) => `${sheetId}__${row}__${col}`;
 
 // 从布局数据（主表或明细表子画布）提取 sheet 列表（与 ExcelPreview 内部解析逻辑一致）
+// 兼容两种形状：
+//  - result/univer 形状：layout.sheets = { sheet1: {...} }（saveLayoutData() 返回值、预览写入的 layoutData）
+//  - parentData 兼容形状：{ [sheetName]: result, sheetName, cellData, ... }（子画布 onLayoutChange 回调写回的
+//    detailTables[idx] 即此形状，真正的 sheet 集合在 layout[sheetName].sheets 里）
 const extractSheets = (layout: any): SheetLayoutData[] => {
-  if (!layout?.sheets) return [];
-  const order = layout.sheetOrder || Object.keys(layout.sheets);
-  return order.map((id: string) => layout.sheets[id]).filter(Boolean);
+  if (!layout) return [];
+  if (layout.sheets) {
+    const order = layout.sheetOrder || Object.keys(layout.sheets);
+    return order.map((id: string) => layout.sheets[id]).filter(Boolean);
+  }
+  if (layout.sheetName && layout[layout.sheetName]?.sheets) {
+    const inner = layout[layout.sheetName];
+    const order = inner.sheetOrder || Object.keys(inner.sheets);
+    return order.map((id: string) => inner.sheets[id]).filter(Boolean);
+  }
+  // 极少数老格式：顶层直接承载单 sheet 的 cellData
+  if (layout.cellData) {
+    return [
+      {
+        id: layout.sheetName || 'sheet1',
+        name: layout.sheetName || 'Sheet1',
+        cellData: layout.cellData,
+        rowCount: layout.rowCount,
+        colCount: layout.colCount,
+        mergedCells: layout.mergedCells || [],
+        columnData: layout.columnData || {},
+        rowData: layout.rowData || {},
+      } as SheetLayoutData,
+    ];
+  }
+  return [];
 };
 
 // 判断必填项是否为空（参照 ecology：required 字段提交时校验非空）
@@ -448,7 +475,11 @@ const SheetPreviewForm: React.FC<{
   readOnly?: boolean;
   /** 表单值 key 前缀：主表传空，明细表子画布传 'dt{idx}__'，避免命名空间冲突 */
   keyPrefix?: string;
-}> = ({ sheet, formValues, errors, onFieldChange, readOnly, keyPrefix }) => {
+  /** 内联嵌套明细表：idx → 子画布布局；传入后，主表中含 detailTableMarker 标记的行会在其下方
+   *  直接渲染对应明细表块（数据关联位置可见，对齐 ecology 明细表紧贴标记渲染的行为）。
+   *  仅主表画布传入；明细表子画布自身不再二次内联。 */
+  inlineDetailTables?: Record<number, any>;
+}> = ({ sheet, formValues, errors, onFieldChange, readOnly, keyPrefix, inlineDetailTables }) => {
   const model = useMemo(() => {
     const cellData = sheet.cellData || {};
     const mergedCells = sheet.mergedCells || [];
@@ -566,6 +597,61 @@ const SheetPreviewForm: React.FC<{
                   if (model.covered.has(key)) return null; // 被合并单元格覆盖，跳过
                   const merge = model.mergeMap.get(key);
                   const cell = model.grid[r]?.[c];
+
+                  // 标记行：仅渲染标记格（全宽），同行其它列跳过，避免与 colSpan 冲突导致表格错乱
+                  let markerCol = -1;
+                  const rowCells = model.grid[r];
+                  if (rowCells) {
+                    for (const [ck, cc] of Object.entries(rowCells)) {
+                      if ((cc as CellDataItem).fieldMeta?.cellType === 'detailTableMarker') { markerCol = Number(ck); break; }
+                    }
+                  }
+                  if (markerCol >= 0 && c !== markerCol) return null;
+
+                  // 明细表标记格：蓝徽标 + 内联嵌套对应明细表块（数据关联位置可见，对齐 ecology 明细表紧贴标记渲染）
+                  if (cell?.fieldMeta?.cellType === 'detailTableMarker') {
+                    const dtIdx = Number(cell.fieldMeta.detailTable);
+                    const dtLayout = inlineDetailTables?.[dtIdx];
+                    return (
+                      <td
+                        key={c}
+                        colSpan={model.colCount}
+                        style={{
+                          border: `1px solid ${E9_COLORS.readOnlyBorder}`,
+                          padding: '4px 8px',
+                          verticalAlign: 'top',
+                          background: '#fff',
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            background: '#0958d9',
+                            color: '#fff',
+                            fontWeight: 600,
+                            borderRadius: 4,
+                            padding: '1px 8px',
+                            fontSize: 12,
+                          }}
+                        >
+                          {cell.fieldMeta.fieldLabel || `明细表${dtIdx}`}
+                        </span>
+                        {dtLayout && (
+                          <div style={{ marginTop: 8 }}>
+                            <DetailBlock
+                              idx={dtIdx}
+                              layout={dtLayout}
+                              prefix={`dt${dtIdx}__`}
+                              formValues={formValues}
+                              errors={errors}
+                              onFieldChange={onFieldChange}
+                              readOnly={!!readOnly}
+                            />
+                          </div>
+                        )}
+                      </td>
+                    );
+                  }
                   const isLabel = cell?.fieldMeta?.cellType === 'label';
                   const isField = cell?.fieldMeta?.cellType === 'field';
                   const cellAttr = isField ? cell?.fieldMeta?.fieldAttr : undefined;
@@ -622,6 +708,60 @@ const SheetPreviewForm: React.FC<{
           })}
         </tbody>
       </table>
+    </div>
+  );
+};
+
+// 明细表嵌套块：渲染单个明细表子画布布局（多 sheet 竖向堆叠），带「明细表N」标题栏。
+// 主表标记格内联嵌套、与主表底部兜底（无标记的孤儿明细表）共用此组件；表单值 key 带 keyPrefix 命名空间。
+const DetailBlock: React.FC<{
+  idx: number;
+  layout: any;
+  prefix: string;
+  formValues: Record<string, any>;
+  errors: Record<string, boolean>;
+  onFieldChange: (k: string, v: any) => void;
+  readOnly?: boolean;
+}> = ({ idx, layout, prefix, formValues, errors, onFieldChange, readOnly }) => {
+  const dtSheets = extractSheets(layout);
+  return (
+    <div
+      style={{
+        marginTop: 8,
+        background: '#fff',
+        border: `1px solid ${E9_COLORS.cardBorder}`,
+        borderRadius: 8,
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          padding: '8px 12px',
+          background: '#e6f4ff',
+          borderBottom: `1px solid ${E9_COLORS.cardBorder}`,
+          fontWeight: 600,
+          color: '#0958d9',
+        }}
+      >
+        明细表{idx}
+      </div>
+      <div style={{ padding: 12 }}>
+        {dtSheets.length === 0 ? (
+          <Text type="secondary">明细表{idx} 暂无布局</Text>
+        ) : (
+          dtSheets.map((sheet, i) => (
+            <SheetPreviewForm
+              key={sheet.id || i}
+              sheet={sheet}
+              formValues={formValues}
+              errors={errors}
+              onFieldChange={onFieldChange}
+              readOnly={readOnly}
+              keyPrefix={prefix}
+            />
+          ))
+        )}
+      </div>
     </div>
   );
 };
@@ -686,6 +826,29 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
       .sort((a, b) => a - b)
       .map((idx) => ({ idx, layout: dt[idx], prefix: `dt${idx}__` }));
   }, [layoutData]);
+
+  // 主表中存在标记（detailTableMarker）的明细表序号集合：这些明细表改为标记格内联嵌套，
+  // 不再在底部统一渲染（避免重复）；仅「无标记的孤儿明细表」保留底部兜底。
+  const markerIdxSet = useMemo(() => {
+    const s = new Set<number>();
+    sheets.forEach((sheet) => {
+      const cd = sheet.cellData || {};
+      Object.values(cd).forEach((row) => {
+        Object.values(row || {}).forEach((c: any) => {
+          const meta = c?.fieldMeta;
+          if (meta?.cellType === 'detailTableMarker' && meta.detailTable != null) s.add(Number(meta.detailTable));
+        });
+      });
+    });
+    return s;
+  }, [sheets]);
+
+  // 内联嵌套用的明细表布局映射（仅含有标记的序号）
+  const detailLayoutMap = useMemo(() => {
+    const m: Record<number, any> = {};
+    detailBlocks.forEach((b) => { if (markerIdxSet.has(b.idx)) m[b.idx] = b.layout; });
+    return m;
+  }, [detailBlocks, markerIdxSet]);
 
   // 表单受控值 & 必填校验错误
   const [formValues, setFormValues] = useState<Record<string, any>>({});
@@ -780,11 +943,12 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
             errors={errors}
             onFieldChange={handleFieldChange}
             readOnly={readOnly}
+            inlineDetailTables={detailLayoutMap}
           />
         </div>
       ))}
-      {/* 嵌套明细表：按 detailTables[idx] 渲染各明细表子画布布局，与主表标记一一对应 */}
-      {detailBlocks.map((b) => {
+      {/* 底部兜底：仅渲染「无主表标记的孤儿明细表」；有标记的明细表已在对应标记格内联嵌套（数据关联位置可见） */}
+      {detailBlocks.filter((b) => !markerIdxSet.has(b.idx)).map((b) => {
         const dtSheets = extractSheets(b.layout);
         return (
           <div
