@@ -575,11 +575,13 @@ const SheetPreviewForm: React.FC<{
   }
 
   // ── 对齐 E9 excelMainTable：以 <table> 还原 Excel 网格布局（行列 + 合并单元格）──
+  // 卡片容器横向可滚动：大屏表格 width:100% 自适应铺满；窄屏（手机）minWidth 生效，整表按设计列宽横向滚动而非被压扁。
+  const tableMinWidth = model.colWidths.reduce((a: number, w: any) => a + (Number(w) || 60), 0);
   return (
-    <div style={{ background: '#fff', border: `1px solid ${E9_COLORS.cardBorder}`, borderRadius: 8, overflow: 'hidden' }}>
+    <div style={{ background: '#fff', border: `1px solid ${E9_COLORS.cardBorder}`, borderRadius: 8, overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch' }}>
       <table
         className="excelMainTable"
-        style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed', background: '#fff' }}
+        style={{ borderCollapse: 'collapse', width: '100%', minWidth: tableMinWidth, tableLayout: 'fixed', background: '#fff' }}
       >
         <colgroup>
           {model.colWidths.map((w, i) => (
@@ -608,7 +610,8 @@ const SheetPreviewForm: React.FC<{
                   }
                   if (markerCol >= 0 && c !== markerCol) return null;
 
-                  // 明细表标记格：蓝徽标 + 内联嵌套对应明细表块（数据关联位置可见，对齐 ecology 明细表紧贴标记渲染）
+                  // 明细表标记格：预览中不显示「明细表X」设计标记，仅内联渲染对应明细表的内容块
+                  // （数据关联位置可见，对齐 ecology 明细表紧贴标记渲染；明细表标题由 DetailBlock 统一控制）
                   if (cell?.fieldMeta?.cellType === 'detailTableMarker') {
                     const dtIdx = Number(cell.fieldMeta.detailTable);
                     const dtLayout = inlineDetailTables?.[dtIdx];
@@ -617,37 +620,21 @@ const SheetPreviewForm: React.FC<{
                         key={c}
                         colSpan={model.colCount}
                         style={{
-                          border: `1px solid ${E9_COLORS.readOnlyBorder}`,
-                          padding: '4px 8px',
+                          border: 'none',
+                          padding: 0,
+                          background: 'transparent',
                           verticalAlign: 'top',
-                          background: '#fff',
                         }}
                       >
-                        <span
-                          style={{
-                            display: 'inline-block',
-                            background: '#0958d9',
-                            color: '#fff',
-                            fontWeight: 600,
-                            borderRadius: 4,
-                            padding: '1px 8px',
-                            fontSize: 12,
-                          }}
-                        >
-                          {cell.fieldMeta.fieldLabel || `明细表${dtIdx}`}
-                        </span>
                         {dtLayout && (
-                          <div style={{ marginTop: 8 }}>
-                            <DetailBlock
-                              idx={dtIdx}
-                              layout={dtLayout}
-                              prefix={`dt${dtIdx}__`}
-                              formValues={formValues}
-                              errors={errors}
-                              onFieldChange={onFieldChange}
-                              readOnly={!!readOnly}
-                            />
-                          </div>
+                          <DetailBlock
+                            layout={dtLayout}
+                            prefix={`dt${dtIdx}__`}
+                            formValues={formValues}
+                            errors={errors}
+                            onFieldChange={onFieldChange}
+                            readOnly={!!readOnly}
+                          />
                         )}
                       </td>
                     );
@@ -712,17 +699,17 @@ const SheetPreviewForm: React.FC<{
   );
 };
 
-// 明细表嵌套块：渲染单个明细表子画布布局（多 sheet 竖向堆叠），带「明细表N」标题栏。
+// 明细表嵌套块：渲染单个明细表子画布布局（多 sheet 竖向堆叠）。
 // 主表标记格内联嵌套、与主表底部兜底（无标记的孤儿明细表）共用此组件；表单值 key 带 keyPrefix 命名空间。
+// 预览中不显示「明细表N」标题（设计标记），仅渲染明细表字段内容。
 const DetailBlock: React.FC<{
-  idx: number;
   layout: any;
   prefix: string;
   formValues: Record<string, any>;
   errors: Record<string, boolean>;
   onFieldChange: (k: string, v: any) => void;
   readOnly?: boolean;
-}> = ({ idx, layout, prefix, formValues, errors, onFieldChange, readOnly }) => {
+}> = ({ layout, prefix, formValues, errors, onFieldChange, readOnly }) => {
   const dtSheets = extractSheets(layout);
   return (
     <div
@@ -734,20 +721,9 @@ const DetailBlock: React.FC<{
         overflow: 'hidden',
       }}
     >
-      <div
-        style={{
-          padding: '8px 12px',
-          background: '#e6f4ff',
-          borderBottom: `1px solid ${E9_COLORS.cardBorder}`,
-          fontWeight: 600,
-          color: '#0958d9',
-        }}
-      >
-        明细表{idx}
-      </div>
       <div style={{ padding: 12 }}>
         {dtSheets.length === 0 ? (
-          <Text type="secondary">明细表{idx} 暂无布局</Text>
+          <Text type="secondary">暂无布局</Text>
         ) : (
           dtSheets.map((sheet, i) => (
             <SheetPreviewForm
@@ -961,17 +937,6 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
               overflow: 'hidden',
             }}
           >
-            <div
-              style={{
-                padding: '8px 12px',
-                background: '#e6f4ff',
-                borderBottom: `1px solid ${E9_COLORS.cardBorder}`,
-                fontWeight: 600,
-                color: '#0958d9',
-              }}
-            >
-              明细表{b.idx}
-            </div>
             <div style={{ padding: 12 }}>
               {dtSheets.map((sheet, i) => (
                 <SheetPreviewForm
@@ -1010,27 +975,41 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
   );
 
   // 独立页面模式：不套 Modal，全屏渲染（用于新标签页预览，避免打开空白页签）
+  // 默认支持手机端适配：窄屏减少内边距、头部操作区自动换行，配合表格卡片横向滚动。
   if (standalone) {
     return (
-      <div style={{ minHeight: '100vh', background: '#f0f2f5', padding: 24, boxSizing: 'border-box' }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: 16,
-            background: '#fff',
-            padding: '12px 16px',
-            borderRadius: 8,
-          }}
-        >
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            {title}
-          </Typography.Title>
-          {actions}
+      <>
+        <style>{`
+          .excel-preview-page { width: 100%; box-sizing: border-box; }
+          .excel-preview-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+          @media (max-width: 768px) {
+            .excel-preview-page { padding: 8px !important; }
+            .excel-preview-header { margin-bottom: 8px !important; }
+            .excel-preview-header .ant-space { width: 100%; }
+            .excel-preview-header .ant-space-item:last-child { margin-left: auto; }
+          }
+        `}</style>
+        <div className="excel-preview-page" style={{ minHeight: '100vh', background: '#f0f2f5', padding: 24, boxSizing: 'border-box' }}>
+          <div
+            className="excel-preview-header"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 16,
+              background: '#fff',
+              padding: '12px 16px',
+              borderRadius: 8,
+            }}
+          >
+            <Typography.Title level={4} style={{ margin: 0 }}>
+              {title}
+            </Typography.Title>
+            {actions}
+          </div>
+          {content}
         </div>
-        {content}
-      </div>
+      </>
     );
   }
 
