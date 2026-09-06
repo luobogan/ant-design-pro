@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Card, App, Button, Spin } from 'antd';
 import { useDrop } from 'react-dnd';
-import { Univer, LocaleType, UniverInstanceType, mergeLocales } from '@univerjs/core';
+import { Univer, LocaleType, UniverInstanceType, mergeLocales, IUndoRedoService, ICommandService } from '@univerjs/core';
 import { UniverRenderEnginePlugin } from '@univerjs/engine-render';
 import { UniverFormulaEnginePlugin } from '@univerjs/engine-formula';
 import { UniverUIPlugin } from '@univerjs/ui';
@@ -358,6 +358,91 @@ const extractFieldNameFromDisplay = (v: any): string | null => {
   return m ? m[1].trim() : null;
 };
 
+// ── 高性能单元格读取：直连工作表底层单元格矩阵，绕开 Facade ──
+// 这是「加载/落位极卡」与「FRange 循环依赖」的共同根因修复，勿改回逐格 getRange：
+// 本组件大量使用全表扫描（保存扫描、拖放查重、占位符搜索、命令后置自愈），
+// 原实现逐格 sheet.getRange(r, c).getValue()，而每次 getRange 都是一次 redi 依赖解析：
+//   ① 单次扫描 2600 格、buildFieldIndex 4.8 万格、scanForFieldCell 最多 60 万格；
+//      加载时清空 2600 格会派发 2600 条命令，每条又触发一次这类扫描 → 累计上亿次解析 → 卡死。
+//   ② 这些扫描常在命令执行回调中被触发，其中的 redi 解析极易成环并污染注入器
+//      （典型表现：扫到某一格突然抛 FRange CircularDependencyError，之后全表操作皆崩）。
+// 直连 _worksheet.getCellMatrix() 后为纯对象取值：零 redi 解析、极快、且完全免疫成环。
+const readCellValueFast = (sheet: any, row: number, col: number): any => {
+  if (!sheet) return undefined;
+  try {
+    const matrix = sheet._worksheet?.getCellMatrix?.();
+    if (matrix) {
+      const cd: any = matrix.getValue(row, col);
+      return cd ? cd.v : undefined;
+    }
+  } catch {
+    /* 矩阵不可用时回退 Facade */
+  }
+  try {
+    return sheet.getRange(row, col).getValue();
+  } catch {
+    return undefined;
+  }
+};
+
+// 把扫描上界收敛到工作表真实尺寸：避免用 1500×400 去扫只有 100×26 的表（白白多扫两个数量级）。
+const clampSheetBounds = (sheet: any, maxR: number, maxC: number): [number, number] => {
+  let r = maxR;
+  let c = maxC;
+  try {
+    if (typeof sheet?.getMaxRows === 'function') r = Math.min(maxR, sheet.getMaxRows());
+    if (typeof sheet?.getMaxColumns === 'function') c = Math.min(maxC, sheet.getMaxColumns());
+  } catch {
+    /* 取不到尺寸时保持原上界 */
+  }
+  return [r, c];
+};
+
+// 识别「结构性行/列增删」命令。Univer 不同入口/版本命令 id 形态差异极大，漏匹配会导致
+// cellFieldMetaMap 不随内容平移 → 字段与内容错位、字段丢失（"增删行列后 Excel 丢字段"根因）。
+// 覆盖两类：
+//   ① 旧式/程序式：sheet.command.insert-row / remove-col / delete-rows-confirm ...
+//   ② 右键菜单实际派发：sheet.command.insert-range-move-down-confirm（插入行→内容下移）
+//                        sheet.command.insert-range-move-right-confirm（插入列）
+//                        sheet.command.delete-range-move-up-confirm（删除行→内容上移）
+//                        sheet.command.delete-range-move-left-confirm（删除列）
+// ★ ② 的 id 中既无 "row" 也无 "col"，仅用 (row|col) 判断会漏掉 → Map 零平移 → 丢字段。
+const isRowColStructuralCommand = (id: any): boolean =>
+  typeof id === 'string' &&
+  (/sheet\.command\.(remove|delete|insert)-(row|col)/i.test(id) ||
+   /sheet\.command\.(insert|delete)-range-move-(down|up|right|left)/i.test(id));
+
+// 在整表中按字段名搜索其占位符 ${name} 所在的单元格。
+// 用于「删除前确认占位符是否真的消失」：插入/删除行列后 Map 坐标过期、旧坐标格变空，
+// 若直接判删会把字段从 Excel 清掉（字段丢失 + 面板灰变黑），故先更大范围确认。
+const scanForFieldCell = (sheet: any, name: string, maxR: number, maxC: number): { r: number; c: number } | null => {
+  if (!sheet || !name) return null;
+  const [br, bc] = clampSheetBounds(sheet, maxR, maxC);
+  for (let r = 0; r < br; r++) {
+    for (let c = 0; c < bc; c++) {
+      const v: any = readCellValueFast(sheet, r, c);
+      if (v == null || v === '') continue;
+      if (extractFieldNameFromDisplay(v) === name) return { r, c };
+    }
+  }
+  return null;
+};
+
+// 建立 字段名 -> 实际内容坐标 索引（首个出现为准），供 reconcile / prune 复用，避免重复全表扫描。
+const buildFieldIndex = (sheet: any, maxR: number, maxC: number): Record<string, { r: number; c: number }> => {
+  const idx: Record<string, { r: number; c: number }> = {};
+  const [br, bc] = clampSheetBounds(sheet, maxR, maxC);
+  for (let r = 0; r < br; r++) {
+    for (let c = 0; c < bc; c++) {
+      const v: any = readCellValueFast(sheet, r, c);
+      if (v == null || v === '') continue;
+      const fn = extractFieldNameFromDisplay(v);
+      if (fn && !idx[fn]) idx[fn] = { r, c };
+    }
+  }
+  return idx;
+};
+
 const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   sheetName,
   layoutData,
@@ -443,7 +528,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
     try {
       const fWorkbook: any = workbook;
-      const sheet = fWorkbook.getActiveSheet();
+      // 用缓存的活动表，避免悬停计算（可能涉及 Univer 内部命令回调）里再调 getActiveSheet() 触发 redi 循环依赖
+      const sheet = sheetRef.current;
       if (!sheet) return;
 
       const { row, col } = hoveredCell;
@@ -695,6 +781,12 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // 包进 {...data, detailTables} 新对象（引用不等），纯引用比较（selfSavedLayoutsRef）会失效，
   // 导致每次自保存都触发整表重载 → 重载清单元格又触发保存 → 死循环（字段被反复清空/丢失/"多出"）。
   const selfSavedSigRef = useRef<string>('');
+  // 备用签名（关键）：saveLayoutData 内部以 parentData 回调一次，但函数返回的是 result（sheets 格式），
+  // 多数调用方拿到返回值后会再以 result 回调一次并覆盖 layoutData —— 两种形状完全不同。
+  // 只记录 parentData 的签名会导致 incomingSig 永远不匹配 → 每次保存都触发整表重载
+  // （表现：反复弹出「布局数据加载成功」；并因快照反复重建 Map，导致增删行/列后字段面板灰变黑、
+  //   字段属性不生效）。故两种形状都要记录，命中任一即跳过重载。
+  const selfSavedSigAltRef = useRef<string>('');
   // 已移除字段元数据的「暂存」：删除字段时把其元数据原样存下，供【撤销】把单元格值恢复后
   // 重新登记，使字段面板重新置灰（否则撤销只恢复了单元格文字、字段元数据丢失、面板不反应）。
   const removedFieldMetaRef = useRef<Record<string, FieldMeta>>({}); // key = `${fieldId}_${cellType}`
@@ -774,7 +866,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   const pruneOrphanFieldMeta = (sheet: any): number => {
     if (!sheet) return 0;
     const GRACE_MS = 2000; // 刚放置的字段：setValue 可能尚未生效，给宽限期避免误删
-    let removed = 0;
+    // 第一遍：仅收集「单元格已为空」的条目（含宽限期过滤），避免无谓全表扫描影响保存性能
+    const emptyEntries: Array<{ key: string; meta: any }> = [];
     Object.keys(cellFieldMetaMap.current).forEach((key) => {
       const m: any = cellFieldMetaMap.current[key];
       const [r, c] = key.split('_').map(Number);
@@ -784,14 +877,41 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       let v: any = '';
       try { v = sheet.getRange(r, c).getValue(); } catch { return; }
       if (v === null || v === undefined || String(v) === '') {
-        console.log(`[Prune] 清理孤儿字段元数据: ${key}（单元格已为空）`);
-        // 打墓碑（仅本 cellType），防止 tier-2 从旧 layoutData 把它复活
-        removedFieldKeysRef.current.add(tombstoneKey(m));
-        // 暂存元数据供撤销恢复（单元格被程序化清空后，若用户撤销清空操作可将字段重新登记）
-        if (m) removedFieldMetaRef.current[`${String((m as any).fieldId)}_${(m as any).cellType}`] = m as any;
-        delete cellFieldMetaMap.current[key];
-        removed++;
+        emptyEntries.push({ key, meta: m });
       }
+    });
+    if (emptyEntries.length === 0) return 0;
+
+    // 有空格才建索引：占位符若仍在表里（被平移到新坐标），则「搬迁 meta」而非删除字段——
+    // 这正是修复「新增/删除行列后 Excel 字段丢失、面板灰变黑」的关键：旧坐标空了不代表字段没了。
+    const idx = buildFieldIndex(sheet, 400, 120);
+    let removed = 0;
+    emptyEntries.forEach(({ key, meta }) => {
+      const name = String((meta as any).fieldName ?? '');
+      let found: { r: number; c: number } | null = name ? idx[name] : null;
+      if (!found && name) found = scanForFieldCell(sheet, name, 1500, 400); // 更大范围兜底
+      const [r, c] = key.split('_').map(Number);
+      if (found) {
+        const nr = found.r;
+        const nc = (meta as any).cellType === 'label' ? found.c - 1 : found.c;
+        // 标签必须落在字段左侧一格（col>=0），否则无法搬迁，当作真正移除
+        if ((meta as any).cellType === 'label' && found.c - 1 < 0) {
+          removedFieldKeysRef.current.add(tombstoneKey(meta));
+          delete cellFieldMetaMap.current[key];
+          removed++;
+          return;
+        }
+        const newKey = `${nr}_${nc}`;
+        cellFieldMetaMap.current[newKey] = meta;
+        if (newKey !== key) delete cellFieldMetaMap.current[key];
+        return;
+      }
+      // 占位符确已消失 → 真正移除字段
+      console.log(`[Prune] 清理孤儿字段元数据: ${key}（占位符确已消失）`);
+      removedFieldKeysRef.current.add(tombstoneKey(meta));
+      if (meta) removedFieldMetaRef.current[`${String((meta as any).fieldId)}_${(meta as any).cellType}`] = meta as any;
+      delete cellFieldMetaMap.current[key];
+      removed++;
     });
     return removed;
   };
@@ -808,26 +928,33 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
    */
   const reconcileMetaWithContent = useCallback((sheet: any): boolean => {
     if (!sheet) return false;
-    // 扫描范围必须覆盖真实布局：插入/删除行列会把字段推到较大的行/列索引，
-    // 若上限过小（如原 50 列）会漏扫刚插入列的字段 → home 为空 → 误删 → 面板灰变黑。
-    const maxRow = Math.min(sheet.getMaxRows?.() ?? 200, 1000);
-    const maxCol = Math.min(sheet.getMaxColumns?.() ?? 50, 200);
+    // 扫描范围用固定上限，不依赖 getMaxColumns/getMaxRows（它们可能返回偏小值，
+    // 导致插入列的字段落在扫描范围外 → home 为空 → 误删 → Excel 字段丢失/面板灰变黑）。
+    const P_ROWS = 400;
+    const P_COLS = 120;
+    const S_ROWS = 1500;
+    const S_COLS = 400;
 
     // 1) 建立 字段名 -> 实际内容坐标 索引（首个出现为准）
+    // ★ 用 readCellValueFast（直连矩阵，零 redi 解析）：原逐格 sheet.getRange(r,c).getValue() 在
+    //   命令执行回调里既慢（最多 400×120）又易触发 redi 循环依赖污染注入器；本函数每次结构性
+    //   操作与 setFieldAttr 都会调用，必须零 redi。
     const fieldContentIndex: Record<string, { r: number; c: number }> = {};
-    for (let r = 0; r < maxRow; r++) {
-      for (let c = 0; c < maxCol; c++) {
-        let v: any;
-        try { v = sheet.getRange(r, c).getValue(); } catch { continue; }
+    const cellMatrix = sheet?.getCellMatrix?.();
+    const readCell = (rr: number, cc: number): any =>
+      (cellMatrix && typeof cellMatrix.getValue === 'function')
+        ? (cellMatrix.getValue(rr, cc)?.v ?? null)
+        : readCellValueFast(sheet, rr, cc);
+    for (let r = 0; r < P_ROWS; r++) {
+      for (let c = 0; c < P_COLS; c++) {
+        const v: any = readCell(r, c);
         if (v == null || v === '') continue;
         const fn = extractFieldNameFromDisplay(v);
         if (fn && !fieldContentIndex[fn]) fieldContentIndex[fn] = { r, c };
       }
     }
 
-    const getCur = (r: number, c: number): any => {
-      try { return sheet.getRange(r, c).getValue(); } catch { return null; }
-    };
+    const getCur = (r: number, c: number): any => readCell(r, c);
 
     isRestoringRef.current = true; // 包裹内部 setValue，避免触发防篡改/变更处理器递归
     let changed = false;
@@ -846,6 +973,10 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             newMap[`${home.r}_${home.c}`] = meta; changed = true; return;
           }
           if (!home) {
+            // 先在整个表更大范围内确认本字段占位符是否真的消失：
+            // 插入/删除行列后内容被平移到新坐标、旧坐标变空，若直接判删会把字段从 Excel 清掉。
+            const found = scanForFieldCell(sheet, name, S_ROWS, S_COLS);
+            if (found) { newMap[`${found.r}_${found.c}`] = meta; changed = true; return; }
             const cur = getCur(r, c);
             const curName = extractFieldNameFromDisplay(cur);
             if (curName && curName !== name) {
@@ -868,7 +999,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             newMap[`${home.r}_${home.c - 1}`] = meta; changed = true; return;
           }
           if (!home) {
-            // 字段内容已不在 → 标签也失效，整字段释放
+            // 字段内容已不在 → 标签也失效；但先更大范围确认占位符是否只是被平移走（误删保护）
+            const found = scanForFieldCell(sheet, name, S_ROWS, S_COLS);
+            if (found && found.c - 1 >= 0) { newMap[`${found.r}_${found.c - 1}`] = meta; changed = true; return; }
             removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName); changed = true; return;
           }
           newMap[key] = meta; return;
@@ -933,8 +1066,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       }
     } catch { /* ignore */ }
 
-    const maxRows = typeof sheet.getMaxRows === 'function' ? Math.min(sheet.getMaxRows(), 1000) : 200;
-    const maxCols = typeof sheet.getMaxColumns === 'function' ? Math.min(sheet.getMaxColumns(), 200) : 50;
+    const maxRows = 500;
+    const maxCols = 150;
     let hitKey: string | null = null;
     const found: Array<[string, any]> = [];
 
@@ -1028,7 +1161,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
     // 3) 单元格实际内容兜底：只要字段仍画在表上（字段格含 ${fieldName} 占位符），
     //    扫描整表重建该字段元数据（字段格 + 相邻标签格）并写回 Map，确保属性切换必能生效。
-    const sheet3 = workbookRef.current?.getActiveSheet?.();
+    // 用缓存的活动表，避免命令执行回调（resolveCellFieldId/findMetaNear 链路）里再调 getActiveSheet() 触发 redi 循环依赖
+    const sheet3 = sheetRef.current;
     if (sheet3) {
       let targetName: string | null = null;
       for (const [r, c] of candidates) {
@@ -1276,17 +1410,24 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
       // workbook 是 FWorkbook (Facade)
       const fWorkbook: any = workbook;
-      const sheet = fWorkbook.getActiveSheet(); // 返回 FWorksheet
+      const sheet = sheetRef.current; // 用缓存的活动表，避免命令执行中 getActiveSheet() 触发 redi 循环依赖
 
       // 关键修复：清空表格中所有单元格的内容
       // 同样动态取行列数，避免硬编码越界（Range is out of bounds）
       console.log('[LoadLayout] 清空表格所有单元格内容');
       const clearMaxRows = typeof sheet.getMaxRows === 'function' ? Math.min(sheet.getMaxRows(), 200) : 50;
       const clearMaxCols = typeof sheet.getMaxColumns === 'function' ? Math.min(sheet.getMaxColumns(), 50) : 26;
-      for (let row = 0; row < clearMaxRows; row++) {
-        for (let col = 0; col < clearMaxCols; col++) {
-          const range = sheet.getRange(row, col);
-          range.setValue('');
+      // 一次性整域清空：只派发 1 条命令（后两参为「行数/列数」，非结束行列）。
+      // 原实现逐格 getRange + setValue('') → 2600 条命令，且全部进撤销栈，并触发 2600 次
+      // onCommandExecuted（每次再跑一次全表扫描）→ 这是「加载非常卡」的主要放大器。
+      try {
+        sheet.getRange(0, 0, clearMaxRows, clearMaxCols).clearContent();
+      } catch (e) {
+        console.warn('[LoadLayout] 整域清空失败，回退逐格清空:', e);
+        for (let row = 0; row < clearMaxRows; row++) {
+          for (let col = 0; col < clearMaxCols; col++) {
+            sheet.getRange(row, col).setValue('');
+          }
         }
       }
 
@@ -1466,7 +1607,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       // InjectorAlreadyDisposedError。静默跳过保存，不打错误日志（否则开发期告警刷屏）。
       let sheet: any;
       try {
-        sheet = fWorkbook.getActiveSheet(); // FWorksheet
+        sheet = sheetRef.current; // 用缓存的活动表，避免命令执行中 getActiveSheet() 触发 redi 循环依赖
       } catch (disposedErr) {
         console.warn('[Save] Univer 实例已销毁，跳过保存:', (disposedErr as Error)?.message);
         return null;
@@ -1501,18 +1642,20 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       const fieldNameIndex: Record<string, { r: number; c: number }> = {};
       const pendingRehome: Array<{ fromKey: string; meta: any; fieldName: string }> = [];
 
+      // 扫描期间禁止派发命令：原实现在扫描中途 setValue() 写回（见下方「还原期望值」分支），
+      // 命令派发会污染 redi 的 _resolving 栈，导致本次扫描后续 getRange 全部成环
+      // （表现为扫到某一格突然抛 FRange CircularDependencyError，如 (61,17)）。
+      // 故改为先收集、扫描结束后统一写回。
+      const pendingRestore: Array<{ row: number; col: number; expected: string }> = [];
+
       for (let row = 0; row < maxRow; row++) {
         let rowHasData = false;
         for (let col = 0; col < maxCol; col++) {
-          // Facade API: FWorksheet.getRange(row, col) 返回 FRange
-          // 单个单元格越界不应中断整个保存过程
+          // 直连矩阵读值（零 redi 解析），单个单元格失败不应中断整个保存过程
           let value: any;
           let cellStyle: any = null;
           try {
-            const range = sheet.getRange(row, col);
-            value = range.getValue();
-            // 捕获单元格样式（composed，含字体/背景/对齐等，用于保存后还原 Excel 样式）
-            cellStyle = range.getCellStyleData();
+            value = readCellValueFast(sheet, row, col);
           } catch (rangeErr) {
             console.warn(`[Save] 读取单元格 (${row}, ${col}) 失败，跳过:`, rangeErr);
             continue;
@@ -1520,6 +1663,14 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
           // 跳过空值单元格
           if (value === null || value === undefined || value === '') continue;
+
+          // 捕获单元格样式（composed，含字体/背景/对齐等，用于保存后还原 Excel 样式）
+          // 仅对非空格解析：空格占绝绝大多数，逐格取样式是保存慢的主因之一
+          try {
+            cellStyle = sheet.getRange(row, col).getCellStyleData();
+          } catch (styleErr) {
+            cellStyle = null;
+          }
 
           // 建立「字段名→实际坐标」索引（首个出现为准），供下方错位 meta 自愈搬回使用
           const idxName = extractFieldNameFromDisplay(value);
@@ -1572,21 +1723,15 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
                   // 同字段（仅图标/前缀差异，如只读🔒未刷新）或纯文本占位符被破坏 → 还原期望值，保留元数据
                   const expected = getCellDisplayValue(fieldMeta);
                   console.log(`[Save] 单元格 (${row}, ${col}) 值不匹配，还原为期望值: 实际值="${value}", 期望值="${expected}"`);
-                  try {
-                    sheet.getRange(row, col).setValue(expected);
-                  } catch (e) {
-                    console.warn('[Save] 还原字段显示值失败:', e);
-                  }
+                  // 排队到扫描结束后统一写回，避免扫描中途派发命令污染 redi
+                  pendingRestore.push({ row, col, expected });
                   value = expected;
                 }
               } else {
                 // 明细表标记等：原样还原期望值
                 const expected = getCellDisplayValue(fieldMeta);
-                try {
-                  sheet.getRange(row, col).setValue(expected);
-                } catch (e) {
-                  console.warn('[Save] 还原字段显示值失败:', e);
-                }
+                // 排队到扫描结束后统一写回，避免扫描中途派发命令污染 redi
+                pendingRestore.push({ row, col, expected });
                 value = expected;
               }
             }
@@ -1607,6 +1752,21 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           if (!dataTable[row]) dataTable[row] = [];
           dataTable[row][col] = value;
         }
+      }
+
+      // ── 统一写回扫描期间暂存的还原值 ──
+      // 必须等扫描结束、并延迟到命令执行外再写：扫描中途派发命令会污染 redi 的 _resolving 栈，
+      // 使本次扫描后续所有 getRange 成环（典型：扫到 (61,17) 突然崩）。
+      if (pendingRestore.length > 0) {
+        setTimeout(() => {
+          pendingRestore.forEach(({ row, col, expected }) => {
+            try {
+              sheet.getRange(row, col).setValue(expected);
+            } catch (e) {
+              console.warn('[Save] 还原字段显示值失败:', e);
+            }
+          });
+        }, 0);
       }
 
       // ── 保存自愈：把错位 meta 搬回它自己字段内容所在坐标 ──
@@ -1762,6 +1922,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         if (selfSavedLayoutsRef.current.size > 6) selfSavedLayoutsRef.current.clear();
         selfSavedLayoutsRef.current.add(emptyResult);
         selfSavedSigRef.current = stableStringify(emptyResult);
+        selfSavedSigAltRef.current = selfSavedSigRef.current;
         onLayoutChange(emptyResult);
         return emptyResult;
       }
@@ -1814,6 +1975,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       // 用「内容签名」而非引用记录自保存：父组件 handleLayoutChange 会把数据包进
       // {...data, detailTables} 新对象（引用不等），引用比较会失效 → 死循环重载。
       selfSavedSigRef.current = stableStringify(parentData);
+      // 同时记录 result 形状的签名：调用方会以 saveLayoutData() 的返回值（result）再次回调，
+      // 后者会覆盖 layoutData，若只记 parentData 则签名永远对不上 → 每次保存都重载。
+      selfSavedSigAltRef.current = stableStringify(result);
       onLayoutChange(parentData);
       return result;
     } catch (error) {
@@ -1841,7 +2005,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     const targetName = String(fieldName ?? '');
     if (!targetId && !targetName) return;
 
-    const sheet: any = (workbook as any).getActiveSheet?.();
+    const sheet: any = sheetRef.current;
     const matchedKeys: string[] = [];
     Object.entries(cellFieldMetaMap.current).forEach(([key, meta]) => {
       if (!meta) return;
@@ -1870,7 +2034,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     // 实时上报已放置字段变化，保证面板置灰立即刷新（不依赖后续保存是否成功）
     notifyFieldsChanged();
     // 同步布局：usedFieldKeys 由 layoutData.cellData 推导，cellData 不再含该字段 meta → 可重新拖入
-    try { saveLayoutData(); } catch (e) { console.warn('[removeField] 同步布局失败:', e); }
+    // 延迟到命令执行结束后保存：removeFieldCompletely 常在 onCommandExecuted(set-range-values/auto-clear) 中触发，命令执行期间 sheet.getRange 会成环
+    setTimeout(() => { try { saveLayoutData(); } catch (e) { console.warn('[removeField] 同步布局失败:', e); } }, 0);
   }, [workbook, saveLayoutData]);
 
   // ──────────────────────────────────────
@@ -1888,15 +2053,21 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   const handleRowColStructural = useCallback((commandId: string, params: any) => {
     // 兼容 params.range（单区域）与 params.ranges（数组，部分 Univer 版本/入口用此形状）
     const range = params?.range || (Array.isArray(params?.ranges) ? params.ranges[0] : undefined);
-    if (!range) return;
-    // 不依赖精确字符串，避免 Univer 不同版本命令 id 形态（remove-row / remove-rows / delete-row 等）漏匹配
-    const isRow = /row/i.test(commandId);
+    // 轴/方向判定（兼容两类命令命名）：
+    //   ① 旧式/程序式：sheet.command.insert-row / remove-col / delete-rows-confirm ...
+    //   ② 右键菜单实际派发：sheet.command.insert-range-move-down-confirm（插入行→内容下移）
+    //                        sheet.command.insert-range-move-right-confirm（插入列）
+    //                        sheet.command.delete-range-move-up-confirm（删除行→内容上移）
+    //                        sheet.command.delete-range-move-left-confirm（删除列）
+    // ★ ② 的 id 中既无 "row" 也无 "col"，仅用 (row|col) 判断会漏掉 → Map 零平移 → 字段丢失（本问题根因）。
+    //   range-move 系列由 move 方向决定轴：move-down/move-up → 行；move-right/move-left → 列。
+    const isRangeMove = /(insert|delete)-range-move-/i.test(commandId);
+    const isRow = isRangeMove ? /move-(down|up)/i.test(commandId) : /row/i.test(commandId);
     const isRemove = /(remove|delete)/i.test(commandId);
-    // 不同 Univer 版本 range 字段命名不一：startRow/endRow 或 start/end
-    const start = isRow ? (range.startRow ?? range.start) : (range.startColumn ?? range.start);
-    const end = isRow ? (range.endRow ?? range.end) : (range.endColumn ?? range.end);
-    if (start == null || end == null || end < start) return;
-    const count = end - start + 1;
+    const start = range ? (isRow ? (range.startRow ?? range.start) : (range.startColumn ?? range.start)) : null;
+    const end = range ? (isRow ? (range.endRow ?? range.end) : (range.endColumn ?? range.end)) : null;
+    const canShift = start != null && end != null && end >= start;
+    const count = canShift ? (end - start + 1) : 0;
     // delta：删除→坐标 -count（向上/左）；插入→坐标 +count（向下/右）
     const delta = isRemove ? -count : count;
 
@@ -1906,15 +2077,26 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     isStructuralRef.current = true;
     setTimeout(() => { isStructuralRef.current = false; }, 0);
 
-    // 注意：必须用 workbookRef.current 而非闭包里的 workbook —— onCommandExecuted 监听器在
-    // workbook 仍为 null 的首帧就已注册，闭包捕获的是 null，会导致 "(null).getActiveSheet" 抛异常、
-    // 平移逻辑整段不执行 → Map 不随内容移动 → 字段错位 + 多出。
-    const sheet: any = workbookRef.current?.getActiveSheet?.();
+    // 注意：必须用 sheetRef.current —— onCommandExecuted 监听器在 workbook 仍为 null 的首帧就已注册，
+    // 闭包捕获的是 null，会导致平移逻辑整段不执行 → Map 不随内容移动 → 字段错位 + 多出。
+    const sheet: any = sheetRef.current;
     if (!sheet) return;
+
+    // ★ 无 range（右键菜单的 *-range-move-*-confirm 命令不携带 params：handler 从当前选区读取、
+    //   并以无参方式执行基础命令，故此处拿不到 range）。此时无法做坐标算术，直接交由「内容驱动对位」
+    //   reconcileMetaWithContent：它扫描全表、按单元格真实内容把每个字段的元数据搬回正确坐标，
+    //   对插入/删除行或列完全等价且更稳。删除的字段其占位符已不在表中 → reconcile 会整字段移除并释放面板。
+    if (!range) {
+      try { reconcileMetaWithContent(sheet); } catch (e) { console.warn('[RowColStructural] 内容对位失败:', e); }
+      // 同步布局 + 广播（延迟到命令执行结束后，避免命令执行期间 sheet.getRange 成环）
+      setTimeout(() => { try { saveLayoutData(); } catch (e) { console.warn('[RowColStructural] 同步布局失败:', e); } }, 0);
+      notifyFieldsChanged();
+      return;
+    }
 
     // 删除模式：收集落入删除区间的字段 key（整字段移除，含其相邻那格）
     const doomedKeys = new Set<string>();
-    if (isRemove) {
+    if (isRemove && canShift) {
       Object.entries(cellFieldMetaMap.current).forEach(([key, meta]) => {
         if (!meta) return;
         const [r, c] = key.split('_').map(Number);
@@ -1940,7 +2122,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       // 否则全部字段统一 +/-count 会让内存 Map 与表格真实内容错位 → 字段/字段名错位且"多出来"）：
       //  - 插入（delta=+count）：pos >= start 的字段整体下移/右移 count（pos<start 不动）
       //  - 删除（delta=-count）：pos > end 的字段整体上移/左移 count（pos<start 不动；pos∈[start,end]已被 doomed 移除）
-      const shouldShift = isRemove ? pos > end : pos >= start;
+      const shouldShift = canShift && (isRemove ? pos > end : pos >= start);
       const shift = shouldShift ? delta : 0;
       const nr = isRow ? r + shift : r;
       const nc = isRow ? c : c + shift;
@@ -1948,8 +2130,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     });
     cellFieldMetaMap.current = newMap;
 
-    // 平移后做一次内容驱动自愈：纠正任何「双重平移/边界错位」残留（reconcile 现以内容为正、
-    // 扫描上限已放宽，不会因插入行列把字段推远而误删 → 面板不再灰变黑）。
+    // 平移后做一次内容驱动自愈：纠正任何「双重平移/边界错位」残留
     try { reconcileMetaWithContent(sheet); } catch (e) { /* 自愈失败不阻断后续保存/广播 */ }
 
     // 删列场景：同字段存活那格仍在表里，清掉其占位符值（行删除时同字段两格都在删除行内，无残留）
@@ -1965,7 +2146,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     }
 
     // 同步布局：删除的行/列已不在 sheet，存活字段按新坐标落库；usedFieldKeys 释放被删字段 → 可重新拖入
-    try { saveLayoutData(); } catch (e) { console.warn('[RowColStructural] 同步布局失败:', e); }
+    // 延迟到命令执行结束后保存：本函数由 onCommandExecuted 结构性命令同步触发，命令执行期间 sheet.getRange 会成环
+    setTimeout(() => { try { saveLayoutData(); } catch (e) { console.warn('[RowColStructural] 同步布局失败:', e); } }, 0);
     // 即便 saveLayoutData 因实例已销毁等提前 return，也强制广播一次最新已放置字段，确保面板立即刷新
     notifyFieldsChanged();
   }, [workbook, saveLayoutData]);
@@ -1999,7 +2181,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     // 判定为结构性行/列变更，跳过此处处理，交由 handleRowColStructural 统一平移（避免双重平移）。
     // 普通用户拖拽（局部范围、非整幅）仍正常处理。
     try {
-      const sheet = workbookRef.current?.getActiveSheet?.();
+      const sheet = sheetRef.current;
       if (sheet) {
         const maxCols = typeof sheet.getMaxColumns === 'function' ? sheet.getMaxColumns() : 50;
         const maxRows = typeof sheet.getMaxRows === 'function' ? sheet.getMaxRows() : 200;
@@ -2028,7 +2210,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       else console.warn('[MoveRange] 目标坐标已存在字段 meta，跳过该格避免覆盖:', nk);
     });
     cellFieldMetaMap.current = newMap;
-    try { saveLayoutData(); } catch (e) { console.warn('[MoveRange] 同步布局失败:', e); }
+    // 延迟到命令执行结束后保存：本函数由 onCommandExecuted(move-range) 同步触发，命令执行期间 sheet.getRange 会成环
+    setTimeout(() => { try { saveLayoutData(); } catch (e) { console.warn('[MoveRange] 同步布局失败:', e); } }, 0);
   }, [workbook, saveLayoutData]);
 
   const mapToFieldType = (field: any): FieldType => {
@@ -2059,7 +2242,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   const insertDetailMarker = (detailTableIdx: number, title?: string): boolean => {
     try {
       if (!workbook) return false;
-      const sheet: any = workbook.getActiveSheet?.();
+      const sheet: any = sheetRef.current;
       if (!sheet) return false;
 
       // 已存在该明细表的标记则不重复插入
@@ -2117,9 +2300,11 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // 参照迁移文档 §5.3 字段绑定（setTag → setNote）
   // ──────────────────────────────────────
   const handleFieldDrop = useCallback((field: any, row: number, col: number) => {
-    if (!workbook) return;
-
-    try {
+  if (!workbook) return;
+  // 拖放事件可能处于 Univer 内部 drop 命令执行中，命令期间调用 facade（getRange/setValue）会触发 redi 循环依赖，
+  // 故整段处理逻辑延迟到命令执行结束后（drop 事件派发完成）再执行
+  setTimeout(() => {
+  try {
       // 优先使用 window.__pendingField，它包含完整的字段信息
       const actualField = (window as any).__pendingField || field;
 
@@ -2130,8 +2315,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       });
 
       const fWorkbook: any = workbook;
-      const sheet = fWorkbook.getActiveSheet();
-      sheetRef.current = sheet;
+      // 用缓存的活动表，避免 drop 事件（可能处于 Univer 内部 drop 命令执行中）里再调 getActiveSheet() 触发 redi 循环依赖
+      const sheet = sheetRef.current;
 
       // 区分标签与字段（FieldPalette 拖动时写入 type：formLabel=标签 / formField=字段）
       const isLabel = actualField.type === 'formLabel';
@@ -2179,8 +2364,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           const maxC = typeof sheet.getMaxColumns === 'function' ? Math.min(sheet.getMaxColumns(), 50) : 26;
           for (let r = 0; r < maxR && !placedInSheet; r++) {
             for (let c = 0; c < maxC; c++) {
-              let v: any;
-              try { v = sheet.getRange(r, c).getValue(); } catch { continue; }
+              const v: any = readCellValueFast(sheet, r, c);
               if (v == null || v === '') continue;
               const sv = String(v);
               // 拖「标签」时必须排除字段占位符格 ${xx}：占位符文本「${field_12}」本身包含
@@ -2324,6 +2508,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       message.error('放置字段失败');
       isPlacingFieldRef.current = false;
     }
+    }, 0);
   }, [workbook, setCellField, saveLayoutData, onLayoutChange]);
 
   // ──────────────────────────────────────
@@ -2337,7 +2522,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // 亦标注该方案"不可靠，仅作兜底"），只在 hitTest 不可用（skeleton 未就绪）时顶替。
   // ──────────────────────────────────────
   const getCellFromMouseEvent = useCallback((clientX: number, clientY: number): { row: number; col: number } => {
-    const sheet: any = workbookRef.current?.getActiveSheet?.() ?? (workbook as any)?.getActiveSheet?.();
+    // 用缓存的活动表，避免命令执行回调（handleContextMenuCapture 链路）里再调 getActiveSheet() 触发 redi 循环依赖
+    const sheet: any = sheetRef.current;
 
     // 1) hitTest：最精准，与 Univer 自身点击选区判定同源
     if (sheet && typeof sheet.hitTest === 'function') {
@@ -2401,7 +2587,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   const findFieldCellByPosition = useCallback((): { row: number; col: number } | null => {
     const pos = rightClickPosRef.current;
     if (!pos) return null;
-    const sheet: any = workbookRef.current?.getActiveSheet?.();
+    const sheet: any = sheetRef.current;
     const canvasEl = containerRef.current?.querySelector('canvas');
     const canvasRect = canvasEl?.getBoundingClientRect();
     if (!sheet || !canvasRect || typeof sheet.getCellRect !== 'function') return null;
@@ -2754,11 +2940,32 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           valueChangeDisposer = fWorkbook.onCommandExecuted?.((command: any) => {
             // 整行/整列 插入或删除：结构性变更，需重排元数据坐标（删除还会释放被删字段供重拖）
             const cmdId = command?.id;
+            // 同步置位：结构性命令紧随的 set-range-values 需据此判定「平移中」，不可延迟
+            // （复位不在这里做——若在同步段排队，FIFO 会让复位先于 set-range-values 的处理执行，
+            //   导致平移产生的空格被误判为"清空字段"而删字段；复位改在下方结构性分支末尾）
+            const isRowColCmd = !!cmdId && isRowColStructuralCommand(cmdId);
+            if (isRowColCmd) {
+              isStructuralRef.current = true;
+            }
+            // ★ 守卫标志必须「同步快照」：下方处理体被延迟到 setTimeout 才执行，而
+            // isLoadingRef / isPlacingFieldRef / isRestoringRef 会在 loadLayoutData 的 finally
+            // （或放置、回滚结束时）先一步复位。若在延迟体里现取这些标志，就会把「程序自身的
+            // 批量写入」误判为用户修改 → 自动保存 → layoutData 回流 → 触发重载 → 重载又写入……
+            // 形成死循环（表现：反复弹出「布局数据加载成功」；并因快照反复重建 cellFieldMetaMap，
+            // 导致增删行/列后字段面板灰变黑、字段属性（只读/可编辑/必填）不生效）。
+            const skipByGuardAtFireTime =
+              isPlacingFieldRef.current || isRestoringRef.current || isLoadingRef.current || isStructuralRef.current;
+            // 命令执行期间调用 facade（getActiveSheet/getRange/getSelection）会触发 redi 循环依赖，
+            // 故整段处理延迟到命令执行结束后执行（onCommandExecuted 在命令执行中同步触发）
+            setTimeout(() => {
             // 行列结构性变更（删/插/移除 行/列）：重排元数据坐标、释放被删字段。
             // 不写死精确 id：Univer 不同版本可能是 remove-row / remove-rows / delete-row 等，
             // 一旦漏匹配，cellFieldMetaMap 不平移 → 明细表标记被平移成「孤儿普通文本」反复出现。
-            if (cmdId && /sheet\.command\.(remove|delete|insert)-(row|col)/i.test(cmdId)) {
+            if (cmdId && isRowColStructuralCommand(cmdId)) {
               handleRowColStructural(cmdId, command?.params);
+              // 复位排在此处：结构性命令的 onCommandExecuted 先于紧随的 set-range-values 入队，
+              // 这里再排队可确保复位发生在所有 set-range-values（平移）处理之后
+              setTimeout(() => { isStructuralRef.current = false; }, 0);
               return;
             }
             // 拖拽移动单元格：按位移重排元数据坐标，避免源坐标变空被守护定时器当成清空而误删字段
@@ -2806,16 +3013,18 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             if (!cellValue) return;
 
             // 仅处理当前活动工作表，避免跨表误判
-            const activeSheetId = fWorkbook.getActiveSheet?.()?.getSheetId?.();
+            const activeSheetId = sheetRef.current?.getSheetId?.();
             if (params.subUnitId && activeSheetId && params.subUnitId !== activeSheetId) return;
 
-            // 程序自身的批量写入（放置字段/加载布局/回滚）不参与保护与自动保存
-            if (isPlacingFieldRef.current || isRestoringRef.current || isLoadingRef.current || isStructuralRef.current) return;
+            // 程序自身的批量写入（放置字段/加载布局/回滚）不参与保护与自动保存。
+            // ★ 用命令触发时刻的同步快照判定：延迟体执行时这些标志往往已被复位，
+            //   现取会把程序自身写入当成用户修改，进而触发「保存→回流→重载」死循环。
+            if (skipByGuardAtFireTime) return;
 
             // 两阶段处理：先收集「被清字段格 / 被清标签格 / 被篡改格」，再决定批量整移除还是逐格处理
             // 这样整表清空（Ctrl+A + Delete）可一次性移除全部字段，避免逐格循环 2600+ 次且反复 saveLayoutData
-            const clearedFieldCells: Array<{ row: number; col: number; meta: FieldMeta }> = [];
-            const clearedLabelKeys: string[] = [];
+            let clearedFieldCells: Array<{ row: number; col: number; meta: FieldMeta }> = [];
+            let clearedLabelKeys: string[] = [];
             const tamperedCells: Array<{ row: number; col: number; meta: FieldMeta }> = [];
 
             Object.entries(cellValue).forEach(([rowKey, rowData]: [string, any]) => {
@@ -2840,7 +3049,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
                       // 标记为程序自身写入，避免嵌套的 set-range-values 触发「防篡改回滚 / 自动保存」
                       isRestoringRef.current = true;
                       try {
-                        const restoreSheet = fWorkbook.getActiveSheet?.() || sheetRef.current;
+                        const restoreSheet = sheetRef.current;
                         if (restoreSheet) setCellField(fWorkbook, restoreSheet, row, col, restored as FieldMeta);
                       } catch (e) {
                         console.warn('[UndoRestore] 重新登记字段失败:', e);
@@ -2889,7 +3098,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             if (tamperedCells.length > 0) {
               isRestoringRef.current = true;
               try {
-                const restoreSheet = fWorkbook.getActiveSheet?.() || sheetRef.current;
+                const restoreSheet = sheetRef.current;
                 tamperedCells.forEach(({ row, col, meta }) => {
                   restoreSheet?.getRange?.(row, col)?.setValue?.(getCellDisplayValue(meta));
                 });
@@ -2902,6 +3111,34 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
               return; // 内容被篡改，不触发保存
             }
 
+            // 内容保全：被清空格可能是「结构性平移」导致旧坐标变空（内容已移到新坐标），
+            // 此时占位符仍在表中，不应移除字段（否则 Excel 字段丢失 + 面板灰变黑）。
+            // 仅当字段占位符在整表中确已消失才移除；否则视为平移，交给 reconcile 自愈。
+            if (clearedFieldCells.length > 0 || clearedLabelKeys.length > 0) {
+              const chkSheet = sheetRef.current;
+              if (chkSheet) {
+                const fIdx = buildFieldIndex(chkSheet, 400, 120);
+                clearedFieldCells = clearedFieldCells.filter(({ meta }) => {
+                  const nm = String((meta as any).fieldName ?? '');
+                  if (!nm) return true; // 无名 → 移除
+                  let f = fIdx[nm] || scanForFieldCell(chkSheet, nm, 1500, 400);
+                  return !f; // 占位符还在 → 保留（平移）；不在 → 移除
+                });
+                clearedLabelKeys = clearedLabelKeys.filter((key) => {
+                  const lm: any = cellFieldMetaMap.current[key];
+                  if (!lm) return true;
+                  const nm = String(lm.fieldName ?? '');
+                  if (!nm) return true;
+                  let f = fIdx[nm] || scanForFieldCell(chkSheet, nm, 1500, 400);
+                  if (!f) return true; // 占位符消失 → 移除整字段
+                  const [lr, lc] = key.split('_').map(Number);
+                  // 字段仍紧贴标签右侧一格（未平移）→ 视为「仅清空标签」→ 按原语义移除整字段
+                  if (f.r === lr && f.c === lc + 1) return true;
+                  return false; // 字段已移走（结构性平移）→ 保留，交给 reconcile
+                });
+              }
+            }
+
             const totalFieldCells = Object.values(cellFieldMetaMap.current).filter((m) => (m as any)?.cellType === 'field').length;
 
             // 整表清空（Ctrl+A + Delete 等）：所有字段格都被清空 → 一次性移除全部字段，高效且可靠
@@ -2910,7 +3147,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
               removeAllFieldsFromMap();
               // 立即同步一次：onLayoutChange 是在 saveLayoutData 内部触发的，
               // 若只走 500ms 防抖，面板 usedFieldKeys 要等防抖后才刷新（表现为"清空后面板不刷新"）。
-              try { saveLayoutData(); } catch (e) { console.warn('[CellChange] 同步布局失败:', e); }
+              // 延迟到命令执行结束后保存：本分支在 onCommandExecuted(set-range-values) 中触发，命令执行期间 sheet.getRange 会成环
+              setTimeout(() => { try { saveLayoutData(); } catch (e) { console.warn('[CellChange] 同步布局失败:', e); } }, 0);
               scheduleAutoSave();
               return;
             }
@@ -2930,6 +3168,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             });
 
             if (clearedFieldCells.length > 0 || clearedLabelKeys.length > 0) scheduleAutoSave();
+            }, 0);
           });
         } catch (e) {
           console.warn('[Univer Init] 添加值变化事件失败:', e);
@@ -2945,7 +3184,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           // InjectorAlreadyDisposedError。静默跳过本次扫描，不打错误日志（否则开发期告警刷屏）。
           let guardSheet: any;
           try {
-            guardSheet = fWorkbook.getActiveSheet?.();
+            guardSheet = sheetRef.current;
           } catch (disposedErr) {
             return;
           }
@@ -3135,7 +3374,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     // 取当前激活单元格坐标（优先实时选区，回退到最近缓存）
     const getPrimaryCell = (): { row: number; col: number } | null => {
       try {
-        const sheet: any = workbookRef.current?.getActiveSheet?.();
+        const sheet: any = sheetRef.current;
         const sel: any = sheet?.getSelection?.();
         const arr = Array.isArray(sel) ? sel : (sel?.selection || [sel]);
         const cur = arr?.[0];
@@ -3153,7 +3392,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         const meta = getCellFieldMeta(row, col);
         if (meta) return meta.cellType === 'field';
         // 兜底：刷新后 Map 可能为空，改按值判断（字段占位符形如 "📝 ${field_1}"）
-        const sheet: any = workbookRef.current?.getActiveSheet?.();
+        const sheet: any = sheetRef.current;
         const v = sheet?.getRange?.(row, col)?.getValue?.();
         return typeof v === 'string' && v.includes('${');
       } catch {
@@ -3171,7 +3410,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       if (!meta) {
         // 兜底：刷新后 Map 可能为空，但值残留 → 从 ${fieldName} 还原最小元数据
         try {
-          const sheet: any = workbookRef.current?.getActiveSheet?.();
+          const sheet: any = sheetRef.current;
           const v = sheet?.getRange?.(sel.row, sel.col)?.getValue?.();
           if (v && String(v).includes('${')) {
             const name = (String(v).match(/\$\{([^}]+)\}/) || [])[1];
@@ -3189,7 +3428,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       if (!clip) return; // 普通粘贴，无需处理
       const dest = getPrimaryCell();
       if (!dest) return;
-      const sheet: any = workbookRef.current?.getActiveSheet?.();
+      const sheet: any = sheetRef.current;
       if (!sheet) return;
       const srcKey = `${clip.row}_${clip.col}`;
       const destKey = `${dest.row}_${dest.col}`;
@@ -3251,7 +3490,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     if (workbook) {
       // 设置字段属性（参照 ecology excel 设计器）
       const setFieldAttr = (row: number, col: number, attrValue: number) => {
-        const sheet = workbook.getActiveSheet();
+        // 用缓存的活动表，避免命令执行回调里再调 getActiveSheet() 触发 redi 循环依赖
+        const sheet = sheetRef.current;
         if (!sheet) return;
 
         // ① 先把内存 Map 与「表格当前内容」对齐：插入/删除行列后 Univer 会把字段占位符平移到新坐标，
@@ -3304,7 +3544,19 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
         const fieldId = String(baseMeta.fieldId);
 
-        // ④ 更新属性（baseMeta 是引用，Map/布局里同一对象会被同步）
+        // ④ 更新属性：必须更新「该 fieldId 的全部条目」，不能只改 baseMeta 一个对象。
+        //    标签格与字段格在 Map 里是两个互相独立的对象（loadLayoutData 每格各做一份
+        //    {...fieldMeta} 拷贝），而决定图标（getCellDisplayValue）与底色（applyFieldAttrStyle）
+        //    的正是「字段格」那一份。只改 baseMeta（它可能命中的是标签格那份）时，字段格仍按旧
+        //    fieldAttr 渲染 → 表现为「切了只读/可编辑/必填却没效果」。
+        Object.values(cellFieldMetaMap.current).forEach((m: any) => {
+          if (m && String(m.fieldId) === fieldId) {
+            m.fieldAttr = attrValue;
+            m.required = attrValue === 3;
+            m.readonly = attrValue === 1;
+          }
+        });
+        // 仍同步 baseMeta 自身：它可能来自持久化布局兜底（不在 Map 中）
         baseMeta.fieldAttr = attrValue;
         baseMeta.required = attrValue === 3;
         baseMeta.readonly = attrValue === 1;
@@ -3373,8 +3625,10 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       // 获取当前选中单元格
       const getSelection = () => {
         try {
-          const sheet = workbook.getActiveSheet();
-          const selection = sheet.getSelection();
+          // 用缓存的活动表，避免命令执行回调里再调 getActiveSheet() 触发 redi 循环依赖
+          const sheet = sheetRef.current;
+          let selection: any = null;
+          try { selection = sheet.getSelection(); } catch { /* 命令执行中 getSelection 成环，返回 null */ }
           if (!selection) return null;
           const currentCell = selection.getCurrentCell();
           if (!currentCell) return null;
@@ -3390,7 +3644,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
       // 清空单元格
       const clearCell = (row: number, col: number) => {
-        const sheet: any = (workbook as any).getActiveSheet?.();
+        // 用缓存的活动表，避免命令执行回调（univer-cell-clear 事件）里再调 getActiveSheet() 触发 redi 循环依赖
+      const sheet: any = sheetRef.current;
         // 定位字段元数据：先本格，再用「相邻回退 + 持久化布局 / 表格内容兜底」吸附到真实字段格。
         // 必须兜底的原因：右键命中格常与字段格错开（元数据挂在标签格、或命中格落在字段右缘外侧），
         // 直接用原坐标会清错格或只释放标签 → `${xx}` 占位符残留、面板置灰不刷新。
@@ -3433,11 +3688,15 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         delete cellFieldMetaMap.current[`${hitRow}_${hitCol}`];
         // 同步布局：saveLayoutData 内部会 onLayoutChange（含清空场景），
         // 确保面板 usedFieldKeys 刷新（可重新拖入）且清空结果可被保存
-        try {
-          saveLayoutData();
-        } catch (e) {
-          console.warn('[clearCell] 同步布局失败:', e);
-        }
+        // 延迟到命令执行结束后保存：清空单元格常在 onCommandExecuted(auto-clear-content) 中触发，
+        // 命令执行期间 sheet.getRange 会触发 redi 循环依赖(FRange)，导致整表被跳过、写出空布局清空状态。
+        setTimeout(() => {
+          try {
+            saveLayoutData();
+          } catch (e) {
+            console.warn('[clearCell] 同步布局失败:', e);
+          }
+        }, 0);
       };
 
       // ── 撤销/重做：订阅 IUndoRedoService.undoRedoStatus$，实时广播栈状态 ──
@@ -3449,7 +3708,15 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       if (univerInst && typeof (univerInst as any).__getInjector === 'function') {
         try {
           const injector = (univerInst as any).__getInjector();
-          const undoRedoSvc = injector.get?.('univer.undo-redo.service');
+          // 必须用标识符「对象」：redi 按标识符的对象身份索引依赖，用字符串 id 查不到注册项
+          // （抛 QuantityCheckError: Expect 1 dependency item(s) for id "univer.undo-redo.service" but get 0），
+          // 该服务在核心注入器中确实已注册（lazy: true），只是字符串键匹配不上。
+          let undoRedoSvc: any = null;
+          try {
+            undoRedoSvc = injector.get?.(IUndoRedoService as any);
+          } catch (e) {
+            try { undoRedoSvc = injector.get?.('univer.undo-redo.service' as any); } catch { /* 忽略 */ }
+          }
           if (undoRedoSvc && undoRedoSvc.undoRedoStatus$) {
             const emitStatus = (s: any) => {
               const detail = {
@@ -3475,7 +3742,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         getCellFieldMeta,
         getContextCell: () => rightClickCellRef.current,  // 右键命中的单元格（工具栏无选区时回退用）
         getWorkbook: () => workbook,  // 返回 FWorkbook
-        getActiveSheet: () => (workbook as any).getActiveSheet(),  // 返回 FWorksheet
+        getActiveSheet: () => sheetRef.current,  // 返回 FWorksheet（用缓存避免命令执行中 redi 循环依赖）
         getWorkbookId: () => workbookRef.current?.getUnitId?.(),
         setFieldAttr,  // 设置字段属性
         getSelection,  // 获取选中单元格
@@ -3489,7 +3756,13 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         undo: () => {
           try {
             const inj = univerRef.current?.__getInjector?.();
-            const cs = inj?.get?.('univer.core.command-service');
+            // 同上：redi 需标识符对象，字符串 id 会查不到（撤销/重做此前是静默失效的）
+            let cs: any = null;
+            try {
+              cs = inj?.get?.(ICommandService as any);
+            } catch (e) {
+              cs = inj?.get?.('univer.core.command-service' as any);
+            }
             return cs?.executeCommand?.('univer.command.undo');
           } catch (e) {
             console.warn('[Undo] 执行失败:', e);
@@ -3499,7 +3772,13 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         redo: () => {
           try {
             const inj = univerRef.current?.__getInjector?.();
-            const cs = inj?.get?.('univer.core.command-service');
+            // 同上：redi 需标识符对象，字符串 id 会查不到（撤销/重做此前是静默失效的）
+            let cs: any = null;
+            try {
+              cs = inj?.get?.(ICommandService as any);
+            } catch (e) {
+              cs = inj?.get?.('univer.core.command-service' as any);
+            }
             return cs?.executeCommand?.('univer.command.redo');
           } catch (e) {
             console.warn('[Redo] 执行失败:', e);
@@ -3535,7 +3814,12 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     // 包进 {...data, detailTables} 新对象，纯引用比较会失效 → 每次自保存都触发整表重载死循环
     // （重载清单元格又触发保存 → 字段被反复清空/丢失/"多出"，日志表现为 4→3→4→3 振荡）。
     const incomingSig = stableStringify(stripDetailTables(layoutData));
-    if (selfSavedSigRef.current && selfSavedSigRef.current === incomingSig) {
+    // 命中任一形状的自保存签名即跳过：saveLayoutData 会以 parentData 与 result 两种形状先后回调，
+    // 最终落在 layoutData 上的是后一次（多数调用路径为 result）。
+    const selfSavedHit =
+      (!!selfSavedSigRef.current && selfSavedSigRef.current === incomingSig) ||
+      (!!selfSavedSigAltRef.current && selfSavedSigAltRef.current === incomingSig);
+    if (selfSavedHit) {
       console.log('[Layout] 本次变化由本组件保存产生（签名一致），跳过 reload');
       return;
     }
@@ -3555,6 +3839,13 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     if (sheetData) {
       // 使用微延迟确保表格已渲染
       setTimeout(() => {
+        // ★ 二次守卫（关键）：本回调是 100ms 前排队的，effect 入口处的 isPlacingFieldRef 检查
+        // 已经过时。若这 100ms 内发生了拖放，排队中的重载会用「尚未包含新字段」的旧快照
+        // 清空整表并重建 → 刚拖入的字段被抹掉，表现为「拖拽拖不到相应的单元格上」。
+        if (isPlacingFieldRef.current) {
+          console.log('[Layout] 重载排队期间正在放置字段，放弃本次 reload');
+          return;
+        }
         loadLayoutData(sheetData, layoutType);
         console.log('[Layout] reload 后 Map keys =', Object.keys(cellFieldMetaMap.current));
       }, 100);
@@ -3602,7 +3893,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
       // ── 诊断：右键时把坐标/尺寸/各定位结果全部打出，用于一次性定死映射关系 ──
       try {
-        const sheet: any = workbookRef.current?.getActiveSheet?.();
+        // 用缓存的活动表，避免命令执行回调里再调 getActiveSheet() 触发 redi 循环依赖
+        const sheet: any = sheetRef.current;
         const canvasEl = containerRef.current?.querySelector('canvas');
         const canvasRect = canvasEl?.getBoundingClientRect();
         if (sheet && canvasRect) {
@@ -3649,7 +3941,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       // 另：不能用 window.__univerFAPI，它可能是 HMR 残留的另一个 Univer 实例。
       let cell: { row: number; col: number } | null = null;
       try {
-        const sheetHit: any = workbookRef.current?.getActiveSheet?.();
+        const sheetHit: any = sheetRef.current;
         const hit = sheetHit && typeof sheetHit.hitTest === 'function' ? sheetHit.hitTest(e.clientX, e.clientY) : null;
         if (hit && Number.isFinite(hit.row) && Number.isFinite(hit.column) && hit.row >= 0 && hit.column >= 0) {
           cell = { row: hit.row, col: hit.column };
@@ -3737,7 +4029,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
       // 3) 单元格实际内容兜底：字段仍画在表上（含 ${fieldName} 占位符）即反解重建，
       //    确保即使 Map 与 layoutData 都为空，属性切换也能命中并生效（与 lookupCellMeta 一致）。
-      const sheet3 = workbookRef.current?.getActiveSheet?.();
+      const sheet3 = sheetRef.current;
       if (sheet3) {
         let targetName: string | null = null;
         for (const [rr, cc] of cand) {
@@ -3759,7 +4051,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     const handleFieldAttrChange = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!detail || detail.attr === undefined) return;
-
+      // 命令执行期间调用 facade（getSelection/getRange）会触发 redi 循环依赖，整体延迟到命令结束后执行
+      setTimeout(() => {
       // 获取当前选中单元格
       const workbook = workbookRef.current;
       if (!workbook) return;
@@ -3769,7 +4062,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         // 旧实现只要第一个候选非负就直接使用，即使该格根本没有元数据也不再回退，
         // 一旦坐标偏离（如右击不移动选区、取到旧格）就永远查不到字段，
         // 表现为「只读切不回可编辑 / 必填」。
-        const sheet = workbook.getActiveSheet();
+        // 用缓存的活动表，避免命令执行回调里再调 getActiveSheet() 触发 redi 循环依赖
+        const sheet = sheetRef.current;
         const candidates: { row: number; col: number; src: string }[] = [];
 
         // 1) 右键命中缓存（右键那一刻锁定，最可靠）
@@ -3780,7 +4074,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         // 2) 当前活动选区（次选：右击不移动选区，可能是旧格）
         // 注：不再用「实时鼠标位置」反算——点击菜单项时鼠标已移到菜单上，
         // 反算出来的格子是菜单遮挡处的格子，会误伤其它字段。
-        const currentCell = sheet?.getSelection?.()?.getCurrentCell?.();
+        // 命令执行回调里 sheet.getSelection() 会触发 redi 循环依赖(FSelection)，包裹后跳过、回退到已锁定的 rightClickCellRef
+        let currentCell: any = null;
+        try { currentCell = sheet?.getSelection?.()?.getCurrentCell?.(); } catch { /* 命令执行中 getSelection 成环，跳过 */ }
         if (currentCell) {
           candidates.push({ row: currentCell.actualRow, col: currentCell.actualColumn, src: 'selection' });
         }
@@ -3864,6 +4160,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       } catch (e) {
         console.warn('[FieldAttrEvent] 处理字段属性变更失败:', e);
       }
+      }, 0);
     };
 
     window.addEventListener('univer-field-attr-change', handleFieldAttrChange);
@@ -3872,8 +4169,11 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     const handleCellClear = () => {
       const workbook = workbookRef.current;
       if (!workbook) return;
+      // 命令执行期间调用 facade（getRange/getSelection）会触发 redi 循环依赖，整体延迟到命令结束后执行
+      setTimeout(() => {
       try {
-        const sheet = workbook.getActiveSheet();
+        // 用缓存的活动表，避免命令执行回调里再调 getActiveSheet() 触发 redi 循环依赖
+        const sheet = sheetRef.current;
         // 与字段属性一致：优先用右键那一刻锁定的命中格 rightClickCellRef，其次活动选区。
         // 不用「实时鼠标位置」反算：点击菜单项时鼠标已移到菜单上，会反算出菜单遮挡处的格子。
         let row = -1;
@@ -3940,6 +4240,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       } catch (e) {
         console.warn('[CellClearEvent] 清空单元格失败:', e);
       }
+      }, 0);
     };
     window.addEventListener('univer-cell-clear', handleCellClear);
 
