@@ -3784,9 +3784,86 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         }
       }
 
+      // ── 格式 / 插入 工具条 API（基于 Facade FWorksheet / FRange）──
+      // 当前选区（Facade 无选区时返回 null，调用方据此提示用户先选单元格）
+      const getActiveRangeSafely = (): any => {
+        try {
+          return (sheetRef.current as any)?.getActiveRange?.() || null;
+        } catch (e) {
+          return null;
+        }
+      };
+
+      // 对选区应用样式：action = bold/italic/underline/align/valign/bg/color/fontSize/wrap
+      const applyRangeFormat = (action: string, value?: any): boolean => {
+        const range = getActiveRangeSafely();
+        if (!range) return false;
+        try {
+          switch (action) {
+            case 'bold': range.setFontWeight?.(value ? 'bold' : 'normal'); break;
+            case 'italic': range.setFontStyle?.(value ? 'italic' : 'normal'); break;
+            case 'underline': range.setUnderline?.(value ? 1 : 0); break;
+            case 'align': range.setHorizontalAlignment?.(value); break;
+            case 'valign': range.setVerticalAlignment?.(value); break;
+            case 'bg': range.setBackground?.(value || '#ffffff'); break;
+            case 'color': range.setFontColor?.(value || '#000000'); break;
+            case 'fontSize': range.setFontSize?.(Number(value) || null); break;
+            case 'wrap': range.setWrap?.(!!value); break;
+            default: return false;
+          }
+          return true;
+        } catch (e) {
+          console.warn('[Format] 应用样式失败:', action, e);
+          return false;
+        }
+      };
+
+      // 合并 / 取消合并单元格
+      const mergeSelection = (): boolean => {
+        const range = getActiveRangeSafely();
+        if (!range) return false;
+        try { range.merge?.(); return true; } catch (e) { console.warn('[Merge] 失败:', e); return false; }
+      };
+      const unmergeSelection = (): boolean => {
+        const range = getActiveRangeSafely();
+        if (!range) return false;
+        try { range.breakApart?.(); return true; } catch (e) { console.warn('[Unmerge] 失败:', e); return false; }
+      };
+
+      // 插入 / 删除 行列：以当前活动单元格（或右键命中格）为准
+      const rowColOp = (op: 'insertRow' | 'insertCol' | 'removeRow' | 'removeCol'): boolean => {
+        try {
+          const sheet: any = sheetRef.current;
+          if (!sheet) return false;
+          const sel: any = typeof getSelection === 'function' ? getSelection() : null;
+          const row = Number(sel?.row ?? rightClickCellRef.current?.row ?? 0);
+          const col = Number(sel?.col ?? rightClickCellRef.current?.col ?? 0);
+          switch (op) {
+            case 'insertRow': sheet.insertRowBefore?.(row); break;
+            case 'insertCol':
+              if (typeof sheet.insertColumnBefore === 'function') sheet.insertColumnBefore(col);
+              else sheet.insertColumnAfter?.(col);
+              break;
+            case 'removeRow': sheet.deleteRow?.(row); break;
+            case 'removeCol': sheet.deleteColumn?.(col); break;
+            default: return false;
+          }
+          // 行列结构性变更会重排字段元数据坐标，延迟保存确保持久化
+          setTimeout(() => { try { saveLayoutData(); } catch (e) { /* ignore */ } }, 0);
+          return true;
+        } catch (e) {
+          console.warn('[RowCol] 操作失败:', op, e);
+          return false;
+        }
+      };
+
       (window as any).univerExcelGrid = {
         saveLayoutData,
         loadLayoutData,
+        applyRangeFormat,
+        mergeSelection,
+        unmergeSelection,
+        rowColOp,
         handleFieldDrop,
         getCellFieldMeta,
         getContextCell: () => rightClickCellRef.current,  // 右键命中的单元格（工具栏无选区时回退用）

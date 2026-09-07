@@ -4,7 +4,6 @@ import {
   App,
   Button,
   Card,
-  Tabs,
   Spin,
   Divider,
   Tooltip,
@@ -28,6 +27,7 @@ import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import FieldPalette from './components/FieldPalette';
 import UniverExcelGrid from './components/UniverExcelGrid';
+import ExcelRibbon from './components/ExcelRibbon';
 import PropertyPanel from './components/PropertyPanel';
 import ExcelPreview from './components/ExcelPreview';
 import { EXCEL_PREVIEW_DATA_KEY } from './ExcelPreviewPage';
@@ -81,7 +81,6 @@ const ExcelDesignContent: React.FC = () => {
   const formId = searchParams.get('formId');
   const { message } = App.useApp();
 
-  const [activeTab, setActiveTab] = useState<string>('Sheet1');
   const [selectedField, setSelectedField] = useState<any>(null);
   const [layoutData, setLayoutData] = useState<any>({});
   // 镜像 ref：在异步回调里读取最新的 layoutData，避免闭包捕获到初始空对象
@@ -1113,6 +1112,22 @@ const ExcelDesignContent: React.FC = () => {
   }, []);
 
   // ──────────────────────────────────────────────
+  // 插入明细表：在主表活动单元格写入标记并打开对应子画布（顶部工具条与页面按钮共用）
+  // ──────────────────────────────────────────────
+  const handleInsertDetailTable = useCallback(
+    (idx: number) => {
+      const grid = (window as any).univerExcelGrid;
+      if (!grid || typeof grid.insertDetailMarker !== 'function') {
+        message.warning('请先在主表画布中选中一个单元格');
+        return;
+      }
+      const ok = grid.insertDetailMarker(idx);
+      if (ok) openDetailCanvas(idx);
+    },
+    [message, openDetailCanvas],
+  );
+
+  // ──────────────────────────────────────────────
   // 页面按钮配置
   // ──────────────────────────────────────────────
   const pageExtra = [
@@ -1136,15 +1151,7 @@ const ExcelDesignContent: React.FC = () => {
         items: detailTableOptions.map((o) => ({
           key: String(o.idx),
           label: `明细表${o.idx}（${o.count} 字段）`,
-          onClick: () => {
-            const grid = (window as any).univerExcelGrid;
-            if (!grid || typeof grid.insertDetailMarker !== 'function') {
-              message.warning('请先在主表画布中选中一个单元格');
-              return;
-            }
-            const ok = grid.insertDetailMarker(o.idx);
-            if (ok) openDetailCanvas(o.idx);
-          },
+          onClick: () => handleInsertDetailTable(o.idx),
         })),
       }}
     >
@@ -1209,25 +1216,23 @@ const ExcelDesignContent: React.FC = () => {
   ];
 
   // ──────────────────────────────────────────────
-  // Tabs 配置 - 每个工作表对应一个 UniverExcelGrid
-  // 传递 pendingField 以实现选中字段后点击放置
+  // 单工作表画布：表单布局只用一个 sheet（对齐 ecology excelMain 单画布）。
+  // 原先 Sheet1/Sheet2 双 tab 会各挂一个 UniverExcelGrid 实例，
+  // 两个实例都会写 window.univerExcelGrid（后者覆盖前者）导致拖放/属性作用到错误实例，故只保留 Sheet1。
+  // pendingField 用于「选中字段后点击单元格放置」。
   // ──────────────────────────────────────────────
-  const tabItems = ['Sheet1', 'Sheet2'].map((name) => ({
-    key: name,
-    label: name,
-    children: (
-      <UniverExcelGrid
-        sheetName={name}
-        layoutData={layoutData}
-        onLayoutChange={handleLayoutChange}
-        formId={formId || undefined}
-        pendingField={selectedField || (window as any).__pendingField}
-        hoveredField={hoveredField}
-        onDetailMarkerOpen={openDetailCanvas}
-        onDetailMarkerRemoved={handleDetailMarkerRemoved}
-      />
-    ),
-  }));
+  const gridNode = (
+    <UniverExcelGrid
+      sheetName="Sheet1"
+      layoutData={layoutData}
+      onLayoutChange={handleLayoutChange}
+      formId={formId || undefined}
+      pendingField={selectedField || (window as any).__pendingField}
+      hoveredField={hoveredField}
+      onDetailMarkerOpen={openDetailCanvas}
+      onDetailMarkerRemoved={handleDetailMarkerRemoved}
+    />
+  );
 
   return (
     <DndProvider backend={HTML5Backend}>
@@ -1247,7 +1252,25 @@ const ExcelDesignContent: React.FC = () => {
             {/* 中间 Univer Excel 区域 */}
             <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
               <Card>
-                <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
+                {/* 顶部工具条（模板 / 格式 / 插入 / 字段属性 / 明细表），对齐 ecology 设计器操作区 */}
+                <ExcelRibbon
+                  saving={saving}
+                  onSave={handleSave}
+                  onPreview={handlePreview}
+                  onImport={handleImport}
+                  onExport={handleExport}
+                  onUndo={handleUndo}
+                  onRedo={handleRedo}
+                  canUndo={canUndo}
+                  canRedo={canRedo}
+                  fieldAttr={fieldAttr}
+                  fieldAttrDisabled={fieldAttrDisabled}
+                  onFieldAttrChange={handleFieldAttrChange}
+                  detailTableOptions={detailTableOptions}
+                  onInsertDetail={handleInsertDetailTable}
+                />
+
+                {gridNode}
 
                 {/* 拖拽放置成功后的临时高亮反馈 */}
                 {dropFlash && (
