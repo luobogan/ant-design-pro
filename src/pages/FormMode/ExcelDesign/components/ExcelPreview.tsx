@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { Modal, Button, Space, Typography, Form, Input, Select, DatePicker, Checkbox, Radio, InputNumber, message, Table } from 'antd';
+import { Modal, Button, Space, Typography, Form, Input, Select, DatePicker, Checkbox, Radio, InputNumber, message, Table, Segmented } from 'antd';
 import {
   PrinterOutlined,
   DownloadOutlined,
@@ -9,6 +9,7 @@ import {
   SendOutlined,
   PlusOutlined,
   DeleteOutlined,
+  CopyOutlined,
 } from '@ant-design/icons';
 
 const { Text } = Typography;
@@ -38,8 +39,11 @@ interface FieldMeta {
   fieldName: string;
   fieldLabel: string;
   fieldType: string;
-  /** 单元格类型：label=静态标签文本（仅展示，不可输入），field=数据绑定字段（可输入） */
-  cellType?: 'label' | 'field';
+  /** 单元格类型：label=静态标签文本（仅展示，不可输入），field=数据绑定字段（可输入），
+   *  detailTableMarker=主表「明细表标记」格（对应 detailTable 序号） */
+  cellType?: 'label' | 'field' | 'detailTableMarker';
+  /** 明细表标记格对应的明细表序号 */
+  detailTable?: number;
   required: boolean;
   readonly: boolean;
   /** 字段属性：1=只读 2=可编辑 3=必填（参照 ecology viewAttr） */
@@ -83,6 +87,132 @@ interface WorkbookLayoutData {
 
 // 单元格值 key：sheetId + 行列，保证唯一
 const cellKey = (sheetId: string, row: number, col: number) => `${sheetId}__${row}__${col}`;
+
+// ──────────────────────────────────────────────
+// 设备识别：PC / 手机 双模式并存，默认按设备自动切换
+// （ecology 的 exceldesign 无独立移动端布局文件 → 移动端是在渲染层对同一份布局重排）
+// ──────────────────────────────────────────────
+const detectMobile = (): boolean => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const mobileUA = /Android|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Windows Phone/i.test(ua);
+  return mobileUA || window.innerWidth <= 768;
+};
+
+// ──────────────────────────────────────────────
+// 手机端「列表化」：把 Excel 网格重排为单列纵向流所需的条目
+// ──────────────────────────────────────────────
+type MobileItem =
+  | { kind: 'field'; row: number; col: number; cell: CellDataItem; label: string; required: boolean; attrBg?: string }
+  | { kind: 'title'; text: string; row: number; col: number }
+  | { kind: 'detail'; idx: number; row: number; col: number };
+
+// 字段格实际使用的标签格（含坐标）：左→上→下→右 相邻回退（对齐设计器 findMetaNear）。
+// 返回坐标是为了把该标签格标记为「已消费」，避免它再被单独渲染成一行（明细表表头行重复的根因）。
+// 标签允许自由改文字，故优先取标签格 fieldLabel（用户改过后的权威文案）。
+const findLabelCell = (
+  cellData: Record<string, Record<string, CellDataItem>>,
+  r: number,
+  c: number,
+  meta?: FieldMeta,
+): { row: number; col: number; label: string } | null => {
+  const dirs: [number, number][] = [[0, -1], [-1, 0], [1, 0], [0, 1]];
+  for (const [dr, dc] of dirs) {
+    const rr = r + dr;
+    const cc = c + dc;
+    const cell = cellData?.[String(rr)]?.[String(cc)];
+    const m = cell?.fieldMeta;
+    if (!m || m.cellType !== 'label') continue;
+    if (meta?.fieldId && m.fieldId && String(m.fieldId) !== String(meta.fieldId)) continue;
+    return {
+      row: rr,
+      col: cc,
+      label: m.fieldLabel || (cell?.v != null ? String(cell.v) : '') || meta?.fieldLabel || '',
+    };
+  }
+  return null;
+};
+
+// 按阅读顺序（行优先、列升序）抽取：
+//   字段格 → 一行(标签 + 控件)；无字段的静态/合并文本 → 分区标题；明细表标记 → 明细表卡片
+const extractMobileItems = (sheet: SheetLayoutData): MobileItem[] => {
+  const cellData = sheet?.cellData || {};
+  const mergedCells = sheet?.mergedCells || [];
+  // 合并单元格中被覆盖的非锚点格：跳过，避免重复成行
+  const covered = new Set<string>();
+  mergedCells.forEach((m) => {
+    for (let dr = 0; dr < (m.rowSpan || 1); dr++) {
+      for (let dc = 0; dc < (m.colSpan || 1); dc++) {
+        if (dr === 0 && dc === 0) continue;
+        covered.add(`${m.row + dr}_${m.col + dc}`);
+      }
+    }
+  });
+
+  // 第一遍：标记「被字段消费」的标签格。
+  // 明细表子画布常见布局是「第 0 行表头标签 + 第 1 行字段」：这些表头标签由下方字段行带出，
+  // 若再单独成行就会出现「标签名重复列一排」。横向成对（左标签右字段）同理，统一在此标记。
+  const consumedLabels = new Set<string>();
+  Object.keys(cellData).forEach((rk) => {
+    const r = parseInt(rk, 10);
+    if (isNaN(r)) return;
+    const rd = (cellData[rk] || {}) as Record<string, CellDataItem>;
+    Object.keys(rd).forEach((ck) => {
+      const c = parseInt(ck, 10);
+      if (isNaN(c)) return;
+      if (rd[ck]?.fieldMeta?.cellType !== 'field') return;
+      const lc = findLabelCell(cellData, r, c, rd[ck].fieldMeta);
+      if (lc) consumedLabels.add(`${lc.row}_${lc.col}`);
+    });
+  });
+
+  const items: MobileItem[] = [];
+  Object.keys(cellData)
+    .map(Number)
+    .filter((n) => !isNaN(n))
+    .sort((a, b) => a - b)
+    .forEach((r) => {
+      const rowData = (cellData[String(r)] || cellData[r] || {}) as Record<string, CellDataItem>;
+      Object.keys(rowData)
+        .map(Number)
+        .filter((n) => !isNaN(n))
+        .sort((a, b) => a - b)
+        .forEach((c) => {
+          if (covered.has(`${r}_${c}`)) return;
+          const cell = (rowData[String(c)] ?? rowData[c]) as CellDataItem;
+          if (!cell) return;
+          const meta = cell.fieldMeta;
+          if (meta?.cellType === 'detailTableMarker') {
+            items.push({ kind: 'detail', idx: Number(meta.detailTable), row: r, col: c });
+            return;
+          }
+          if (meta?.cellType === 'field') {
+            const attr = meta.fieldAttr;
+            items.push({
+              kind: 'field',
+              row: r,
+              col: c,
+              cell,
+              label: findLabelCell(cellData, r, c, meta)?.label || meta.fieldLabel || meta.fieldName || '',
+              required: attr === 3 || !!meta.required,
+              attrBg: attr === 1 ? '#f5f5f5' : attr === 3 ? '#fff1f0' : undefined,
+            });
+            return;
+          }
+          if (meta?.cellType === 'label') {
+            // 已被字段消费的标签（横向成对的左标签 / 明细表表头行）不再单独成行，避免与字段行标签重复
+            if (consumedLabels.has(`${r}_${c}`)) return;
+            items.push({ kind: 'title', text: meta.fieldLabel || (cell.v != null ? String(cell.v) : ''), row: r, col: c });
+            return;
+          }
+          const v = cell.v;
+          if (v !== undefined && v !== null && String(v).trim() !== '') {
+            items.push({ kind: 'title', text: String(v), row: r, col: c });
+          }
+        });
+    });
+  return items;
+};
 
 // 从布局数据（主表或明细表子画布）提取 sheet 列表（与 ExcelPreview 内部解析逻辑一致）
 // 兼容两种形状：
@@ -479,7 +609,33 @@ const SheetPreviewForm: React.FC<{
    *  直接渲染对应明细表块（数据关联位置可见，对齐 ecology 明细表紧贴标记渲染的行为）。
    *  仅主表画布传入；明细表子画布自身不再二次内联。 */
   inlineDetailTables?: Record<number, any>;
-}> = ({ sheet, formValues, errors, onFieldChange, readOnly, keyPrefix, inlineDetailTables }) => {
+  /** 各明细表当前行数（内联明细表多行） */
+  detailRowCounts?: Record<number, number>;
+  onAddDetailRow?: (idx: number) => void;
+  onCopyDetailRow?: (idx: number, rowIdx: number) => void;
+  onDeleteDetailRow?: (idx: number, rowIdx: number) => void;
+  /** 各明细表已选中的行（批量删除） */
+  detailSelectedRows?: Record<number, number[]>;
+  onToggleDetailRow?: (idx: number, rowIdx: number, checked: boolean) => void;
+  onToggleAllDetailRows?: (idx: number, checked: boolean) => void;
+  onDeleteSelectedDetailRows?: (idx: number) => void;
+}> = ({
+  sheet,
+  formValues,
+  errors,
+  onFieldChange,
+  readOnly,
+  keyPrefix,
+  inlineDetailTables,
+  detailRowCounts,
+  onAddDetailRow,
+  onCopyDetailRow,
+  onDeleteDetailRow,
+  detailSelectedRows,
+  onToggleDetailRow,
+  onToggleAllDetailRows,
+  onDeleteSelectedDetailRows,
+}) => {
   const model = useMemo(() => {
     const cellData = sheet.cellData || {};
     const mergedCells = sheet.mergedCells || [];
@@ -630,10 +786,18 @@ const SheetPreviewForm: React.FC<{
                           <DetailBlock
                             layout={dtLayout}
                             prefix={`dt${dtIdx}__`}
+                            rowCount={detailRowCounts?.[dtIdx] ?? 1}
                             formValues={formValues}
                             errors={errors}
                             onFieldChange={onFieldChange}
                             readOnly={!!readOnly}
+                            onAddRow={() => onAddDetailRow?.(dtIdx)}
+                            onCopyRow={(n) => onCopyDetailRow?.(dtIdx, n)}
+                            onDeleteRow={(n) => onDeleteDetailRow?.(dtIdx, n)}
+                            selectedRows={detailSelectedRows?.[dtIdx] ?? []}
+                            onToggleSelect={(n, checked) => onToggleDetailRow?.(dtIdx, n, checked)}
+                            onToggleSelectAll={(checked) => onToggleAllDetailRows?.(dtIdx, checked)}
+                            onDeleteSelected={() => onDeleteSelectedDetailRows?.(dtIdx)}
                           />
                         )}
                       </td>
@@ -699,44 +863,261 @@ const SheetPreviewForm: React.FC<{
   );
 };
 
-// 明细表嵌套块：渲染单个明细表子画布布局（多 sheet 竖向堆叠）。
-// 主表标记格内联嵌套、与主表底部兜底（无标记的孤儿明细表）共用此组件；表单值 key 带 keyPrefix 命名空间。
-// 预览中不显示「明细表N」标题（设计标记），仅渲染明细表字段内容。
-const DetailBlock: React.FC<{
-  layout: any;
-  prefix: string;
+// ──────────────────────────────────────────────
+// 手机端渲染：把 sheet 列表化为「标签 + 控件」纵向行；明细表标记 → 明细表卡片（支持多行）。
+// 复用 renderCellNode 与同一套值 key（${keyPrefix}${cellKey(sheetId,r,c)}）→ 与 PC 模式共享 formValues。
+// ──────────────────────────────────────────────
+const MobileSheetForm: React.FC<{
+  sheet: SheetLayoutData;
   formValues: Record<string, any>;
   errors: Record<string, boolean>;
   onFieldChange: (k: string, v: any) => void;
   readOnly?: boolean;
-}> = ({ layout, prefix, formValues, errors, onFieldChange, readOnly }) => {
-  const dtSheets = extractSheets(layout);
+  /** 表单值 key 前缀：主表空、明细表行 `dt{idx}__r{n}__` */
+  keyPrefix?: string;
+  /** 内联明细表布局（仅主表传入），用于渲染标记格对应的明细表卡片 */
+  inlineDetailTables?: Record<number, any>;
+  /** 各明细表当前行数 */
+  detailRowCounts?: Record<number, number>;
+  onAddDetailRow?: (idx: number) => void;
+  onCopyDetailRow?: (idx: number, rowIdx: number) => void;
+  onDeleteDetailRow?: (idx: number, rowIdx: number) => void;
+  /** 各明细表已选中的行（批量删除） */
+  detailSelectedRows?: Record<number, number[]>;
+  onToggleDetailRow?: (idx: number, rowIdx: number, checked: boolean) => void;
+  onToggleAllDetailRows?: (idx: number, checked: boolean) => void;
+  onDeleteSelectedDetailRows?: (idx: number) => void;
+}> = ({
+  sheet,
+  formValues,
+  errors,
+  onFieldChange,
+  readOnly,
+  keyPrefix,
+  inlineDetailTables,
+  detailRowCounts,
+  onAddDetailRow,
+  onCopyDetailRow,
+  onDeleteDetailRow,
+  detailSelectedRows,
+  onToggleDetailRow,
+  onToggleAllDetailRows,
+  onDeleteSelectedDetailRows,
+}) => {
+  const items = useMemo(() => extractMobileItems(sheet), [sheet]);
+  if (items.length === 0) return null;
   return (
-    <div
-      style={{
-        marginTop: 8,
-        background: '#fff',
-        border: `1px solid ${E9_COLORS.cardBorder}`,
-        borderRadius: 8,
-        overflow: 'hidden',
-      }}
-    >
-      <div style={{ padding: 12 }}>
-        {dtSheets.length === 0 ? (
-          <Text type="secondary">暂无布局</Text>
-        ) : (
-          dtSheets.map((sheet, i) => (
-            <SheetPreviewForm
-              key={sheet.id || i}
-              sheet={sheet}
-              formValues={formValues}
-              errors={errors}
-              onFieldChange={onFieldChange}
-              readOnly={readOnly}
-              keyPrefix={prefix}
-            />
-          ))
-        )}
+    <div style={{ background: '#fff', border: `1px solid ${E9_COLORS.cardBorder}`, borderRadius: 8, overflow: 'hidden' }}>
+      {items.map((item, i) => {
+        // 分区标题：无字段的静态/合并文本（如"基本信息"）
+        if (item.kind === 'title') {
+          return (
+            <div
+              key={`t-${i}`}
+              style={{
+                padding: '10px 12px',
+                background: E9_COLORS.sectionBg,
+                borderBottom: `1px solid ${E9_COLORS.sectionBorder}`,
+                fontWeight: 600,
+                fontSize: 14,
+                color: '#333',
+              }}
+            >
+              {item.text}
+            </div>
+          );
+        }
+        // 明细表标记 → 明细表卡片（多行 + 增删复制）
+        if (item.kind === 'detail') {
+          const dtLayout = inlineDetailTables?.[item.idx];
+          if (!dtLayout) return null;
+          return (
+            <div key={`d-${i}`} style={{ padding: 8, background: '#fafafa' }}>
+              <DetailBlock
+                layout={dtLayout}
+                prefix={`dt${item.idx}__`}
+                mobile
+                rowCount={detailRowCounts?.[item.idx] ?? 1}
+                formValues={formValues}
+                errors={errors}
+                onFieldChange={onFieldChange}
+                readOnly={readOnly}
+                onAddRow={() => onAddDetailRow?.(item.idx)}
+                onCopyRow={(n) => onCopyDetailRow?.(item.idx, n)}
+                onDeleteRow={(n) => onDeleteDetailRow?.(item.idx, n)}
+                selectedRows={detailSelectedRows?.[item.idx] ?? []}
+                onToggleSelect={(n, checked) => onToggleDetailRow?.(item.idx, n, checked)}
+                onToggleSelectAll={(checked) => onToggleAllDetailRows?.(item.idx, checked)}
+                onDeleteSelected={() => onDeleteSelectedDetailRows?.(item.idx)}
+              />
+            </div>
+          );
+        }
+        // 字段行：左标签 + 右控件（满宽、触控友好）
+        const key = `${keyPrefix ?? ''}${cellKey(sheet.id, item.row, item.col)}`;
+        return (
+          <div
+            key={`f-${i}`}
+            style={{ display: 'flex', alignItems: 'flex-start', padding: '10px 12px', borderBottom: `1px solid ${E9_COLORS.cardBorder}` }}
+          >
+            <div style={{ flex: '0 0 38%', color: E9_COLORS.label, fontSize: 14, lineHeight: '24px', paddingRight: 8, wordBreak: 'break-word' }}>
+              {item.label}
+              {item.required && <span style={{ color: E9_COLORS.required, marginLeft: 2 }}>*</span>}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, item.attrBg)}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// 明细表嵌套块：渲染单个明细表子画布布局，支持多行。
+// 行操作对齐 ecology detailOperate（parseLayout_wev8.js）：
+//   addRow → 末尾追加空行；delRow → 删除并重排行号；copyRow → 先 addRow 再把源行值赋到新行。
+// 主表标记格内联嵌套、主表底部兜底（孤儿明细表）共用；mobile=true 时行内按手机端列表化渲染。
+const DetailBlock: React.FC<{
+  layout: any;
+  prefix: string;
+  /** 手机端：行内按列表化渲染；PC 端：行内按 Excel 网格渲染 */
+  mobile?: boolean;
+  /** 当前明细表行数（>=1） */
+  rowCount: number;
+  formValues: Record<string, any>;
+  errors: Record<string, boolean>;
+  onFieldChange: (k: string, v: any) => void;
+  readOnly?: boolean;
+  onAddRow: () => void;
+  onCopyRow: (rowIdx: number) => void;
+  onDeleteRow: (rowIdx: number) => void;
+  /** 已选中的行号（批量删除，对齐 ecology check_mode_{groupid}） */
+  selectedRows?: number[];
+  onToggleSelect?: (rowIdx: number, checked: boolean) => void;
+  onToggleSelectAll?: (checked: boolean) => void;
+  onDeleteSelected?: () => void;
+}> = ({
+  layout,
+  prefix,
+  mobile,
+  rowCount,
+  formValues,
+  errors,
+  onFieldChange,
+  readOnly,
+  onAddRow,
+  onCopyRow,
+  onDeleteRow,
+  selectedRows,
+  onToggleSelect,
+  onToggleSelectAll,
+  onDeleteSelected,
+}) => {
+  const dtSheets = extractSheets(layout);
+  const selected = selectedRows ?? [];
+  const allChecked = rowCount > 0 && selected.length === rowCount;
+  const partChecked = selected.length > 0 && !allChecked;
+  return (
+    <div style={{ marginTop: 8, background: '#fff', border: `1px solid ${E9_COLORS.cardBorder}`, borderRadius: 8, overflow: 'hidden' }}>
+      {Array.from({ length: rowCount }).map((_, n) => {
+        // 每行独立命名空间：dt{idx}__r{n}__{cellKey}
+        const rowPrefix = `${prefix}r${n}__`;
+        return (
+          <div key={n} style={{ borderTop: n > 0 ? `1px dashed ${E9_COLORS.cardBorder}` : undefined }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '6px 10px',
+                background: E9_COLORS.sectionBg,
+                borderBottom: `1px solid ${E9_COLORS.cardBorder}`,
+              }}
+            >
+              <Space size={8}>
+                <Checkbox
+                  checked={selected.includes(n)}
+                  onChange={(e) => onToggleSelect?.(n, e.target.checked)}
+                />
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  第 {n + 1} 行
+                </Text>
+              </Space>
+              <Space size={0}>
+                <Button size="small" type="text" icon={<CopyOutlined />} onClick={() => onCopyRow(n)}>
+                  复制
+                </Button>
+                <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => onDeleteRow(n)} disabled={rowCount <= 1}>
+                  删除
+                </Button>
+              </Space>
+            </div>
+            <div style={{ padding: 8 }}>
+              {dtSheets.length === 0 ? (
+                <Text type="secondary">暂无布局</Text>
+              ) : (
+                dtSheets.map((sheet, i) =>
+                  mobile ? (
+                    <MobileSheetForm
+                      key={sheet.id || i}
+                      sheet={sheet}
+                      formValues={formValues}
+                      errors={errors}
+                      onFieldChange={onFieldChange}
+                      readOnly={readOnly}
+                      keyPrefix={rowPrefix}
+                    />
+                  ) : (
+                    <SheetPreviewForm
+                      key={sheet.id || i}
+                      sheet={sheet}
+                      formValues={formValues}
+                      errors={errors}
+                      onFieldChange={onFieldChange}
+                      readOnly={readOnly}
+                      keyPrefix={rowPrefix}
+                    />
+                  ),
+                )
+              )}
+            </div>
+          </div>
+        );
+      })}
+      {/* 批量操作条：全选 + 删除选中（对齐 ecology check_all_record / delRowFun）+ 新增行 */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          flexWrap: 'wrap',
+          padding: '6px 10px',
+          borderTop: `1px solid ${E9_COLORS.cardBorder}`,
+        }}
+      >
+        <Checkbox
+          checked={allChecked}
+          indeterminate={partChecked}
+          onChange={(e) => onToggleSelectAll?.(e.target.checked)}
+        >
+          全选
+        </Checkbox>
+        <Space size={8}>
+          <Button
+            size="small"
+            danger
+            icon={<DeleteOutlined />}
+            disabled={selected.length === 0}
+            onClick={() => onDeleteSelected?.()}
+          >
+            删除选中{selected.length > 0 ? `(${selected.length})` : ''}
+          </Button>
+          <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={onAddRow}>
+            新增行
+          </Button>
+        </Space>
       </div>
     </div>
   );
@@ -826,6 +1207,22 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
     return m;
   }, [detailBlocks, markerIdxSet]);
 
+  // ── PC / 手机 双模式并存：默认按设备自动识别，可手动切换 ──
+  const [detectedMobile, setDetectedMobile] = useState<boolean>(() => detectMobile());
+  const [viewMode, setViewMode] = useState<'auto' | 'pc' | 'mobile'>('auto');
+  useEffect(() => {
+    const onResize = () => setDetectedMobile(detectMobile());
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const isMobile = viewMode === 'mobile' || (viewMode === 'auto' && detectedMobile);
+
+  // ── 明细表多行：各明细表当前行数（>=1），每行值命名空间 dt{idx}__r{n}__ ──
+  const [detailRowCounts, setDetailRowCounts] = useState<Record<number, number>>({});
+  const rowCountOf = (idx: number) => detailRowCounts[idx] ?? 1;
+  // 行选中集合（批量删除）：对齐 ecology delRowFun 的 check_mode_{groupid} 行选择框 + check_all_record 全选
+  const [detailSelectedRows, setDetailSelectedRows] = useState<Record<number, number[]>>({});
+
   // 表单受控值 & 必填校验错误
   const [formValues, setFormValues] = useState<Record<string, any>>({});
   const [errors, setErrors] = useState<Record<string, boolean>>({});
@@ -835,8 +1232,132 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
     if (open) {
       setFormValues({});
       setErrors({});
+      setDetailRowCounts({});
+      setDetailSelectedRows({});
     }
   }, [open]);
+
+  // ── 明细表行操作（对齐 ecology detailOperate：addRow / copyRow / delRow）──
+  // 新增行：末尾追加空行
+  const handleAddDetailRow = useCallback((idx: number) => {
+    setDetailRowCounts((prev) => ({ ...prev, [idx]: (prev[idx] ?? 1) + 1 }));
+  }, []);
+
+  // 复制行：先追加新行，再把源行的值赋到新行（ecology copyRow 语义）
+  const handleCopyDetailRow = useCallback(
+    (idx: number, rowIdx: number) => {
+      const base = `dt${idx}__`;
+      const target = detailRowCounts[idx] ?? 1; // 新行 = 追加到末尾
+      const srcPrefix = `${base}r${rowIdx}__`;
+      const dstPrefix = `${base}r${target}__`;
+      setFormValues((prev) => {
+        const next = { ...prev };
+        Object.keys(next).forEach((k) => {
+          if (k.startsWith(srcPrefix)) next[dstPrefix + k.slice(srcPrefix.length)] = next[k];
+        });
+        return next;
+      });
+      setDetailRowCounts((prev) => ({ ...prev, [idx]: (prev[idx] ?? 1) + 1 }));
+    },
+    [detailRowCounts],
+  );
+
+  // 删除行：删除该行并把后续行前移、重排行号（ecology delRow 语义）；至少保留 1 行
+  const handleDeleteDetailRow = useCallback((idx: number, rowIdx: number) => {
+    const base = `dt${idx}__`;
+    const rowRe = new RegExp(`^${base}r(\\d+)__(.*)$`);
+    const shiftKey = (k: string, removed: number): string | null => {
+      const m = k.match(rowRe);
+      if (!m) return k;
+      const r = parseInt(m[1], 10);
+      if (r === removed) return null;                       // 删除
+      return r > removed ? `${base}r${r - 1}__${m[2]}` : k;  // 后续行前移
+    };
+    setFormValues((prev) => {
+      const next: Record<string, any> = {};
+      Object.keys(prev).forEach((k) => {
+        const nk = shiftKey(k, rowIdx);
+        if (nk !== null) next[nk] = prev[k];
+      });
+      return next;
+    });
+    setErrors((prev) => {
+      const next: Record<string, boolean> = {};
+      Object.keys(prev).forEach((k) => {
+        const nk = shiftKey(k, rowIdx);
+        if (nk !== null) next[nk] = prev[k];
+      });
+      return next;
+    });
+    setDetailRowCounts((prev) => ({ ...prev, [idx]: Math.max(1, (prev[idx] ?? 1) - 1) }));
+    // 选中行同步前移，并去掉被删除的那一行
+    setDetailSelectedRows((prev) => ({
+      ...prev,
+      [idx]: (prev[idx] ?? []).map((r) => (r > rowIdx ? r - 1 : r)).filter((r) => r !== rowIdx),
+    }));
+  }, []);
+
+  // 勾选 / 取消勾选某一行（批量删除用）
+  const handleToggleDetailRow = useCallback((idx: number, rowIdx: number, checked: boolean) => {
+    setDetailSelectedRows((prev) => {
+      const cur = prev[idx] ?? [];
+      const next = checked ? Array.from(new Set([...cur, rowIdx])) : cur.filter((r) => r !== rowIdx);
+      return { ...prev, [idx]: next.sort((a, b) => a - b) };
+    });
+  }, []);
+
+  // 全选 / 取消全选（对齐 ecology check_all_record）
+  const handleToggleAllDetailRows = useCallback(
+    (idx: number, checked: boolean) => {
+      setDetailSelectedRows((prev) => ({
+        ...prev,
+        [idx]: checked ? Array.from({ length: detailRowCounts[idx] ?? 1 }, (_, n) => n) : [],
+      }));
+    },
+    [detailRowCounts],
+  );
+
+  // 批量删除选中行（对齐 ecology delRowFun）：一次删除多行，剩余行按原顺序重排行号
+  const handleDeleteSelectedDetailRows = useCallback(
+    (idx: number) => {
+      const selected = detailSelectedRows[idx] ?? [];
+      if (selected.length === 0) return;
+      const base = `dt${idx}__`;
+      const total = detailRowCounts[idx] ?? 1;
+      const sel = new Set(selected);
+      // 旧行号 → 新行号：保留未选中的行且顺序不变
+      const remain: number[] = [];
+      for (let i = 0; i < total; i++) if (!sel.has(i)) remain.push(i);
+      const remap = new Map<number, number>();
+      remain.forEach((oldIdx, newIdx) => remap.set(oldIdx, newIdx));
+      const rowRe = new RegExp(`^${base}r(\\d+)__(.*)$`);
+      const shiftKey = (k: string): string | null => {
+        const m = k.match(rowRe);
+        if (!m) return k;
+        const nw = remap.get(parseInt(m[1], 10));
+        return nw === undefined ? null : `${base}r${nw}__${m[2]}`;
+      };
+      setFormValues((prev) => {
+        const next: Record<string, any> = {};
+        Object.keys(prev).forEach((k) => {
+          const nk = shiftKey(k);
+          if (nk !== null) next[nk] = prev[k];
+        });
+        return next;
+      });
+      setErrors((prev) => {
+        const next: Record<string, boolean> = {};
+        Object.keys(prev).forEach((k) => {
+          const nk = shiftKey(k);
+          if (nk !== null) next[nk] = prev[k];
+        });
+        return next;
+      });
+      setDetailRowCounts((prev) => ({ ...prev, [idx]: Math.max(1, remain.length) }));
+      setDetailSelectedRows((prev) => ({ ...prev, [idx]: [] }));
+    },
+    [detailSelectedRows, detailRowCounts],
+  );
 
   // 字段值变化：同步 state 并清除该字段的错误标记
   const handleFieldChange = useCallback((key: string, v: any) => {
@@ -850,7 +1371,13 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
     // 主表 + 各明细表统一遍历，明细字段 key 带各自 keyPrefix 命名空间
     const blocks: { sheets: SheetLayoutData[]; prefix: string }[] = [
       { sheets, prefix: '' },
-      ...detailBlocks.map((b) => ({ sheets: extractSheets(b.layout), prefix: b.prefix })),
+      // 明细表逐行校验：每行独立命名空间 dt{idx}__r{n}__，新增/复制出的行一并校验
+      ...detailBlocks.flatMap((b) =>
+        Array.from({ length: rowCountOf(b.idx) }).map((_, n) => ({
+          sheets: extractSheets(b.layout),
+          prefix: `${b.prefix}r${n}__`,
+        })),
+      ),
     ];
     blocks.forEach(({ sheets: blockSheets, prefix }) => {
       blockSheets.forEach((sheet) => {
@@ -898,7 +1425,8 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
   };
 
   // 预览主体（空态 / 工作表列表）：弹窗与独立页面共用
-  const content = !layoutData ? (
+  // 空态（PC / 手机共用）
+  const emptyContent = !layoutData ? (
     <div style={{ textAlign: 'center', padding: '60px 0' }}>
       <FileTextOutlined style={{ fontSize: 48, color: '#ccc', marginBottom: 16 }} />
       <div>
@@ -909,56 +1437,125 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
     <div style={{ textAlign: 'center', padding: '60px 0' }}>
       <Text type="warning">布局数据中没有工作表</Text>
     </div>
-  ) : (
-    <div className="excel-preview-react-container">
-      {sheets.map((sheet, idx) => (
-        <div key={sheet.id || idx} style={{ marginBottom: idx < sheets.length - 1 || detailBlocks.length > 0 ? 24 : 0 }}>
-          <SheetPreviewForm
-            sheet={sheet}
-            formValues={formValues}
-            errors={errors}
-            onFieldChange={handleFieldChange}
-            readOnly={readOnly}
-            inlineDetailTables={detailLayoutMap}
-          />
-        </div>
-      ))}
-      {/* 底部兜底：仅渲染「无主表标记的孤儿明细表」；有标记的明细表已在对应标记格内联嵌套（数据关联位置可见） */}
-      {detailBlocks.filter((b) => !markerIdxSet.has(b.idx)).map((b) => {
-        const dtSheets = extractSheets(b.layout);
-        return (
-          <div
-            key={`dt-${b.idx}`}
-            style={{
-              marginTop: 24,
-              background: '#fff',
-              border: `1px solid ${E9_COLORS.cardBorder}`,
-              borderRadius: 8,
-              overflow: 'hidden',
-            }}
-          >
-            <div style={{ padding: 12 }}>
-              {dtSheets.map((sheet, i) => (
-                <SheetPreviewForm
-                  key={sheet.id || i}
-                  sheet={sheet}
-                  formValues={formValues}
-                  errors={errors}
-                  onFieldChange={handleFieldChange}
-                  readOnly={readOnly}
-                  keyPrefix={b.prefix}
-                />
-              ))}
-            </div>
+  ) : null;
+
+  // 底部兜底：仅渲染「无主表标记的孤儿明细表」；有标记的明细表已在对应标记格内联嵌套（数据关联位置可见）
+  const orphanBlocks = detailBlocks.filter((b) => !markerIdxSet.has(b.idx));
+
+  // PC 端：按 Excel 网格还原（合并单元格/列宽/样式），明细表为多行卡片
+  const pcContent =
+    emptyContent ?? (
+      <div className="excel-preview-react-container">
+        {sheets.map((sheet, idx) => (
+          <div key={sheet.id || idx} style={{ marginBottom: idx < sheets.length - 1 || detailBlocks.length > 0 ? 24 : 0 }}>
+            <SheetPreviewForm
+              sheet={sheet}
+              formValues={formValues}
+              errors={errors}
+              onFieldChange={handleFieldChange}
+              readOnly={readOnly}
+              inlineDetailTables={detailLayoutMap}
+              detailRowCounts={detailRowCounts}
+              onAddDetailRow={handleAddDetailRow}
+              onCopyDetailRow={handleCopyDetailRow}
+              onDeleteDetailRow={handleDeleteDetailRow}
+              detailSelectedRows={detailSelectedRows}
+              onToggleDetailRow={handleToggleDetailRow}
+              onToggleAllDetailRows={handleToggleAllDetailRows}
+              onDeleteSelectedDetailRows={handleDeleteSelectedDetailRows}
+            />
           </div>
-        );
-      })}
-    </div>
-  );
+        ))}
+        {orphanBlocks.map((b) => (
+          <div key={`dt-${b.idx}`} style={{ marginTop: 24 }}>
+            <DetailBlock
+              layout={b.layout}
+              prefix={b.prefix}
+              rowCount={rowCountOf(b.idx)}
+              formValues={formValues}
+              errors={errors}
+              onFieldChange={handleFieldChange}
+              readOnly={readOnly}
+              onAddRow={() => handleAddDetailRow(b.idx)}
+              onCopyRow={(n) => handleCopyDetailRow(b.idx, n)}
+              onDeleteRow={(n) => handleDeleteDetailRow(b.idx, n)}
+              selectedRows={detailSelectedRows[b.idx] ?? []}
+              onToggleSelect={(n, checked) => handleToggleDetailRow(b.idx, n, checked)}
+              onToggleSelectAll={(checked) => handleToggleAllDetailRows(b.idx, checked)}
+              onDeleteSelected={() => handleDeleteSelectedDetailRows(b.idx)}
+            />
+          </div>
+        ))}
+      </div>
+    );
+
+  // 手机端：把网格列表化为「标签 + 控件」纵向流（单列、满宽、触控友好），明细表同为多行卡片
+  const mobileContent =
+    emptyContent ?? (
+      <div className="excel-preview-react-container" style={{ maxWidth: 560, margin: '0 auto' }}>
+        {sheets.map((sheet, idx) => (
+          <div key={sheet.id || idx} style={{ marginBottom: 16 }}>
+            {/* 多工作表时给出表名，避免手机端纵向堆叠后无法区分 */}
+            {sheets.length > 1 && (
+              <div style={{ padding: '6px 4px', color: E9_COLORS.label, fontSize: 12 }}>{sheet.name}</div>
+            )}
+            <MobileSheetForm
+              sheet={sheet}
+              formValues={formValues}
+              errors={errors}
+              onFieldChange={handleFieldChange}
+              readOnly={readOnly}
+              inlineDetailTables={detailLayoutMap}
+              detailRowCounts={detailRowCounts}
+              onAddDetailRow={handleAddDetailRow}
+              onCopyDetailRow={handleCopyDetailRow}
+              onDeleteDetailRow={handleDeleteDetailRow}
+              detailSelectedRows={detailSelectedRows}
+              onToggleDetailRow={handleToggleDetailRow}
+              onToggleAllDetailRows={handleToggleAllDetailRows}
+              onDeleteSelectedDetailRows={handleDeleteSelectedDetailRows}
+            />
+          </div>
+        ))}
+        {orphanBlocks.map((b) => (
+          <div key={`dt-${b.idx}`} style={{ marginBottom: 16 }}>
+            <DetailBlock
+              layout={b.layout}
+              prefix={b.prefix}
+              mobile
+              rowCount={rowCountOf(b.idx)}
+              formValues={formValues}
+              errors={errors}
+              onFieldChange={handleFieldChange}
+              readOnly={readOnly}
+              onAddRow={() => handleAddDetailRow(b.idx)}
+              onCopyRow={(n) => handleCopyDetailRow(b.idx, n)}
+              onDeleteRow={(n) => handleDeleteDetailRow(b.idx, n)}
+              selectedRows={detailSelectedRows[b.idx] ?? []}
+              onToggleSelect={(n, checked) => handleToggleDetailRow(b.idx, n, checked)}
+              onToggleSelectAll={(checked) => handleToggleAllDetailRows(b.idx, checked)}
+              onDeleteSelected={() => handleDeleteSelectedDetailRows(b.idx)}
+            />
+          </div>
+        ))}
+      </div>
+    );
+
+  const content = isMobile ? mobileContent : pcContent;
 
   // 操作按钮：弹窗里作为 footer，独立页面里作为顶部工具栏
   const actions = (
-    <Space>
+    <Space wrap>
+      {/* PC / 手机 双模式并存：自动=按设备识别切换，也可手动指定 */}
+      <Segmented
+        value={viewMode}
+        onChange={(v) => setViewMode(v as 'auto' | 'pc' | 'mobile')}
+        options={[
+          { label: '自动', value: 'auto' },
+          { label: 'PC', value: 'pc' },
+          { label: '手机', value: 'mobile' },
+        ]}
+      />
       <Button icon={<SendOutlined />} type="primary" onClick={handleSubmit}>
         提交校验
       </Button>
