@@ -316,6 +316,41 @@ const cellStyleToCss = (s: any): React.CSSProperties => {
   return css;
 };
 
+// ── 预览边框：默认不显示网格线，仅渲染用户在 Univer 中显式设置的边框 ──
+// 设计器里每个格子默认会被画一条浅灰网格线（#e8e8e8）。但用户往往只希望看到
+// 自己「真正设置了边框(bd)」的单元格边框；未设边框/未给网格线上色的格子不应显示网格线。
+// 因此预览改为按单元格 bd 渲染四边边框，bd 缺失或某边未设置时该边为 none。
+// Univer 边框线型(bd.s)可能是「数字枚举」也可能是「字符串」，两种都要能映射成 CSS [线宽, 线型]：
+//   - 数字(BorderStyleTypes): 0=NONE 1=THIN 2=HAIR 3=DOTTED 4=DASHED 5=MEDIUM 6=DOUBLE 7=THICK 8=SLANT_DASH_DOT
+//   - 字符串(更常见，getCellStyleData 实际返回的就是 'thin'/'medium'/'thick'/'hair'/'dotted'/'dashed'/'double'…)：
+// 之前只判断 side.s > 0（数字），字符串 'thin' > 0 为 false → 一律 none，导致设置好的边框在预览里完全不显示。
+const resolveBorderStyle = (s: any): [string, string] | null => {
+  if (s === undefined || s === null || s === 0 || s === 'none' || s === '') return null;
+  const MAP: Record<string, [string, string]> = {
+    '1': ['1px', 'solid'], '2': ['1px', 'solid'], '3': ['1px', 'dotted'], '4': ['1px', 'dashed'],
+    '5': ['2px', 'solid'], '6': ['3px', 'double'], '7': ['3px', 'solid'], '8': ['1px', 'dashed'],
+    thin: ['1px', 'solid'], hair: ['1px', 'solid'], dotted: ['1px', 'dotted'], dashed: ['1px', 'dashed'],
+    medium: ['2px', 'solid'], thick: ['3px', 'solid'], double: ['3px', 'double'],
+    dashDot: ['1px', 'dashed'], dashDotDot: ['1px', 'dashed'], slantDashDot: ['1px', 'dashed'],
+  };
+  return MAP[String(s)] || ['1px', 'solid'];
+};
+const borderSideToCss = (side: any): string => {
+  if (!side || !side.s) return 'none';
+  const bs = resolveBorderStyle(side.s);
+  if (!bs) return 'none';
+  return `${bs[0]} ${bs[1]} ${side.cl?.rgb || '#000'}`;
+};
+const cellBorderToCss = (bd: any): React.CSSProperties => {
+  if (!bd || typeof bd !== 'object') return { border: 'none' };
+  return {
+    borderTop: borderSideToCss(bd.t),
+    borderRight: borderSideToCss(bd.r),
+    borderBottom: borderSideToCss(bd.b),
+    borderLeft: borderSideToCss(bd.l),
+  };
+};
+
 const FieldCell: React.FC<{
   cell: CellDataItem;
   row: number;
@@ -995,7 +1030,7 @@ const SheetPreviewForm: React.FC<{
                       rowSpan={merge?.rowSpan}
                       colSpan={merge?.colSpan}
                       style={{
-                        border: `1px solid ${E9_COLORS.readOnlyBorder}`,
+                        ...cellBorderToCss(cell?.s?.bd),
                         padding: '4px 8px',
                         verticalAlign: 'middle',
                         textAlign: align,
