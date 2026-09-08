@@ -67,6 +67,10 @@ type FieldAttr = 'readonly' | 'editable' | 'required' | null;
 interface ExcelRibbonProps {
   saving?: boolean;
   onSave: () => void;
+  /** 布局级代码块当前内容（整份表单一份可执行脚本，对齐 ecology 按 layoutid 取 script） */
+  layoutScript?: string;
+  /** 保存布局级代码块；返回是否成功（弹窗「保存」按钮调用） */
+  onSaveLayoutScript?: (script: string) => Promise<boolean> | boolean;
   onPreview: () => void;
   onImport: () => void;
   onExport: () => void;
@@ -100,14 +104,19 @@ type InsertFieldDef = {
   options?: { label: string; value: any }[];
   placeholder?: string;
   initial?: any;
+  /** textarea 行数（代码块等需要更大的编辑区） */
+  rows?: number;
 };
 
 type InsertDef = {
   key: string;
   label: string;
   icon: React.ReactNode;
-  /** element=写入元素格；formula=公式；action=立即执行的网格动作 */
-  mode: 'element' | 'formula' | 'action';
+  /**
+   * element=写入元素格；formula=公式；action=立即执行的网格动作；
+   * script=布局级代码块（不写单元格，整份表单一份脚本，预览时注入执行）
+   */
+  mode: 'element' | 'formula' | 'action' | 'script';
   fields?: InsertFieldDef[];
   action?: string;
   actionArgs?: any[];
@@ -115,25 +124,20 @@ type InsertDef = {
 
 const INSERT_DEFS: InsertDef[] = [
   {
+    // 布局级代码块：对齐 ecology「按 layoutid 取整表一份 script、加载时注入执行」，
+    // 不占用单元格（ecology 的 InsertCode 弹窗即一个大的 script 编辑区）。
     key: 'code',
     label: '代码块',
     icon: <CodeOutlined />,
-    mode: 'element',
+    mode: 'script',
     fields: [
       {
-        name: 'language',
-        label: '语言',
-        type: 'select',
-        initial: 'javascript',
-        options: [
-          { label: 'JavaScript', value: 'javascript' },
-          { label: 'Java', value: 'java' },
-          { label: 'SQL', value: 'sql' },
-          { label: 'HTML', value: 'html' },
-          { label: '纯文本', value: 'text' },
-        ],
+        name: 'content',
+        label: '代码内容',
+        type: 'textarea',
+        rows: 14,
+        placeholder: '输入 HTML / JS，例如：<script>console.log("hello")</script>',
       },
-      { name: 'content', label: '代码内容', type: 'textarea', placeholder: '输入代码块内容' },
     ],
   },
   {
@@ -276,6 +280,8 @@ const callGrid = (fn: string, ...args: any[]): boolean => {
 const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
   saving,
   onSave,
+  layoutScript = '',
+  onSaveLayoutScript,
   onPreview,
   onImport,
   onExport,
@@ -303,7 +309,8 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
     callGrid('applyRangeFormat', action, next);
   };
 
-  // 点击「插入」项：action/formula 立即执行；有参数的元素项先弹窗收集配置
+  // 点击「插入」项：action/formula 立即执行；script=布局级代码块（弹窗编辑并保存）；
+  // 其余有参数的元素项先弹窗收集配置
   const openInsert = (def: InsertDef) => {
     if (def.mode === 'action') {
       if (callGrid(def.action as string, ...(def.actionArgs || []))) {
@@ -313,6 +320,12 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
     }
     if (def.mode === 'formula') {
       if (callGrid('insertFormula')) message.success('已进入公式编辑，输入公式后回车');
+      return;
+    }
+    // 布局级代码块：不写入单元格，直接打开编辑框并回显已保存内容，点「保存」持久化
+    if (def.mode === 'script') {
+      setInsertVals({ content: layoutScript });
+      setInsertDef(def);
       return;
     }
     if (!def.fields || def.fields.length === 0) {
@@ -327,8 +340,15 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
     setInsertDef(def);
   };
 
-  const submitInsert = () => {
+  const submitInsert = async () => {
     if (!insertDef) return;
+    // 布局级代码块：保存到布局（后端 layout_config），不写入单元格
+    if (insertDef.mode === 'script') {
+      const ok = await onSaveLayoutScript?.(String(insertVals.content ?? ''));
+      if (ok) message.success('代码块已保存');
+      setInsertDef(null);
+      return;
+    }
     if (callGrid('insertElement', insertDef.key, insertVals)) {
       message.success(`已插入「${insertDef.label}」`);
     }
@@ -568,17 +588,24 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
     >
       <Tabs size="small" activeKey={activeKey} onChange={setActiveKey} items={tabItems} />
 
-      {/* 插入元素的参数配置弹窗：按元素类型动态渲染字段，确认后写入活动单元格 */}
+      {/* 参数配置弹窗：script=布局级代码块（保存脚本）；其余元素项按元素类型动态渲染字段，确认后写入活动单元格 */}
       <Modal
         open={!!insertDef}
-        title={insertDef ? `插入「${insertDef.label}」` : ''}
-        okText="插入"
+        title={insertDef ? (insertDef.mode === 'script' ? '代码块' : `插入「${insertDef.label}」`) : ''}
+        // 代码块是「保存」到布局（对齐 ecology InsertCode 弹窗的保存按钮），其余元素仍是「插入」到单元格
+        okText={insertDef?.mode === 'script' ? '保存' : '插入'}
         cancelText="取消"
         onOk={submitInsert}
         onCancel={() => setInsertDef(null)}
+        width={insertDef?.mode === 'script' ? 720 : 520}
         destroyOnClose
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+          {insertDef?.mode === 'script' && (
+            <div style={{ color: '#888', fontSize: 12 }}>
+              整份表单仅一份脚本，不占用单元格；预览与表单加载时注入执行，可写 HTML / JS。
+            </div>
+          )}
           {(insertDef?.fields || []).map((f) => (
             <div key={f.name}>
               <div style={{ marginBottom: 4, fontSize: 13 }}>{f.label}</div>
@@ -591,7 +618,7 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
               )}
               {f.type === 'textarea' && (
                 <Input.TextArea
-                  rows={4}
+                  rows={f.rows ?? 4}
                   value={insertVals[f.name] ?? ''}
                   placeholder={f.placeholder}
                   onChange={(e) => setInsertVals((p) => ({ ...p, [f.name]: e.target.value }))}

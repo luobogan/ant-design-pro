@@ -3886,8 +3886,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       // ── 插入「元素」格 ──
       // 对齐 ecology 扩展控件模型：dataobj.ecs[cellid] = { etype, jsonparam }
       // 这里以单元格元数据落位：cellType='element' + elementType（≈etype）+ elementConfig（≈jsonparam）
+      // 注：代码块已是「布局级」能力（整份表单一份可执行脚本，存 layout_config），不再作为单元格元素插入。
       const ELEMENT_META: Record<string, { icon: string; label: string }> = {
-        code: { icon: '💻', label: '代码块' },
         image: { icon: '🖼️', label: '图片' },
         text: { icon: '📝', label: '文本' },
         link: { icon: '🔗', label: '链接' },

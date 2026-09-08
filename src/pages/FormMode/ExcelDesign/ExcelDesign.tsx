@@ -32,6 +32,8 @@ import { registerDesignerRibbon, resetDesignerRibbon } from './ribbonRegistry';
 import PropertyPanel from './components/PropertyPanel';
 import ExcelPreview from './components/ExcelPreview';
 import { EXCEL_PREVIEW_DATA_KEY } from './ExcelPreviewPage';
+// 布局级代码块：存库需 base64 编码，规避后端 XSS 过滤剥掉 <script> 标签
+import { encodeScriptForStorage, decodeScriptFromStorage } from './utils/runLayoutScript';
 import { saveFormLayout, getFormLayout } from '@/services/formmode/formLayoutApi';
 import { fieldDefinitionApi } from '@/services/formmode';
 
@@ -91,6 +93,18 @@ const ExcelDesignContent: React.FC = () => {
   const [saving, setSaving] = useState<boolean>(false);
   const [pendingField, setPendingField] = useState<any>(null);
   const [hoveredField, setHoveredField] = useState<any>(null);
+
+  // ── 布局级代码块：整份表单一份可执行脚本 ──
+  // 对齐 ecology：代码块是布局级（按 layoutid 取整表一份 script），不占用单元格；
+  // 预览/表单加载时统一注入 DOM 执行（见 utils/runLayoutScript.ts 的 #layoutScriptHost）。
+  // 持久化复用后端已有字段 form_layout.layout_config（JSON：{ script }），无需改后端。
+  const [layoutScript, setLayoutScript] = useState<string>('');
+  // 镜像 ref：保存/预览等异步回调里读取最新值，避免闭包捕获到旧值
+  const layoutScriptRef = useRef<string>('');
+  const updateLayoutScript = useCallback((script: string) => {
+    layoutScriptRef.current = script;
+    setLayoutScript(script);
+  }, []);
 
   // ──────────────────────────────────────────────
   // 明细表「标记 + 子画布」模型（对齐 ecology formmode/exceldesign）：
@@ -269,6 +283,18 @@ const ExcelDesignContent: React.FC = () => {
           return;
         }
 
+        // 布局级代码块：持久化在后端 layout_config 字段（JSON 字符串 { script }）
+        let layoutCfg: any = result.data.layoutConfig;
+        if (typeof layoutCfg === 'string') {
+          try {
+            layoutCfg = JSON.parse(layoutCfg);
+          } catch (e) {
+            console.warn('解析 layoutConfig 失败:', e);
+            layoutCfg = {};
+          }
+        }
+        updateLayoutScript(decodeScriptFromStorage((layoutCfg && layoutCfg.script) || ''));
+
         setLayoutData(layoutJson || {});
         // 明细表子画布布局随主布局的 detailTables 一并加载
         setDetailLayouts((layoutJson && layoutJson.detailTables) || {});
@@ -308,6 +334,8 @@ const ExcelDesignContent: React.FC = () => {
     const usedDetailPreview = collectUsedDetailTables(data);
     const previewData = {
       ...data,
+      // 布局级代码块随预览数据一并传递，预览页注入执行（对齐 ecology 表单加载时执行脚本）
+      layoutConfig: { script: layoutScriptRef.current },
       detailTables: pruneDetailTables(
         (layoutDataRef.current && layoutDataRef.current.detailTables) || detailLayouts || {},
         usedDetailPreview,
@@ -327,15 +355,16 @@ const ExcelDesignContent: React.FC = () => {
     // 新标签页被浏览器拦截时，回退为弹窗预览，保证功能不失效
     if (!win) {
       message.info('新标签页被浏览器拦截，已改用弹窗预览');
-      setPreviewData(data);
+      // 用 previewData（含 layoutConfig/detailTables）而非原始 data，保证弹窗预览同样能执行代码块
+      setPreviewData(previewData);
       setPreviewVisible(true);
     }
   }, [message]);
 
-  const handleSave = useCallback(async () => {
+  const handleSave = useCallback(async (): Promise<boolean> => {
     if (!formId) {
       message.warning('请先选择表单');
-      return;
+      return false;
     }
 
     // 优先用主画布 API：打开明细表子画布时 window.univerExcelGrid 会被子实例覆盖，
@@ -343,13 +372,13 @@ const ExcelDesignContent: React.FC = () => {
     const univerGrid = mainGridApiRef.current || (window as any).univerExcelGrid;
     if (!univerGrid) {
       message.error('Excel组件未初始化');
-      return;
+      return false;
     }
 
     const sheetLayoutData = univerGrid.saveLayoutData();
     if (!sheetLayoutData) {
       message.error('获取布局数据失败');
-      return;
+      return false;
     }
 
     // 合并明细表子画布布局：主画布 saveLayoutData() 只返回主表布局（detailTables 由父组件维护），
@@ -370,6 +399,9 @@ const ExcelDesignContent: React.FC = () => {
         formId: String(formId),  // 保持字符串格式，避免 JavaScript 大整数精度丢失
         layoutName: `表单${formId}的布局`,
         layoutJson: JSON.stringify(finalLayoutData),  // 转换为 JSON 字符串（含明细表子画布布局）
+        // 布局级代码块写回后端已有字段 form_layout.layout_config（无需改动后端与表结构）。
+        // 必须编码后提交：后端 XSS 过滤会剥掉明文里的 <script> 标签。
+        layoutConfig: JSON.stringify({ script: encodeScriptForStorage(layoutScriptRef.current) }),
         status: 1,
       };
       await saveFormLayout(formData);
@@ -377,13 +409,25 @@ const ExcelDesignContent: React.FC = () => {
 
       // 保存成功后重新加载布局数据，确保页面显示最新数据（强制刷新，覆盖用户编辑）
       await loadFormLayout(true);
+      return true;
     } catch (error) {
       console.error('保存失败:', error);
       message.error('保存失败');
+      return false;
     } finally {
       setSaving(false);
     }
   }, [formId, loadFormLayout]);
+
+  // 代码块弹窗的「保存」：更新布局级脚本并立即持久化。
+  // 对齐 ecology InsertCode 弹窗的「保存 / 关闭」按钮语义 —— 代码块不写入单元格，只存布局级脚本。
+  const handleSaveLayoutScript = useCallback(
+    async (script: string): Promise<boolean> => {
+      updateLayoutScript(script);
+      return await handleSave();
+    },
+    [handleSave, updateLayoutScript],
+  );
 
   // ──────────────────────────────────────────────
   // 字段选择 → 准备放置到 Excel 单元格
@@ -1304,6 +1348,8 @@ const ExcelDesignContent: React.FC = () => {
                 <ExcelRibbon
                   saving={saving}
                   onSave={handleSave}
+                  layoutScript={layoutScript}
+                  onSaveLayoutScript={handleSaveLayoutScript}
                   onPreview={handlePreview}
                   onImport={handleImport}
                   onExport={handleExport}

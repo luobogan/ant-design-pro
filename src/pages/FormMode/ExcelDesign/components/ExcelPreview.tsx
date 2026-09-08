@@ -12,6 +12,8 @@ import {
   CopyOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
+// 布局级代码块（可执行脚本）：对齐 ecology 表单加载时 loadScript() 注入执行脚本的行为
+import { LAYOUT_SCRIPT_HOST_ID, getLayoutScript, runLayoutScript } from '../utils/runLayoutScript';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -540,22 +542,6 @@ const renderElementNode = (meta: any, displayValue: string): React.ReactNode => 
   const cfg = (meta && meta.elementConfig) || {};
   const placeholder = (text: string) => <span style={{ color: '#bbb', fontSize: 12 }}>{text}</span>;
   switch (meta?.elementType) {
-    case 'code':
-      return (
-        <pre
-          style={{
-            margin: 0,
-            padding: '6px 8px',
-            background: '#f6f8fa',
-            borderRadius: 4,
-            fontSize: 12,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all',
-          }}
-        >
-          {cfg.content || displayValue || ' '}
-        </pre>
-      );
     case 'image':
       return cfg.src ? (
         <img
@@ -706,7 +692,8 @@ const renderCellNode = (
       </span>
     );
   }
-  // 元素格（代码块 / 图片 / 链接 / Iframe / 二维码 …）：按 elementType 还原各自的展示形态
+  // 元素格（图片 / 链接 / Iframe / 二维码 …）：按 elementType 还原各自的展示形态
+  // （代码块已改为布局级脚本，不再作为单元格元素，见 utils/runLayoutScript.ts）
   // （对应 ecology 扩展控件 dataobj.ecs[cellid] = { etype, jsonparam }）
   if (meta.cellType === 'element') {
     return renderElementNode(meta, displayValue);
@@ -1390,6 +1377,17 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
     }
   }, [open]);
 
+  // ── 布局级代码块：表单 DOM 渲染完成后注入并执行脚本 ──
+  // 对齐 ecology loadScript()：清空宿主容器后把脚本内容 append 进去执行。
+  // 用 setTimeout 保证在 React 提交（宿主容器挂载到 DOM）之后再执行，否则取不到容器。
+  const layoutScript = useMemo(() => getLayoutScript(layoutData), [layoutData]);
+  useEffect(() => {
+    if (!layoutScript) return;
+    if (!standalone && !open) return;
+    const timer = setTimeout(() => runLayoutScript(layoutScript), 0);
+    return () => clearTimeout(timer);
+  }, [layoutScript, open, standalone]);
+
   // ── 明细表行操作（对齐 ecology detailOperate：addRow / copyRow / delRow）──
   // 新增行：末尾追加空行
   const handleAddDetailRow = useCallback((idx: number) => {
@@ -1694,7 +1692,15 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
       </div>
     );
 
-  const content = isMobile ? mobileContent : pcContent;
+  // 末尾挂「布局级代码块」宿主容器（等价于 ecology 的 #customScriptDiv）：
+  // 容器由 React 渲染为空 div，脚本内容以操作 DOM 的方式 append 进去执行；
+  // 放在内容之后，避免注入的 HTML 把表单整体挤下去。
+  const content = (
+    <>
+      {isMobile ? mobileContent : pcContent}
+      <div id={LAYOUT_SCRIPT_HOST_ID} />
+    </>
+  );
 
   // 操作按钮：弹窗里作为 footer，独立页面里作为顶部工具栏
   const actions = (
