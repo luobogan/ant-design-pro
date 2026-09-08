@@ -2324,6 +2324,18 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         c = cur?.actualColumn ?? cur?.col ?? cur?.startColumn ?? lastSelectionCellRef.current?.col ?? 0;
       } catch { /* 取活动单元格失败用回退坐标 */ }
 
+      // 同一行最多 5 个明细表（与预览「一行多明细表横向并排」一致；也避免单行被过多明细表撑爆）
+      const maxC = typeof sheet.getMaxColumns === 'function' ? sheet.getMaxColumns() : 50;
+      let rowMarkerCount = 0;
+      for (let cc = 0; cc < maxC; cc++) {
+        const m = getCellFieldMeta(r, cc);
+        if (m && m.cellType === 'detailTableMarker') rowMarkerCount++;
+      }
+      if (rowMarkerCount >= 5) {
+        message.warning('同一行最多只能放置 5 个明细表');
+        return false;
+      }
+
       const label = title || `明细表${detailTableIdx}`;
       const markerMeta: FieldMeta = {
         fieldId: `detailMarker_${detailTableIdx}`,

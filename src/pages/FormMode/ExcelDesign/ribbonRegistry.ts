@@ -10,6 +10,15 @@
 
 import { CommandType } from '@univerjs/core';
 import { MenuItemType, ComponentManager } from '@univerjs/ui';
+import { BehaviorSubject } from 'rxjs';
+import { map } from 'rxjs';
+
+// 已插入主表的明细表序号（用于 ribbon「明细表」页签置灰）；由 ExcelDesign 同步。
+// 用 BehaviorSubject 让菜单项的 disabled$ 在「插入/删除标记」时实时生效，无需重注册 ribbon。
+const usedDetailIdx$ = new BehaviorSubject<Set<number>>(new Set());
+export const setUsedDetailTables = (set: Set<number>) => {
+  usedDetailIdx$.next(set && set.size ? new Set(set) : new Set());
+};
 import {
   SaveOutlined,
   EyeOutlined,
@@ -203,7 +212,7 @@ export const registerDesignerRibbon = (opts: RegisterRibbonOptions): boolean => 
     if (!tab[group]) tab[group] = { order: 0 };
     return tab[group];
   };
-  const addItem = (tabKey: string, group: string, id: string, title: string, action: () => void, tooltip: string, order: number, iconKey?: string) => {
+  const addItem = (tabKey: string, group: string, id: string, title: string, action: () => void, tooltip: string, order: number, iconKey?: string, disabled$?: any) => {
     const tab = ensureTab(tabKey);
     const g = ensureGroup(tab, group);
     const commandId = regAction(id, action);
@@ -218,6 +227,7 @@ export const registerDesignerRibbon = (opts: RegisterRibbonOptions): boolean => 
         // 自定义页签需要图标 + 文字（功能不直观）；原生「开始/公式/数据」页签省略此标记 → 只显示图标
         showTitle: true,
         ...(iconKey ? { icon: `designer.${iconKey}` } : {}),
+        ...(disabled$ ? { disabled$: disabled$ } : {}),
       }),
     };
     g[`designer.${id}`] = item;
@@ -268,7 +278,7 @@ export const registerDesignerRibbon = (opts: RegisterRibbonOptions): boolean => 
   addItem(TAB.FIELD_ATTR, 'attr', 'attr.editable', '编辑', () => opts.onFieldAttr('editable'), '设置字段为可编辑', 1, 'editable');
   addItem(TAB.FIELD_ATTR, 'attr', 'attr.required', '必填', () => opts.onFieldAttr('required'), '设置字段为必填', 2, 'required');
 
-  // ── 明细表 ──
+  // ── 明细表 ──（已在主表插入的明细表：页签项置灰，避免重复插入）
   if (opts.detailOptions && opts.detailOptions.length > 0) {
     opts.detailOptions.forEach((o, i) => {
       addItem(
@@ -280,6 +290,7 @@ export const registerDesignerRibbon = (opts: RegisterRibbonOptions): boolean => 
         `插入明细表${o.idx}`,
         i,
         'detail',
+        usedDetailIdx$.pipe(map((used) => used.has(o.idx))),
       );
     });
   } else {

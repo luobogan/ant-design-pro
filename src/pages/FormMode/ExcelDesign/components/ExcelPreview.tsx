@@ -959,50 +959,53 @@ const SheetPreviewForm: React.FC<{
                   const merge = model.mergeMap.get(key);
                   const cell = model.grid[r]?.[c];
 
-                  // 标记行：仅渲染标记格（全宽），同行其它列跳过，避免与 colSpan 冲突导致表格错乱
-                  let markerCol = -1;
-                  const rowCells = model.grid[r];
-                  if (rowCells) {
-                    for (const [ck, cc] of Object.entries(rowCells)) {
-                      if ((cc as CellDataItem).fieldMeta?.cellType === 'detailTableMarker') { markerCol = Number(ck); break; }
+                  // 标记行：同一行可放多个明细表标记（最多 5 个），预览中横向并排渲染各明细表块
+                  // （对齐 ecology 一行多明细表；数据关联位置可见，明细表标题由 DetailBlock 统一控制）
+                  const markerCols: number[] = [];
+                  const rowCellsForMarkers = model.grid[r];
+                  if (rowCellsForMarkers) {
+                    for (const [ck, cc] of Object.entries(rowCellsForMarkers)) {
+                      if ((cc as CellDataItem).fieldMeta?.cellType === 'detailTableMarker') markerCols.push(Number(ck));
                     }
                   }
-                  if (markerCol >= 0 && c !== markerCol) return null;
-
-                  // 明细表标记格：预览中不显示「明细表X」设计标记，仅内联渲染对应明细表的内容块
-                  // （数据关联位置可见，对齐 ecology 明细表紧贴标记渲染；明细表标题由 DetailBlock 统一控制）
-                  if (cell?.fieldMeta?.cellType === 'detailTableMarker') {
-                    const dtIdx = Number(cell.fieldMeta.detailTable);
-                    const dtLayout = inlineDetailTables?.[dtIdx];
+                  const isMarkerRow = markerCols.length > 0;
+                  if (isMarkerRow) {
+                    // 仅在第一列位置渲染一个整行 td，内部用横向 flex 排列所有明细表块（超出 5 个可横向滚动）
+                    if (c !== markerCols[0]) return null;
                     return (
                       <td
                         key={c}
                         colSpan={model.colCount}
-                        style={{
-                          border: 'none',
-                          padding: 0,
-                          background: 'transparent',
-                          verticalAlign: 'top',
-                        }}
+                        style={{ border: 'none', padding: 0, background: 'transparent', verticalAlign: 'top' }}
                       >
-                        {dtLayout && (
-                          <DetailBlock
-                            layout={dtLayout}
-                            prefix={`dt${dtIdx}__`}
-                            rowCount={detailRowCounts?.[dtIdx] ?? 1}
-                            formValues={formValues}
-                            errors={errors}
-                            onFieldChange={onFieldChange}
-                            readOnly={!!readOnly}
-                            onAddRow={() => onAddDetailRow?.(dtIdx)}
-                            onCopyRow={(n) => onCopyDetailRow?.(dtIdx, n)}
-                            onDeleteRow={(n) => onDeleteDetailRow?.(dtIdx, n)}
-                            selectedRows={detailSelectedRows?.[dtIdx] ?? []}
-                            onToggleSelect={(n, checked) => onToggleDetailRow?.(dtIdx, n, checked)}
-                            onToggleSelectAll={(checked) => onToggleAllDetailRows?.(dtIdx, checked)}
-                            onDeleteSelected={() => onDeleteSelectedDetailRows?.(dtIdx)}
-                          />
-                        )}
+                        <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 12, overflowX: 'auto', padding: '4px 0' }}>
+                          {markerCols.map((mc) => {
+                            const markerMeta = (rowCellsForMarkers[mc] as CellDataItem)?.fieldMeta;
+                            const dtIdx = Number(markerMeta?.detailTable);
+                            const dtLayout = inlineDetailTables?.[dtIdx];
+                            if (!dtLayout) return null;
+                            return (
+                              <div key={mc} style={{ flex: '1 1 0', minWidth: 320 }}>
+                                <DetailBlock
+                                  layout={dtLayout}
+                                  prefix={`dt${dtIdx}__`}
+                                  rowCount={detailRowCounts?.[dtIdx] ?? 1}
+                                  formValues={formValues}
+                                  errors={errors}
+                                  onFieldChange={onFieldChange}
+                                  readOnly={!!readOnly}
+                                  onAddRow={() => onAddDetailRow?.(dtIdx)}
+                                  onCopyRow={(n) => onCopyDetailRow?.(dtIdx, n)}
+                                  onDeleteRow={(n) => onDeleteDetailRow?.(dtIdx, n)}
+                                  selectedRows={detailSelectedRows?.[dtIdx] ?? []}
+                                  onToggleSelect={(n, checked) => onToggleDetailRow?.(dtIdx, n, checked)}
+                                  onToggleSelectAll={(checked) => onToggleAllDetailRows?.(dtIdx, checked)}
+                                  onDeleteSelected={() => onDeleteSelectedDetailRows?.(dtIdx)}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
                       </td>
                     );
                   }

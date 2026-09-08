@@ -28,7 +28,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import FieldPalette from './components/FieldPalette';
 import UniverExcelGrid from './components/UniverExcelGrid';
 import ExcelRibbon from './components/ExcelRibbon';
-import { registerDesignerRibbon, resetDesignerRibbon } from './ribbonRegistry';
+import { registerDesignerRibbon, resetDesignerRibbon, setUsedDetailTables } from './ribbonRegistry';
 import PropertyPanel from './components/PropertyPanel';
 import ExcelPreview from './components/ExcelPreview';
 import { EXCEL_PREVIEW_DATA_KEY } from './ExcelPreviewPage';
@@ -115,6 +115,11 @@ const ExcelDesignContent: React.FC = () => {
   const [detailLayouts, setDetailLayouts] = useState<Record<number, any>>({});
   const [editingDetail, setEditingDetail] = useState<number | null>(null);
   const [detailTableOptions, setDetailTableOptions] = useState<{ idx: number; count: number }[]>([]);
+  // 主表中已插入标记的明细表序号（用于「插入明细表」下拉 / ribbon「明细表」页签置灰，避免重复插入）
+  const usedDetailSet = useMemo(() => collectUsedDetailTables(layoutData), [layoutData]);
+  useEffect(() => {
+    setUsedDetailTables(usedDetailSet);
+  }, [usedDetailSet]);
   // 主画布 UniverExcelGrid 的 window API 引用：打开明细子画布时会被子实例覆盖，
   // 关闭子画布后据此恢复，避免主画布拖放/操作失效。
   const mainGridApiRef = useRef<any>(null);
@@ -1240,6 +1245,7 @@ const ExcelDesignContent: React.FC = () => {
         items: detailTableOptions.map((o) => ({
           key: String(o.idx),
           label: `明细表${o.idx}（${o.count} 字段）`,
+          disabled: usedDetailSet.has(o.idx),
           onClick: () => handleInsertDetailTable(o.idx),
         })),
       }}
