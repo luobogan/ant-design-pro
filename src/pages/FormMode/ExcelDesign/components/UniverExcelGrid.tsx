@@ -84,8 +84,21 @@ const applyCellStyle = (range: any, style: any) => {
   if (style.fs) safe(() => range.setFontSize(style.fs));
   if (style.cl && style.cl.rgb) safe(() => range.setFontColor(style.cl.rgb));
   if (style.bg && style.bg.rgb) safe(() => range.setBackgroundColor(style.bg.rgb));
-  if (style.ht) safe(() => range.setHorizontalAlignment(style.ht));
-  if (style.vt) safe(() => range.setVerticalAlignment(style.vt));
+  // Univer 的 HorizontalAlign/VerticalAlign 是「数字枚举」（0=未指定/left 1=left 2=center 3=right…；
+  // VT: 1=top 2=middle 3=bottom）。但 Facade 的 setHorizontalAlignment 只接受字符串，且右对齐叫 'normal'
+  // （见 facade.js 的 transformFacadeHorizontalAlignment：left/center/normal 三分支，default 抛错）。
+  // 保存的 s.ht 是数字，若原样传入会被 transform 抛错并被 safe() 静默吞掉 → 刷新加载后对齐丢失。
+  // 因此此处必须把数字枚举映射为 Facade 接受的字符串。
+  if (style.ht) {
+    const htMap: Record<number, string> = { 1: 'left', 2: 'center', 3: 'normal', 4: 'normal', 5: 'normal', 6: 'normal' };
+    const ht = typeof style.ht === 'number' ? (htMap[style.ht] || 'left') : String(style.ht).toLowerCase();
+    safe(() => range.setHorizontalAlignment(ht));
+  }
+  if (style.vt) {
+    const vtMap: Record<number, string> = { 1: 'top', 2: 'middle', 3: 'bottom' };
+    const vt = typeof style.vt === 'number' ? (vtMap[style.vt] || 'top') : String(style.vt).toLowerCase();
+    safe(() => range.setVerticalAlignment(vt));
+  }
   if (typeof style.tb !== 'undefined') safe(() => range.setWrap(!!style.tb));
 };
 

@@ -14,6 +14,14 @@ import {
 } from '@ant-design/icons';
 // 布局级代码块（可执行脚本）：对齐 ecology 表单加载时 loadScript() 注入执行脚本的行为
 import { LAYOUT_SCRIPT_HOST_ID, getLayoutScript, runLayoutScript } from '../utils/runLayoutScript';
+// 字段 / 表头 DOM id 方案：让代码块中的 JS 能按 id 直接访问与操作字段
+import {
+  buildDomIdMap,
+  buildFieldDomIds,
+  domDataProps,
+  installFieldDomApi,
+  type FieldDomIds,
+} from '../utils/fieldDomId';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -290,12 +298,20 @@ const cellStyleToCss = (s: any): React.CSSProperties => {
   if (s.ul && s.ul.s && s.st && s.st.s) css.textDecoration = 'underline line-through';
   else if (s.ul && s.ul.s) css.textDecoration = 'underline';
   else if (s.st && s.st.s) css.textDecoration = 'line-through';
-  // Univer 的 JUSTIFIED 对应 CSS 的 justify，直接小写会得到非法值
-  if (s.ht) {
-    const ht = String(s.ht).toLowerCase();
-    css.textAlign = ht === 'justified' ? 'justify' : ht;
+  // Univer 的对齐是「数字枚举」(HorizontalAlign / VerticalAlign)，需映射为 CSS 合法值：
+  //   HorizontalAlign: 0=未指定/left 1=left 2=center 3=right 4+=justify
+  //   VerticalAlign:   0=未指定/top  1=top   2=middle 3=bottom
+  // 若直接 String(s.ht) 会得到 "2" 之类非法值，导致 text-align 失效（居中等对齐丢失）。
+  // 同时兼容历史数据可能直接存字符串（'center'/'left'…）的情况。
+  if (s.ht !== undefined && s.ht !== null) {
+    const htMap: Record<number, string> = { 0: 'left', 1: 'left', 2: 'center', 3: 'right', 4: 'justify', 5: 'justify', 6: 'justify' };
+    const k = typeof s.ht === 'number' ? htMap[s.ht] : String(s.ht).toLowerCase();
+    css.textAlign = k === 'justified' ? 'justify' : k;
   }
-  if (s.vt) css.verticalAlign = String(s.vt).toLowerCase();
+  if (s.vt !== undefined && s.vt !== null) {
+    const vtMap: Record<number, string> = { 0: 'top', 1: 'top', 2: 'middle', 3: 'bottom' };
+    css.verticalAlign = typeof s.vt === 'number' ? vtMap[s.vt] : String(s.vt).toLowerCase();
+  }
   if (s.tb) css.whiteSpace = 'pre-wrap';
   return css;
 };
@@ -314,7 +330,9 @@ const FieldCell: React.FC<{
   cellStyle?: any;
   /** 字段属性底色（只读灰底/必填浅红底），与设计师一致，优先级高于 Excel 单元格背景色 */
   attrBg?: string;
-}> = ({ cell, sheetId, row, col, value, onChange, error, readOnly, cellStyle, attrBg }) => {
+  /** 可输入控件的 DOM id（{容器 id}__input），供代码块直接取/设值 */
+  inputId?: string;
+}> = ({ cell, sheetId, row, col, value, onChange, error, readOnly, cellStyle, attrBg, inputId }) => {
   const meta = cell.fieldMeta;
   const rawValue = cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
   // 字段单元格在设计器中存的是模板占位符（如 "📝 ${xm}"），表示尚未填入真实数据。
@@ -364,6 +382,8 @@ const FieldCell: React.FC<{
   };
 
   const commonProps = {
+    // 挂到真正的 input / textarea 上，代码块可 ExcelPreview.get/set 或直接 getElementById
+    id: inputId,
     disabled,
     size: 'small' as const,
     status,
@@ -660,6 +680,8 @@ const renderCellNode = (
   readOnly: boolean,
   requiredStar: boolean,
   attrBg?: string,
+  /** 本 sheet 的「表单值 key → DOM id」映射，用于给字段格/表头格挂上唯一 id */
+  domIds?: Record<string, FieldDomIds>,
 ): React.ReactNode => {
   const meta = cell.fieldMeta;
   const rawValue = cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
@@ -699,9 +721,14 @@ const renderCellNode = (
     return renderElementNode(meta, displayValue);
   }
   // 标签单元格 → 静态说明文本（必填 * 由 requiredStar 控制，E9 风格 * 在标签后）
+  // 挂 id / data-*：表头（字段名）同样要能被代码块访问（改名、隐藏、校验提示等）
   if (meta.cellType === 'label') {
+    const lbIds = domIds?.[key];
     return (
-      <span>
+      <span
+        {...(lbIds ? { id: lbIds.id, ...domDataProps(lbIds) } : {})}
+        style={{ display: 'inline-block', width: '100%' }}
+      >
         {meta.fieldLabel || displayValue || ' '}
         {requiredStar && <span style={{ color: E9_COLORS.required, marginLeft: 2 }}>*</span>}
       </span>
@@ -709,7 +736,8 @@ const renderCellNode = (
   }
   // 字段单元格 → 渲染控件（必填校验红色边框由 FieldCell 处理）
   const err = !!errors[key];
-  return (
+  const ids = domIds?.[key];
+  const fieldNode = (
     <FieldCell
       cell={cell}
       row={0}
@@ -721,7 +749,16 @@ const renderCellNode = (
       readOnly={readOnly}
       cellStyle={cell.s}
       attrBg={attrBg}
+      inputId={ids?.inputId}
     />
+  );
+  if (!ids) return fieldNode;
+  // 外层容器统一挂 id：保证任意控件类型（含 Radio / Checkbox / 自定义）都有稳定宿主，
+  // 代码块既能操作容器（显隐、样式），也能通过 {id}__input 直接取/设值。
+  return (
+    <span id={ids.id} {...domDataProps(ids)} style={{ display: 'inline-block', width: '100%' }}>
+      {fieldNode}
+    </span>
   );
 };
 
@@ -764,6 +801,9 @@ const SheetPreviewForm: React.FC<{
   onToggleAllDetailRows,
   onDeleteSelectedDetailRows,
 }) => {
+  // 字段 / 表头 DOM id 映射：按「作用域 + 类型 + 字段名」生成唯一 id（见 utils/fieldDomId.ts）
+  const domIdMap = useMemo(() => buildDomIdMap(sheet, keyPrefix), [sheet, keyPrefix]);
+
   const model = useMemo(() => {
     const cellData = sheet.cellData || {};
     const mergedCells = sheet.mergedCells || [];
@@ -977,6 +1017,7 @@ const SheetPreviewForm: React.FC<{
                             readOnly as boolean,
                             model.requiredLabels.has(key),
                             attrBg,
+                            domIdMap,
                           )
                         : ' '}
                     </td>
@@ -1033,6 +1074,8 @@ const MobileSheetForm: React.FC<{
   onDeleteSelectedDetailRows,
 }) => {
   const items = useMemo(() => extractMobileItems(sheet), [sheet]);
+  // 字段 / 表头 DOM id 映射（手机端同样按作用域 + 类型 + 字段名生成唯一 id）
+  const domIdMap = useMemo(() => buildDomIdMap(sheet, keyPrefix), [sheet, keyPrefix]);
   if (items.length === 0) return null;
   return (
     <div style={{ background: '#fff', border: `1px solid ${E9_COLORS.cardBorder}`, borderRadius: 8, overflow: 'hidden' }}>
@@ -1081,7 +1124,7 @@ const MobileSheetForm: React.FC<{
             </div>
           );
         }
-        // 元素行（代码块 / 图片 / 链接 / Iframe …）：满宽渲染，无标签列
+        // 元素行（图片 / 链接 / Iframe …）：满宽渲染，无标签列
         if (item.kind === 'element') {
           const key = `${keyPrefix ?? ''}${cellKey(sheet.id, item.row, item.col)}`;
           return (
@@ -1089,23 +1132,32 @@ const MobileSheetForm: React.FC<{
               key={`e-${i}`}
               style={{ padding: '10px 12px', borderBottom: `1px solid ${E9_COLORS.cardBorder}` }}
             >
-              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false)}
+              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, undefined, domIdMap)}
             </div>
           );
         }
         // 字段行：左标签 + 右控件（满宽、触控友好）
         const key = `${keyPrefix ?? ''}${cellKey(sheet.id, item.row, item.col)}`;
+        // 表头（字段名）也要能被代码块访问：用可见文字生成同规则 id
+        const lbIds = buildFieldDomIds(
+          { fieldName: '', fieldLabel: item.label, cellType: 'label' } as any,
+          key,
+        );
+        const labelProps = lbIds ? { id: lbIds.id, ...domDataProps(lbIds) } : {};
         return (
           <div
             key={`f-${i}`}
             style={{ display: 'flex', alignItems: 'flex-start', padding: '10px 12px', borderBottom: `1px solid ${E9_COLORS.cardBorder}` }}
           >
-            <div style={{ flex: '0 0 38%', color: E9_COLORS.label, fontSize: 14, lineHeight: '24px', paddingRight: 8, wordBreak: 'break-word' }}>
+            <div
+              {...labelProps}
+              style={{ flex: '0 0 38%', color: E9_COLORS.label, fontSize: 14, lineHeight: '24px', paddingRight: 8, wordBreak: 'break-word' }}
+            >
               {item.label}
               {item.required && <span style={{ color: E9_COLORS.required, marginLeft: 2 }}>*</span>}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, item.attrBg)}
+              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, item.attrBg, domIdMap)}
             </div>
           </div>
         );
@@ -1304,6 +1356,10 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
   readOnly = false,
   standalone = false,
 }) => {
+  // 安装全局字段访问器 window.ExcelPreview（供布局级代码块中的 JS 直接按 id / 字段名操作字段）。
+  // 挂载时安装、卸载时清理；布局级脚本在提交后才执行（见下方注入 effect），因此使用前必然已就绪。
+  useEffect(() => installFieldDomApi(), []);
+
   // 解析出所有 sheet 列表
   const sheets = useMemo(() => {
     if (!layoutData?.sheets) return [];

@@ -602,8 +602,36 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
           {insertDef?.mode === 'script' && (
-            <div style={{ color: '#888', fontSize: 12 }}>
-              整份表单仅一份脚本，不占用单元格；预览与表单加载时注入执行，可写 HTML / JS。
+            <div style={{ color: '#888', fontSize: 12, lineHeight: 1.7 }}>
+              <div>
+                整份表单仅一份脚本，不占用单元格；预览与表单加载时注入执行，可写 HTML / JS。
+              </div>
+              <div style={{ marginTop: 8, color: '#666' }}>
+                <strong>如何访问字段（DOM id 规范）</strong>：每个字段控件 / 表头均带唯一 id 与
+                data-* 属性，脚本里推荐用全局对象 <code>window.ExcelPreview</code> 读写，无需手写选择器。
+              </div>
+              <pre
+                style={{
+                  background: '#f6f8fa',
+                  padding: 10,
+                  borderRadius: 6,
+                  fontSize: 12,
+                  margin: '6px 0 0',
+                  whiteSpace: 'pre-wrap',
+                }}
+              >{`// id 命名规则：excelp_{scope}_{kind}_{name}[_dup]
+//   scope: main | dt{idx}_r{row}   kind: fd=字段控件  lb=表头
+// 例：excelp_main_fd_xm / excelp_main_lb_姓名 / excelp_dt1_r0_fd_je
+
+ExcelPreview.get('xm')                      // 读主表「姓名」字段值
+ExcelPreview.set('xm', '张三')              // 写值（自动触发 React onChange）
+ExcelPreview.set('je', 100, {dt:0, row:0}) // 写明细表1第1行「金额」
+ExcelPreview.labelEl('姓名').style.display = 'none' // 操作表头元素
+ExcelPreview.list({dt:0, row:0})           // 列出明细表1第1行所有字段
+ExcelPreview.rowCount(0)                   // 明细表1 当前行数
+
+// 也可用 data-* 精确选择（避免中文 id 转义问题）：
+document.querySelector('[data-excelp-role="field"][data-excelp-scope="main"][data-excelp-field="xm"]')`}</pre>
             </div>
           )}
           {(insertDef?.fields || []).map((f) => (
