@@ -10,6 +10,7 @@ import {
   PlusOutlined,
   DeleteOutlined,
   CopyOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 
 const { Text } = Typography;
@@ -105,7 +106,8 @@ const detectMobile = (): boolean => {
 type MobileItem =
   | { kind: 'field'; row: number; col: number; cell: CellDataItem; label: string; required: boolean; attrBg?: string }
   | { kind: 'title'; text: string; row: number; col: number }
-  | { kind: 'detail'; idx: number; row: number; col: number };
+  | { kind: 'detail'; idx: number; row: number; col: number }
+  | { kind: 'element'; row: number; col: number; cell: CellDataItem };
 
 // 字段格实际使用的标签格（含坐标）：左→上→下→右 相邻回退（对齐设计器 findMetaNear）。
 // 返回坐标是为了把该标签格标记为「已消费」，避免它再被单独渲染成一行（明细表表头行重复的根因）。
@@ -197,6 +199,11 @@ const extractMobileItems = (sheet: SheetLayoutData): MobileItem[] => {
               required: attr === 3 || !!meta.required,
               attrBg: attr === 1 ? '#f5f5f5' : attr === 3 ? '#fff1f0' : undefined,
             });
+            return;
+          }
+          // 元素格（代码块 / 图片 / 链接 / Iframe / 二维码 …）：整行铺满渲染，不当作分区标题
+          if (meta?.cellType === 'element') {
+            items.push({ kind: 'element', row: r, col: c, cell });
             return;
           }
           if (meta?.cellType === 'label') {
@@ -527,6 +534,135 @@ const FieldCell: React.FC<{
 // 本组件等比还原该网格结构（保留 Excel 行列与合并单元格），而非把字段拍平成横向表单。
 // ──────────────────────────────────────────────
 
+// 渲染「插入」类元素格：按 elementType 还原展示形态（elementConfig ≈ ecology 的 jsonparam）。
+// 未配置关键参数时退化为占位提示，避免预览出现空白难以排查。
+const renderElementNode = (meta: any, displayValue: string): React.ReactNode => {
+  const cfg = (meta && meta.elementConfig) || {};
+  const placeholder = (text: string) => <span style={{ color: '#bbb', fontSize: 12 }}>{text}</span>;
+  switch (meta?.elementType) {
+    case 'code':
+      return (
+        <pre
+          style={{
+            margin: 0,
+            padding: '6px 8px',
+            background: '#f6f8fa',
+            borderRadius: 4,
+            fontSize: 12,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
+          }}
+        >
+          {cfg.content || displayValue || ' '}
+        </pre>
+      );
+    case 'image':
+      return cfg.src ? (
+        <img
+          src={cfg.src}
+          alt={cfg.alt || ''}
+          style={{ maxWidth: '100%', width: cfg.width || undefined, height: cfg.height || undefined }}
+        />
+      ) : (
+        placeholder('图片（未配置地址）')
+      );
+    case 'link':
+      return cfg.href ? (
+        <a href={cfg.href} target={cfg.target || '_blank'} rel="noreferrer">
+          {cfg.text || cfg.href}
+        </a>
+      ) : (
+        <span>{displayValue || ' '}</span>
+      );
+    case 'iframe':
+      return cfg.src ? (
+        <iframe
+          title="iframe-area"
+          src={cfg.src}
+          style={{ width: '100%', height: cfg.height || 240, border: '1px solid #eee' }}
+        />
+      ) : (
+        placeholder('Iframe区域（未配置地址）')
+      );
+    case 'multilang':
+      return <span>{cfg.zh || cfg.en || cfg.tw || displayValue || ' '}</span>;
+    case 'tab': {
+      const names = String(cfg.tabs || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      return names.length > 0 ? (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {names.map((n) => (
+            <span
+              key={n}
+              style={{
+                padding: '1px 8px',
+                border: `1px solid ${E9_COLORS.cardBorder}`,
+                borderRadius: 4,
+                fontSize: 12,
+                background: '#fafafa',
+              }}
+            >
+              {n}
+            </span>
+          ))}
+        </div>
+      ) : (
+        placeholder('标签页（未配置标签名）')
+      );
+    }
+    case 'note':
+      return (
+        <span style={{ color: E9_COLORS.label, fontSize: 13 }}>
+          <InfoCircleOutlined style={{ marginRight: 4 }} />
+          {cfg.content || displayValue || ' '}
+        </span>
+      );
+    case 'barcode': {
+      const isQr = cfg.type !== 'barcode';
+      const w = cfg.width || 100;
+      const h = cfg.height || 100;
+      return (
+        <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+          <div
+            style={{
+              width: isQr ? Math.min(w, h) : w,
+              height: isQr ? Math.min(w, h) : Math.min(h, 48),
+              border: '1px dashed #bbb',
+              borderRadius: 4,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 18,
+            }}
+          >
+            {isQr ? '▣' : '▮▯▮▮▯▮'}
+          </div>
+          <span style={{ fontSize: 11, color: '#888' }}>{cfg.content || displayValue || ' '}</span>
+        </div>
+      );
+    }
+    case 'portal':
+      return (
+        <div
+          style={{
+            border: '1px dashed #bbb',
+            borderRadius: 4,
+            padding: 8,
+            color: '#888',
+            fontSize: 12,
+            minHeight: Math.min(cfg.height || 60, 80),
+          }}
+        >
+          门户元素{cfg.hpid ? `（ID: ${cfg.hpid}）` : '（未配置）'}
+        </div>
+      );
+    default:
+      return <span>{cfg.content || displayValue || ' '}</span>;
+  }
+};
+
 // 渲染单元格内容：标签文本 / 字段控件 / 静态文本
 const renderCellNode = (
   cell: CellDataItem,
@@ -569,6 +705,11 @@ const renderCellNode = (
         {label}
       </span>
     );
+  }
+  // 元素格（代码块 / 图片 / 链接 / Iframe / 二维码 …）：按 elementType 还原各自的展示形态
+  // （对应 ecology 扩展控件 dataobj.ecs[cellid] = { etype, jsonparam }）
+  if (meta.cellType === 'element') {
+    return renderElementNode(meta, displayValue);
   }
   // 标签单元格 → 静态说明文本（必填 * 由 requiredStar 控制，E9 风格 * 在标签后）
   if (meta.cellType === 'label') {
@@ -950,6 +1091,18 @@ const MobileSheetForm: React.FC<{
                 onToggleSelectAll={(checked) => onToggleAllDetailRows?.(item.idx, checked)}
                 onDeleteSelected={() => onDeleteSelectedDetailRows?.(item.idx)}
               />
+            </div>
+          );
+        }
+        // 元素行（代码块 / 图片 / 链接 / Iframe …）：满宽渲染，无标签列
+        if (item.kind === 'element') {
+          const key = `${keyPrefix ?? ''}${cellKey(sheet.id, item.row, item.col)}`;
+          return (
+            <div
+              key={`e-${i}`}
+              style={{ padding: '10px 12px', borderBottom: `1px solid ${E9_COLORS.cardBorder}` }}
+            >
+              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false)}
             </div>
           );
         }

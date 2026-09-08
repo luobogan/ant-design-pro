@@ -1,5 +1,18 @@
-import React, { useState } from 'react';
-import { Tabs, Button, Space, Tooltip, Divider, Dropdown, ColorPicker, Select, message } from 'antd';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Tabs,
+  Button,
+  Space,
+  Tooltip,
+  Divider,
+  Dropdown,
+  ColorPicker,
+  Select,
+  message,
+  Modal,
+  Input,
+  InputNumber,
+} from 'antd';
 import {
   SaveOutlined,
   EyeOutlined,
@@ -26,6 +39,17 @@ import {
   EditOutlined,
   CheckCircleOutlined,
   TableOutlined,
+  CodeOutlined,
+  PictureOutlined,
+  LinkOutlined,
+  GlobalOutlined,
+  ApiOutlined,
+  FunctionOutlined,
+  ClearOutlined,
+  AppstoreOutlined,
+  InfoCircleOutlined,
+  BarcodeOutlined,
+  DeploymentUnitOutlined,
 } from '@ant-design/icons';
 
 /**
@@ -56,9 +80,184 @@ interface ExcelRibbonProps {
   /** 本表单拥有的明细表序号（用于「插入明细表」下拉） */
   detailTableOptions: { idx: number; count: number }[];
   onInsertDetail: (idx: number) => void;
+  /** 是否展示工具条。原生 ribbon 注册成功时由父组件置 false（仅保留 Modal 承载弹窗），避免双工具条 */
+  visible?: boolean;
 }
 
 const FONT_SIZES = [9, 10, 11, 12, 14, 16, 18, 20, 24, 28];
+
+// ──────────────────────────────────────────────
+// 插入菜单（对齐 ecology excelOperatHead.jsp 的 s_insert 分组，共 12 项）
+//  - 10 项为「元素格」：写入 cellType='element' + elementType + elementConfig
+//    （对应 ecology 扩展控件 dataobj.ecs[cellid] = { etype, jsonparam }）；
+//  - 「公式」写入 '=' 交给 Univer 公式引擎编辑；
+//  - 「清除背景」把当前选区背景重置为白色。
+// ──────────────────────────────────────────────
+type InsertFieldDef = {
+  name: string;
+  label: string;
+  type: 'text' | 'textarea' | 'number' | 'select';
+  options?: { label: string; value: any }[];
+  placeholder?: string;
+  initial?: any;
+};
+
+type InsertDef = {
+  key: string;
+  label: string;
+  icon: React.ReactNode;
+  /** element=写入元素格；formula=公式；action=立即执行的网格动作 */
+  mode: 'element' | 'formula' | 'action';
+  fields?: InsertFieldDef[];
+  action?: string;
+  actionArgs?: any[];
+};
+
+const INSERT_DEFS: InsertDef[] = [
+  {
+    key: 'code',
+    label: '代码块',
+    icon: <CodeOutlined />,
+    mode: 'element',
+    fields: [
+      {
+        name: 'language',
+        label: '语言',
+        type: 'select',
+        initial: 'javascript',
+        options: [
+          { label: 'JavaScript', value: 'javascript' },
+          { label: 'Java', value: 'java' },
+          { label: 'SQL', value: 'sql' },
+          { label: 'HTML', value: 'html' },
+          { label: '纯文本', value: 'text' },
+        ],
+      },
+      { name: 'content', label: '代码内容', type: 'textarea', placeholder: '输入代码块内容' },
+    ],
+  },
+  {
+    key: 'image',
+    label: '图片',
+    icon: <PictureOutlined />,
+    mode: 'element',
+    fields: [
+      { name: 'src', label: '图片地址', type: 'text', placeholder: 'https://... 或相对路径' },
+      { name: 'width', label: '宽度(px)', type: 'number' },
+      { name: 'height', label: '高度(px)', type: 'number' },
+      { name: 'alt', label: '替代文字', type: 'text' },
+    ],
+  },
+  {
+    key: 'text',
+    label: '文本',
+    icon: <FontSizeOutlined />,
+    mode: 'element',
+    fields: [{ name: 'content', label: '文本内容', type: 'textarea', placeholder: '输入文本内容' }],
+  },
+  {
+    key: 'link',
+    label: '链接',
+    icon: <LinkOutlined />,
+    mode: 'element',
+    fields: [
+      { name: 'href', label: '链接地址', type: 'text', placeholder: 'https://...' },
+      { name: 'text', label: '显示文字', type: 'text' },
+      {
+        name: 'target',
+        label: '打开方式',
+        type: 'select',
+        initial: '_blank',
+        options: [
+          { label: '新窗口', value: '_blank' },
+          { label: '当前窗口', value: '_self' },
+        ],
+      },
+    ],
+  },
+  {
+    key: 'multilang',
+    label: '多语言标签',
+    icon: <GlobalOutlined />,
+    mode: 'element',
+    fields: [
+      { name: 'zh', label: '中文', type: 'text' },
+      { name: 'en', label: 'English', type: 'text' },
+      { name: 'tw', label: '繁體', type: 'text' },
+    ],
+  },
+  {
+    key: 'iframe',
+    label: 'Iframe区域',
+    icon: <ApiOutlined />,
+    mode: 'element',
+    fields: [
+      { name: 'src', label: 'Iframe 地址', type: 'text', placeholder: 'https://...' },
+      { name: 'height', label: '高度(px)', type: 'number', initial: 240 },
+    ],
+  },
+  { key: 'formula', label: '公式', icon: <FunctionOutlined />, mode: 'formula' },
+  {
+    key: 'clearBg',
+    label: '清除背景',
+    icon: <ClearOutlined />,
+    mode: 'action',
+    action: 'applyRangeFormat',
+    actionArgs: ['bg', '#ffffff'],
+  },
+  {
+    key: 'tab',
+    label: '标签页',
+    icon: <AppstoreOutlined />,
+    mode: 'element',
+    fields: [
+      {
+        name: 'tabs',
+        label: '标签页名称',
+        type: 'text',
+        placeholder: '多个用逗号分隔，如：基本信息,扩展信息',
+      },
+    ],
+  },
+  {
+    key: 'note',
+    label: '说明',
+    icon: <InfoCircleOutlined />,
+    mode: 'element',
+    fields: [{ name: 'content', label: '说明内容', type: 'textarea' }],
+  },
+  {
+    key: 'barcode',
+    label: '二维/条形码',
+    icon: <BarcodeOutlined />,
+    mode: 'element',
+    fields: [
+      {
+        name: 'type',
+        label: '类型',
+        type: 'select',
+        initial: 'qrcode',
+        options: [
+          { label: '二维码', value: 'qrcode' },
+          { label: '条形码', value: 'barcode' },
+        ],
+      },
+      { name: 'content', label: '编码内容', type: 'text' },
+      { name: 'width', label: '宽度(px)', type: 'number', initial: 100 },
+      { name: 'height', label: '高度(px)', type: 'number', initial: 100 },
+    ],
+  },
+  {
+    key: 'portal',
+    label: '门户元素',
+    icon: <DeploymentUnitOutlined />,
+    mode: 'element',
+    fields: [
+      { name: 'hpid', label: '门户ID', type: 'text', placeholder: '门户元素 hpid' },
+      { name: 'height', label: '高度(px)', type: 'number', initial: 300 },
+    ],
+  },
+];
 
 // 统一的网格 API 调用：实例缺失 / 无选区时给出明确提示
 const callGrid = (fn: string, ...args: any[]): boolean => {
@@ -89,16 +288,67 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
   onFieldAttrChange,
   detailTableOptions,
   onInsertDetail,
+  visible = true,
 }) => {
   const [activeKey, setActiveKey] = useState<string>('format');
   // 加粗/斜体/下划线为开关态：仅作视觉反馈，实际每次点击都作用于当前选区
   const [toggles, setToggles] = useState<Record<string, boolean>>({ bold: false, italic: false, underline: false });
+  // 插入元素：当前正在配置的项 + 其参数值（无参数项直接插入，不弹窗）
+  const [insertDef, setInsertDef] = useState<InsertDef | null>(null);
+  const [insertVals, setInsertVals] = useState<Record<string, any>>({});
 
   const toggle = (key: string, action: string) => {
     const next = !toggles[key];
     setToggles((prev) => ({ ...prev, [key]: next }));
     callGrid('applyRangeFormat', action, next);
   };
+
+  // 点击「插入」项：action/formula 立即执行；有参数的元素项先弹窗收集配置
+  const openInsert = (def: InsertDef) => {
+    if (def.mode === 'action') {
+      if (callGrid(def.action as string, ...(def.actionArgs || []))) {
+        message.success(`已${def.label}`);
+      }
+      return;
+    }
+    if (def.mode === 'formula') {
+      if (callGrid('insertFormula')) message.success('已进入公式编辑，输入公式后回车');
+      return;
+    }
+    if (!def.fields || def.fields.length === 0) {
+      if (callGrid('insertElement', def.key, {})) message.success(`已插入「${def.label}」`);
+      return;
+    }
+    const init: Record<string, any> = {};
+    def.fields.forEach((f) => {
+      init[f.name] = f.initial !== undefined ? f.initial : f.type === 'number' ? undefined : '';
+    });
+    setInsertVals(init);
+    setInsertDef(def);
+  };
+
+  const submitInsert = () => {
+    if (!insertDef) return;
+    if (callGrid('insertElement', insertDef.key, insertVals)) {
+      message.success(`已插入「${insertDef.label}」`);
+    }
+    setInsertDef(null);
+  };
+
+  // 按类型打开插入参数弹窗（供原生 ribbon 的「插入」项桥接调用）
+  const openInsertByType = (type: string) => {
+    const def = INSERT_DEFS.find((d) => d.key === type);
+    if (def) openInsert(def);
+  };
+  const openInsertByTypeRef = useRef(openInsertByType);
+  openInsertByTypeRef.current = openInsertByType;
+  // 挂载时把桥接挂到 window；原生 ribbon 的插入按钮点击后调用它打开 React 弹窗
+  useEffect(() => {
+    (window as any).__designerOpenInsertModal = (type: string) => openInsertByTypeRef.current(type);
+    return () => {
+      delete (window as any).__designerOpenInsertModal;
+    };
+  }, []);
 
   const tabItems = [
     // ── 模板：整体保存 / 预览 / 导入导出 ──
@@ -203,25 +453,38 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
         </Space>
       ),
     },
-    // ── 插入：行列增删 + 明细表标记 ──
+    // ── 插入：12 项元素/公式/清除背景（对齐 ecology s_insert） + 行列增删 ──
     {
       key: 'insert',
       label: '插入',
       children: (
-        <Space wrap size={8}>
-          <Button icon={<InsertRowAboveOutlined />} onClick={() => callGrid('rowColOp', 'insertRow')}>
-            插入行
-          </Button>
-          <Button icon={<InsertRowLeftOutlined />} onClick={() => callGrid('rowColOp', 'insertCol')}>
-            插入列
-          </Button>
-          <Button icon={<DeleteRowOutlined />} onClick={() => callGrid('rowColOp', 'removeRow')}>
-            删除行
-          </Button>
-          <Button icon={<DeleteColumnOutlined />} onClick={() => callGrid('rowColOp', 'removeCol')}>
-            删除列
-          </Button>
-        </Space>
+        <>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {INSERT_DEFS.map((d) => (
+              <Tooltip key={d.key} title={d.label}>
+                <Button icon={d.icon} onClick={() => openInsert(d)}>
+                  {d.label}
+                </Button>
+              </Tooltip>
+            ))}
+          </div>
+          <Divider style={{ margin: '8px 0' }} />
+          <Space wrap size={8}>
+            <span style={{ color: '#999', fontSize: 12 }}>行列：</span>
+            <Button icon={<InsertRowAboveOutlined />} onClick={() => callGrid('rowColOp', 'insertRow')}>
+              插入行
+            </Button>
+            <Button icon={<InsertRowLeftOutlined />} onClick={() => callGrid('rowColOp', 'insertCol')}>
+              插入列
+            </Button>
+            <Button icon={<DeleteRowOutlined />} onClick={() => callGrid('rowColOp', 'removeRow')}>
+              删除行
+            </Button>
+            <Button icon={<DeleteColumnOutlined />} onClick={() => callGrid('rowColOp', 'removeCol')}>
+              删除列
+            </Button>
+          </Space>
+        </>
       ),
     },
     // ── 字段属性：只读 / 可编辑 / 必填（对齐 ecology viewAttr）──
@@ -295,6 +558,7 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
   return (
     <div
       style={{
+        display: visible === false ? 'none' : undefined,
         background: '#fafafa',
         border: '1px solid #f0f0f0',
         borderRadius: 6,
@@ -303,6 +567,55 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
       }}
     >
       <Tabs size="small" activeKey={activeKey} onChange={setActiveKey} items={tabItems} />
+
+      {/* 插入元素的参数配置弹窗：按元素类型动态渲染字段，确认后写入活动单元格 */}
+      <Modal
+        open={!!insertDef}
+        title={insertDef ? `插入「${insertDef.label}」` : ''}
+        okText="插入"
+        cancelText="取消"
+        onOk={submitInsert}
+        onCancel={() => setInsertDef(null)}
+        destroyOnClose
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+          {(insertDef?.fields || []).map((f) => (
+            <div key={f.name}>
+              <div style={{ marginBottom: 4, fontSize: 13 }}>{f.label}</div>
+              {f.type === 'text' && (
+                <Input
+                  value={insertVals[f.name] ?? ''}
+                  placeholder={f.placeholder}
+                  onChange={(e) => setInsertVals((p) => ({ ...p, [f.name]: e.target.value }))}
+                />
+              )}
+              {f.type === 'textarea' && (
+                <Input.TextArea
+                  rows={4}
+                  value={insertVals[f.name] ?? ''}
+                  placeholder={f.placeholder}
+                  onChange={(e) => setInsertVals((p) => ({ ...p, [f.name]: e.target.value }))}
+                />
+              )}
+              {f.type === 'number' && (
+                <InputNumber
+                  style={{ width: '100%' }}
+                  value={insertVals[f.name]}
+                  onChange={(v) => setInsertVals((p) => ({ ...p, [f.name]: v }))}
+                />
+              )}
+              {f.type === 'select' && (
+                <Select
+                  style={{ width: '100%' }}
+                  value={insertVals[f.name]}
+                  options={f.options}
+                  onChange={(v) => setInsertVals((p) => ({ ...p, [f.name]: v }))}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      </Modal>
     </div>
   );
 };

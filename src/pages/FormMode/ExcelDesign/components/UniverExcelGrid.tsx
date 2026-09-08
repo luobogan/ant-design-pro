@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Card, App, Button, Spin } from 'antd';
 import { useDrop } from 'react-dnd';
-import { Univer, LocaleType, UniverInstanceType, mergeLocales, IUndoRedoService, ICommandService } from '@univerjs/core';
+import { Univer, LocaleType, UniverInstanceType, mergeLocales, IUndoRedoService, ICommandService, LocaleService } from '@univerjs/core';
 import { UniverRenderEnginePlugin } from '@univerjs/engine-render';
 import { UniverFormulaEnginePlugin } from '@univerjs/engine-formula';
-import { UniverUIPlugin } from '@univerjs/ui';
+import { UniverUIPlugin, IMenuManagerService, ComponentManager, IRibbonService } from '@univerjs/ui';
 import { UniverSheetsPlugin } from '@univerjs/sheets';
 import { UniverSheetsUIPlugin } from '@univerjs/sheets-ui';
 import { UniverDocsPlugin } from '@univerjs/docs';
@@ -22,6 +22,10 @@ import '@univerjs/sheets/facade';
 // 导入 FUniver 类（Facade API 的入口）
 // FUniver 需要通过 FUniver.newAPI(univer) 来创建实例，不能直接 new FUniver()
 import { FUniver } from '@univerjs/core/facade';
+
+// 关键：导入 ui facade 侧效应，为 FUniver 扩展 createMenu / createSubmenu。
+// 缺少它时 window.__univerFAPI 上没有 createMenu，设计器的自定义 ribbon 页签无法注册。
+import '@univerjs/ui/facade';
 
 // 关键：导入 sheets-ui facade 侧效应，为 FWorksheet 添加 hitTest 等方法
 // 这行代码会执行 FWorksheet.extend(FWorksheetUIMixin)，将 hitTest 方法添加到 FWorksheet 原型上
@@ -2945,6 +2949,28 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         (window as any).__univerFAPI = fUniver;
         console.log('[Univer Init] ✅ FUniver 实例已暴露到 window.__univerFAPI');
 
+        // 暴露 IMenuManagerService：自定义 ribbon 页签需要设置自身的 order / title，
+        // 而 Facade 的 createMenu().appendTo() 只能挂菜单项、无法设置页签属性，
+        // 故把菜单管理服务一并桥接出去（ribbonRegistry 用它 mergeMenu 建页签）。
+        try {
+          const inj = (univer as any).__getInjector?.();
+          (window as any).__univerMenuManager = inj?.get?.(IMenuManagerService) || null;
+          // ComponentManager：原生 ribbon 菜单项的 icon 必须是注册在 ComponentManager 里的
+          // 字符串 key（渲染层 componentManager.get(icon) 取组件）。ribbonRegistry 用它注册 antd 图标。
+          (window as any).__univerComponentManager = inj?.get?.(ComponentManager) || null;
+          // IRibbonService：设置默认激活的 ribbon 页签（默认打开「格式」页签）
+          (window as any).__univerRibbonService = inj?.get?.(IRibbonService) || null;
+          // ICommandService：自定义 ribbon 菜单项需要注册命令（commandId → action 回调）。
+          // Facade 的 createMenu 内部用的 menu manager / commandService 实例与运行时不一致，
+          // 故这里直接暴露真实实例，ribbonRegistry 用它注册命令 + 合并菜单结构。
+          (window as any).__univerCommandService = inj?.get?.(ICommandService) || null;
+          // LocaleService：菜单管理服务不可用时的兜底——把页签 key 直接注册为 locale，
+          // 使 ClassicMenu 的 localeService.t(group.key) 能拿到中文标题。
+          (window as any).__univerLocaleService = inj?.get?.(LocaleService) || null;
+        } catch (e) {
+          console.warn('[Univer Init] 暴露 MenuManagerService 失败:', e);
+        }
+
         // 获取活动工作表（FWorksheet）
         const sheet = fWorkbook.getActiveSheet();
         sheetRef.current = sheet;
@@ -3857,6 +3883,76 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         }
       };
 
+      // ── 插入「元素」格 ──
+      // 对齐 ecology 扩展控件模型：dataobj.ecs[cellid] = { etype, jsonparam }
+      // 这里以单元格元数据落位：cellType='element' + elementType（≈etype）+ elementConfig（≈jsonparam）
+      const ELEMENT_META: Record<string, { icon: string; label: string }> = {
+        code: { icon: '💻', label: '代码块' },
+        image: { icon: '🖼️', label: '图片' },
+        text: { icon: '📝', label: '文本' },
+        link: { icon: '🔗', label: '链接' },
+        multilang: { icon: '🌐', label: '多语言标签' },
+        iframe: { icon: '🧩', label: 'Iframe区域' },
+        tab: { icon: '🗂️', label: '标签页' },
+        note: { icon: '📌', label: '说明' },
+        barcode: { icon: '📊', label: '二维/条形码' },
+        portal: { icon: '🏛️', label: '门户元素' },
+      };
+
+      const getActiveCellPos = (): { row: number; col: number } => {
+        const sel: any = typeof getSelection === 'function' ? getSelection() : null;
+        return {
+          row: Number(sel?.row ?? rightClickCellRef.current?.row ?? 0),
+          col: Number(sel?.col ?? rightClickCellRef.current?.col ?? 0),
+        };
+      };
+
+      const insertElement = (type: string, config?: Record<string, any>): boolean => {
+        try {
+          const sheet = sheetRef.current;
+          if (!sheet) return false;
+          const { row, col } = getActiveCellPos();
+          const def = ELEMENT_META[type] || { icon: '📦', label: type };
+          const meta: any = {
+            fieldId: `element_${type}_${row}_${col}`,
+            fieldName: '',
+            fieldLabel: def.label,
+            fieldType: 'label',
+            cellType: 'element',
+            elementType: type,
+            elementConfig: config || {},
+            required: false,
+            readonly: false,
+          };
+          setCellField(workbookRef.current, sheet, row, col, meta);
+          // 写入带图标的显示文本，便于在设计器中一眼识别元素类型
+          try {
+            (sheet as any)?.getRange?.(row, col, 1, 1)?.setValue?.(`${def.icon} ${def.label}`);
+          } catch (e) { /* ignore */ }
+          setTimeout(() => { try { saveLayoutData(); } catch (e) { /* ignore */ } }, 0);
+          return true;
+        } catch (e) {
+          console.warn('[InsertElement] 失败:', e);
+          return false;
+        }
+      };
+
+      // 插入公式：在活动单元格写入 '=' 交由 Univer 公式引擎编辑
+      const insertFormula = (): boolean => {
+        try {
+          const sheet: any = sheetRef.current;
+          if (!sheet) return false;
+          const { row, col } = getActiveCellPos();
+          const cur = String((sheet.getRange?.(row, col, 1, 1)?.getValue?.() ?? '') || '');
+          if (cur.startsWith('=')) return true;
+          (sheet.getRange?.(row, col, 1, 1) as any)?.setValue?.('=');
+          return true;
+        } catch (e) {
+          console.warn('[InsertFormula] 失败:', e);
+          return false;
+        }
+      };
+
       (window as any).univerExcelGrid = {
         saveLayoutData,
         loadLayoutData,
@@ -3864,6 +3960,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         mergeSelection,
         unmergeSelection,
         rowColOp,
+        insertElement,
+        insertFormula,
         handleFieldDrop,
         getCellFieldMeta,
         getContextCell: () => rightClickCellRef.current,  // 右键命中的单元格（工具栏无选区时回退用）

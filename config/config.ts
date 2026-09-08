@@ -62,6 +62,8 @@ export default defineConfig({
     '@univerjs/ui': join(UNIVER_LIB, 'ui', 'lib', 'es', 'index.js'),
     // facade 子路径
     '@univerjs/core/facade': join(UNIVER_LIB, 'core', 'lib', 'es', 'facade.js'),
+    // ui facade：为 FUniver 扩展 createMenu / createSubmenu（设计器自定义 ribbon 页签依赖）
+    '@univerjs/ui/facade': join(UNIVER_LIB, 'ui', 'lib', 'es', 'facade.js'),
     '@univerjs/docs/facade': join(UNIVER_LIB, 'docs', 'lib', 'es', 'facade.js'),
     '@univerjs/sheets/facade': join(UNIVER_LIB, 'sheets', 'lib', 'es', 'facade.js'),
     '@univerjs/sheets-ui/facade': join(UNIVER_LIB, 'sheets-ui', 'lib', 'es', 'facade.js'),

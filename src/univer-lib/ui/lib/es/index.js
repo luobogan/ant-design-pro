@@ -3682,7 +3682,7 @@ const ToolbarItem = forwardRef((props, ref) => {
 		layoutService.focus();
 		commandService.executeCommand(commandId, params);
 	};
-	const { tooltip, shortcut, icon, title, label, id, commandId, type, slot, params } = props;
+	const { tooltip, shortcut, icon, title, label, id, commandId, type, slot, params, showTitle } = props;
 	const tooltipTitle = localeService.t(tooltip !== null && tooltip !== void 0 ? tooltip : "") + (shortcut ? ` (${shortcut})` : "");
 	const { selections } = props;
 	const options = useObservable(useMemo(() => {
@@ -3807,7 +3807,7 @@ const ToolbarItem = forwardRef((props, ref) => {
 				title,
 				value,
 				label
-			}) : icon ? /* @__PURE__ */ jsx(CustomLabel, { icon }) : /* @__PURE__ */ jsx(CustomLabel, { title })
+			}) : icon ? (showTitle ? /* @__PURE__ */ jsx(CustomLabel, { icon, title }) : /* @__PURE__ */ jsx(CustomLabel, { icon })) : /* @__PURE__ */ jsx(CustomLabel, { title })
 		});
 	}
 	function renderItem() {

@@ -28,6 +28,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import FieldPalette from './components/FieldPalette';
 import UniverExcelGrid from './components/UniverExcelGrid';
 import ExcelRibbon from './components/ExcelRibbon';
+import { registerDesignerRibbon, resetDesignerRibbon } from './ribbonRegistry';
 import PropertyPanel from './components/PropertyPanel';
 import ExcelPreview from './components/ExcelPreview';
 import { EXCEL_PREVIEW_DATA_KEY } from './ExcelPreviewPage';
@@ -1112,8 +1113,12 @@ const ExcelDesignContent: React.FC = () => {
   }, []);
 
   // ──────────────────────────────────────────────
-  // 插入明细表：在主表活动单元格写入标记并打开对应子画布（顶部工具条与页面按钮共用）
+  // 把设计器操作注册到 Univer 原生 Ribbon
+  // univer 初始化是异步的（window.__univerFAPI 由 UniverExcelGrid 就绪后挂载），故轮询等待再注册。
+  // 表单 / 明细表选项变化时重新注册，保证「插入明细表」菜单项与当前表单一致。
   // ──────────────────────────────────────────────
+  // 插入明细表：在主表活动单元格写入标记并打开对应子画布（顶部工具条与页面按钮共用）
+  // 声明前置到 ribbon 注册之前，避免渲染时读取触发 TDZ（Cannot access before initialization）。
   const handleInsertDetailTable = useCallback(
     (idx: number) => {
       const grid = (window as any).univerExcelGrid;
@@ -1126,6 +1131,46 @@ const ExcelDesignContent: React.FC = () => {
     },
     [message, openDetailCanvas],
   );
+
+  const ribbonOptsRef = useRef<any>(null);
+  ribbonOptsRef.current = {
+    onSave: handleSave,
+    onPreview: handlePreview,
+    onImport: handleImport,
+    onExport: handleExport,
+    onUndo: handleUndo,
+    onRedo: handleRedo,
+    onFieldAttr: handleFieldAttrChange,
+    onInsertDetail: handleInsertDetailTable,
+    detailOptions: detailTableOptions,
+  };
+
+  // 原生 ribbon 注册结果。registerDesignerRibbon 改为直接通过暴露的
+  // IMenuManagerService + ICommandService 注册（绕过 Facade 实例不一致问题），
+  // 注册成功即原生 ribbon 出现「模板/格式/插入/字段属性/明细表」5 个页签（紧贴「开始」后）。
+  // 成功后隐藏 React 工具条（避免双工具条）；10s 内仍失败则保留 React 工具条兜底。
+  const [nativeRibbonReady, setNativeRibbonReady] = useState<boolean>(false);
+  const [nativeRibbonFailed, setNativeRibbonFailed] = useState<boolean>(false);
+
+  useEffect(() => {
+    resetDesignerRibbon();
+    setNativeRibbonReady(false);
+    setNativeRibbonFailed(false);
+    let tries = 0;
+    const timer = setInterval(() => {
+      tries += 1;
+      const ok = registerDesignerRibbon(ribbonOptsRef.current);
+      if (ok) {
+        setNativeRibbonReady(true);
+        clearInterval(timer);
+      } else if (tries > 20) {
+        // 10s 内仍未注册成功 → 判定不可用，回退 React 工具条
+        setNativeRibbonFailed(true);
+        clearInterval(timer);
+      }
+    }, 500);
+    return () => clearInterval(timer);
+  }, [formId, detailTableOptions]);
 
   // ──────────────────────────────────────────────
   // 页面按钮配置
@@ -1252,7 +1297,10 @@ const ExcelDesignContent: React.FC = () => {
             {/* 中间 Univer Excel 区域 */}
             <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
               <Card>
-                {/* 顶部工具条（模板 / 格式 / 插入 / 字段属性 / 明细表），对齐 ecology 设计器操作区 */}
+                {/* 操作区：模板 / 格式 / 插入 / 字段属性 / 明细表。
+                    优先用 Univer 原生 Ribbon（registerDesignerRibbon 注册的「模板/格式/插入/字段属性/明细表」
+                    5 个页签，紧贴原生「开始」之后）；原生注册成功时本 React 工具条隐藏（仅保留弹窗承载），
+                    失败/未就绪时回退为本 React 工具条。 */}
                 <ExcelRibbon
                   saving={saving}
                   onSave={handleSave}
@@ -1268,6 +1316,7 @@ const ExcelDesignContent: React.FC = () => {
                   onFieldAttrChange={handleFieldAttrChange}
                   detailTableOptions={detailTableOptions}
                   onInsertDetail={handleInsertDetailTable}
+                  visible={!nativeRibbonReady}
                 />
 
                 {gridNode}
