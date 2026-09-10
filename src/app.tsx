@@ -4,7 +4,7 @@ import type { Settings as LayoutSettings, MenuDataItem } from '@ant-design/pro-c
 import { SettingDrawer } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
 import { history, Link, Navigate } from '@umijs/max';
-import { Spin } from 'antd';
+import { message, Spin } from 'antd';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import React from 'react';
@@ -26,7 +26,7 @@ import { errorConfig, getSavedFormData } from '@/requestErrorConfig';
 import { dynamicRoutes, dynamicButtons } from '@/services/system/menu';
 import { setButtons, getButtons } from '@/utils/authority';
 import Func from '@/utils/Func';
-import { formatRoutes } from '@/utils/utils';
+import { formatRoutes, pickPayload } from '@/utils/utils';
 
 dayjs.extend(relativeTime);
 
@@ -76,7 +76,15 @@ export function patchClientRoutes({ routes }: { routes: any }) {
         routes[routerIndex].children.push(r);
       }
     });
-    console.log('patchClientRoutes: 已挂载动态路由', routes[routerIndex].children.length);
+    const mounted: string[] = routes[routerIndex].children.map((r: any) => String(r?.path));
+    console.log('patchClientRoutes: 已挂载动态路由', mounted.length);
+    // 诊断用：打印全部已注册路由路径，便于确认目标页（如 /formmode/workflowdesign）是否注册
+    console.log('patchClientRoutes: 路由清单 =', mounted);
+    // 诊断用：组件懒加载失败会回退到 404 页，这里明确打出失败原因
+    console.log(
+      'patchClientRoutes: /formmode/workflowdesign 是否注册 =',
+      mounted.includes('/formmode/workflowdesign'),
+    );
   }
 }
 
@@ -103,6 +111,10 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
   return menus.flatMap((item) => {
     let Component: React.ComponentType<any> | null = null;
     const buttonRoutes: RouteItem[] = [];
+
+    // 无 path 的菜单（如仅用于按钮权限的菜单）不注册路由。
+    // 路由扁平化后，它们若生成 path='' 的顶级路由会污染路由表并可能抢占 '/' 的匹配。
+    if (!item.path) return [];
 
     if (item.path) {
       const formattedPath = Func.formatRoutePath(item.path);
@@ -141,21 +153,25 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
               const formattedPath1 = Func.formatRoutePath(item1.path);
               const pathParts1 = formattedPath1.split('/').filter(Boolean);
               const lastSegment = pathParts1[pathParts1.length - 1];
-              const parentPath = pathParts1.slice(0, -1).join('/');
-              const componentName = `${toPascalCase(page)}${toPascalCase(lastSegment)}`;
-              // 构建 PascalCase 路径：/formmode/exceldesign → ./pages/FormMode/ExcelDesign/ExcelDesign.tsx
-              const pascalPath = pathParts1.map(p => toPascalCase(p)).join('/');
-              const importPath = `./pages/${pascalPath}.tsx`;
+              // 组件加载规则（与菜单页完全一致，嵌套）：./pages/{Module}/{Page}/{Component}.tsx
+              // 前两段为「模块/页面」目录，末段为组件文件名（PascalCase）。
+              //   /formmode/workflowdesign            → ./pages/FormMode/WorkflowDesign/WorkflowDesign.tsx
+              //   /formmode/workflowdesign/preview     → ./pages/FormMode/WorkflowDesign/Preview.tsx
+              const moduleSeg = toPascalCase(pathParts1[0]);
+              const pageSeg = toPascalCase(pathParts1[1] ?? lastSegment);
+              const componentSeg = toPascalCase(lastSegment);
+              const importPath = `./pages/${moduleSeg}/${pageSeg}/${componentSeg}.tsx`;
               //  debugger;
               console.log(`按钮组件路径：${importPath}`);
 
               const ButtonComponent = React.lazy(
                 () =>
                   new Promise((resolve, _reject) => {
-                    import(`./pages/${pascalPath}.tsx`)
+                    import(importPath)
                       .then((mod) => resolve(mod))
                       .catch((error) => {
-                        console.error('组件导入错误:', error);
+                        console.error('组件导入错误:', importPath, error);
+                        message.error(`按钮组件加载失败：${importPath}（详见控制台）`);
                         import('./pages/exception/404').then((mod) => resolve(mod));
                       });
                   }),
@@ -205,7 +221,8 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
               import(`./pages/${module}/${page}/${pageComponentName}.tsx`)
                 .then((mod) => resolve(mod))
                 .catch((error) => {
-                  console.error('组件导入错误:', error);
+                  console.error('组件导入错误:', componentPath, error);
+                  message.error(`页面组件加载失败：${componentPath}（详见控制台）`);
                   import('./pages/exception/404').then((mod) => resolve(mod));
                 });
             }),
@@ -213,68 +230,63 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
       }
     }
 
-    if (item.children) {
-      console.log(item.children[0]);
-      // 扁平化：父菜单只注册一个「重定向到首个子菜单」的路由，
-      // 子菜单全部作为顶层兄弟路由挂到 '/' 下（不再嵌套 children）。
-      // 否则当子菜单使用跨命名空间的绝对路径（如 /formmode/xxx）而被嵌套到
-      // /system 之下时，会触发 React Router 的
-      // "Absolute route path ... nested under path ... is not valid" 报错。
-      return [
-        {
-          path: item.path,
-          name: item.name,
-          icon: item.icon,
-          id: item.id,
-          parentId: pId,
-          element: <Navigate to={item.children[0].path} replace />,
-        },
-        ...loopMenuItem(item.children, item.id),
-      ];
-    } else {
-      return [
-        {
-          path: item.path,
-          name: item.name,
-          icon: item.icon,
-          id: item.id,
-          parentId: pId,
-          element: (
-            <React.Suspense
-              fallback={
-                <div
+    const children = item.children || [];
+    // 仅当存在「位于本路径之下的子页面」时，本菜单才是纯分组，渲染成重定向；
+    // 否则（子项只是按钮权限无 path，或跨命名空间如 /system/workflow 下的
+    // /formmode/workflowdesign）本菜单本身就是一个页面，必须渲染自己的组件，
+    // 不然会被 <Navigate to="" /> 空转，表现为「打开了但是一片空白 / 404」。
+    const navChild = children.find(
+      (c: any) => c.path && String(c.path).startsWith(`${item.path}/`),
+    );
+
+    // 扁平化：本菜单与其子菜单都作为顶层兄弟路由挂到 '/' 下（不再嵌套 children），
+    // 避免子菜单使用跨命名空间绝对路径被嵌套而触发
+    // "Absolute route path ... nested under path ... is not valid" 报错。
+    return [
+      {
+        path: item.path,
+        name: item.name,
+        icon: item.icon,
+        id: item.id,
+        parentId: pId,
+        element: navChild ? (
+          <Navigate to={navChild.path} replace />
+        ) : (
+          <React.Suspense
+            fallback={
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minHeight: '400px',
+                  padding: '20px',
+                  textAlign: 'center',
+                }}
+              >
+                <div style={{ marginBottom: '16px' }}>
+                  <Spin size="large" description="加载中..." />
+                </div>
+                <p
                   style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    minHeight: '400px',
-                    padding: '20px',
-                    textAlign: 'center',
+                    fontSize: '14px',
+                    color: '#666',
+                    marginTop: '16px',
                   }}
                 >
-                  <div style={{ marginBottom: '16px' }}>
-                    <Spin size="large" description="加载中..." />
-                  </div>
-                  <p
-                    style={{
-                      fontSize: '14px',
-                      color: '#666',
-                      marginTop: '16px',
-                    }}
-                  >
-                    正在加载页面，请稍候...
-                  </p>
-                </div>
-              }
-            >
-              {Component && <Component />}
-            </React.Suspense>
-          ),
-        },
-        ...buttonRoutes,
-      ];
-    }
+                  正在加载页面，请稍候...
+                </p>
+              </div>
+            }
+          >
+            {Component && <Component />}
+          </React.Suspense>
+        ),
+      },
+      ...loopMenuItem(children, item.id),
+      ...buttonRoutes,
+    ];
   });
 };
 
@@ -282,7 +294,9 @@ export function render(oldRender: () => void) {
   setTimeout(async () => {
     try {
       const menuData = await dynamicRoutes();
-      extraRoutes = formatRoutes(menuData.data);
+      // 兼容两种形态：拦截器已拆包时 menuData.data 就是路由数组；
+      // 未拆包（umi 包装对象）时 menuData.data 是 ApiResponse，由 formatRoutes 内部再取 .data。
+      extraRoutes = formatRoutes(pickPayload(menuData));
       const urlParams = new URL(window.location.href).searchParams;
       const redirect = urlParams.get('redirect');
       if (redirect) {
@@ -320,7 +334,8 @@ export async function getInitialState(): Promise<{
     try {
       const res = await queryCurrentUser();
       console.log('用户信息响应:', res);
-      return res.data;
+      // 响应可能直接就是用户对象，也可能是 {data: 用户对象}，统一剥取
+      return pickPayload(res);
     } catch (_error) {
       console.error('获取用户信息失败:', _error);
       history.push(loginPath);
@@ -332,7 +347,7 @@ export async function getInitialState(): Promise<{
     try {
       const response = await dynamicButtons();
       console.log('按钮权限 API 响应:', response);
-      const buttonsData = response.data || [];
+      const buttonsData = pickPayload(response) || [];
 
       setButtons(buttonsData);
       console.log('按钮权限已加载:', buttonsData);

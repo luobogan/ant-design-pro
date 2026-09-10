@@ -24,11 +24,16 @@ import {
   WfProcessNode,
   FieldPermItem,
 } from '@/services/workflow';
-import BpmnDesigner from './BpmnDesigner';
 import { fieldDefinitionApi } from '@/services/formmode';
 import { useLocation } from '@umijs/max';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import WorkflowDefFormModal from '@/pages/System/Workflow/components/WorkflowDefFormModal';
+import { pickPayload } from '@/utils/utils';
+
+// bpmn-js 是较重的第三方库（带原生依赖），单独懒加载：
+// 1) 加快设计页首屏；2) 即便画布模块加载失败，设计页（节点 / 字段权限）仍可正常打开，
+//    不至于连带整个页面打不开（此前表现为点击进入后 404）。
+const BpmnDesignerLazy = React.lazy(() => import('./BpmnDesigner'));
 
 /**
  * 流程设计器（文档第 7 章 / §6.2）。
@@ -82,7 +87,7 @@ const WorkflowDesignPage: React.FC = () => {
 
   const refresh = () => {
     listDefinitions()
-      .then((r: any) => setDefs(r?.data || []))
+      .then((r: any) => setDefs(pickPayload(r) || []))
       .catch(() => message.error('加载流程定义失败'));
   };
 
@@ -109,8 +114,8 @@ const WorkflowDesignPage: React.FC = () => {
         listNodes(def.id!),
         getBpmn(def.id!),
       ]);
-      setNodes(nodeRes?.data || []);
-      setBpmn(bpmnRes?.data || '');
+      setNodes(pickPayload(nodeRes) || []);
+      setBpmn(pickPayload(bpmnRes) || '');
     } catch {
       message.error('加载流程定义失败');
     }
@@ -136,7 +141,7 @@ const WorkflowDesignPage: React.FC = () => {
 
       const permRes: any = await getFieldPerm(current!.id!, node.nodeKey!);
       const map: Record<string, number> = {};
-      (permRes?.data || []).forEach((p: FieldPermItem) => {
+      (pickPayload(permRes) || []).forEach((p: FieldPermItem) => {
         map[`${p.scope || 'main'}|${p.fieldName}`] = p.perm;
       });
       // 缺省为「可编辑(2)」便于配置
@@ -317,20 +322,22 @@ const WorkflowDesignPage: React.FC = () => {
                   key: 'canvas',
                   label: '流程画布',
                   children: (
-                    <BpmnDesigner
-                      defId={current.id}
-                      procKey={current.procKey}
-                      name={current.name}
-                      bpmnXml={bpmn}
-                      onSaved={() => {
-                        if (current?.id != null) {
-                          listNodes(current.id)
-                            .then((r: any) => setNodes(r?.data || []))
-                            .catch(() => {});
-                        }
-                      }}
-                      onDeployed={() => refresh()}
-                    />
+                    <React.Suspense fallback={<div style={{ padding: 24 }}>画布加载中...</div>}>
+                      <BpmnDesignerLazy
+                        defId={current.id}
+                        procKey={current.procKey}
+                        name={current.name}
+                        bpmnXml={bpmn}
+                        onSaved={() => {
+                          if (current?.id != null) {
+                            listNodes(current.id)
+                              .then((r: any) => setNodes(r?.data || []))
+                              .catch(() => {});
+                          }
+                        }}
+                        onDeployed={() => refresh()}
+                      />
+                    </React.Suspense>
                   ),
                 },
               ]}

@@ -228,8 +228,44 @@ export const generateRandomString = (length: number = 8): string => {
 //   return format(routes);
 // }
 
+/**
+ * 统一剥取接口载荷。
+ *
+ * 本前端 request() 的返回形态并不统一（受响应拦截器与 umi 拆包行为影响）：
+ *   ① 直接就是载荷（数组/对象/字符串）
+ *   ② { data: 载荷 }        （ApiResponse）
+ *   ③ { data: { data: 载荷 } }（umi 包装对象）
+ * 逐个剥掉 .data 即可兼容三种形态；数组/字符串不剥，避免误伤载荷本身。
+ */
+export function pickPayload(res: any, fallback: any = undefined) {
+  let cur = res;
+  for (let i = 0; i < 2; i += 1) {
+    if (
+      cur &&
+      typeof cur === 'object' &&
+      !Array.isArray(cur) &&
+      cur.data !== undefined
+    ) {
+      cur = cur.data;
+    } else {
+      break;
+    }
+  }
+  return cur === undefined || cur === null ? fallback : cur;
+}
+
 export function formatRoutes(routes: any, iconType = 'Outlined') {
   console.log(`formatRoutes  routes :${routes}`);
+  // 兼容多种响应形态：直接是数组 / { data: [...] }（ApiResponse 或 umi 包装对象）。
+  // 否则传入 undefined 或对象时 arr.forEach 会直接抛错，导致整个应用渲染失败。
+  const list = Array.isArray(routes)
+    ? routes
+    : Array.isArray(routes?.data)
+      ? routes.data
+      : [];
+  if (!Array.isArray(routes)) {
+    console.warn('formatRoutes 收到非数组，已回退为空数组：', routes);
+  }
   function format(arr: any[]) {
     arr.forEach((node) => {
       const item = node;
@@ -293,5 +329,5 @@ export function formatRoutes(routes: any, iconType = 'Outlined') {
     return arr;
   }
 
-  return format(routes);
+  return format(list);
 }

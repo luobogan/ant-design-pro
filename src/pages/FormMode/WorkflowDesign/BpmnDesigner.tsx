@@ -11,6 +11,7 @@ import '@bpmn-io/properties-panel/dist/assets/properties-panel.css';
 import { Button, message, Modal, Input, Space } from 'antd';
 import { deployDefinition, getBpmn, saveBpmn } from '@/services/workflow';
 import { usePageButtons } from '@/hooks/usePageButtons';
+import customTranslateModule from './bpmnZh';
 
 /**
  * 流程画布（文档 §7 推荐的设计器画布，基于 bpmn-js）。
@@ -79,11 +80,17 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
     const modeler = new BpmnJS({
       container: containerRef.current,
       propertiesPanel: { parent: panelRef.current },
-      additionalModules: [BpmnPropertiesPanelModule, BpmnPropertiesProviderModule],
+      additionalModules: [
+        BpmnPropertiesPanelModule,
+        BpmnPropertiesProviderModule,
+        // 放最后：覆盖 bpmn-js 内置的 translate 服务，使画布文案显示中文
+        customTranslateModule,
+      ],
     });
     modelerRef.current = modeler;
+    // 必须是字符串才当作已保存的 XML，否则回退到初始模板（避免非字符串时 .trim() 抛错）
     const xml =
-      bpmnXml && bpmnXml.trim()
+      typeof bpmnXml === 'string' && bpmnXml.trim()
         ? bpmnXml
         : STARTER_XML(procKey || 'Process_1', name || '流程');
     modeler
@@ -103,7 +110,7 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
       first.current = false;
       return;
     }
-    if (modelerRef.current && bpmnXml) {
+    if (modelerRef.current && typeof bpmnXml === 'string' && bpmnXml) {
       modelerRef.current
         .importXML(bpmnXml)
         .catch((e: any) => message.error('画布重载失败：' + (e?.message || e)));

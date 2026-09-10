@@ -524,8 +524,9 @@ export const errorConfig: RequestConfig = {
         }
       }
 
-      // 直接返回 response
-      // Umi request 库会根据泛型类型 <{code, data, msg}> 自动提取 response.data
+      // 保持返回 umi 原始 response（全站既有代码均按此形态编写，改动会影响所有未适配的页面）。
+      // 注意：request() 的返回形态在不同环境下可能为「载荷本身 / {data:载荷} / {data:{data:载荷}}」，
+      // 因此业务侧取值请统一使用 utils/utils.ts 的 pickPayload()，不要直接写 res.data。
       return response;
     },
   ],

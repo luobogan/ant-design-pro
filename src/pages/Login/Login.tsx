@@ -32,7 +32,7 @@ import {
 } from '@/utils/authority';
 import { clearFormData, getSavedFormData } from '@/requestErrorConfig';
 import Crypto from '@/utils/crypto';
-import { getQueryString, getTopUrl, validateNull } from '@/utils/utils';
+import { getQueryString, getTopUrl, pickPayload, validateNull } from '@/utils/utils';
 import { dynamicButtons, dynamicRoutes } from '@/services/system/menu';
 import styles from './Login.less';
 
@@ -253,8 +253,8 @@ const Login: React.FC = () => {
           console.log('获取到的路由权限:', routesRes);
           console.log('获取到的按钮权限:', buttonsRes);
 
-          const routes: any[] = routesRes?.data || [];
-          const buttons: any[] = buttonsRes?.data || [];
+          const routes: any[] = pickPayload(routesRes) || [];
+          const buttons: any[] = pickPayload(buttonsRes) || [];
 
           // 设置用户信息、路由权限和按钮权限
           setUserInfo(userInfo);

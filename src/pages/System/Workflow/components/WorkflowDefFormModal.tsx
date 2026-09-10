@@ -147,13 +147,26 @@ const WorkflowDefFormModal: React.FC<WorkflowDefFormModalProps> = ({
       const res: any = isEdit
         ? await updateDefinition(Number(initialValues?.id), payload)
         : await createDefinition(payload);
-      const newId =
-        typeof res?.data === 'number' ? res.data : res?.data?.data ?? res?.data;
+      // 后端 POST / PUT /definition 返回 R<Long>（流程定义ID）。
+      // 兼容「拦截器已解包 / 未解包」「Long 被序列化成字符串」等各种返回形态。
+      const pickId = (r: any): any => {
+        if (r == null) return undefined;
+        if (typeof r === 'number' || typeof r === 'string') return r;
+        const d = r?.data;
+        if (typeof d === 'number' || typeof d === 'string') return d;
+        if (d && typeof d === 'object') return d?.data ?? d?.id ?? undefined;
+        return r?.id ?? undefined;
+      };
+      const rawId = pickId(res);
+      const numId = rawId != null && rawId !== '' ? Number(rawId) : NaN;
+      const newId = Number.isNaN(numId) ? undefined : numId;
       message.success(isEdit ? '保存成功' : '创建成功');
       if (enterDesign && newId != null) {
-        onEnterDesign?.(Number(newId));
+        onEnterDesign?.(newId);
       } else {
-        onSaved?.(newId != null ? Number(newId) : undefined);
+        // 取不到ID时明确提示，避免「点了没反应」
+        if (enterDesign) message.warning('未取到流程定义ID，无法进入详细设置');
+        onSaved?.(newId);
       }
     } catch (e: any) {
       message.error(
