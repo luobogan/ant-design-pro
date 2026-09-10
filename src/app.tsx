@@ -215,6 +215,11 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
 
     if (item.children) {
       console.log(item.children[0]);
+      // 扁平化：父菜单只注册一个「重定向到首个子菜单」的路由，
+      // 子菜单全部作为顶层兄弟路由挂到 '/' 下（不再嵌套 children）。
+      // 否则当子菜单使用跨命名空间的绝对路径（如 /formmode/xxx）而被嵌套到
+      // /system 之下时，会触发 React Router 的
+      // "Absolute route path ... nested under path ... is not valid" 报错。
       return [
         {
           path: item.path,
@@ -222,14 +227,9 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
           icon: item.icon,
           id: item.id,
           parentId: pId,
-          children: [
-            {
-              path: item.path,
-              element: <Navigate to={item.children[0].path} replace />,
-            },
-            ...loopMenuItem(item.children, item.id),
-          ],
+          element: <Navigate to={item.children[0].path} replace />,
         },
+        ...loopMenuItem(item.children, item.id),
       ];
     } else {
       return [

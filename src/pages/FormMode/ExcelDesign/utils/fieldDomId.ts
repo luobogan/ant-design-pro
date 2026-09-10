@@ -58,6 +58,8 @@ export type FieldDomIds = {
   fieldName: string;
   /** 单元格类型 */
   kind: FieldDomRole;
+  /** 审批节点 Key（审批态渲染时由调用方注入，用于按节点维度检索） */
+  nodeKey?: string;
 };
 
 /**
@@ -109,6 +111,8 @@ export const domDataProps = (ids: FieldDomIds): Record<string, any> => ({
   'data-excelp-field': ids.fieldName,
   ...(ids.dt !== undefined ? { 'data-excelp-dt': ids.dt } : {}),
   ...(ids.row !== undefined ? { 'data-excelp-row': ids.row } : {}),
+  // 文档 §3.3-10：审批态渲染须按节点维度检索，挂载 data-excelp-node
+  ...(ids.nodeKey !== undefined ? { 'data-excelp-node': ids.nodeKey } : {}),
 });
 
 /**

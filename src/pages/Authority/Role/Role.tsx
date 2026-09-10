@@ -149,16 +149,15 @@ const RolePage: React.FC = () => {
     return buildOptions(treeData);
   }, [roleTreeData]);
 
-  // 转换菜单树数据（兼容多种返回结构）
+  // 转换菜单树数据（兼容多种返回结构：完整 axios 响应 / R 对象 / 已解包 GrantTreeVO）
   const menuTree = useMemo(() => {
     const raw: any = menuTreeData;
-    const data = Array.isArray(raw)
-      ? raw
-      : (raw?.data?.menu ?? // 常见结构：{ success, data: { menu: [...] } }
-        raw?.menu ?? // 兜底结构：{ menu: [...] }
-        []);
-    console.log('Menu tree data before processing:', data);
-    return data;
+    if (Array.isArray(raw)) return raw;
+    const level1 = raw?.data ?? raw; // 剥掉 axios 响应层或 R 外层 -> R 对象 / GrantTreeVO
+    const level2 = level1?.data ?? level1; // 再剥一层（应对完整响应 data.data）
+    const list = level2?.menu ?? level1?.menu;
+    console.log('Menu tree data before processing:', list);
+    return Array.isArray(list) ? list : [];
   }, [menuTreeData]);
 
   // 数据权限树：从后端 data-scope/list 接口获取
@@ -184,15 +183,14 @@ const RolePage: React.FC = () => {
     return data;
   }, [dataScopeListData]);
 
-  // 接口权限树：从后端 grant-tree 接口获取
+  // 接口权限树：从后端 grant-tree 接口获取（兼容多种返回结构）
   const apiTree = useMemo(() => {
     const raw = menuTreeData as any;
-    // 尝试多种可能的数据路径
+    const level1 = raw?.data ?? raw; // 剥掉 axios 响应层或 R 外层
+    const level2 = level1?.data ?? level1; // 再剥一层（应对完整响应 data.data）
     const data =
-      raw?.data?.apiScope || // 标准路径
-      raw?.data?.api || // 备选路径
-      raw?.apiScope || // 备选路径
-      raw?.api || // 备选路径
+      level2?.apiScope ?? // 标准路径（R.data.GrantTreeVO.apiScope）
+      level1?.apiScope ?? // 备选路径（GrantTreeVO.apiScope）
       [];
     console.log('API scope tree data extracted:', data);
     return data;

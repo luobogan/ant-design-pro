@@ -367,8 +367,17 @@ const FieldCell: React.FC<{
   attrBg?: string;
   /** 可输入控件的 DOM id（{容器 id}__input），供代码块直接取/设值 */
   inputId?: string;
-}> = ({ cell, sheetId, row, col, value, onChange, error, readOnly, cellStyle, attrBg, inputId }) => {
+  /** 节点字段权限解析器（审批态渲染包下发） */
+  nodePermission?: NodePermissionResolver;
+  /** 节点权限 scope：main / dt{idx} / dt{idx}_r{row}（B5 行级）；默认 main */
+  scope?: string;
+}> = ({ cell, sheetId, row, col, value, onChange, error, readOnly, cellStyle, attrBg, inputId, nodePermission, scope }) => {
   const meta = cell.fieldMeta;
+  // 节点字段权限解析（审批态渲染包下发）：以权限函数替代布尔 readOnly（文档 §3.3-3）
+  const nodePerm =
+    typeof nodePermission === 'function'
+      ? nodePermission(meta?.fieldName || meta?.fieldLabel || '', scope || 'main')
+      : undefined;
   const rawValue = cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
   // 字段单元格在设计器中存的是模板占位符（如 "📝 ${xm}"），表示尚未填入真实数据。
   // 预览时应按空值处理，避免把占位符当成输入框的默认值。
@@ -384,15 +393,19 @@ const FieldCell: React.FC<{
   // 标签单元格 → 静态说明文本，不渲染输入控件（与数据绑定字段区分）
   // 同样不硬编码颜色/字重，由外层 <td> 上的 Excel 单元格样式（s）决定颜色与加粗。
   if (meta.cellType === 'label') {
+    if (nodePerm?.hidden) return null;
     return <span>{meta.fieldLabel || displayValue || '\u00A0'}</span>;
   }
 
   // 字段属性以 fieldAttr 为权威（参照 ecology：1=只读 2=可编辑 3=必填），兼容旧 readonly/required 布尔
   const fieldAttr = meta?.fieldAttr;
   // 预览态（readOnly）整体只读：对应 ecology 显示/监控/打印布局（layouttype 0/3/4）强制只读
-  const disabled = !!readOnly || fieldAttr === 1 || meta?.readonly === true;
+  // 节点权限基线：节点权限 > fieldAttr > Excel 样式 > 默认（文档 §3.3-4）
+  const disabled = !!readOnly || fieldAttr === 1 || meta?.readonly === true || !!nodePerm?.readonly;
   // 必填校验未通过 → 控件红色边框（必填 * 与错误文案由外层 Form.Item 统一渲染）
   const status = error ? 'error' : '';
+  // 节点权限：隐藏（perm=0）→ 不渲染数据输入控件（标签格由上层一同隐藏）
+  if (nodePerm?.hidden) return null;
 
   // 沿用 Excel 单元格样式：AntD 的 Input / Select 等控件**不会继承** <td> 的 font，
   // 必须把字体/字号/字重显式下发到控件本体，否则预览里全是 AntD 默认字体，
@@ -704,6 +717,19 @@ const renderElementNode = (meta: any, displayValue: string): React.ReactNode => 
   }
 };
 
+/**
+ * 由「表单值 key 前缀」推导节点权限 scope（B5 行级）：
+ *   ''                → main（主表）
+ *   'dt{idx}__'       → dt{idx}（明细表级）
+ *   'dt{idx}__r{n}__' → dt{idx}_r{n}（明细行级）
+ * 解析器按 scope 做回退：dt{idx}_r{row} → dt{idx} → main。
+ */
+const scopeFromPrefix = (prefix?: string): string => {
+  if (!prefix) return 'main';
+  const s = prefix.replace(/__/g, '_').replace(/_+$/, '');
+  return s || 'main';
+};
+
 // 渲染单元格内容：标签文本 / 字段控件 / 静态文本
 const renderCellNode = (
   cell: CellDataItem,
@@ -717,6 +743,10 @@ const renderCellNode = (
   attrBg?: string,
   /** 本 sheet 的「表单值 key → DOM id」映射，用于给字段格/表头格挂上唯一 id */
   domIds?: Record<string, FieldDomIds>,
+  /** 节点权限解析器（字段必填/可见性等），由上层 SheetPreviewForm / MobileSheetForm 透传 */
+  nodePermission?: NodePermissionResolver,
+  /** 节点权限 scope（main / dt{idx} / dt{idx}_r{row}），B5 行级；默认 main */
+  scope?: string,
 ): React.ReactNode => {
   const meta = cell.fieldMeta;
   const rawValue = cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
@@ -782,6 +812,8 @@ const renderCellNode = (
       onChange={(v) => onFieldChange(key, v)}
       error={err}
       readOnly={readOnly}
+      nodePermission={nodePermission}
+      scope={scope}
       cellStyle={cell.s}
       attrBg={attrBg}
       inputId={ids?.inputId}
@@ -819,6 +851,8 @@ const SheetPreviewForm: React.FC<{
   onToggleDetailRow?: (idx: number, rowIdx: number, checked: boolean) => void;
   onToggleAllDetailRows?: (idx: number, checked: boolean) => void;
   onDeleteSelectedDetailRows?: (idx: number) => void;
+  /** 节点权限解析器（预览态用于判断字段必填等），由上层 ExcelPreview 透传 */
+  nodePermission?: NodePermissionResolver;
 }> = ({
   sheet,
   formValues,
@@ -835,9 +869,12 @@ const SheetPreviewForm: React.FC<{
   onToggleDetailRow,
   onToggleAllDetailRows,
   onDeleteSelectedDetailRows,
+  nodePermission,
 }) => {
   // 字段 / 表头 DOM id 映射：按「作用域 + 类型 + 字段名」生成唯一 id（见 utils/fieldDomId.ts）
   const domIdMap = useMemo(() => buildDomIdMap(sheet, keyPrefix), [sheet, keyPrefix]);
+  // 节点权限 scope（B5 行级）：由 keyPrefix 推导（主表 main / 明细表 dt{idx} / 明细行 dt{idx}_r{row}）
+  const scope = scopeFromPrefix(keyPrefix);
 
   const model = useMemo(() => {
     const cellData = sheet.cellData || {};
@@ -889,7 +926,8 @@ const SheetPreviewForm: React.FC<{
       Object.entries(rowData || {}).forEach(([ck, c]) => {
         const col = parseInt(ck, 10);
         const meta = (c as CellDataItem).fieldMeta;
-        const isReq = meta && meta.cellType === 'field' && (meta.fieldAttr === 3 || meta.required);
+        const np = typeof nodePermission === 'function' ? nodePermission(meta?.fieldName || meta?.fieldLabel || '', scope) : undefined;
+    const isReq = meta && meta.cellType === 'field' && (meta.fieldAttr === 3 || meta.required || !!np?.required);
         if (isReq) {
           const left = localGrid[r]?.[col - 1];
           if (left && left.fieldMeta?.cellType === 'label') reqLabels.add(`${r}_${col - 1}`);
@@ -994,6 +1032,7 @@ const SheetPreviewForm: React.FC<{
                                   errors={errors}
                                   onFieldChange={onFieldChange}
                                   readOnly={!!readOnly}
+                                  nodePermission={nodePermission}
                                   onAddRow={() => onAddDetailRow?.(dtIdx)}
                                   onCopyRow={(n) => onCopyDetailRow?.(dtIdx, n)}
                                   onDeleteRow={(n) => onDeleteDetailRow?.(dtIdx, n)}
@@ -1054,8 +1093,10 @@ const SheetPreviewForm: React.FC<{
                             onFieldChange,
                             readOnly as boolean,
                             model.requiredLabels.has(key),
+                            nodePermission,
                             attrBg,
                             domIdMap,
+                            scope,
                           )
                         : ' '}
                     </td>
@@ -1094,6 +1135,8 @@ const MobileSheetForm: React.FC<{
   onToggleDetailRow?: (idx: number, rowIdx: number, checked: boolean) => void;
   onToggleAllDetailRows?: (idx: number, checked: boolean) => void;
   onDeleteSelectedDetailRows?: (idx: number) => void;
+  /** 节点权限解析器（预览态用于判断字段必填等），由上层 ExcelPreview 透传 */
+  nodePermission?: NodePermissionResolver;
 }> = ({
   sheet,
   formValues,
@@ -1110,10 +1153,13 @@ const MobileSheetForm: React.FC<{
   onToggleDetailRow,
   onToggleAllDetailRows,
   onDeleteSelectedDetailRows,
+  nodePermission,
 }) => {
   const items = useMemo(() => extractMobileItems(sheet), [sheet]);
   // 字段 / 表头 DOM id 映射（手机端同样按作用域 + 类型 + 字段名生成唯一 id）
   const domIdMap = useMemo(() => buildDomIdMap(sheet, keyPrefix), [sheet, keyPrefix]);
+  // 节点权限 scope（B5 行级）：由 keyPrefix 推导
+  const scope = scopeFromPrefix(keyPrefix);
   if (items.length === 0) return null;
   return (
     <div style={{ background: '#fff', border: `1px solid ${E9_COLORS.cardBorder}`, borderRadius: 8, overflow: 'hidden' }}>
@@ -1151,6 +1197,7 @@ const MobileSheetForm: React.FC<{
                 errors={errors}
                 onFieldChange={onFieldChange}
                 readOnly={readOnly}
+                nodePermission={nodePermission}
                 onAddRow={() => onAddDetailRow?.(item.idx)}
                 onCopyRow={(n) => onCopyDetailRow?.(item.idx, n)}
                 onDeleteRow={(n) => onDeleteDetailRow?.(item.idx, n)}
@@ -1170,7 +1217,7 @@ const MobileSheetForm: React.FC<{
               key={`e-${i}`}
               style={{ padding: '10px 12px', borderBottom: `1px solid ${E9_COLORS.cardBorder}` }}
             >
-              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, undefined, domIdMap)}
+              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, undefined, domIdMap, nodePermission, scope)}
             </div>
           );
         }
@@ -1195,7 +1242,7 @@ const MobileSheetForm: React.FC<{
               {item.required && <span style={{ color: E9_COLORS.required, marginLeft: 2 }}>*</span>}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, item.attrBg, domIdMap)}
+              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, item.attrBg, domIdMap, nodePermission, scope)}
             </div>
           </div>
         );
@@ -1219,6 +1266,8 @@ const DetailBlock: React.FC<{
   errors: Record<string, boolean>;
   onFieldChange: (k: string, v: any) => void;
   readOnly?: boolean;
+  /** 节点字段权限解析器（审批态渲染包下发，detail 同主表按字段名解析） */
+  nodePermission?: NodePermissionResolver;
   onAddRow: () => void;
   onCopyRow: (rowIdx: number) => void;
   onDeleteRow: (rowIdx: number) => void;
@@ -1236,6 +1285,7 @@ const DetailBlock: React.FC<{
   errors,
   onFieldChange,
   readOnly,
+  nodePermission,
   onAddRow,
   onCopyRow,
   onDeleteRow,
@@ -1245,6 +1295,33 @@ const DetailBlock: React.FC<{
   onDeleteSelected,
 }) => {
   const dtSheets = extractSheets(layout);
+
+  // 收集明细表内全部字段名，用于按节点权限判定整表是否只读
+  const detailFieldNames = useMemo(() => {
+    const names: string[] = [];
+    dtSheets.forEach((sheet: any) => {
+      const cd = sheet?.cellData || {};
+      Object.values(cd).forEach((row: any) =>
+        Object.values(row || {}).forEach((c: any) => {
+          const fn = c?.fieldMeta?.fieldName;
+          if (fn) names.push(fn);
+        }),
+      );
+    });
+    return names;
+  }, [dtSheets]);
+
+  // 只读节点 / 节点权限下该明细表全部字段只读或隐藏 → 禁用增删行
+  const detailReadOnly = useMemo(() => {
+    if (readOnly) return true;
+    if (typeof nodePermission !== 'function' || detailFieldNames.length === 0) return false;
+    return detailFieldNames.every((fn) => {
+      const p = nodePermission(fn, scopeFromPrefix(prefix));
+      if (!p) return false; // 无节点权限定义 → 按 fieldAttr 默认（可能为可编辑）
+      return p.hidden === true || p.readonly === true;
+    });
+  }, [readOnly, nodePermission, detailFieldNames, prefix]);
+
   const selected = selectedRows ?? [];
   const allChecked = rowCount > 0 && selected.length === rowCount;
   const partChecked = selected.length > 0 && !allChecked;
@@ -1275,10 +1352,10 @@ const DetailBlock: React.FC<{
                 </Text>
               </Space>
               <Space size={0}>
-                <Button size="small" type="text" icon={<CopyOutlined />} onClick={() => onCopyRow(n)}>
+                <Button size="small" type="text" icon={<CopyOutlined />} onClick={() => onCopyRow(n)} disabled={detailReadOnly}>
                   复制
                 </Button>
-                <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => onDeleteRow(n)} disabled={rowCount <= 1}>
+                <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => onDeleteRow(n)} disabled={rowCount <= 1 || detailReadOnly}>
                   删除
                 </Button>
               </Space>
@@ -1296,6 +1373,7 @@ const DetailBlock: React.FC<{
                       errors={errors}
                       onFieldChange={onFieldChange}
                       readOnly={readOnly}
+                      nodePermission={nodePermission}
                       keyPrefix={rowPrefix}
                     />
                   ) : (
@@ -1306,6 +1384,7 @@ const DetailBlock: React.FC<{
                       errors={errors}
                       onFieldChange={onFieldChange}
                       readOnly={readOnly}
+                      nodePermission={nodePermission}
                       keyPrefix={rowPrefix}
                     />
                   ),
@@ -1339,12 +1418,12 @@ const DetailBlock: React.FC<{
             size="small"
             danger
             icon={<DeleteOutlined />}
-            disabled={selected.length === 0}
+            disabled={selected.length === 0 || detailReadOnly}
             onClick={() => onDeleteSelected?.()}
           >
             删除选中{selected.length > 0 ? `(${selected.length})` : ''}
           </Button>
-          <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={onAddRow}>
+          <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={onAddRow} disabled={detailReadOnly}>
             新增行
           </Button>
         </Space>
@@ -1357,6 +1436,20 @@ const DetailBlock: React.FC<{
 // 主预览弹窗组件
 // ──────────────────────────────────────────────
 
+/** 节点字段权限（审批态渲染包下发，文档 §3.3 / §6.4）：以权限函数替代布尔 readOnly */
+export type NodePerm = { readonly?: boolean; required?: boolean; hidden?: boolean };
+/**
+ * 节点字段权限解析器。
+ *
+ * <p>scope 取值（B5 行级）：{@code main} / {@code dt{idx}} / {@code dt{idx}_r{row}}。
+ * 解析器须自行做**回退**：{@code dt{idx}_r{row}} → {@code dt{idx}} → {@code main}；
+ * 均未命中时返回 {@code undefined}，由渲染端回退到 fieldAttr / 默认。</p>
+ */
+export type NodePermissionResolver = (
+  fieldName: string,
+  scope?: string,
+) => NodePerm | undefined;
+
 interface ExcelPreviewProps {
   /** 布局数据（来自 UniverExcelGrid.saveLayoutData()） */
   layoutData: WorkbookLayoutData | null;
@@ -1368,11 +1461,33 @@ interface ExcelPreviewProps {
   title?: string;
   /** 预览态只读：true 时所有字段控件禁用，对应 ecology 显示/监控/打印布局（layouttype 0/3/4） */
   readOnly?: boolean;
+  /** 审批节点 Key（审批态渲染时由调用方注入，仅用于 data-excelp-node 标记，便于按节点检索） */
+  nodeId?: string;
+  /**
+   * 节点字段权限解析器（替代布尔 readOnly）：按字段名返回该节点下的权限。
+   * 优先级：节点权限 > fieldAttr > Excel 样式 > 默认（文档 §3.3-4）。
+   * 返回 { readonly, required, hidden }；hidden 时字段连同标签一并隐藏。
+   */
+  nodePermission?: NodePermissionResolver;
   /**
    * 独立页面模式：true 时不套 Modal，直接全屏渲染表单内容。
    * 用于「新标签页预览」，对齐 ecology excelPreView 打开独立预览页的行为。
    */
   standalone?: boolean;
+  /**
+   * 提交校验回调（替代仅弹 message）：前端必填矩阵校验完成后回调，由调用方决策后续行为
+   * （如再调服务端 POST /form/validate 复核、提交审批等）。
+   *
+   * @param values 表单全部值（主表 + 各明细表，key 沿用 {sheetId}__{row}__{col} / dt{idx}__r{n}__...）
+   * @param errors 必填未填的字段 key 集合（空对象表示通过）
+   * @param valid  前端必填矩阵是否全部通过
+   */
+  onSubmit?: (values: Record<string, any>, errors: Record<string, boolean>, valid: boolean) => void;
+  /**
+   * 初始表单值（审批态渲染时注入已提交数据）。
+   * key 沿用渲染包 dataJson 的命名约定；挂载与到值变化时并入受控值，供展示与提交校验。
+   */
+  initialValues?: Record<string, any>;
 }
 
 /**
@@ -1393,6 +1508,9 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
   title = '表单预览',
   readOnly = false,
   standalone = false,
+  nodePermission,
+  onSubmit,
+  initialValues,
 }) => {
   // 安装全局字段访问器 window.ExcelPreview（供布局级代码块中的 JS 直接按 id / 字段名操作字段）。
   // 挂载时安装、卸载时清理；布局级脚本在提交后才执行（见下方注入 effect），因此使用前必然已就绪。
@@ -1457,19 +1575,28 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
   // 行选中集合（批量删除）：对齐 ecology delRowFun 的 check_mode_{groupid} 行选择框 + check_all_record 全选
   const [detailSelectedRows, setDetailSelectedRows] = useState<Record<number, number[]>>({});
 
-  // 表单受控值 & 必填校验错误
-  const [formValues, setFormValues] = useState<Record<string, any>>({});
+  // 表单受控值 & 必填校验错误（审批态以 initialValues 注入已提交数据）
+  const [formValues, setFormValues] = useState<Record<string, any>>(() => initialValues ?? {});
   const [errors, setErrors] = useState<Record<string, boolean>>({});
 
-  // 弹窗打开时重置
+  // 弹窗打开时重置（审批态保留注入的初始值）
   useEffect(() => {
     if (open) {
-      setFormValues({});
+      setFormValues(initialValues ?? {});
       setErrors({});
       setDetailRowCounts({});
       setDetailSelectedRows({});
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // 初始值异步到达（渲染包晚于挂载）时并入受控值
+  useEffect(() => {
+    if (initialValues && Object.keys(initialValues).length > 0) {
+      setFormValues((prev) => ({ ...initialValues, ...prev }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialValues]);
 
   // ── 布局级代码块：表单 DOM 渲染完成后注入并执行脚本 ──
   // 对齐 ecology loadScript()：清空宿主容器后把脚本内容 append 进去执行。
@@ -1650,6 +1777,7 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
     } else {
       message.success('校验通过，所有必填项均已填写');
     }
+    onSubmit?.(formValues, newErrors, cnt === 0);
   };
 
   // 导出布局 JSON
@@ -1699,6 +1827,7 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
               errors={errors}
               onFieldChange={handleFieldChange}
               readOnly={readOnly}
+              nodePermission={nodePermission}
               inlineDetailTables={detailLayoutMap}
               detailRowCounts={detailRowCounts}
               onAddDetailRow={handleAddDetailRow}
@@ -1721,6 +1850,7 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
               errors={errors}
               onFieldChange={handleFieldChange}
               readOnly={readOnly}
+              nodePermission={nodePermission}
               onAddRow={() => handleAddDetailRow(b.idx)}
               onCopyRow={(n) => handleCopyDetailRow(b.idx, n)}
               onDeleteRow={(n) => handleDeleteDetailRow(b.idx, n)}
@@ -1750,6 +1880,7 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
               errors={errors}
               onFieldChange={handleFieldChange}
               readOnly={readOnly}
+              nodePermission={nodePermission}
               inlineDetailTables={detailLayoutMap}
               detailRowCounts={detailRowCounts}
               onAddDetailRow={handleAddDetailRow}
@@ -1773,6 +1904,7 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
               errors={errors}
               onFieldChange={handleFieldChange}
               readOnly={readOnly}
+              nodePermission={nodePermission}
               onAddRow={() => handleAddDetailRow(b.idx)}
               onCopyRow={(n) => handleCopyDetailRow(b.idx, n)}
               onDeleteRow={(n) => handleDeleteDetailRow(b.idx, n)}

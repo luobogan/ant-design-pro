@@ -8,17 +8,20 @@ import { request } from '@umijs/max';
 /**
  * 获取表单布局
  * @param formId 表单ID（字符串类型，避免大整数精度丢失）
+ * @param layouttype 布局类型：0编辑(默认) 1显示 3监控 4打印（可空）
+ * @param nodeKey 流程节点Key（空=表单级通用）
  * @returns 表单布局
  */
-export async function getFormLayout(formId: string) {
+export async function getFormLayout(formId: string, layouttype?: number, nodeKey?: string) {
   return request(`/api/blade-formmode/form-layout/${formId}`, {
     method: 'GET',
+    params: { layouttype, nodeKey },
   });
 }
 
 /**
  * 保存表单布局
- * @param data 表单布局数据
+ * @param data 表单布局数据（含 layoutType 布局类型、nodeKey 绑定节点，均可空；空则后端按默认0/通用处理）
  * @returns 是否成功
  */
 export async function saveFormLayout(data: any) {
@@ -61,6 +64,10 @@ export async function getFormLayoutList(params: {
   pageSize?: number;
   layoutName?: string;
   formId?: number;
+  /** 布局类型：0编辑 1显示 3监控 4打印 */
+  layouttype?: number;
+  /** 流程节点Key（空=通用） */
+  nodeKey?: string;
 }) {
   return request('/api/blade-formmode/form-layout/list', {
     method: 'GET',

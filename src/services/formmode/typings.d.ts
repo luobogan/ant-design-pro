@@ -148,6 +148,8 @@ export interface WorkflowBill {
   formName: string;
   /** 数据库表名 */
   tableName: string;
+  /** 表单类型：0-自定义表单（表设计器创建） 1-系统表单（平台预置） */
+  formType?: number;
   /** 表单描述 */
   description?: string;
   /** 状态：0-禁用，1-启用 */
@@ -174,6 +176,8 @@ export interface WorkflowBillFormData {
   formName: string;
   /** 数据库表名 */
   tableName: string;
+  /** 表单类型：0-自定义表单 1-系统表单（新建自定义表时可不传，默认 0） */
+  formType?: number;
   /** 表单描述 */
   description?: string;
   /** 状态：0-禁用，1-启用 */
