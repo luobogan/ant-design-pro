@@ -29,6 +29,8 @@ export interface SchemaFormProps {
   dataSourceRefreshKey?: number | string;
   /** 点击数据源「刷新」按钮：参数为该字段的 dataSource 键 */
   onRefreshDataSource?: (dataSourceKey?: string) => void;
+  /** 点击「设计」按钮：进入详细设计界面配置已选表单的字段 */
+  onFieldDesign?: (field: FormField, id: any) => void;
 }
 
 /**
@@ -45,12 +47,13 @@ const FormSelectControl: React.FC<{
   formOptions: FormFieldOption[];
   loading?: boolean;
   disabled?: boolean;
-  /** 是否展示「新建」入口（仅自定义表单有效） */
-  allowAdd?: boolean;
+  /** 点击「+」新建（仅自定义表单显示） */
   onAdd?: () => void;
   /** 刷新表单列表（在表设计器新建表之后载入新数据） */
   onRefresh?: () => void;
-}> = ({ value, onChange, typeOptions, formOptions, loading, disabled, allowAdd, onAdd, onRefresh }) => {
+  /** 进入详细设计界面配置已选表单的字段（传了才显示「设计」按钮） */
+  onDesign?: () => void;
+}> = ({ value, onChange, typeOptions, formOptions, loading, disabled, onAdd, onRefresh, onDesign }) => {
   const val = value || {};
   const currentType = String(val.type ?? 0);
   const isCustom = currentType === '0';
@@ -61,6 +64,15 @@ const FormSelectControl: React.FC<{
     [formOptions, currentType],
   );
 
+  // 选择弹窗（浏览框形态）：点击输入框弹出，表格只列出当前类型的表单
+  const [open, setOpen] = useState(false);
+  const [keyword, setKeyword] = useState('');
+
+  const selected = matched.find((o) => String(o.value) === String(val.id));
+  const tableData = keyword
+    ? matched.filter((o) => String(o.label ?? '').includes(keyword))
+    : matched;
+
   return (
     <div style={{ display: 'flex', gap: 8 }}>
       <Select
@@ -70,35 +82,96 @@ const FormSelectControl: React.FC<{
         disabled={disabled}
         onChange={(t) => onChange?.({ type: t, id: undefined })}
       />
-      <Select
-        style={{ flex: 1 }}
-        showSearch
-        allowClear
-        value={val.id}
-        options={matched}
-        loading={loading}
-        disabled={disabled}
+      <Input
+        readOnly
+        value={selected?.label}
         placeholder={isCustom ? '请选择自定义表单' : '请选择系统表单'}
-        notFoundContent={
-          loading
-            ? '加载中...'
-            : isCustom
-              ? '暂无自定义表单，可点击「新建」前往表设计器创建'
-              : '暂无系统预置表单'
-        }
-        filterOption={(input, option) => String(option?.label ?? '').includes(input)}
-        onChange={(id) => onChange?.({ ...val, id })}
+        style={{ flex: 1, cursor: 'pointer' }}
+        disabled={disabled}
+        onClick={() => {
+          setKeyword('');
+          setOpen(true);
+        }}
       />
-      {allowAdd && isCustom && (
-        <Button onClick={() => onAdd?.()} title="前往表设计器新建自定义表">
-          新建
-        </Button>
-      )}
       {onRefresh && (
         <Button onClick={() => onRefresh?.()} title="刷新表单列表">
-          刷新
+          ↻
         </Button>
       )}
+      {onDesign && (
+        <Button onClick={() => onDesign?.()} title="进入表设计器配置该表单的字段">
+          设计
+        </Button>
+      )}
+      {isCustom && onAdd && (
+        <Button type="primary" ghost onClick={() => onAdd?.()} title="新建自定义表单">
+          +
+        </Button>
+      )}
+      <Modal
+        title={isCustom ? '选择自定义表单' : '选择系统表单'}
+        open={open}
+        onCancel={() => setOpen(false)}
+        width={680}
+        footer={
+          isCustom && onAdd ? (
+            <Button
+              type="primary"
+              onClick={() => {
+                setOpen(false);
+                onAdd();
+              }}
+            >
+              新建自定义表
+            </Button>
+          ) : null
+        }
+        destroyOnClose
+      >
+        <Input.Search
+          placeholder="搜索表单名称"
+          allowClear
+          value={keyword}
+          onChange={(e) => setKeyword(e.target.value)}
+          style={{ marginBottom: 12 }}
+        />
+        <Table<FormFieldOption>
+          rowKey="value"
+          size="small"
+          loading={loading}
+          dataSource={tableData}
+          pagination={{ pageSize: 8 }}
+          locale={{
+            emptyText: loading
+              ? '加载中...'
+              : isCustom
+                ? '暂无自定义表单，可点击「+」前往表设计器创建'
+                : '暂无系统预置表单',
+          }}
+          columns={[
+            { title: '表单名称', dataIndex: 'label' },
+            {
+              title: '表名',
+              dataIndex: 'description',
+              render: (t: any) => t || '-',
+            },
+            {
+              title: '操作',
+              width: 80,
+              render: (_: any, r: FormFieldOption) => (
+                <a
+                  onClick={() => {
+                    onChange?.({ ...val, id: String(r.value) });
+                    setOpen(false);
+                  }}
+                >
+                  选择
+                </a>
+              ),
+            },
+          ]}
+        />
+      </Modal>
     </div>
   );
 };
@@ -237,6 +310,7 @@ const SchemaForm: React.FC<SchemaFormProps> = ({
   onFieldAdd,
   dataSourceRefreshKey,
   onRefreshDataSource,
+  onFieldDesign,
 }) => {
   const values = Form.useWatch([], form) || {};
   const [dsOptions, setDsOptions] = useState<Record<string, FormFieldOption[]>>({});
@@ -260,7 +334,10 @@ const SchemaForm: React.FC<SchemaFormProps> = ({
         const r = dataSources![k];
         const list = typeof r === 'function' ? await r() : r;
         setDsOptions((prev) => ({ ...prev, [k]: list || [] }));
-      } catch {
+      } catch (e) {
+        // 取数失败多半是接口 403/404（如缺少角色权限）或后端未重启，显式提示便于排查
+        console.error(`[SchemaForm] 数据源 ${k} 加载失败`, e);
+        message.error(`数据源「${k}」加载失败，请检查接口权限或后端服务是否已重启`);
         setDsOptions((prev) => ({ ...prev, [k]: [] }));
       } finally {
         setDsLoading((prev) => ({ ...prev, [k]: false }));
@@ -409,22 +486,28 @@ const SchemaForm: React.FC<SchemaFormProps> = ({
               </Form.Item>
             );
           }
-          case 'formSelect':
+          case 'formSelect': {
+            // 注意：formSelect 的 options 是「表单类型」选项，真实表单列表来自 dataSource，
+            // 不能走 optionsOf()（它会被 f.options 抢占）。
+            const dsKey = f.dataSource;
             return (
               <Form.Item key={f.key} name={f.key} label={f.label} rules={buildRules(f)}>
                 <FormSelectControl
                   typeOptions={f.options || []}
-                  formOptions={optionsOf(f)}
-                  loading={f.dataSource ? dsLoading[f.dataSource] : false}
+                  formOptions={dsKey ? dsOptions[dsKey] || [] : []}
+                  loading={dsKey ? dsLoading[dsKey] : false}
                   disabled={disabled}
-                  allowAdd={f.allowAdd !== false}
                   onAdd={() => onFieldAdd?.(f)}
-                  onRefresh={
-                    f.dataSource ? () => onRefreshDataSource?.(f.dataSource) : undefined
+                  onRefresh={dsKey ? () => onRefreshDataSource?.(dsKey) : undefined}
+                  onDesign={
+                    values[f.key]?.id
+                      ? () => onFieldDesign?.(f, values[f.key]?.id)
+                      : undefined
                   }
                 />
               </Form.Item>
             );
+          }
           case 'browser':
             return (
               <Form.Item key={f.key} name={f.key} label={f.label} rules={buildRules(f)}>
@@ -464,7 +547,10 @@ export function buildInitialValues(
       const raw = source[f.key] ?? f.defaultValue;
       init[f.key] = raw === 1 || raw === true || raw === '1';
     } else {
-      init[f.key] = source[f.key] ?? f.defaultValue;
+      // 防御：defaultValue 若为对象/数组（异常下发），忽略之，避免输入框渲染成 [object Object]
+      const dv = f.defaultValue;
+      const safeDv = dv !== null && typeof dv === 'object' ? undefined : dv;
+      init[f.key] = source[f.key] ?? safeDv;
     }
   });
   return init;

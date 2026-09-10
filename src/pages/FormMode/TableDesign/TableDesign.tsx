@@ -213,9 +213,27 @@ const DragHandle: React.FC<{ index: number }> = ({ index }) => {
  * 低代码表设计器主页面
  * 支持可视化配置数据库表和字段，拖拽排序，实时预览
  */
-const TableDesign: React.FC = () => {
+export interface TableDesignProps {
+  /** 内嵌模式：直接指定要设计的表单ID（优先于 URL 的 ?id=） */
+  formId?: string;
+  /** 内嵌模式：不渲染 PageContainer 外框、不做路由跳转 */
+  embedded?: boolean;
+  /** 内嵌模式：保存成功回调（回传表单ID） */
+  onSaved?: (id?: string) => void;
+  /** 内嵌模式：点击「关闭」回调 */
+  onClose?: () => void;
+}
+
+const TableDesign: React.FC<TableDesignProps> = ({
+  formId: formIdProp,
+  embedded,
+  onSaved,
+  onClose,
+}) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  // 内嵌模式下由 props 传入表单ID，否则沿用 URL 上的 ?id=
+  const resolvedId = formIdProp ?? searchParams.get('id') ?? null;
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('design');
   const [loading, setLoading] = useState(false);
@@ -415,7 +433,7 @@ const TableDesign: React.FC = () => {
 
   // 新建表单时，自动获取下一个表名
   useEffect(() => {
-    const formId = searchParams.get('id');
+    const formId = resolvedId;
     if (!formId) {
       // 新建模式：自动获取自增表名
       formApi.getNextTableName().then((name) => {
@@ -424,11 +442,11 @@ const TableDesign: React.FC = () => {
         console.error('获取表名失败:', err);
       });
     }
-  }, [searchParams]);
+  }, [resolvedId]);
 
   // 新建表单时，加载已有表单列表（用于主表选择）
   useEffect(() => {
-    const formId = searchParams.get('id');
+    const formId = resolvedId;
     if (!formId) {
       formApi.getAll().then((forms) => {
         setExistingForms(forms || []);
@@ -436,12 +454,12 @@ const TableDesign: React.FC = () => {
         console.error('获取表单列表失败:', err);
       });
     }
-  }, [searchParams]);
+  }, [resolvedId]);
 
   // 加载已有表单数据
   // 使用 AbortController 防止 React 18 StrictMode 下 effect 多次执行导致数据重复
   useEffect(() => {
-    const formId = searchParams.get('id');
+    const formId = resolvedId;
     if (!formId) return;
 
     // 每次执行前先重置状态，确保切换表单时重新加载
@@ -603,7 +621,7 @@ const TableDesign: React.FC = () => {
     return () => {
       abortController.abort();
     };
-  }, [searchParams]);
+  }, [resolvedId]);
 
   // 创建明细表默认字段（id + 主表外键）
   const createDefaultDetailFields = (mainTableName: string): Partial<FieldDefinitionFormData>[] => [
@@ -2398,6 +2416,8 @@ const TableDesign: React.FC = () => {
         console.error('同步数据库表失败:', error);
         message.warning('表单定义已保存，但数据库表同步失败，请手动同步');
       }
+      // 内嵌模式：通知外层保存完成（回传表单ID）
+      onSaved?.(formId);
     } catch (error) {
       console.error('保存失败:', error);
       message.error('保存失败');
@@ -2426,26 +2446,9 @@ const TableDesign: React.FC = () => {
 
   // ==================== 渲染 ====================
 
-  return (
-    <PageContainer
-      title="低代码表设计器"
-      extra={
-        <Space>
-          <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
-            保存
-          </Button>
-          <Button icon={<EyeOutlined />} onClick={() => { generatePreviewSql(); generatePreviewFormJson(); setActiveTab('preview'); }}>
-            预览
-          </Button>
-          <Button icon={<CodeOutlined />} onClick={handleExport}>
-            导出
-          </Button>
-          <Button onClick={() => navigate('/formmode/formmanage')}>
-            返回
-          </Button>
-        </Space>
-      }
-    >
+  // 页面主体内容：内嵌模式与独立页面共用
+  const content = (
+    <>
       <Tabs activeKey={activeTab} onChange={setActiveTab}>
         {/* ============ 设计器 Tab ============ */}
         <TabPane
@@ -2455,7 +2458,7 @@ const TableDesign: React.FC = () => {
           {/* ---- 表基本信息 ---- */}
           <Card title="表基本信息" size="small" style={{ marginBottom: 16 }}>
             {/* 新建表单时显示主表选择器 */}
-            {!searchParams.get('id') && (
+            {!resolvedId && (
               <Row gutter={[24, 16]} style={{ marginBottom: 16 }}>
                 <Col span={12}>
                   <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>
@@ -2936,6 +2939,54 @@ const TableDesign: React.FC = () => {
         }}
         onCancel={() => setTypePickerVisible(false)}
       />
+    </>
+  );
+
+  // 内嵌模式：不套 PageContainer 外框、不做路由跳转，只保留「保存 / 关闭」
+  if (embedded) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 8,
+            padding: '12px 16px',
+            borderBottom: '1px solid #f0f0f0',
+          }}
+        >
+          <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
+            保存
+          </Button>
+          {onClose && <Button onClick={onClose}>关闭</Button>}
+        </div>
+        <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>{content}</div>
+      </div>
+    );
+  }
+
+  // 独立页面模式：原有 PageContainer 外框
+  return (
+    <PageContainer
+      title="低代码表设计器"
+      extra={
+        <Space>
+          <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
+            保存
+          </Button>
+          <Button icon={<EyeOutlined />} onClick={() => { generatePreviewSql(); generatePreviewFormJson(); setActiveTab('preview'); }}>
+            预览
+          </Button>
+          <Button icon={<CodeOutlined />} onClick={handleExport}>
+            导出
+          </Button>
+          <Button onClick={() => navigate('/formmode/formmanage')}>
+            返回
+          </Button>
+        </Space>
+      }
+    >
+      {content}
     </PageContainer>
   );
 };

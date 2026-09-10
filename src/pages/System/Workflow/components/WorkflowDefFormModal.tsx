@@ -16,6 +16,8 @@ import SchemaForm, {
   DataSourceResolver,
 } from '@/components/SchemaForm';
 import WorkflowTypeAddModal from './WorkflowTypeAddModal';
+import WorkflowFormAddModal from './WorkflowFormAddModal';
+import TableDesign from '@/pages/FormMode/TableDesign/TableDesign';
 
 /**
  * 流程（路径）新增 / 编辑弹窗 —— 对齐 ecology「添加路径」。
@@ -64,8 +66,13 @@ const WorkflowDefFormModal: React.FC<WorkflowDefFormModalProps> = ({
   const [addTypeField, setAddTypeField] = useState<FormField | null>(null);
   const [browserRefreshKey, setBrowserRefreshKey] = useState(0);
 
-  // 对应表单列表刷新键：在表设计器新建表之后重新拉取，便于直接选中新表
+  // 对应表单列表刷新键：新建自定义表单后重新拉取，便于直接选中新表单
   const [formListKey, setFormListKey] = useState(0);
+  // 「新建自定义表单」弹窗（点 formSelect 的「+」打开，不跳转页面）
+  const [formAddOpen, setFormAddOpen] = useState(false);
+  // 「配置字段」弹窗：弹窗内嵌表设计器，不打开新页签
+  const [designOpen, setDesignOpen] = useState(false);
+  const [designFormId, setDesignFormId] = useState<string>('');
 
   // 打开时拉取字段描述并初始化表单
   useEffect(() => {
@@ -100,6 +107,8 @@ const WorkflowDefFormModal: React.FC<WorkflowDefFormModalProps> = ({
       return list.map((b: any) => ({
         value: String(b.id),
         label: b.formName || b.tableName || b.name || String(b.id),
+        // 浏览框「表名」列展示用
+        description: b.tableName,
         // 缺省按自定义表单处理，保证加列前的存量数据也可用
         type: b.formType ?? 0,
       }));
@@ -211,15 +220,19 @@ const WorkflowDefFormModal: React.FC<WorkflowDefFormModalProps> = ({
               setAddTypeField(f);
               setAddTypeOpen(true);
             } else if (f.control === 'formSelect') {
-              // 自定义表单：打开表设计器新建自定义表（新窗口，避免丢失本弹窗已填内容）
-              window.open('/formmode/tabledesign', '_blank');
-              message.info('已打开表设计器，创建并保存后回到本窗口即可在下拉中选择新表');
+              // 自定义表单：就地弹出「新建自定义表单」小窗（不跳转页面）
+              setFormAddOpen(true);
             } else {
               message.info(`「${f.label || f.key}」新增功能暂未开放`);
             }
           }}
           dataSourceRefreshKey={formListKey}
           onRefreshDataSource={() => setFormListKey((k) => k + 1)}
+          onFieldDesign={(_f, id) => {
+            if (!id) return;
+            setDesignFormId(String(id));
+            setDesignOpen(true);
+          }}
         />
       )}
       <WorkflowTypeAddModal
@@ -234,6 +247,51 @@ const WorkflowDefFormModal: React.FC<WorkflowDefFormModalProps> = ({
           message.success('路径类型已添加并选中');
         }}
       />
+      <WorkflowFormAddModal
+        open={formAddOpen}
+        onCancel={() => setFormAddOpen(false)}
+        onCreated={(created) => {
+          setFormAddOpen(false);
+          // 刷新表单下拉，并自动选中刚创建的自定义表单
+          setFormListKey((k) => k + 1);
+          if (created?.id) {
+            form.setFieldsValue({ form: { type: 0, id: String(created.id) } });
+            // 创建完成后直接进入「配置字段」弹窗（内嵌表设计器，不新开页签）
+            setDesignFormId(String(created.id));
+            setDesignOpen(true);
+          }
+          message.success(`自定义表单「${created?.formName || ''}」已创建并选中`);
+        }}
+      />
+
+      {/* 配置字段：弹窗内嵌表设计器（不打开新页签） */}
+      <Modal
+        title="配置字段"
+        open={designOpen}
+        onCancel={() => {
+          setDesignOpen(false);
+          // 设计器里可能改了表单名称 / 字段，关闭后刷新下拉
+          setFormListKey((k) => k + 1);
+        }}
+        width="90vw"
+        style={{ top: 24 }}
+        styles={{ body: { height: '78vh', padding: 0 } }}
+        footer={null}
+        destroyOnClose
+      >
+        {designOpen && designFormId ? (
+          <TableDesign
+            formId={designFormId}
+            embedded
+            onClose={() => setDesignOpen(false)}
+            onSaved={() => {
+              // 保存成功后关闭弹窗并刷新表单下拉
+              setFormListKey((k) => k + 1);
+              setDesignOpen(false);
+            }}
+          />
+        ) : null}
+      </Modal>
     </Modal>
   );
 };
