@@ -1,60 +1,64 @@
 /**
  * bpmn-js 画布中文国际化。
  *
- * bpmn-js / diagram-js 的文案统一由注入的 `translate` 服务产出，
+ * bpmn-js / diagram-js / properties-panel 的文案统一由注入的 `translate` 服务产出，
  * 这里用自定义模块覆盖该服务，把英文文案替换为中文。
- * 用法：把 default 导出的模块放进 BpmnJS 的 additionalModules 即可。
+ * 用法：把 default 导出的模块放进 BpmnJS 的 additionalModules（放在最后以覆盖内置实现）。
  *
- * 说明：键为 bpmn-js 内部的原始英文串；未命中的键会原样返回英文，
- * 因此词条表不必穷举，缺哪个补哪个即可。
+ * 注意：词条键**区分大小写**，必须与 bpmn-js 源码中的原文完全一致
+ * （例如是 'Create start event' 而不是 'Create Start Event'）。
+ * 为避免大小写差异导致漏翻，customTranslate 额外做了不区分大小写的兜底匹配。
  */
 
 const translations: Record<string, string> = {
-  // ───────── 工具栏（Palette）─────────
-  'Activate the hand tool': '激活抓手工具',
-  'Activate the lasso tool': '激活套索工具',
-  'Activate the global connect tool': '激活全局连接工具',
-  'Activate the create/remove space tool': '激活创建/删除空间工具',
-  'Activate the direct editing': '激活直接编辑',
-  'Create Start Event': '创建开始事件',
-  'Create Intermediate/Boundary Event': '创建中间/边界事件',
-  'Create End Event': '创建结束事件',
-  'Create Gateway': '创建网关',
-  'Create User Task': '创建用户任务',
-  'Create Service Task': '创建服务任务',
-  'Create Task': '创建任务',
-  'Create Sub-process (collapsed)': '创建子流程（折叠）',
-  'Create Sub-process (expanded)': '创建子流程（展开）',
-  'Create expanded Sub-process': '创建展开的子流程',
-  'Create Event Sub-process': '创建事件子流程',
-  'Create Pool/Participant': '创建池/参与者',
-  'Create Group': '创建分组',
-  'Create Data Object': '创建数据对象',
-  'Create Data Store': '创建数据存储',
-  'Create Text Annotation': '创建文本注解',
+  // ───────── 工具栏 Palette（键名取自 bpmn-js/lib/features/palette/PaletteProvider.js）─────────
+  'Activate hand tool': '激活抓手工具',
+  'Activate lasso tool': '激活套索工具',
+  'Activate create/remove space tool': '激活创建/删除空间工具',
+  'Activate global connect tool': '激活全局连接工具',
+  'Create start event': '创建开始事件',
+  'Create intermediate/boundary event': '创建中间/边界事件',
+  'Create end event': '创建结束事件',
+  'Create gateway': '创建网关',
+  'Create task': '创建任务',
+  'Create user task': '创建用户任务',
+  'Create data object reference': '创建数据对象',
+  'Create data store reference': '创建数据存储',
+  'Create expanded sub-process': '创建展开的子流程',
+  'Create pool/participant': '创建池/参与者',
+  'Create group': '创建分组',
+  'Create text annotation': '创建文本注解',
 
-  // ───────── 元素上下文菜单（Context Pad）─────────
+  // ───────── 右键菜单 Context Pad（取自 ContextPadProvider.js）─────────
   'Append end event': '追加结束事件',
   'Append gateway': '追加网关',
-  'Append activity': '追加活动',
-  'Append Task': '追加任务',
-  'Append User Task': '追加用户任务',
+  'Append task': '追加任务',
+  'Append user task': '追加用户任务',
+  'Append receive task': '追加接收任务',
+  'Append message intermediate catch event': '追加消息中间捕获事件',
+  'Append timer intermediate catch event': '追加定时中间捕获事件',
+  'Append conditional intermediate catch event': '追加条件中间捕获事件',
+  'Append signal intermediate catch event': '追加信号中间捕获事件',
   'Append intermediate/boundary event': '追加中间/边界事件',
-  'Append text annotation': '追加文本注解',
   'Append compensation activity': '追加补偿活动',
-  'Connect element': '连接元素',
-  'Change type': '更改类型',
+  'Add text annotation': '添加文本注解',
+  'Connect to other element': '连接到其他元素',
+  'Connect using association': '用关联连接',
+  'Connect using data input association': '用数据输入关联连接',
   'Change element': '更改元素',
-  'Add marker': '添加标记',
-  Remove: '删除',
+  'Add lane above': '在上方添加泳道',
+  'Add lane below': '在下方添加泳道',
+  'Divide into two lanes': '拆分为两条泳道',
+  'Divide into three lanes': '拆分为三条泳道',
   Delete: '删除',
+  Remove: '移除',
 
-  // ───────── 替换菜单（Replace / Popup Menu）─────────
+  // ───────── 替换菜单 Replace / 元素类型 ─────────
   'Replace with': '替换为',
   'Start Event': '开始事件',
-  'End Event': '结束事件',
   'Intermediate Throw Event': '中间抛出事件',
   'Intermediate Catch Event': '中间捕获事件',
+  'End Event': '结束事件',
   'Boundary Event': '边界事件',
   Task: '任务',
   'User Task': '用户任务',
@@ -66,6 +70,8 @@ const translations: Record<string, string> = {
   'Manual Task': '手工任务',
   'Call Activity': '调用活动',
   'Sub-process': '子流程',
+  'Sub-process (collapsed)': '子流程（折叠）',
+  'Sub-process (expanded)': '子流程（展开）',
   'Event Sub-process': '事件子流程',
   Transaction: '事务',
   'Exclusive Gateway': '排他网关',
@@ -79,12 +85,9 @@ const translations: Record<string, string> = {
   'Text Annotation': '文本注解',
   'Data Object': '数据对象',
   'Data Store Reference': '数据存储引用',
-
-  // 连接线
   'Sequence Flow': '顺序流',
   'Message Flow': '消息流',
   Association: '关联',
-  'Data Association': '数据关联',
 
   // ───────── 通用操作 ─────────
   Undo: '撤销',
@@ -109,8 +112,10 @@ const translations: Record<string, string> = {
   'Hide mini-map': '隐藏缩略图',
   'Select element': '选择元素',
   'Direct editing': '直接编辑',
+  'Copy element': '复制元素',
+  'Paste element': '粘贴元素',
 
-  // ───────── 属性面板（Properties Panel）常用项 ─────────
+  // ───────── 属性面板常用项 ─────────
   General: '常规',
   Documentation: '文档',
   Id: '编号',
@@ -167,19 +172,19 @@ const translations: Record<string, string> = {
   'Business Key': '业务键',
   'Task Listener': '任务监听器',
   'Task Priority': '任务优先级',
-  'Assignee': '办理人',
+  Assignee: '办理人',
   'Candidate Users': '候选用户',
   'Candidate Groups': '候选组',
   'Due Date': '到期日',
   'Follow Up Date': '跟进日期',
   'User Assignment': '用户分配',
-  'Scripts': '脚本',
-  'Script': '脚本',
+  Scripts: '脚本',
+  Script: '脚本',
   'Script Format': '脚本格式',
   'Script Type': '脚本类型',
   'Inline Script': '内联脚本',
   'External Resource': '外部资源',
-  'Resource': '资源',
+  Resource: '资源',
   'Field Injections': '字段注入',
   'Add Property': '添加属性',
   'Add Entry': '添加条目',
@@ -189,19 +194,33 @@ const translations: Record<string, string> = {
   'Specify an id': '请输入编号',
 };
 
+/** 小写索引，用于大小写不敏感的兜底匹配 */
+const lowerIndex: Record<string, string> = {};
+Object.keys(translations).forEach((key) => {
+  const lower = key.toLowerCase();
+  if (!(lower in lowerIndex)) {
+    lowerIndex[lower] = translations[key];
+  }
+});
+
 /**
- * 自定义翻译函数：命中词条表则替换，并把 {xxx} 占位符替换为实际值。
+ * 自定义翻译函数：
+ * 1) 先精确匹配，再按小写兜底匹配，都没命中则原样返回英文；
+ * 2) 替换 {xxx} 占位符为实际值（占位符的取值若也在词条表中则一并翻译）。
  */
 export function customTranslate(
   template: string,
   replacements?: Record<string, any>,
 ): string {
-  let result: string = translations[template] || template;
+  let result: string =
+    translations[template] || lowerIndex[template.toLowerCase()] || template;
 
   if (replacements) {
     result = result.replace(/{([^}]+)}/g, (_match: string, key: string) => {
       const value = replacements[key];
-      return value === undefined || value === null ? `{${key}}` : String(value);
+      if (value === undefined || value === null) return `{${key}}`;
+      const strValue = String(value);
+      return translations[strValue] || lowerIndex[strValue.toLowerCase()] || strValue;
     });
   }
 

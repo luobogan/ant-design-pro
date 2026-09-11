@@ -42,6 +42,16 @@ const STARTER_XML = (procKey: string, name: string): string => `<?xml version="1
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
 
+/**
+ * 判断 XML 是否含可展示的 process 或 collaboration。
+ * bpmn-js 在两者都不存在时会抛 "no process or collaboration to display"，
+ * 这里提前校验，非法/残缺内容一律回退到初始模板，避免画布打不开。
+ */
+const hasDisplayableContent = (xml: any): boolean =>
+  typeof xml === 'string' &&
+  xml.trim().length > 0 &&
+  (/<(\w+:)?process[\s/>]/.test(xml) || /<(\w+:)?collaboration[\s/>]/.test(xml));
+
 interface BpmnDesignerProps {
   defId?: number;
   procKey?: string;
@@ -88,11 +98,17 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
       ],
     });
     modelerRef.current = modeler;
-    // 必须是字符串才当作已保存的 XML，否则回退到初始模板（避免非字符串时 .trim() 抛错）
-    const xml =
-      typeof bpmnXml === 'string' && bpmnXml.trim()
-        ? bpmnXml
-        : STARTER_XML(procKey || 'Process_1', name || '流程');
+    // 必须是字符串、且含 process/collaboration 才当作已保存的 XML，否则回退到初始模板
+    if (bpmnXml && !hasDisplayableContent(bpmnXml)) {
+      console.warn('[BpmnDesigner] 已保存的 BPMN 不含 process/collaboration，回退到初始模板：', {
+        type: typeof bpmnXml,
+        isArray: Array.isArray(bpmnXml),
+        value: bpmnXml,
+      });
+    }
+    const xml = hasDisplayableContent(bpmnXml)
+      ? (bpmnXml as string)
+      : STARTER_XML(procKey || 'Process_1', name || '流程');
     modeler
       .importXML(xml)
       .catch((e: any) => message.error('画布加载失败：' + (e?.message || e)));
@@ -110,9 +126,9 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
       first.current = false;
       return;
     }
-    if (modelerRef.current && typeof bpmnXml === 'string' && bpmnXml) {
+    if (modelerRef.current && hasDisplayableContent(bpmnXml)) {
       modelerRef.current
-        .importXML(bpmnXml)
+        .importXML(bpmnXml as string)
         .catch((e: any) => message.error('画布重载失败：' + (e?.message || e)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

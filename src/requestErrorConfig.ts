@@ -454,8 +454,16 @@ export const errorConfig: RequestConfig = {
         cachedSave(response, hashcode);
       }
 
-      // 拦截响应数据，进行个性化处理
-      const data = response.data;
+      // 拦截响应数据，进行个性化处理。
+      // response 在不同环境下可能是：① umi 包装对象 { data: ApiResponse, status, ... }；
+      // ② ApiResponse 本体（getResponse=false 时 request() 直接返回 body）。
+      // 统一取出真正的 ApiResponse（含 code/success/data/msg），否则后续 `data.code` /
+      // `data.success` 判断会落到内层 payload 上而全部失效，后端 success:false 会被当成功吞掉。
+      const api =
+        response && typeof response === 'object' && !Array.isArray(response) && 'code' in response
+          ? response
+          : response?.data ?? response;
+      const data = api;
 
       console.log('响应拦截器 - 解析后的数据:', data);
 

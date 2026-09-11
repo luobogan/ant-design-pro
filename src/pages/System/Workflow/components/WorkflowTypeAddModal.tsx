@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Form, Input, InputNumber, Modal, Space, message } from 'antd';
+import { pickPayload } from '@/utils/utils';
 import { createWorkflowType, FormFieldOption } from '@/services/workflow';
 
 /**
@@ -43,7 +44,7 @@ const WorkflowTypeAddModal: React.FC<WorkflowTypeAddModalProps> = ({
         typeDesc: values.typeDesc?.trim() || undefined,
         sortOrder: values.sortOrder ?? 0,
       });
-      const opt: FormFieldOption = res?.data || {};
+      const opt: FormFieldOption = pickPayload(res) || {};
       message.success('路径类型已添加');
       onCreated(opt);
     } catch (e: any) {

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Form, Input, Modal, Select, Space, message } from 'antd';
+import { pickPayload } from '@/utils/utils';
 import { workflowBillApi, fieldDefinitionApi } from '@/services/formmode';
 
 /**
@@ -38,7 +39,7 @@ const WorkflowFormAddModal: React.FC<WorkflowFormAddModalProps> = ({
     workflowBillApi
       .getAll()
       .then((res: any) => {
-        const list = Array.isArray(res) ? res : res?.data || [];
+        const list = pickPayload(res) || [];
         setForms(list);
       })
       .catch(() => setForms([]));
@@ -48,7 +49,7 @@ const WorkflowFormAddModal: React.FC<WorkflowFormAddModalProps> = ({
   /** 复制来源表单的字段定义到新表单 */
   const copyFields = async (sourceFormId: string, targetFormId: string) => {
     const res: any = await fieldDefinitionApi.getByFormId(sourceFormId);
-    const sourceFields: any[] = Array.isArray(res) ? res : res?.data || [];
+    const sourceFields: any[] = pickPayload(res) || [];
     for (const f of sourceFields) {
       await fieldDefinitionApi.create({
         formId: targetFormId,
@@ -82,7 +83,8 @@ const WorkflowFormAddModal: React.FC<WorkflowFormAddModalProps> = ({
     try {
       // 1) 表名按规则自动生成，不展示给用户
       const nameRes: any = await workflowBillApi.getNextTableName();
-      const tableName = typeof nameRes === 'string' ? nameRes : nameRes?.data;
+      const rawName: any = pickPayload(nameRes);
+      const tableName = typeof rawName === 'string' ? rawName : rawName?.tableName;
       if (!tableName) throw new Error('自动生成表名失败');
 
       // 2) 创建表单定义（form_type=0 自定义表单）
@@ -93,7 +95,7 @@ const WorkflowFormAddModal: React.FC<WorkflowFormAddModalProps> = ({
         status: 1,
         formType: 0,
       });
-      const created = res?.data ?? res;
+      const created = pickPayload(res);
       const newId = String(created?.id ?? '');
 
       // 3) 从已有表单复制字段
