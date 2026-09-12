@@ -1,16 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Select, Spin } from 'antd';
 import type { SelectProps } from 'antd/es/select';
-import { browserApi } from '@/services/formmode';
+import {
+  BROWSER_TYPE_META,
+  PersonOrgItem,
+  itemsOfCategory,
+  loadPersonOrgData,
+} from './personOrg';
 
- interface BrowserSelectProps extends Omit<SelectProps<any>, 'onSearch' | 'onChange'> {
-  /** 浏览框类型（对应泛微的 browserType） */
+interface BrowserSelectProps extends Omit<SelectProps<any>, 'onSearch' | 'onChange'> {
+  /** 浏览框类型（对应泛微的 browserType，E9 35+ 编号空间） */
   browserType: number;
-  /** 值 */
+  /** 值（单选取 id 字符串，多选为 id 数组） */
   value?: any;
   /** 值变化回调 */
   onChange?: (value: any) => void;
-  /** 是否多选 */
+  /** 是否多选（不传则按类型元信息，E9 浏览按钮默认多选） */
   multiple?: boolean;
   /** 占位符 */
   placeholder?: string;
@@ -18,127 +23,79 @@ import { browserApi } from '@/services/formmode';
   disabled?: boolean;
 }
 
-interface BrowserOption {
-  value: string;
-  label: string;
-  [key: string]: any;
-}
-
 /**
- * 浏览框选择组件
- * 使用 Ant Design Select 组件替代泛微的浏览框
- * 支持单选、多选、搜索、分页加载
+ * 浏览框下拉选择组件（Select 形态；弹窗形态见 {@link PersonOrgPicker}）。
+ *
+ * 数据源已接入统一「人员与组织」数据层（blade-system 真实数据，本地检索），
+ * 覆盖：人员(1/161/166/167/168)、部门(2/17/19/20)、分部(18/21/22/23)、角色(3/163)、岗位(4)。
+ * 其余 ecology 浏览按钮类型（资产/客户/文档等）暂未实现，会给出提示。
  */
 const BrowserSelect: React.FC<BrowserSelectProps> = ({
   browserType,
   value,
   onChange,
-  multiple = false,
+  multiple,
   placeholder = '请选择',
   disabled = false,
   ...restProps
 }) => {
-  const [options, setOptions] = useState<BrowserOption[]>([]);
+  const meta = BROWSER_TYPE_META[browserType];
+  const [items, setItems] = useState<PersonOrgItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [searchValue, setSearchValue] = useState('');
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [total, setTotal] = useState(0);
-  
-  const pageSize = 20;
-  const triggerRef = useRef<any>(null);
+  const [keyword, setKeyword] = useState('');
 
-  // 获取浏览框数据
-  const fetchData = async (keyword?: string, pageNum: number = 1, append: boolean = false) => {
-    setLoading(true);
-    try {
-      const params: any = {
-        current: pageNum,
-        pageSize,
-      };
-      
-      if (keyword) {
-        params.keyword = keyword;
-      }
-
-      const result = await browserApi.getList(browserType, params);
-      
-      const newOptions = (result.list || []).map((item: any) => ({
-        value: item.id?.toString() || '',
-        label: item.name || item.label || '',
-        ...item,
-      }));
-
-      if (append) {
-        setOptions(prev => [...prev, ...newOptions]);
-      } else {
-        setOptions(newOptions);
-      }
-
-      setTotal(result.total || 0);
-      setHasMore(pageNum * pageSize < (result.total || 0));
-    } catch (error) {
-      console.error('获取浏览框数据失败:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 初始加载
   useEffect(() => {
-    if (browserType) {
-      fetchData();
+    if (!meta) {
+      setItems([]);
+      return;
     }
+    let alive = true;
+    setLoading(true);
+    loadPersonOrgData()
+      .then((data) => {
+        if (!alive) return;
+        setItems(itemsOfCategory(data, meta.category));
+      })
+      .catch(() => alive && setItems([]))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
   }, [browserType]);
 
-  // 搜索
-  const handleSearch = (keyword: string) => {
-    setSearchValue(keyword);
-    setPage(1);
-    fetchData(keyword, 1, false);
-  };
+  const filtered = useMemo(() => {
+    const kw = keyword.trim().toLowerCase();
+    if (!kw) return items;
+    return items.filter(
+      (i) =>
+        i.name.toLowerCase().includes(kw) ||
+        (i.code || '').toLowerCase().includes(kw) ||
+        (i.desc || '').toLowerCase().includes(kw),
+    );
+  }, [items, keyword]);
 
-  // 滚动加载更多
-  const handlePopupScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLDivElement;
-    if (target.scrollHeight - target.scrollTop === target.clientHeight) {
-      if (!loading && hasMore) {
-        const nextPage = page + 1;
-        setPage(nextPage);
-        fetchData(searchValue, nextPage, true);
-      }
-    }
-  };
+  if (!meta) {
+    return <Select disabled placeholder="该浏览框类型暂未实现" />;
+  }
 
   return (
     <Select
       value={value}
       onChange={onChange}
-      mode={multiple ? 'multiple' : undefined}
+      mode={multiple ?? meta.multiple ? 'multiple' : undefined}
       placeholder={placeholder}
       disabled={disabled}
       showSearch
       filterOption={false}
-      onSearch={handleSearch}
+      onSearch={setKeyword}
       notFoundContent={loading ? <Spin size="small" /> : '暂无数据'}
+      options={filtered.map((i) => ({
+        value: i.id,
+        label: i.name,
+        title: i.desc ? `${i.name}（${i.desc}）` : i.name,
+      }))}
       {...restProps}
-    >
-      {options.map(option => (
-        <Select.Option key={option.value} value={option.value} {...option}>
-          {option.label}
-        </Select.Option>
-      ))}
-      {loading && (
-        <Select.Option disabled value="loading">
-          <Spin size="small" /> 加载中...
-        </Select.Option>
-      )}
-      {!loading && hasMore && options.length > 0 && (
-        <Select.Option disabled value="loadMore">
-          滚动加载更多...
-        </Select.Option>
-      )}
-    </Select>
+    />
   );
 };
 

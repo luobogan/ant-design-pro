@@ -22,6 +22,8 @@ import type {
   FormDataRecord,
   PageParams,
 } from '@/services/formmode/typings';
+import { PersonOrgValueText } from '@/components/FormMode/PersonOrgPicker';
+import { resolveBrowserMeta } from '@/components/FormMode/personOrg';
 
 const { Search } = Input;
 
@@ -214,6 +216,11 @@ const FormDataList: React.FC = () => {
         ellipsis: true,
         render: (text: any) => {
           if (text === null || text === undefined) return '-';
+          // 浏览按钮字段：存 id 逗号串，列表展示名称
+          if (field.fieldHtmlType === 2) {
+            const meta = resolveBrowserMeta(field.fieldType, field.browType);
+            return <PersonOrgValueText browserType={meta?.browserType} value={text} />;
+          }
           return String(text);
         },
       });

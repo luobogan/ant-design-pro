@@ -11,6 +11,7 @@ import {
 import React, { useEffect, useState, useMemo } from 'react';
 import { fieldApi, fieldOptionApi, fieldExtendApi } from '@/services/formmode';
 import type { FieldDefinitionFormData, FieldTypeInfo, FieldOption, FieldExtend } from '@/services/formmode/typings';
+import { BROWSER_TYPE_META } from '@/components/FormMode/personOrg';
 import FieldOptionManager from './FieldOptionManager';
 import FieldExtendConfig from './FieldExtendConfig';
 
@@ -78,6 +79,7 @@ const FieldManageForm: React.FC<FieldManageFormProps> = ({
       fieldLabel: initialValues?.fieldLabel || '',
       fieldHtmlType: initialValues?.fieldHtmlType ?? undefined,
       fieldType: initialValues?.fieldType ?? undefined,
+      browType: initialValues?.browType ?? undefined,
       fieldDbType: initialValues?.fieldDbType || 'varchar',
       fieldLength: initialValues?.fieldLength ?? 255,
       fieldDecimals: initialValues?.fieldDecimals ?? 0,
@@ -255,6 +257,27 @@ const FieldManageForm: React.FC<FieldManageFormProps> = ({
               placeholder="请选择字段详细类型"
               rules={[{ required: true, message: '请选择字段详细类型' }]}
               options={typeOptions}
+              readonly={readonly}
+            />
+          );
+        }}
+      </ProFormDependency>
+
+      {/* 浏览按钮类型（browtype）：对齐 ecology 35+ 编号空间，
+          表单填报时按该类型弹出对应的人员/部门/分部/角色/岗位选择弹窗（优先级高于「字段详细类型」） */}
+      <ProFormDependency name={['fieldHtmlType']}>
+        {({ fieldHtmlType }) => {
+          if (fieldHtmlType !== 2) return null;
+          return (
+            <ProFormSelect
+              name="browType"
+              label="浏览按钮类型（browtype）"
+              placeholder="请选择浏览按钮类型（人力资源/部门/分部/角色/岗位）"
+              tooltip="对齐 ecology 浏览按钮类型编号；设置后表单填报时按该类型弹出选择弹窗。留空则按「字段详细类型」推断。"
+              options={Object.values(BROWSER_TYPE_META).map((m) => ({
+                value: m.browserType,
+                label: `${m.browserType}-${m.label}`,
+              }))}
               readonly={readonly}
             />
           );

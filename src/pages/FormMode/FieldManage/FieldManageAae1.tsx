@@ -89,6 +89,7 @@ const FieldAae: React.FC = () => {
       fieldLabel: fieldDefinition.fieldLabel,
       fieldHtmlType: fieldDefinition.fieldHtmlType,
       fieldType: fieldDefinition.fieldType,
+      browType: fieldDefinition.browType,
       fieldDbType: fieldDefinition.fieldDbType,
       fieldLength: fieldDefinition.fieldLength,
       fieldDecimals: fieldDefinition.fieldDecimals,

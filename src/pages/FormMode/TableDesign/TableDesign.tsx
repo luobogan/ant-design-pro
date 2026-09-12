@@ -2919,12 +2919,16 @@ const TableDesign: React.FC<TableDesignProps> = ({
         onConfirm={(typeId, typeLabel) => {
           // 更新字段类型值
           if (pickerContext) {
+            // browType 记录 ecology 35+ 浏览按钮类型编号（1/161人员、2/17部门、18/23分部、3角色、4岗位…），
+            // 表单填报时按它弹出对应的人员/组织选择弹窗（优先级高于 fieldType）
             if (pickerContext.isDetail) {
               handleDetailFieldChange(pickerContext.index, 'fieldType', typeId);
+              handleDetailFieldChange(pickerContext.index, 'browType', typeId);
               const dbType = getDbTypeByFieldType(3, typeId);
               handleDetailFieldChange(pickerContext.index, 'fieldDbType', dbType);
             } else {
               handleFieldChange(pickerContext.index, 'fieldType', typeId);
+              handleFieldChange(pickerContext.index, 'browType', typeId);
               const dbType = getDbTypeByFieldType(3, typeId);
               handleFieldChange(pickerContext.index, 'fieldDbType', dbType);
             }

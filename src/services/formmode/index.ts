@@ -323,7 +323,7 @@ export const fieldDefinitionApi = {
       isNull: data.isRequired || 0,
       uniqueValue: 0,
       fieldMsg: '',
-      browType: null,
+      browType: data.browType ? String(data.browType) : null,
       browserUrlId: null,
       selectItem: data.options ? JSON.stringify(data.options) : null,
       detailTable: data.detailTable != null ? data.detailTable : null,
@@ -360,7 +360,7 @@ export const fieldDefinitionApi = {
       isNull: data.isRequired != null ? data.isRequired : 0,
       uniqueValue: data.isUnique != null ? data.isUnique : 0,
       fieldMsg: data.fieldMsg || '',
-      browType: String(data.browType || 0), // 后端是 String 类型
+      browType: data.browType ? String(data.browType) : null, // 后端是 String 类型
       browserUrlId: data.browserUrlId || 0,
       selectItem: data.selectItem || '',
       detailTable: data.detailTable || 0,

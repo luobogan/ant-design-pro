@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Button,
   Input,
@@ -9,15 +9,12 @@ import {
   Space,
   Table,
   Tabs,
-  TreeSelect,
   message,
 } from 'antd';
 import { DeleteOutlined } from '@ant-design/icons';
 import { configOperator, WfNodeOperator } from '@/services/workflow';
-import * as userApi from '@/services/system/user';
-import * as deptApi from '@/services/system/dept';
-import * as roleApi from '@/services/authority/role';
-import * as positionApi from '@/services/system/position';
+import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
+import { loadPersonOrgData } from '@/components/FormMode/personOrg';
 import { BHXJ, SIGN_ORDERS } from './wfDict';
 
 export interface NodeOperatorModalProps {
@@ -41,6 +38,7 @@ export interface NodeOperatorModalProps {
  *   借用每行的 condition_json（json 列）以 {"name":组名,"expr":生效条件} 结构持久化，
  *   引擎侧当前不消费该字段，后续实现生效条件时按结构化对象解析即可。
  * · 类型单选（指定人/指定部门/指定分部/指定角色/指定岗位/所有人）+ 按类型变化的对象选择器；
+ *   选择器统一走 {@link PersonOrgField}（人员与组织选择弹窗，E9 BrowserBean 交互）；
  *   另补「创建人本人/创建人上级/本部门」三个引擎已支持的无对象类型，避免功能回退。
  *   「指定分部」在 blade 中无独立分部体系，落库为部门(opType=1)且固定含下级，
  *   选择器仅列部门树根节点。
@@ -48,10 +46,6 @@ export interface NodeOperatorModalProps {
  *   （类型/名称/级别/会签属性/条件/批次），勾选后可批量删除。
  * · 提交走 `configOperator`（整体覆盖写 wf_node_operator），契约与旧版一致。
  */
-
-/** 通用接口载荷剥取：数组 / {records}（IPage）/ {data}（ApiResponse） */
-const rowsOf = (res: any): any[] =>
-  Array.isArray(res) ? res : res?.records || res?.data || [];
 
 /** 解析 condition_json：{"name","expr"} 结构；旧版纯文本条件降级为 expr */
 const parseCondMeta = (cj?: string | null): { name?: string; expr?: string } => {
@@ -157,10 +151,9 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
   const [batchNo, setBatchNo] = useState(0);
   const [expr, setExpr] = useState('');
 
-  // ── 名称解析字典（id → 显示名） ────────────────────────────────
+  // ── 名称解析字典（id → 显示名，来自统一数据层） ─────────────────
   const [userMap, setUserMap] = useState<Record<string, string>>({});
   const [deptMap, setDeptMap] = useState<Record<string, string>>({});
-  const [deptTree, setDeptTree] = useState<any[]>([]);
   const [roleMap, setRoleMap] = useState<Record<string, string>>({});
   const [postMap, setPostMap] = useState<Record<string, string>>({});
   const [dictLoaded, setDictLoaded] = useState(false);
@@ -177,87 +170,51 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
     setGroupName(list.map((o) => parseCondMeta(o.conditionJson).name).find((n) => n) || '');
   }, [open, operators]);
 
-  // 打开时拉一次人员/部门/角色/岗位字典（选择器 + 名称解析共用）
+  // 打开时加载一次人员/部门/角色/岗位字典（选择弹窗与表格名称解析共用，模块级缓存）
   useEffect(() => {
     if (!open || dictLoaded) return;
     setDictLoaded(true);
     (async () => {
-      const [us, ds, rs, ps] = await Promise.all([
-        userApi.list({}).catch(() => null),
-        deptApi.tree({}).catch(() => null),
-        roleApi.list({}).catch(() => null),
-        positionApi.list({}).catch(() => null),
-      ]);
-      const uMap: Record<string, string> = {};
-      rowsOf(us).forEach((u: any) => {
-        if (u?.id != null) uMap[String(u.id)] = u.realName || u.name || u.account || String(u.id);
-      });
-      setUserMap(uMap);
-      const dList: any[] = rowsOf(ds);
-      setDeptTree(dList);
-      const dMap: Record<string, string> = {};
-      const walk = (arr: any[]) =>
-        arr.forEach((d) => {
-          if (d?.id != null) dMap[String(d.id)] = d.title || d.deptName || String(d.id);
-          if (Array.isArray(d?.children) && d.children.length) walk(d.children);
-        });
-      walk(dList);
-      setDeptMap(dMap);
-      const rMap: Record<string, string> = {};
-      rowsOf(rs).forEach((r: any) => {
-        if (r?.id != null) rMap[String(r.id)] = r.roleAlias || r.roleName || String(r.id);
-      });
-      setRoleMap(rMap);
-      const pMap: Record<string, string> = {};
-      rowsOf(ps).forEach((p: any) => {
-        if (p?.id != null) pMap[String(p.id)] = p.name || String(p.id);
-      });
-      setPostMap(pMap);
+      const data = await loadPersonOrgData();
+      setUserMap(Object.fromEntries(data.users.map((i) => [i.id, i.name])));
+      setDeptMap(Object.fromEntries(data.depts.map((i) => [i.id, i.name])));
+      setRoleMap(Object.fromEntries(data.roles.map((i) => [i.id, i.name])));
+      setPostMap(Object.fromEntries(data.posts.map((i) => [i.id, i.name])));
     })();
   }, [open, dictLoaded]);
 
-  /** 部门树 → TreeSelect 数据 */
-  const deptTreeOpts = useMemo(() => {
-    const conv = (arr: any[]): any[] =>
-      (arr || []).map((d) => ({
-        value: String(d.id),
-        title: d.title || d.deptName || String(d.id),
-        children: Array.isArray(d.children) && d.children.length ? conv(d.children) : undefined,
-      }));
-    return conv(deptTree);
-  }, [deptTree]);
-
-  /** 分部 = 部门树根节点（blade 无独立分部体系） */
-  const branchOpts = useMemo(
-    () =>
-      (deptTree || []).map((d: any) => ({
-        value: String(d.id),
-        title: d.title || d.deptName || String(d.id),
-      })),
-    [deptTree],
-  );
-
   const scopeTag = (b?: number) => (b === 1 ? '（含下级）' : '（本部门）');
 
-  /** 行名称：按类型从字典解析（取不到时回退原值） */
-  const nameOf = (r: WfNodeOperator): string => {
-    const id = r.objId || '';
-    switch (r.opType) {
+  /** 单值解析：按类型从字典取显示名（取不到时回退原 id） */
+  const resolveOne = (opType: number | undefined, id: string): string => {
+    switch (opType) {
       case 3:
         return userMap[id] || id;
       case 1:
-        return `${deptMap[id] || id}${scopeTag(r.bhxj)}`;
+        return deptMap[id] || id;
       case 2:
         return roleMap[id] || id;
       case 58:
         return postMap[id] || id;
-      case 5:
-      case 42:
-      case 43:
-        return `字段：${id}`;
       default:
-        return '';
+        return id;
     }
+  };
+
+  /** 名称：objId 可能是逗号分隔的多个 id（多选），逐个解析后拼接 */
+  const nameOf = (r: WfNodeOperator): string => {
+    const raw = (r.objId || '').trim();
+    if (!raw) return '';
+    // 字段型：objId 存的是字段名，直接展示
+    if ([5, 6, 42, 43].includes(r.opType ?? -1)) return `字段：${raw}`;
+    const names = raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((id) => resolveOne(r.opType, id))
+      .join('、');
+    // 部门/分部类补范围标记（整行一个范围）
+    return r.opType === 1 ? `${names}${scopeTag(r.bhxj)}` : names;
   };
 
   const typeOf = (r: WfNodeOperator) =>
@@ -332,76 +289,55 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
     }
   };
 
-  /** 按类型渲染对象选择器 */
+  /** 按类型渲染对象选择器（统一走人员与组织选择弹窗） */
   const renderPicker = () => {
     switch (kind) {
       case 'user':
         return (
-          <Select
-            showSearch
-            allowClear
-            style={{ width: 260 }}
-            placeholder="选择人员"
-            optionFilterProp="label"
+          <PersonOrgField
+            browserType={1}
             value={objId}
             onChange={(v) => setObjId(v || undefined)}
-            options={Object.entries(userMap).map(([value, label]) => ({ value, label }))}
-            notFoundContent="暂无人员"
+            placeholder="选择人员"
           />
         );
       case 'dept':
         return (
           <Space size={8}>
             <Select style={{ width: 110 }} value={bhxj} options={BHXJ} onChange={setBhxj} />
-            <TreeSelect
-              showSearch
-              allowClear
-              style={{ width: 260 }}
-              placeholder="选择部门"
-              treeNodeFilterProp="title"
-              treeDefaultExpandAll
-              treeData={deptTreeOpts}
+            <PersonOrgField
+              browserType={2}
               value={objId}
               onChange={(v) => setObjId(v || undefined)}
+              placeholder="选择部门"
             />
           </Space>
         );
       case 'branch':
         return (
-          <TreeSelect
-            style={{ width: 260 }}
-            placeholder="选择分部"
-            treeData={branchOpts}
+          <PersonOrgField
+            browserType={18}
             value={objId}
             onChange={(v) => setObjId(v || undefined)}
+            placeholder="选择分部"
           />
         );
       case 'role':
         return (
-          <Select
-            showSearch
-            allowClear
-            style={{ width: 260 }}
-            placeholder="选择角色"
-            optionFilterProp="label"
+          <PersonOrgField
+            browserType={3}
             value={objId}
             onChange={(v) => setObjId(v || undefined)}
-            options={Object.entries(roleMap).map(([value, label]) => ({ value, label }))}
-            notFoundContent="暂无角色"
+            placeholder="选择角色"
           />
         );
       case 'post':
         return (
-          <Select
-            showSearch
-            allowClear
-            style={{ width: 260 }}
-            placeholder="选择岗位"
-            optionFilterProp="label"
+          <PersonOrgField
+            browserType={4}
             value={objId}
             onChange={(v) => setObjId(v || undefined)}
-            options={Object.entries(postMap).map(([value, label]) => ({ value, label }))}
-            notFoundContent="暂无岗位"
+            placeholder="选择岗位"
           />
         );
       case 'selfDept':

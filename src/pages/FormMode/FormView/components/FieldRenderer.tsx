@@ -16,6 +16,8 @@ import {
 import { UploadOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
 import type { FieldDefinition } from '@/services/formmode';
+import { PersonOrgField, PersonOrgValueText } from '@/components/FormMode/PersonOrgPicker';
+import { resolveBrowserMeta } from '@/components/FormMode/personOrg';
 
 const { TextArea } = Input;
 const { RangePicker } = DatePicker;
@@ -41,8 +43,12 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
 }) => {
   const { fieldHtmlType, fieldType, fieldName, fieldLabel } = field;
 
-  // 如果是只读模式，直接显示值
+  // 如果是只读模式，直接显示值（浏览按钮字段：id 逗号串 → 名称）
   if (readonly) {
+    if (fieldHtmlType === 2) {
+      const meta = resolveBrowserMeta(fieldType, field.browType);
+      return <PersonOrgValueText browserType={meta?.browserType} value={value} />;
+    }
     return <span>{value || '-'}</span>;
   }
 
@@ -125,17 +131,17 @@ const renderBrowserField = (
   onChange?: (value: any) => void,
   disabled: boolean = false,
 ) => {
-  // 浏览按钮使用 Select 组件替代
+  // 统一「人员与组织」浏览框：按字段类型触发对应选择弹窗（对齐 ecology BrowserBean）
+  // fieldhtmltype=2 的 type：1人力资源 2部门 3角色（其余类型暂未实现，组件降级提示）；
+  // browType 优先（ecology 35+ 编号空间：1/161人力资源、2/17部门、18/23分部、3角色、4岗位）
+  const meta = resolveBrowserMeta(field.fieldType, field.browType);
   return (
-    <Select
+    <PersonOrgField
+      browserType={meta?.browserType}
       value={value}
-      onChange={onChange}
+      onChange={(v) => onChange?.(v)}
       disabled={disabled}
       placeholder={`请选择${field.fieldLabel}`}
-      allowClear
-      showSearch
-      optionFilterProp="label"
-      options={[]} // 这里需要从后端获取选项
     />
   );
 };

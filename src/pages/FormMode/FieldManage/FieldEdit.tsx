@@ -33,6 +33,7 @@ const FieldEdit: React.FC = () => {
           fieldLabel: result.fieldLabel,
           fieldHtmlType: result.fieldHtmlType,
           fieldType: result.fieldType,
+          browType: result.browType,
           fieldDbType: result.fieldDbType,
           fieldLength: result.fieldLength,
           fieldDecimals: result.fieldDecimals,

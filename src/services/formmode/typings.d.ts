@@ -206,6 +206,10 @@ export interface FieldDefinition {
   fieldType: FieldType;
   /** 字段数据库类型（fielddbtype） */
   fieldDbType: string;
+  /** 浏览按钮类型（browtype，对齐 ecology 35+ 编号；浏览按钮字段专用） */
+  browType?: string | number | null;
+  /** 浏览框 URL ID（browserurlid） */
+  browserUrlId?: number | null;
   /** 字段长度 */
   fieldLength?: number;
   /** 小数位数 */
@@ -319,6 +323,10 @@ export interface FieldDefinitionFormData {
   listDisplay?: number;
   /** 选项列表 */
   options?: FieldOption[];
+  /** 浏览按钮类型（browtype，对齐 ecology 35+ 编号） */
+  browType?: string | number | null;
+  /** 浏览框 URL ID（browserurlid） */
+  browserUrlId?: number | null;
   /** 所属明细表索引（0/null=主表，1=明细表1，2=明细表2...） */
   detailTable?: number;
   /** 是否主表字段：0-否（明细表字段），1-是（主表字段） */
