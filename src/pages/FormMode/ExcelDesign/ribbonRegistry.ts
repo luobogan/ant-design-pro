@@ -84,6 +84,28 @@ export interface RegisterRibbonOptions {
   detailOptions: { idx: number; count: number }[];
 }
 
+/**
+ * 最近一次由 ExcelDesign 传入的处理器集合。
+ * 原生 ribbon 的命令一经注册，回调就被固化在 Univer 的命令服务里；若直接闭包捕获注册那一刻的
+ * handleSave，弹窗关闭重开（组件重挂载）后点的「保存」仍是上一个已卸载实例的处理器 ——
+ * 它拿的是旧 ref/旧 unmount 状态，既不保存也不弹提示（表现为「点保存没反应」）。
+ * 故所有回调统一走「点击时取最新处理器」。
+ */
+let latestOpts: RegisterRibbonOptions | null = null;
+export const setDesignerRibbonOptions = (opts: RegisterRibbonOptions) => {
+  latestOpts = opts;
+};
+/** 返回一个稳定的转发函数：点击时才从 latestOpts 取真实处理器 */
+const callOpt =
+  <K extends keyof RegisterRibbonOptions>(key: K) =>
+  (...args: any[]) => {
+    const fn: any = latestOpts && (latestOpts as any)[key];
+    // 诊断：确认原生 ribbon 的点击确实转发到了当前实例的最新处理器
+    console.log('[Ribbon] 触发动作:', key, typeof fn === 'function' ? '(已绑定)' : '(未绑定处理器!)');
+    if (typeof fn !== 'function') return undefined;
+    return fn(...args);
+  };
+
 // 图标组件 → 注册成字符串 key（供原生 ribbon 引用）
 const DESIGNER_ICONS: Record<string, React.ComponentType> = {
   save: SaveOutlined,
@@ -124,20 +146,32 @@ const DESIGNER_ICONS: Record<string, React.ComponentType> = {
   detail: TableOutlined,
 };
 
-// 注册图标（每 key 只注册一次，避免重复 register 告警）
-const registeredIconKeys = new Set<string>();
+/**
+ * 注册图标。
+ * 注意：ComponentManager 的组件表是**实例级**的（new Univer() 会新建 injector → 新的空 ComponentManager）。
+ * 组件卸载再进入时（UniverExcelGrid 卸载会 univer.dispose()，重挂载后重新 new Univer），
+ * 若仍用「全局 key 集合」判重，新实例里的 designer.* 就永远注册不进去 → ribbon 只剩文字、没有图标。
+ * 故这里改为按 ComponentManager 实例判重（WeakSet，不持有强引用）。
+ */
+const iconRegisteredOn = new WeakSet<object>();
 const registerIcons = (cm: any) => {
-  if (!cm || typeof cm.register !== 'function') return;
+  if (!cm || typeof cm.register !== 'function') {
+    console.warn('[Ribbon] ComponentManager 不可用，原生 ribbon 将不显示图标');
+    return;
+  }
+  if (iconRegisteredOn.has(cm)) return; // 该实例已注册过，避免重复 register 告警
+  let ok = 0;
   Object.keys(DESIGNER_ICONS).forEach((key) => {
     const regKey = `designer.${key}`;
-    if (registeredIconKeys.has(regKey)) return;
     try {
       cm.register(regKey, DESIGNER_ICONS[key]);
-      registeredIconKeys.add(regKey);
+      ok += 1;
     } catch (e) {
       console.warn('[Ribbon] 图标注册失败:', regKey, e);
     }
   });
+  iconRegisteredOn.add(cm);
+  console.log(`[Ribbon] 图标已注册 ${ok}/${Object.keys(DESIGNER_ICONS).length}`);
 };
 
 // ── 自定义页签 key（独立 key，避免与原生 RibbonPosition 冲突）──
@@ -166,6 +200,10 @@ const callGrid = (fn: string, ...args: any[]) => {
   g[fn](...args);
 };
 
+// 上次成功注册所用的服务实例。Univer 实例重建（组件重挂载会 univer.dispose() 后重新 new）
+// 后三者都是新对象，此时旧的「已注册」标记会让新实例既拿不到菜单也拿不到图标，必须强制重新注册。
+let lastInstances: { mm: any; cmd: any; cm: any } | null = null;
+
 /**
  * 注册设计器 ribbon。可重复调用（幂等：已注册过则跳过）。
  * @returns 是否注册成功（成功 → 隐藏 React 工具条，使用原生 ribbon）
@@ -178,6 +216,16 @@ export const registerDesignerRibbon = (opts: RegisterRibbonOptions): boolean => 
     console.warn('[Ribbon] 缺少 menuManager / commandService，回退 React 工具条');
     return false;
   }
+  if (
+    lastInstances &&
+    (lastInstances.mm !== mm || lastInstances.cmd !== cmd || lastInstances.cm !== cm)
+  ) {
+    // Univer 实例已重建 → 清标记，重新合并菜单并重新注册图标
+    (window as any).__designerRibbonRegistered = false;
+  }
+  lastInstances = { mm, cmd, cm };
+  // 无论是否重新注册，都把最新处理器留在模块里：命令回调固定转发到它
+  latestOpts = opts;
   if ((window as any).__designerRibbonRegistered) return true;
 
   // 注册图标（原生 ribbon 的 icon 引用字符串 key）
@@ -233,15 +281,15 @@ export const registerDesignerRibbon = (opts: RegisterRibbonOptions): boolean => 
     g[`designer.${id}`] = item;
   };
 
-  // ── 模板 ──
-  addItem(TAB.TEMPLATE, 'ops', 'tpl.save', '保存', opts.onSave, '保存布局', 0, 'save');
-  addItem(TAB.TEMPLATE, 'ops', 'tpl.preview', '预览', opts.onPreview, '预览表单', 1, 'preview');
-  addItem(TAB.TEMPLATE, 'ops', 'tpl.import', '导入', opts.onImport, '导入布局', 2, 'import');
-  addItem(TAB.TEMPLATE, 'ops', 'tpl.export', '导出', opts.onExport, '导出布局', 3, 'export');
+  // ── 模板 ──（统一走 callOpt：点击时才取最新处理器，避免绑到已卸载的旧实例）
+  addItem(TAB.TEMPLATE, 'ops', 'tpl.save', '保存', callOpt('onSave'), '保存布局', 0, 'save');
+  addItem(TAB.TEMPLATE, 'ops', 'tpl.preview', '预览', callOpt('onPreview'), '预览表单', 1, 'preview');
+  addItem(TAB.TEMPLATE, 'ops', 'tpl.import', '导入', callOpt('onImport'), '导入布局', 2, 'import');
+  addItem(TAB.TEMPLATE, 'ops', 'tpl.export', '导出', callOpt('onExport'), '导出布局', 3, 'export');
 
   // ── 格式 ──
-  addItem(TAB.FORMAT, 'fmt', 'fmt.undo', '撤销', opts.onUndo, '撤销', 0, 'undo');
-  addItem(TAB.FORMAT, 'fmt', 'fmt.redo', '重做', opts.onRedo, '重做', 1, 'redo');
+  addItem(TAB.FORMAT, 'fmt', 'fmt.undo', '撤销', callOpt('onUndo'), '撤销', 0, 'undo');
+  addItem(TAB.FORMAT, 'fmt', 'fmt.redo', '重做', callOpt('onRedo'), '重做', 1, 'redo');
   addItem(TAB.FORMAT, 'fmt', 'fmt.bold', '加粗', () => callGrid('applyRangeFormat', 'bold', true), '加粗', 2, 'bold');
   addItem(TAB.FORMAT, 'fmt', 'fmt.italic', '斜体', () => callGrid('applyRangeFormat', 'italic', true), '斜体', 3, 'italic');
   addItem(TAB.FORMAT, 'fmt', 'fmt.underline', '下划线', () => callGrid('applyRangeFormat', 'underline', true), '下划线', 4, 'underline');
@@ -274,9 +322,9 @@ export const registerDesignerRibbon = (opts: RegisterRibbonOptions): boolean => 
   addItem(TAB.INSERT, 'ins', 'insert.removeCol', '删除列', () => callGrid('rowColOp', 'removeCol'), '删除列', 15, 'rmCol');
 
   // ── 字段属性 ──
-  addItem(TAB.FIELD_ATTR, 'attr', 'attr.readonly', '只读', () => opts.onFieldAttr('readonly'), '设置字段为只读', 0, 'readonly');
-  addItem(TAB.FIELD_ATTR, 'attr', 'attr.editable', '编辑', () => opts.onFieldAttr('editable'), '设置字段为可编辑', 1, 'editable');
-  addItem(TAB.FIELD_ATTR, 'attr', 'attr.required', '必填', () => opts.onFieldAttr('required'), '设置字段为必填', 2, 'required');
+  addItem(TAB.FIELD_ATTR, 'attr', 'attr.readonly', '只读', () => callOpt('onFieldAttr')('readonly'), '设置字段为只读', 0, 'readonly');
+  addItem(TAB.FIELD_ATTR, 'attr', 'attr.editable', '编辑', () => callOpt('onFieldAttr')('editable'), '设置字段为可编辑', 1, 'editable');
+  addItem(TAB.FIELD_ATTR, 'attr', 'attr.required', '必填', () => callOpt('onFieldAttr')('required'), '设置字段为必填', 2, 'required');
 
   // ── 明细表 ──（已在主表插入的明细表：页签项置灰，避免重复插入）
   if (opts.detailOptions && opts.detailOptions.length > 0) {
@@ -286,7 +334,7 @@ export const registerDesignerRibbon = (opts: RegisterRibbonOptions): boolean => 
         'detail',
         `detail.${o.idx}`,
         `明细表${o.idx}（${o.count} 字段）`,
-        () => opts.onInsertDetail(o.idx),
+        () => callOpt('onInsertDetail')(o.idx),
         `插入明细表${o.idx}`,
         i,
         'detail',

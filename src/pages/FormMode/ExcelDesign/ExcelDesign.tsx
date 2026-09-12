@@ -28,7 +28,12 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import FieldPalette from './components/FieldPalette';
 import UniverExcelGrid from './components/UniverExcelGrid';
 import ExcelRibbon from './components/ExcelRibbon';
-import { registerDesignerRibbon, resetDesignerRibbon, setUsedDetailTables } from './ribbonRegistry';
+import {
+  registerDesignerRibbon,
+  resetDesignerRibbon,
+  setUsedDetailTables,
+  setDesignerRibbonOptions,
+} from './ribbonRegistry';
 import PropertyPanel from './components/PropertyPanel';
 import ExcelPreview from './components/ExcelPreview';
 import { EXCEL_PREVIEW_DATA_KEY } from './ExcelPreviewPage';
@@ -291,6 +296,10 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
             layoutJson = {};
           }
         }
+        // 新表单或未保存布局时 layoutJson 可能为 undefined/null，规范成对象避免后续读取字段崩溃
+        if (!layoutJson || typeof layoutJson !== 'object') {
+          layoutJson = {};
+        }
 
         // 竞态防护：初始异步加载若晚于用户拖入字段才返回，会覆盖掉已带字段元数据的布局，
         // 进而触发 loadLayoutData 清空内存 Map → 随后的显式保存读到空 Map → 字段元数据丢失（无法持久化）。
@@ -381,6 +390,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
   }, [message]);
 
   const handleSave = useCallback(async (): Promise<boolean> => {
+    console.log('[Save] handleSave 触发', { formId, nodeKey });
     if (!formId) {
       message.warning('请先选择表单');
       return false;
@@ -394,9 +404,18 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
       return false;
     }
 
-    const sheetLayoutData = univerGrid.saveLayoutData();
+    // saveLayoutData 在 Univer 实例已销毁（弹窗重开/组件重挂载）时会抛 InjectorAlreadyDisposedError，
+    // 必须就地兜住：否则异常直接中断点击回调 → 无提示、无请求（表现为「点保存没反应」）。
+    let sheetLayoutData: any = null;
+    try {
+      sheetLayoutData = univerGrid.saveLayoutData();
+    } catch (e) {
+      console.error('[Save] 获取布局数据异常:', e);
+      message.error(`获取布局数据失败：${(e as Error)?.message || e}`);
+      return false;
+    }
     if (!sheetLayoutData) {
-      message.error('获取布局数据失败');
+      message.error('获取布局数据失败：Excel 组件尚未就绪，请稍候重试');
       return false;
     }
 
@@ -425,7 +444,17 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         // 绑定流程节点：按节点隔离布局（后端 getByFormId 支持 nodeKey 回退到表单级通用）
         nodeKey: nodeKey ? String(nodeKey) : undefined,
       };
-      await saveFormLayout(formData);
+      console.log('[Save] 提交请求', { formId, nodeKey, len: formData.layoutJson.length });
+      const res: any = await saveFormLayout(formData);
+      console.log('[Save] 服务端返回:', res);
+      // 后端 R.fail（如「表单ID不存在」）同样返回 HTTP 200，必须判 code，
+      // 否则会显示「保存成功」但库里什么都没写（表现为「点了保存、数据没保存」）。
+      const code = res?.code;
+      if (code !== undefined && code !== null && Number(code) !== 200 && Number(code) !== 0) {
+        console.error('[Save] 后端返回失败:', res);
+        message.error(`保存失败：${res?.msg || res?.message || '后端返回失败'}`);
+        return false;
+      }
       message.success('保存成功');
 
       // 保存成功后重新加载布局数据，确保页面显示最新数据（强制刷新，覆盖用户编辑）
@@ -438,7 +467,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     } finally {
       setSaving(false);
     }
-  }, [formId, loadFormLayout]);
+  }, [formId, nodeKey, detailLayouts, message, loadFormLayout]);
 
   // 代码块弹窗的「保存」：更新布局级脚本并立即持久化。
   // 对齐 ecology InsertCode 弹窗的「保存 / 关闭」按钮语义 —— 代码块不写入单元格，只存布局级脚本。
@@ -1209,6 +1238,9 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     onInsertDetail: handleInsertDetailTable,
     detailOptions: detailTableOptions,
   };
+  // 同步给 ribbonRegistry：原生 ribbon 的命令回调只转发到「最新」处理器，
+  // 避免弹窗重开后仍调到上一个已卸载实例的 handleSave（点了没反应/不保存）。
+  setDesignerRibbonOptions(ribbonOptsRef.current);
 
   // 原生 ribbon 注册结果。registerDesignerRibbon 改为直接通过暴露的
   // IMenuManagerService + ICommandService 注册（绕过 Facade 实例不一致问题），
