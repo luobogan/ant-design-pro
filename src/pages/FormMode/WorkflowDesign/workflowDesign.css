@@ -1,0 +1,32 @@
+/**
+ * 流程设计器：节点/出口列表与详情区的样式。
+ *
+ * 与 WorkflowDesign.tsx 里 PANEL_BOX（maxHeight 72vh + overflow auto）搭配，
+ * 统一行态观感：选中行高亮、新增出口的草稿行提示。
+ */
+
+/* 选中行：左侧色条 + 浅蓝底，与画布上的选中描边呼应 */
+.wf-row-active > td {
+  background: #e6f4ff !important;
+}
+
+.wf-row-active > td:first-child {
+  box-shadow: inset 3px 0 0 #1677ff;
+}
+
+/* 草稿行（点「+ 新增出口」后尚未选目标节点）：黄色提示 */
+.wf-row-draft > td {
+  background: #fffbe6 !important;
+}
+
+.wf-row-draft > td:first-child {
+  box-shadow: inset 3px 0 0 #faad14;
+}
+
+/* 行内的下拉/输入在彩色底上保持白底，避免"整片蓝"看不清控件边界 */
+.wf-row-active .ant-select-selector,
+.wf-row-draft .ant-select-selector,
+.wf-row-active .ant-input,
+.wf-row-draft .ant-input {
+  background: #fff;
+}

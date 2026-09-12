@@ -113,11 +113,13 @@ export interface WfProcessNode {
   nodeName?: string;
   nodeType?: number; // 0创建 1审批 2提交 3归档 5等待 6自动处理
   signOrder?: number; // 0或签 1会签 2依次 3抄送不需提交 4抄送需提交
-  mergeType?: number;
+  mergeType?: number; // 0普通 1分叉起点 2分叉中间 3按分支数合并 4指定分支合并 5比例合并
   passNum?: number;
   allowReject?: number;
   allowForward?: number;
+  autoApprove?: number;
   sortOrder?: number;
+  extJson?: string; // 扩展属性（超时/提醒/签章等）
 }
 
 export interface WfNodeOperator {
@@ -128,8 +130,10 @@ export interface WfNodeOperator {
   objId?: string;
   levelMin?: number;
   levelMax?: number;
+  bhxj?: number; // 0本部 1含下级 2含上级 3逐级向上
   signOrder?: number;
   batchNo?: number;
+  conditionJson?: string;
 }
 
 // 字段权限：0隐藏 1只读 2可编辑 3必填
@@ -258,7 +262,52 @@ export async function listNodes(id: number) {
 export async function configOperator(id: number, nodeKey: string, operators: WfNodeOperator[]) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/node/${nodeKey}/operator`, {
     method: 'PUT',
-    data: operators,
+    // ⚠️ 后端刻意用实体类接收（{ operators: [...] }）而非裸数组：
+    //    本环境 @RequestBody 的根类型若为泛型容器（数组/Map）会丢失泛型信息导致反序列化失败
+    data: { operators },
+  });
+}
+
+/** 读取节点操作者 */
+export async function getNodeOperators(id: number, nodeKey: string) {
+  return request<ApiResponse<WfNodeOperator[]>>(`${WORKFLOW}/definition/${id}/node/${nodeKey}/operator`, {
+    method: 'GET',
+  });
+}
+
+/** 出口（连线）列表 */
+export async function listLinks(id: number) {
+  return request<ApiResponse<WfNodeLink[]>>(`${WORKFLOW}/definition/${id}/links`, { method: 'GET' });
+}
+
+/** 更新节点基础属性（按 nodeKey，保留操作者与字段权限） */
+export async function updateNode(id: number, nodeKey: string, node: Partial<WfProcessNode>) {
+  return request<ApiResponse<WfProcessNode>>(`${WORKFLOW}/definition/${id}/node/${nodeKey}`, {
+    method: 'PUT',
+    data: node,
+  });
+}
+
+/** 新增出口（连线） */
+export async function createLink(id: number, link: Partial<WfNodeLink>) {
+  return request<ApiResponse<WfNodeLink>>(`${WORKFLOW}/definition/${id}/link`, {
+    method: 'POST',
+    data: link,
+  });
+}
+
+/** 更新出口（连线） */
+export async function updateLink(id: number, linkId: number, link: Partial<WfNodeLink>) {
+  return request<ApiResponse<WfNodeLink>>(`${WORKFLOW}/definition/${id}/link/${linkId}`, {
+    method: 'PUT',
+    data: link,
+  });
+}
+
+/** 删除出口（连线） */
+export async function deleteLink(id: number, linkId: number) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/link/${linkId}`, {
+    method: 'DELETE',
   });
 }
 

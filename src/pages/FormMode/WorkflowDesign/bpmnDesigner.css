@@ -1,0 +1,99 @@
+/**
+ * 流程画布「展示 / 编辑」双态样式。
+ *
+ * 展示态（.wf-designer-view，默认）：画布只读，视觉与交互等同 E9 的流程图预览——
+ *   屏蔽画布背景的指针交互（平移 / 缩放 / 框选），并隐藏左侧图形库、右键菜单、内置属性面板；
+ *   但放开节点与连线本体（.djs-element）的 pointer-events，使其可被 bpmn-js 原生选中，
+ *   从而驱动右侧「节点信息 / 出口信息」；移动 / 连线 / 删除等编辑动作由 ReadonlyRules 拦截。
+ * 编辑态（.wf-designer-edit）：不做任何限制，bpmn-js Modeler 全功能可用
+ *   （左侧图形库 Palette、元素右键菜单、多选对齐浮动条、右侧内置属性面板）。
+ */
+
+/* 只读：容器背景及其所有后代默认都不接收指针事件（覆盖 diagram-js 的 .djs-hit-* 等规则，阻止平移/缩放） */
+.wf-designer-view .djs-container,
+.wf-designer-view .djs-container * {
+  pointer-events: none !important;
+}
+
+/* 例外：节点与连线本体可点击——直接点节点/连线即被 bpmn-js 原生选中（编辑动作由规则层拦截） */
+.wf-designer-view .djs-element,
+.wf-designer-view .djs-element * {
+  pointer-events: auto !important;
+}
+
+/* 只读：隐藏只有编辑才需要的图形库 / 上下文菜单 / 弹层 */
+.wf-designer-view .djs-palette,
+.wf-designer-view .djs-context-pad,
+.wf-designer-view .djs-popup {
+  display: none !important;
+}
+
+/* 内置属性面板（bpmn-js BpmnPropertiesPanelModule 的挂载点）。
+   注意：面板始终渲染（模型器创建时即需存在），展示态只做隐藏，避免重新挂载。
+   它与 .djs-container 是兄弟节点，故不受上面的只读 pointer-events 规则影响。 */
+.wf-props {
+  flex: none;
+  width: 280px;
+  height: 100%;
+  border-left: 1px solid #e5e7eb;
+  background: #fff;
+  overflow: hidden;
+}
+
+.wf-designer-view .wf-props {
+  display: none !important;
+}
+
+/* 属性面板内部自带滚动条容器，统一美化一下（与 antd 观感一致） */
+.wf-props ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.wf-props ::-webkit-scrollbar-thumb {
+  background: #d9d9d9;
+  border-radius: 4px;
+}
+
+.wf-props ::-webkit-scrollbar-thumb:hover {
+  background: #bfbfbf;
+}
+
+/* ───────── 「定位」闪烁高亮 ─────────
+   canvas.addMarker(el, 'wf-flash') 会把 class 加到元素的 g.djs-element 上（纯视觉，不涉及指针事件），
+   形状与连线都是 SVG，故描边动画作用在 .djs-visual 的直接子节点（rect / path）上。 */
+@keyframes wfFlashPulse {
+  0%,
+  100% {
+    stroke: #1677ff;
+    stroke-width: 3;
+  }
+  50% {
+    stroke: #fa541c;
+    stroke-width: 6;
+  }
+}
+
+.wf-flash .djs-visual > * {
+  animation: wfFlashPulse 0.5s ease-in-out 4;
+}
+
+/* ───────── 节点「设置项角标」 ─────────
+   BpmnDesigner 用 overlays.add(key, {type:'wf-badge'}) 在节点右上角标注「已配置的设置项」数量，
+   hover 的 title 显示明细（对齐 E9 checkIsChangCellIcon 的图标回写思路）。 */
+.wf-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #1677ff;
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  cursor: default;
+  box-shadow: 0 0 0 1px #fff;
+  pointer-events: auto;
+}
+
+

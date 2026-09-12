@@ -78,10 +78,24 @@ const pruneDetailTables = (
  * 集成Univer表格、字段面板、属性配置面板
  * 参照 SpreadJS迁移到Univer方案.md 实现字段元数据完整集成
  */
-const ExcelDesignContent: React.FC = () => {
+export interface ExcelDesignProps {
+  /** 表单ID（字符串，避免大整数精度丢失）。不传则回退读 URL ?formId= */
+  formId?: string;
+  /** 表单名称（仅用于标题/提示展示） */
+  formName?: string;
+  /** 绑定的流程节点 Key（空=表单级通用）。传了即按节点隔离布局 */
+  nodeKey?: string;
+  /** 内嵌模式：用于弹窗/抽屉内渲染，去掉外层 PageContainer 外壳并撑满父容器 */
+  embedded?: boolean;
+}
+
+const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const formId = searchParams.get('formId');
+  const formId = props.formId ?? searchParams.get('formId') ?? undefined;
+  const formName =
+    props.formName ?? searchParams.get('formName') ?? (formId ? `表单${formId}` : '');
+  const nodeKey = props.nodeKey ?? searchParams.get('nodeKey') ?? undefined;
   const { message } = App.useApp();
 
   const [selectedField, setSelectedField] = useState<any>(null);
@@ -264,8 +278,8 @@ const ExcelDesignContent: React.FC = () => {
     if (!formId) return;
     setLoading(true);
     try {
-      // 使用 String(formId) 避免 JavaScript 大整数精度丢失
-      const result = await getFormLayout(String(formId));
+      // 使用 String(formId) 避免 JavaScript 大整数精度丢失；按节点 Key 隔离布局（后端带回退）
+      const result = await getFormLayout(String(formId), undefined, nodeKey);
       if (result && result.data) {
         // layoutJson 是字符串，需要解析为对象
         let layoutJson = result.data.layoutJson;
@@ -402,12 +416,14 @@ const ExcelDesignContent: React.FC = () => {
     try {
       const formData = {
         formId: String(formId),  // 保持字符串格式，避免 JavaScript 大整数精度丢失
-        layoutName: `表单${formId}的布局`,
+        layoutName: nodeKey ? `表单${formId}_节点${nodeKey}的布局` : `表单${formId}的布局`,
         layoutJson: JSON.stringify(finalLayoutData),  // 转换为 JSON 字符串（含明细表子画布布局）
         // 布局级代码块写回后端已有字段 form_layout.layout_config（无需改动后端与表结构）。
         // 必须编码后提交：后端 XSS 过滤会剥掉明文里的 <script> 标签。
         layoutConfig: JSON.stringify({ script: encodeScriptForStorage(layoutScriptRef.current) }),
         status: 1,
+        // 绑定流程节点：按节点隔离布局（后端 getByFormId 支持 nodeKey 回退到表单级通用）
+        nodeKey: nodeKey ? String(nodeKey) : undefined,
       };
       await saveFormLayout(formData);
       message.success('保存成功');
@@ -1329,11 +1345,10 @@ const ExcelDesignContent: React.FC = () => {
     />
   );
 
-  return (
-    <DndProvider backend={HTML5Backend}>
-      <PageContainer title="Excel 设计器" extra={pageExtra}>
-        <Spin spinning={loading}>
-          <div style={{ display: 'flex', height: 'calc(100vh - 200px)' }}>
+  const stageHeight = props.embedded ? '100%' : 'calc(100vh - 200px)';
+  const stage = (
+    <Spin spinning={loading}>
+      <div style={{ display: 'flex', height: stageHeight }}>
             {/* 左侧字段面板 */}
             <div style={{ width: 250, borderRight: '1px solid #f0f0f0', overflow: 'auto' }}>
               <FieldPalette
@@ -1410,7 +1425,17 @@ const ExcelDesignContent: React.FC = () => {
             </div>
           </div>
         </Spin>
-      </PageContainer>
+  );
+
+  return (
+    <DndProvider backend={HTML5Backend}>
+      {props.embedded ? (
+        <div style={{ height: '100%' }}>{stage}</div>
+      ) : (
+        <PageContainer title="Excel 设计器" extra={pageExtra}>
+          {stage}
+        </PageContainer>
+      )}
 
       {/* 表单预览弹窗 */}
       <ExcelPreview
@@ -1473,9 +1498,9 @@ const ExcelDesignContent: React.FC = () => {
   );
 };
 
-const ExcelDesign: React.FC = () => (
+const ExcelDesign: React.FC<ExcelDesignProps> = (props) => (
   <App>
-    <ExcelDesignContent />
+    <ExcelDesignContent {...props} />
   </App>
 );
 
