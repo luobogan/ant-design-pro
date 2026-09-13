@@ -30,6 +30,8 @@ export interface WfProcessDefinition {
   sortOrder?: number;
   /** 自由流程类型：1简易 2高级（对齐 ecology newFreeWfType） */
   freeWfType?: number;
+  /** 版本组锚点：指向当前激活版本的 defId（后端 ToString 序列化为字符串；NULL=单版本流程） */
+  activeVersionId?: string;
 }
 
 // ───────────── Condition 驱动表单描述（后端 /definition/form-condition） ─────────────
@@ -236,6 +238,56 @@ export async function getBpmn(id: number) {
 
 export async function saveAsNewVersion(id: number) {
   return request<ApiResponse<number>>(`${WORKFLOW}/definition/${id}/version`, { method: 'POST' });
+}
+
+/** 版本列表（同 procKey 版本组全部版本，按版本号升序） */
+export async function listVersions(id: number) {
+  return request<ApiResponse<WfProcessDefinition[]>>(`${WORKFLOW}/definition/${id}/versions`, {
+    method: 'GET',
+  });
+}
+
+/** 版本差异行：节点（nodeKey 维度） */
+export interface VersionNodeDiff {
+  nodeKey?: string;
+  sourceName?: string;
+  targetName?: string;
+  sourceType?: number;
+  targetType?: number;
+  sourceSignOrder?: number;
+  targetSignOrder?: number;
+}
+
+/** 版本差异行：出口（fromNodeKey→toNodeKey 维度） */
+export interface VersionLinkDiff {
+  fromNodeKey?: string;
+  toNodeKey?: string;
+  sourceConditionCn?: string;
+  targetConditionCn?: string;
+  sourceIsReject?: number;
+  targetIsReject?: number;
+}
+
+/** 版本差异对比结果（source=当前版本，target=被对比版本） */
+export interface VersionDiff {
+  sourceDefId?: string;
+  sourceVersion?: number;
+  targetDefId?: string;
+  targetVersion?: number;
+  addedNodes?: VersionNodeDiff[];
+  removedNodes?: VersionNodeDiff[];
+  changedNodes?: VersionNodeDiff[];
+  addedLinks?: VersionLinkDiff[];
+  removedLinks?: VersionLinkDiff[];
+  changedLinks?: VersionLinkDiff[];
+}
+
+/** 版本差异对比：当前版本 vs 目标版本 */
+export async function diffVersion(id: number, targetId: string | number) {
+  return request<ApiResponse<VersionDiff>>(`${WORKFLOW}/definition/${id}/version/diff`, {
+    method: 'GET',
+    params: { targetId },
+  });
 }
 
 export async function enableDefinition(id: number) {

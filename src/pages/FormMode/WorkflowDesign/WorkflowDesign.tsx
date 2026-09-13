@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
-import { Button, Card, Descriptions, message, Modal, Space, Table, Tag, Tabs } from 'antd';
+import { Button, Card, Descriptions, message, Modal, Select, Space, Table, Tag, Tabs } from 'antd';
 import {
   deployDefinition,
   getBpmn,
   listDefinitions,
   listLinks,
   listNodes,
+  listVersions,
   deleteNode,
   saveAsNewVersion,
   updateNode,
@@ -18,13 +19,14 @@ import {
   WfNodeOperator,
 } from '@/services/workflow';
 import { fieldDefinitionApi, workflowBillApi } from '@/services/formmode';
-import { useLocation } from '@umijs/max';
+import { history, useLocation } from '@umijs/max';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import WorkflowDefForm from '@/pages/System/Workflow/components/WorkflowDefForm';
 import TableDesign from '@/pages/FormMode/TableDesign/TableDesign';
 import NodeInfoPanel from './NodeInfoPanel';
 import { configuredBadges } from './nodeSettings';
 import LinkInfoPanel from './LinkInfoPanel';
+import VersionDiffModal from './VersionDiffModal';
 // 「定位并高亮」指令类型：type-only import，运行时被擦除，不影响画布的懒加载
 import type { FocusEvt } from './BpmnDesigner';
 import './workflowDesign.css';
@@ -116,6 +118,10 @@ const WorkflowDesignPage: React.FC = () => {
   const [formDesignOpen, setFormDesignOpen] = useState(false);
   const [formDesignId, setFormDesignId] = useState<string>('');
   const [formRefresh, setFormRefresh] = useState(0);
+
+  // 版本控制：同 procKey 版本组的版本列表 + 版本对比弹窗
+  const [versions, setVersions] = useState<WfProcessDefinition[]>([]);
+  const [versionDiffOpen, setVersionDiffOpen] = useState(false);
 
   // 生成表单布局：节点级 Excel 布局设计器弹窗（布局绑定 nodeKey）
   const [excelDesignOpen, setExcelDesignOpen] = useState(false);
@@ -296,6 +302,14 @@ const WorkflowDesignPage: React.FC = () => {
     }
   }, [defs, defIdParam]);
 
+  // 版本控制：加载当前流程（同 procKey 版本组）的版本列表
+  useEffect(() => {
+    if (!current?.id) return;
+    listVersions(current.id as unknown as number)
+      .then((r: any) => setVersions(pickPayload(r) || []))
+      .catch(() => setVersions([]));
+  }, [current?.id, formRefresh]);
+
   // 选中定义变化时，加载表单字段结构（表单管理页签用）
   useEffect(() => {
     if (!current?.formId) {
@@ -334,8 +348,13 @@ const WorkflowDesignPage: React.FC = () => {
     saveAsNewVersion(id as any)
       .then((r: any) => {
         if (r?.success) {
-          message.success('已生成新版本');
+          message.success('已生成新版本（草稿），完整复制了画布/节点/出口/权限/操作者');
+          const newId = r?.data;
           refresh();
+          if (newId) {
+            // 跳转到新版本继续设计：页面按 defId 自动选中新定义并打开流转设置
+            history.push(`/formmode/workflowdesign?defId=${newId}`);
+          }
         } else message.error('另存为新版本失败');
       })
       .catch(() => message.error('另存为新版本失败'));
@@ -347,7 +366,17 @@ const WorkflowDesignPage: React.FC = () => {
         <Descriptions bordered column={2} size="small">
           <Descriptions.Item label="流程名称">{current?.name || '-'}</Descriptions.Item>
           <Descriptions.Item label="状态">{STATUS_TAG(current?.status)}</Descriptions.Item>
-          <Descriptions.Item label="版本">v{current?.version ?? '-'}</Descriptions.Item>
+          <Descriptions.Item label="版本">
+            <Space size={4}>
+              <span>v{current?.version ?? '-'}</span>
+              {current?.id != null &&
+                (String(current.id) === String(current.activeVersionId || current.id) ? (
+                  <Tag color="gold">激活中</Tag>
+                ) : (
+                  <Tag>非激活</Tag>
+                ))}
+            </Space>
+          </Descriptions.Item>
           <Descriptions.Item label="流程标识(procKey)">{current?.procKey || '-'}</Descriptions.Item>
           <Descriptions.Item label="路径类型">{metaLabels.wftype || current?.type || '-'}</Descriptions.Item>
           <Descriptions.Item label="对应表单">{metaLabels.formName || current?.formId || '未绑定'}</Descriptions.Item>
@@ -541,11 +570,59 @@ const WorkflowDesignPage: React.FC = () => {
   // 节点信息是可编辑宽表（13 列）：宽度撑满容器（不再写死上限），
   // 列宽由表格按内容给出 + scroll.x 横向滚动；高度由表格内部 scroll.y 自适应。
   const NODE_BOX = { width: '100%', maxHeight: '72vh', overflow: 'auto' } as const;
+  // 版本控制工具条（流转设置页签栏右侧）：版本下拉（切换=跳转 defId）+ 另存新版本 + 版本对比。
+  // 激活中标记：defId === activeVersionId（锚点为空时单版本流程自身即激活）。
+  const renderVersionBar = () => {
+    if (!current) return null;
+    const activeId = String(current.activeVersionId || current.id);
+    const statusTag = (s?: number) =>
+      s === 1 ? (
+        <Tag color="green">已发布</Tag>
+      ) : s === 2 ? (
+        <Tag color="default">停用</Tag>
+      ) : (
+        <Tag color="blue">草稿</Tag>
+      );
+    return (
+      <Space size="small" style={{ marginRight: 8 }}>
+        <span style={{ color: '#999' }}>版本</span>
+        <Select
+          size="small"
+          style={{ minWidth: 170 }}
+          value={String(current.id)}
+          onChange={(id) => {
+            if (String(id) !== String(current.id)) {
+              history.push(`/formmode/workflowdesign?defId=${id}`);
+            }
+          }}
+          options={versions.map((v) => ({
+            value: String(v.id),
+            label: (
+              <span>
+                v{v.version ?? '-'} {statusTag(v.status)}
+                {String(v.id) === activeId ? <Tag color="gold">激活中</Tag> : null}
+              </span>
+            ),
+          }))}
+        />
+        <Button size="small" type="primary" onClick={() => handleSaveAsNewVersion(current.id)}>
+          另存为新版本
+        </Button>
+        {versions.length > 1 && (
+          <Button size="small" onClick={() => setVersionDiffOpen(true)}>
+            版本对比
+          </Button>
+        )}
+      </Space>
+    );
+  };
+
   const renderFlow = () => (
     <Tabs
       size="small"
       activeKey={flowSubTab}
       onChange={setFlowSubTab}
+      tabBarExtraContent={renderVersionBar()}
       items={[
         {
           key: 'canvas',
@@ -752,6 +829,18 @@ const WorkflowDesignPage: React.FC = () => {
         ) : null}
       </Modal>
 
+      {/* 版本差异对比弹窗：当前版本 vs 选定版本（节点/出口 增删改） */}
+      <VersionDiffModal
+        open={versionDiffOpen}
+        onCancel={() => setVersionDiffOpen(false)}
+        sourceDefId={current?.id != null ? String(current.id) : undefined}
+        sourceVersion={current?.version}
+        versions={versions.map((v) => ({
+          id: String(v.id),
+          version: v.version,
+          status: v.status,
+        }))}
+      />
     </PageContainer>
   );
 };
