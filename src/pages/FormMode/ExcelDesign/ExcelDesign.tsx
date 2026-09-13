@@ -289,7 +289,11 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     setLoading(true);
     try {
       // 使用 String(formId) 避免 JavaScript 大整数精度丢失；按节点 Key 隔离布局（后端带回退）
-      const result = await getFormLayout(String(formId), undefined, nodeKey);
+      // ⚠️ 第 4 参 inherit=false：**设计器不继承表单级通用布局**。
+      //    节点没配过自己的布局 → 后端直接返回空 → 设计器打开空白（新建流程不会被
+      //    该表单已配的"通用布局"预填内容），供该节点从零独立设计；与该节点保存的 nodeKey 隔离。
+      //    运行时渲染走的仍是默认 inherit=true（未配布局的节点继续用通用布局，不会渲染成空表单）。
+      const result = await getFormLayout(String(formId), undefined, nodeKey, false);
       if (result && result.data) {
         // layoutJson 是字符串，需要解析为对象
         let layoutJson = result.data.layoutJson;

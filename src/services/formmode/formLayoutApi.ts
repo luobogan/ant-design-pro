@@ -10,12 +10,21 @@ import { request } from '@umijs/max';
  * @param formId 表单ID（字符串类型，避免大整数精度丢失）
  * @param layouttype 布局类型：0编辑(默认) 1显示 3监控 4打印（可空）
  * @param nodeKey 流程节点Key（空=表单级通用）
+ * @param inherit 节点没有自身布局时是否**继承表单级通用布局**。
+ *   默认 true（运行时渲染等场景）；
+ *   **布局设计器传 false** → 只认该节点自己的布局，没配过就返回空 → 设计器打开空白，
+ *   供该节点从零独立设计（新建流程不会被该表单已配的"通用布局"预填内容）。
  * @returns 表单布局
  */
-export async function getFormLayout(formId: string, layouttype?: number, nodeKey?: string) {
+export async function getFormLayout(
+  formId: string,
+  layouttype?: number,
+  nodeKey?: string,
+  inherit?: boolean,
+) {
   return request(`/api/blade-formmode/form-layout/${formId}`, {
     method: 'GET',
-    params: { layouttype, nodeKey },
+    params: { layouttype, nodeKey, inherit },
   });
 }
 
