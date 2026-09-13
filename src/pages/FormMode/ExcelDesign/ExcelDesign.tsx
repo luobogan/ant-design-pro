@@ -92,6 +92,11 @@ export interface ExcelDesignProps {
   nodeKey?: string;
   /** 内嵌模式：用于弹窗/抽屉内渲染，去掉外层 PageContainer 外壳并撑满父容器 */
   embedded?: boolean;
+  /**
+   * 把「保存」能力回传给宿主（供弹窗底部「保存」按钮调用）。
+   * 这样保存入口不依赖 Univer 原生 ribbon 的注册时序，弹窗里一定有可用的保存。
+   */
+  onReady?: (api: { save: () => Promise<boolean> }) => void;
 }
 
 const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
@@ -478,6 +483,11 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     },
     [handleSave, updateLayoutScript],
   );
+
+  // 把保存入口回传给宿主（弹窗底部「保存」按钮）：调用方把 save 存进 ref 即可，不触发重渲染。
+  useEffect(() => {
+    props.onReady?.({ save: handleSave });
+  }, [props.onReady, handleSave]);
 
   // ──────────────────────────────────────────────
   // 字段选择 → 准备放置到 Excel 单元格
@@ -1415,7 +1425,8 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
                   onFieldAttrChange={handleFieldAttrChange}
                   detailTableOptions={detailTableOptions}
                   onInsertDetail={handleInsertDetailTable}
-                  visible={!nativeRibbonReady}
+                  // 原生 ribbon 不可用时（注册失败）回退显示，保证操作入口不丢
+                  visible={!nativeRibbonReady || nativeRibbonFailed}
                 />
 
                 {gridNode}

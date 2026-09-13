@@ -28,6 +28,8 @@ export interface NodeInfoPanelProps {
   onGenerateLayout?: (nodeKey: string) => void;
   /** 列表表尾草稿行保存：一次可在画布新建多个节点 */
   onCreateNodes?: (nodes: { nodeName: string; nodeType: number }[]) => void;
+  /** 移除（删除）节点：调用方请求后端并刷新列表 */
+  onDeleteNode?: (nodeKey: string) => void;
 }
 
 /**
@@ -51,6 +53,7 @@ const NodeInfoPanel: React.FC<NodeInfoPanelProps> = ({
   formName,
   onGenerateLayout,
   onCreateNodes,
+  onDeleteNode,
 }) => {
   const current = useMemo(
     () => nodes.find((n) => n.nodeKey === selectedNodeKey),
@@ -99,6 +102,7 @@ const NodeInfoPanel: React.FC<NodeInfoPanelProps> = ({
         formId={formId}
         onEditLayout={onGenerateLayout}
         onCreateNodes={onCreateNodes}
+        onDeleteNode={onDeleteNode}
       />
 
       {current && (

@@ -1,17 +1,21 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Input, Select, Space, Table, message } from 'antd';
+import { Button, Input, Popconfirm, Select, Space, Table, Tag, message } from 'antd';
 import { CheckCircleFilled, PlusOutlined } from '@ant-design/icons';
 import { getNodeOperators, updateNode, WfNodeOperator, WfProcessNode } from '@/services/workflow';
 import NodeOperatorModal from './NodeOperatorModal';
 import NodeSettingModal from './NodeSettingModal';
+import NodeOperateMenuModal from './NodeOperateMenuModal';
+import NodeExtraOperateModal from './NodeExtraOperateModal';
 import {
   buildExtJson,
+  extraOperateSummary,
   isSettingConfigured,
   nodeSettings,
+  operateMenuLabels,
   settingSummary,
   SETTING_DEFS,
 } from './nodeSettings';
-import { FORM_CONTENT_OPTIONS, MENUS_OPTIONS, NODE_TYPES } from './wfDict';
+import { FORM_CONTENT_OPTIONS, NODE_TYPES } from './wfDict';
 
 export interface NodeInfoTableProps {
   defId: any;
@@ -30,6 +34,8 @@ export interface NodeInfoTableProps {
   formId?: string;
   /** 打开该节点的 Excel 布局设计器 */
   onEditLayout?: (nodeKey: string) => void;
+  /** 移除（删除）已存在节点：调用方负责请求后端并刷新列表，组件侧只清本地临时态 */
+  onDeleteNode?: (nodeKey: string) => void;
   /** 一次性创建多个新节点（含草稿期间填好的操作者/设置），由父级在画布创建并保存 */
   onCreateNodes?: (nodes: {
     nodeName: string;
@@ -89,6 +95,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
   formId,
   onEditLayout,
   onCreateNodes,
+  onDeleteNode,
 }) => {
   /** 文本类单元格的输入草稿（key = `${nodeKey}|${field}`），失焦/回车才提交，避免每键一次请求 */
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -102,6 +109,13 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
   const [settingCell, setSettingCell] = useState<{ nodeKey: string; key: string } | undefined>();
   /** 正在编辑设置项的草稿行下标（draftMode） */
   const [settingDraftIndex, setSettingDraftIndex] = useState<number | undefined>();
+  /** 正在编辑「操作菜单」的真实节点 key / 草稿行下标（E9 形态：独立弹窗承载） */
+  const [menuNodeKey, setMenuNodeKey] = useState<string | undefined>();
+  const [menuDraftIndex, setMenuDraftIndex] = useState<number | undefined>();
+  /** 正在编辑「前/后附加操作」的目标（E9 形态：独立弹窗承载） */
+  const [extraCell, setExtraCell] = useState<
+    { nodeKey?: string; draftIndex?: number; field: 'preOperate' | 'postOperate' } | undefined
+  >();
   /** 正在编辑的设置项 key */
   const [settingDefKey, setSettingDefKey] = useState<string | undefined>();
   /**
@@ -261,6 +275,44 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
 
   const isDraft = (r: any) => !!r._draft;
 
+  /**
+   * 移除/删除某节点时清理**本地临时态**，避免残留无用数据：
+   * · 文本草稿（draft：`${nodeKey}|字段` 局部输入缓存）
+   * · 操作者缓存（operatorsMap[nodeKey]）
+   * · 正在编辑该节点的各类弹窗（操作者 / 设置项 / 操作菜单 / 前/后附加操作）
+   * 真实节点删除走后端，本地只清缓存；草稿行删除只清本地。
+   */
+  const cleanupTempForRemoved = (target: { nodeKey?: string; draftIndex?: number }) => {
+    const key = target.nodeKey ?? (target.draftIndex != null ? `__draft_${target.draftIndex}__` : undefined);
+    if (key) {
+      setDraft((d) => {
+        const next: Record<string, string> = {};
+        Object.keys(d).forEach((k) => {
+          if (!k.startsWith(`${key}|`)) next[k] = d[k];
+        });
+        return next;
+      });
+      setOperatorsMap((m) => {
+        if (!(key in m)) return m;
+        const next = { ...m };
+        delete next[key];
+        return next;
+      });
+    }
+    if (target.nodeKey != null) {
+      if (opNodeKey === target.nodeKey) setOpNodeKey(undefined);
+      if (settingCell?.nodeKey === target.nodeKey) setSettingCell(undefined);
+      if (menuNodeKey === target.nodeKey) setMenuNodeKey(undefined);
+      if (extraCell?.nodeKey === target.nodeKey) setExtraCell(undefined);
+    }
+    if (target.draftIndex != null) {
+      if (opDraftIndex === target.draftIndex) setOpNodeKey(undefined);
+      if (settingDraftIndex === target.draftIndex) setSettingCell(undefined);
+      if (menuDraftIndex === target.draftIndex) setMenuNodeKey(undefined);
+      if (extraCell?.draftIndex === target.draftIndex) setExtraCell(undefined);
+    }
+  };
+
   // 当前正在编辑「操作者」的节点（真实 or 草稿）
   const opNode = opNodeKey
     ? nodes.find((n) => n.nodeKey === opNodeKey)
@@ -278,6 +330,54 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
             extJson: draftRows[settingDraftIndex]?.extJson,
           } as any)
         : undefined;
+  // 当前正在编辑「操作菜单」的节点（真实 or 草稿）
+  const menuNode =
+    menuNodeKey != null
+      ? nodes.find((n) => n.nodeKey === menuNodeKey)
+      : menuDraftIndex != null
+        ? ({
+            nodeKey: `__draft_${menuDraftIndex}__`,
+            nodeName: draftRows[menuDraftIndex]?.nodeName,
+            extJson: draftRows[menuDraftIndex]?.extJson,
+          } as any)
+        : undefined;
+  // 当前正在编辑「前/后附加操作」的节点（真实 or 草稿）
+  const extraNode =
+    extraCell?.nodeKey != null
+      ? nodes.find((n) => n.nodeKey === extraCell.nodeKey)
+      : extraCell?.draftIndex != null
+        ? ({
+            nodeKey: `__draft_${extraCell.draftIndex}__`,
+            nodeName: draftRows[extraCell.draftIndex]?.nodeName,
+            extJson: draftRows[extraCell.draftIndex]?.extJson,
+          } as any)
+        : undefined;
+
+  /**
+   * 前/后附加操作单元格：摘要 + 「设置」。
+   * 对齐 E9——附加操作是独立弹窗（选类型 / 填目标内容 / 写脚本 / 失败处理），
+   * 行内单行输入框既装不下也无法表达类型与失败策略。
+   */
+  const renderExtraCell = (r: any, field: 'preOperate' | 'postOperate') => {
+    const summary = extraOperateSummary(nodeSettings(r)[field]);
+    const onEdit = () =>
+      isDraft(r)
+        ? setExtraCell({ draftIndex: r._draftIndex as number, field })
+        : setExtraCell({ nodeKey: r.nodeKey!, field });
+    return (
+      <Space size={2}>
+        <span
+          style={{ color: summary ? undefined : '#bbb', fontSize: 12 }}
+          title={summary || undefined}
+        >
+          {summary || '未设置'}
+        </span>
+        <Button type="link" size="small" onClick={onEdit}>
+          设置
+        </Button>
+      </Space>
+    );
+  };
 
   const columns: any[] = [
     {
@@ -378,6 +478,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
             : saveSettings(r, (s) => {
                 s.formContent = { mode: v };
               });
+        const draft = isDraft(r);
         return (
           <Space size={2}>
             <Select
@@ -387,11 +488,24 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
               options={FORM_CONTENT_OPTIONS}
               onChange={onMode}
             />
-            {mode === 'custom' && formId && (
-              <Button type="link" size="small" onClick={() => onEditLayout?.(r.nodeKey!)}>
-                设计
-              </Button>
-            )}
+            {mode === 'custom' &&
+              (draft ? (
+                // ⚠️ 节点未保存（草稿行）禁止进入布局设计：草稿没有真实 nodeKey，
+                // 进入设计器保存会以无效的草稿 key 落库，造成孤立布局。
+                <span style={{ color: '#bbb', fontSize: 12 }} title="请先保存节点后再进行布局设计">
+                  保存节点后可设计
+                </span>
+              ) : (
+                <Button
+                  type="link"
+                  size="small"
+                  disabled={!formId}
+                  title={formId ? '进入节点布局设计器' : '该流程尚未绑定表单'}
+                  onClick={() => onEditLayout?.(r.nodeKey!)}
+                >
+                  设计
+                </Button>
+              ))}
           </Space>
         );
       },
@@ -399,90 +513,36 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
     {
       title: '操作菜单',
       width: 170,
-      render: (_: any, r: WfProcessNode) => (
-        <Select
-          mode="multiple"
-          size="small"
-          style={{ width: 156 }}
-          maxTagCount="responsive"
-          value={nodeSettings(r).operateMenu?.menus || []}
-          options={MENUS_OPTIONS}
-          placeholder="默认"
-          onChange={(v) =>
-            isDraft(r)
-              ? setDraftSetting(r._draftIndex as number, (s) => {
-                  s.operateMenu = { menus: v };
-                })
-              : saveSettings(r, (s) => {
-                  s.operateMenu = { menus: v };
-                })
-          }
-        />
-      ),
+      // 对齐 E9：点「设置」打开独立弹窗配置（改显示名 / 启停 / 顺序 / 默认），
+      // 格子内只显示摘要，避免行内多选塞不下且无法配名称与顺序。
+      render: (_: any, r: WfProcessNode) => {
+        const labels = operateMenuLabels(nodeSettings(r).operateMenu);
+        const onEdit = () =>
+          isDraft(r) ? setMenuDraftIndex(r._draftIndex as number) : setMenuNodeKey(r.nodeKey!);
+        return (
+          <Space size={2}>
+            <span
+              style={{ color: labels.length ? undefined : '#bbb', fontSize: 12 }}
+              title={labels.join('/')}
+            >
+              {labels.length ? labels.join('/') : '默认'}
+            </span>
+            <Button type="link" size="small" onClick={onEdit}>
+              设置
+            </Button>
+          </Space>
+        );
+      },
     },
     {
       title: '节点前附加操作',
       width: 150,
-      render: (_: any, r: WfProcessNode) => {
-        if (isDraft(r)) {
-          const i = r._draftIndex as number;
-          return (
-            <Input
-              size="small"
-              placeholder="操作说明"
-              value={nodeSettings(r).preOperate?.script ?? ''}
-              onChange={(e) =>
-                setDraftSetting(i, (s) => {
-                  s.preOperate = { ...(s.preOperate || {}), script: e.target.value };
-                })
-              }
-            />
-          );
-        }
-        const k = draftKey(r.nodeKey!, 'preOperate');
-        return (
-          <Input
-            size="small"
-            placeholder="操作说明"
-            value={draft[k] ?? nodeSettings(r).preOperate?.script ?? ''}
-            onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
-            onBlur={() => commitText(r, 'preOperate')}
-            onPressEnter={() => commitText(r, 'preOperate')}
-          />
-        );
-      },
+      render: (_: any, r: WfProcessNode) => renderExtraCell(r, 'preOperate'),
     },
     {
       title: '节点后附加操作',
       width: 150,
-      render: (_: any, r: WfProcessNode) => {
-        if (isDraft(r)) {
-          const i = r._draftIndex as number;
-          return (
-            <Input
-              size="small"
-              placeholder="操作说明"
-              value={nodeSettings(r).postOperate?.script ?? ''}
-              onChange={(e) =>
-                setDraftSetting(i, (s) => {
-                  s.postOperate = { ...(s.postOperate || {}), script: e.target.value };
-                })
-              }
-            />
-          );
-        }
-        const k = draftKey(r.nodeKey!, 'postOperate');
-        return (
-          <Input
-            size="small"
-            placeholder="操作说明"
-            value={draft[k] ?? nodeSettings(r).postOperate?.script ?? ''}
-            onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
-            onBlur={() => commitText(r, 'postOperate')}
-            onPressEnter={() => commitText(r, 'postOperate')}
-          />
-        );
-      },
+      render: (_: any, r: WfProcessNode) => renderExtraCell(r, 'postOperate'),
     },
     // 其余设置项：schema 驱动，单元格显示摘要 + 打勾，点「设置」弹窗编辑
     ...SETTING_DEFS.filter((d) => SETTING_COLUMN_KEYS.indexOf(d.key) >= 0).map((def) => ({
@@ -510,7 +570,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
     })),
     {
       title: '操作',
-      width: 90,
+      width: 130,
       __draftAware: true,
       render: (_: any, r: WfProcessNode) =>
         isDraft(r) ? (
@@ -521,14 +581,33 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
             onClick={() => {
               const i = r._draftIndex as number;
               setDraftRows((prev) => prev.filter((_, idx) => idx !== i));
+              // 草稿删除：清掉该草稿行在本地残留的临时态（缓存/弹窗）
+              cleanupTempForRemoved({ draftIndex: i });
             }}
           >
             移除
           </Button>
         ) : (
-          <Button type="link" size="small" onClick={() => onLocate?.(r.nodeKey!)}>
-            定位
-          </Button>
+          <Space size={2}>
+            <Button type="link" size="small" onClick={() => onLocate?.(r.nodeKey!)}>
+              定位
+            </Button>
+            <Popconfirm
+              title="移除节点"
+              description="将同时删除该节点的操作者、字段权限、明细权限、出口连线与布局，是否继续？"
+              okText="删除"
+              okButtonProps={{ danger: true }}
+              cancelText="取消"
+              onConfirm={() => {
+                cleanupTempForRemoved({ nodeKey: r.nodeKey! });
+                onDeleteNode?.(r.nodeKey!);
+              }}
+            >
+              <Button type="link" size="small" danger>
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
         ),
     },
   ];
@@ -650,6 +729,49 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
           setSettingDraftIndex(undefined);
           setSettingDefKey(undefined);
         }}
+      />
+
+      {/* 操作菜单：独立弹窗（E9 形态），格子内点「设置」打开 */}
+      <NodeOperateMenuModal
+        open={menuNodeKey != null || menuDraftIndex != null}
+        draftMode={menuDraftIndex != null}
+        defId={defId}
+        node={menuNode}
+        onSaved={(nodeKey, extJson) => {
+          if (menuDraftIndex != null) {
+            setDraftRows((prev) =>
+              prev.map((d, i) => (i === menuDraftIndex ? { ...d, extJson } : d)),
+            );
+          } else if (nodeKey) {
+            onPatch?.(nodeKey, { extJson });
+          }
+          setMenuNodeKey(undefined);
+          setMenuDraftIndex(undefined);
+        }}
+        onClose={() => {
+          setMenuNodeKey(undefined);
+          setMenuDraftIndex(undefined);
+        }}
+      />
+
+      {/* 节点前/后附加操作：独立弹窗（E9 形态），格子内点「设置」打开 */}
+      <NodeExtraOperateModal
+        open={!!extraCell}
+        field={extraCell?.field ?? 'preOperate'}
+        draftMode={extraCell?.draftIndex != null}
+        defId={defId}
+        node={extraNode}
+        onSaved={(nodeKey, extJson) => {
+          if (extraCell?.draftIndex != null) {
+            setDraftRows((prev) =>
+              prev.map((d, i) => (i === extraCell.draftIndex ? { ...d, extJson } : d)),
+            );
+          } else if (nodeKey) {
+            onPatch?.(nodeKey, { extJson });
+          }
+          setExtraCell(undefined);
+        }}
+        onClose={() => setExtraCell(undefined)}
       />
     </>
   );

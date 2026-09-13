@@ -72,6 +72,22 @@ export const MENUS_OPTIONS: DictItem[] = [
   { value: 'urge', label: '催办' },
 ];
 
+/** 节点「前/后附加操作」类型（对齐 ecology 节点前后附加操作） */
+export const EXTRA_OPERATE_TYPES: DictItem[] = [
+  { value: 'none', label: '无' },
+  { value: 'fieldAssign', label: '字段赋值' },
+  { value: 'updateTable', label: '更新业务表' },
+  { value: 'callApi', label: '调用接口' },
+  { value: 'sendMsg', label: '发送消息' },
+  { value: 'script', label: '自定义脚本' },
+];
+
+/** 附加操作执行失败时的处理（对齐 ecology 附加操作失败处理） */
+export const FAIL_MODES: DictItem[] = [
+  { value: 'continue', label: '继续' },
+  { value: 'stop', label: '中断' },
+];
+
 /** 节点「表单内容」显示模式（对齐 ecology 节点表单内容） */
 export const FORM_CONTENT_OPTIONS: DictItem[] = [
   { value: 'normal', label: '普通模式' },

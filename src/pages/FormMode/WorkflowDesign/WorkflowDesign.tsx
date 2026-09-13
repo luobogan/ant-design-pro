@@ -7,6 +7,7 @@ import {
   listDefinitions,
   listLinks,
   listNodes,
+  deleteNode,
   saveAsNewVersion,
   updateNode,
   configOperator,
@@ -114,6 +115,22 @@ const WorkflowDesignPage: React.FC = () => {
   // 生成表单布局：节点级 Excel 布局设计器弹窗（布局绑定 nodeKey）
   const [excelDesignOpen, setExcelDesignOpen] = useState(false);
   const [excelDesignNodeKey, setExcelDesignNodeKey] = useState<string | undefined>();
+  // 设计器回传的保存函数（由 ExcelDesign 的 onReady 注入），供弹窗底部「保存」按钮调用
+  const excelSaveRef = useRef<(() => Promise<boolean>) | null>(null);
+  const [excelSaving, setExcelSaving] = useState(false);
+  const handleExcelSave = async () => {
+    const save = excelSaveRef.current;
+    if (!save) {
+      message.warning('设计器尚未就绪，请稍候再试');
+      return;
+    }
+    setExcelSaving(true);
+    try {
+      await save();
+    } finally {
+      setExcelSaving(false);
+    }
+  };
 
   const { buttons: designButtons } = usePageButtons('workflow_design');
   const hasPerm = (code: string) => designButtons.some((b: any) => b.code === code);
@@ -191,6 +208,36 @@ const WorkflowDesignPage: React.FC = () => {
     listLinks(current.id)
       .then((r: any) => setLinks(pickPayload(r) || []))
       .catch(() => {});
+  };
+
+  /** 移除（删除）节点：后端级联清理关联数据，前端清本地缓存 + 重拉列表 */
+  const handleDeleteNode = async (nodeKey: string) => {
+    if (current?.id == null) return;
+    try {
+      const res: any = await deleteNode(current.id, nodeKey);
+      const code = res?.code;
+      if (code != null && code !== 200 && code !== 0 && res?.success !== true) {
+        message.error('移除节点失败');
+        return;
+      }
+      message.success('节点已移除');
+      // 若该节点正打开布局设计器 → 关闭弹窗并清其本地残留（预览缓存 / 待放置字段）
+      if (excelDesignNodeKey === nodeKey) {
+        setExcelDesignOpen(false);
+        excelSaveRef.current = null;
+        try {
+          localStorage.removeItem('excelPreviewData');
+        } catch {
+          /* 忽略 */
+        }
+        delete (window as any).__pendingField;
+      }
+      if (selectedNodeKey === nodeKey) setSelectedNodeKey(undefined);
+      refreshNodes();
+      refreshLinks();
+    } catch {
+      message.error('移除节点失败');
+    }
   };
 
   useEffect(() => {
@@ -479,6 +526,7 @@ const WorkflowDesignPage: React.FC = () => {
                     prev.map((n) => (n.nodeKey === nodeKey ? { ...n, ...patch } : n)),
                   )
                 }
+                onDeleteNode={handleDeleteNode}
                 onGenerateLayout={(nk) => {
                   setExcelDesignNodeKey(nk);
                   setExcelDesignOpen(true);
@@ -615,11 +663,29 @@ const WorkflowDesignPage: React.FC = () => {
       <Modal
         title={`生成表单布局（节点：${excelDesignNodeKey ?? ''}）`}
         open={excelDesignOpen}
-        onCancel={() => setExcelDesignOpen(false)}
+        onCancel={() => {
+          setExcelDesignOpen(false);
+          excelSaveRef.current = null;
+        }}
         width="92vw"
         style={{ top: 24 }}
         styles={{ body: { height: '82vh', padding: 0 } }}
-        footer={null}
+        // 底部固定「保存 / 关闭」：保存直接走 ExcelDesign 的 handleSave，不依赖 Univer 原生 ribbon
+        footer={
+          <Space>
+            <Button
+              onClick={() => {
+                setExcelDesignOpen(false);
+                excelSaveRef.current = null;
+              }}
+            >
+              关闭
+            </Button>
+            <Button type="primary" loading={excelSaving} onClick={handleExcelSave}>
+              保存
+            </Button>
+          </Space>
+        }
         destroyOnClose
       >
         {excelDesignOpen && excelDesignNodeKey && current?.formId ? (
@@ -629,6 +695,9 @@ const WorkflowDesignPage: React.FC = () => {
               formName={metaLabels.formName}
               nodeKey={excelDesignNodeKey}
               embedded
+              onReady={(api: { save: () => Promise<boolean> }) => {
+                excelSaveRef.current = api?.save || null;
+              }}
             />
           </React.Suspense>
         ) : null}

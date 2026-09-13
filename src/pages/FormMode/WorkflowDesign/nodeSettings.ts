@@ -1,5 +1,5 @@
 import { WfProcessNode } from '@/services/workflow';
-import { MENUS_OPTIONS, SELECT_NEXT_FLOW_MODES } from './wfDict';
+import { EXTRA_OPERATE_TYPES, FAIL_MODES, MENUS_OPTIONS, SELECT_NEXT_FLOW_MODES } from './wfDict';
 
 /**
  * 节点「设置项」的 schema 定义（单一来源）。
@@ -51,14 +51,24 @@ export const SETTING_DEFS: SettingDef[] = [
     key: 'preOperate',
     label: '节点前附加操作',
     fields: [
-      { name: 'script', label: '操作说明', type: 'textarea', placeholder: '如：业务校验 / 字段赋值 / 调用接口' },
+      { name: 'type', label: '操作类型', type: 'select', options: EXTRA_OPERATE_TYPES },
+      { name: 'target', label: '目标', type: 'text', placeholder: '字段名 / 表名 / 接口地址 / 接收人' },
+      { name: 'payload', label: '内容', type: 'textarea', placeholder: '赋值表达式 / 更新内容 / 请求体 / 消息内容' },
+      { name: 'script', label: '自定义脚本', type: 'textarea', placeholder: '如：业务校验 / 字段赋值 / 调用接口' },
+      { name: 'failMode', label: '执行失败时', type: 'radio', options: FAIL_MODES },
+      { name: 'remark', label: '备注', type: 'text' },
     ],
   },
   {
     key: 'postOperate',
     label: '节点后附加操作',
     fields: [
-      { name: 'script', label: '操作说明', type: 'textarea', placeholder: '如：更新业务表 / 发送通知' },
+      { name: 'type', label: '操作类型', type: 'select', options: EXTRA_OPERATE_TYPES },
+      { name: 'target', label: '目标', type: 'text', placeholder: '字段名 / 表名 / 接口地址 / 接收人' },
+      { name: 'payload', label: '内容', type: 'textarea', placeholder: '赋值表达式 / 更新内容 / 请求体 / 消息内容' },
+      { name: 'script', label: '自定义脚本', type: 'textarea', placeholder: '如：更新业务表 / 发送通知' },
+      { name: 'failMode', label: '执行失败时', type: 'radio', options: FAIL_MODES },
+      { name: 'remark', label: '备注', type: 'text' },
     ],
   },
   {
@@ -160,6 +170,115 @@ export const SETTING_DEFS: SettingDef[] = [
   },
 ];
 
+/**
+ * 「操作菜单」明细项（对齐 ecology 节点操作菜单：可改显示名、启停、调顺序、指定默认操作）。
+ * 存储形态：settings.operateMenu = { items: [...], default?: key, menus: string[] }
+ * 其中 `menus` 由 items 派生（启用项按显示顺序），保留旧语义供引擎 / 角标 / 摘要复用。
+ */
+export interface OperateMenuItem {
+  key: string;
+  name: string;
+  enabled: boolean;
+}
+
+/**
+ * 归一化操作菜单：兼容旧形态 { menus: string[] } 与明细形态 { items: [...] }。
+ * 有 items 时以 items 的顺序/名称/启用为准，字典里新增的项补在后面（默认不启用）；
+ * 只有旧 menus 时，启用项按 menus 顺序排前，其余按字典顺序。
+ */
+export const normalizeOperateMenu = (val: any): OperateMenuItem[] => {
+  const base: OperateMenuItem[] = MENUS_OPTIONS.map((o) => ({
+    key: String(o.value),
+    name: o.label,
+    enabled: false,
+  }));
+  const stored: any[] = Array.isArray(val?.items) ? val.items : [];
+  const legacy: string[] = Array.isArray(val?.menus) ? val.menus.map(String) : [];
+
+  if (stored.length) {
+    const byKey = new Map(base.map((b) => [b.key, b]));
+    const out: OperateMenuItem[] = [];
+    stored.forEach((it) => {
+      const k = String(it?.key ?? '');
+      const b = byKey.get(k);
+      if (!b) return;
+      out.push({
+        key: k,
+        name: String(it?.name ?? b.name ?? k),
+        enabled: it?.enabled !== false,
+      });
+      byKey.delete(k);
+    });
+    byKey.forEach((b) => out.push(b));
+    return out;
+  }
+
+  base.forEach((b) => {
+    b.enabled = legacy.includes(b.key);
+  });
+  const enabled = legacy
+    .map((k) => base.find((b) => b.key === k))
+    .filter((b): b is OperateMenuItem => !!b);
+  const rest = base.filter((b) => !legacy.includes(b.key));
+  return [...enabled, ...rest];
+};
+
+/** 由明细派生旧字段 menus（启用项按显示顺序） */
+export const menusFromItems = (items: OperateMenuItem[]): string[] =>
+  (items || []).filter((i) => i.enabled).map((i) => i.key);
+
+/** 已启用操作的显示名（列表摘要 / 表格单元格用） */
+export const operateMenuLabels = (val: any): string[] =>
+  normalizeOperateMenu(val)
+    .filter((m) => m.enabled)
+    .map((m) => m.name || m.key);
+
+/**
+ * 「节点前/后附加操作」配置（对齐 ecology 附加操作：类型 + 目标 + 内容 + 脚本 + 失败处理 + 备注）。
+ * 兼容旧形态 { script }：仅有 script 时视为 type='script'。
+ */
+export interface ExtraOperate {
+  type: string;
+  target?: string;
+  payload?: string;
+  script?: string;
+  failMode?: string;
+  remark?: string;
+}
+
+export const normalizeExtraOperate = (val: any): ExtraOperate => {
+  const v = val || {};
+  const script = typeof v.script === 'string' ? v.script : '';
+  const type = typeof v.type === 'string' && v.type ? v.type : script ? 'script' : 'none';
+  return {
+    type,
+    target: v.target ?? '',
+    payload: v.payload ?? '',
+    script,
+    failMode: v.failMode ?? 'continue',
+    remark: v.remark ?? '',
+  };
+};
+
+/** 附加操作是否已配置（用于画布角标 / 列表绿勾） */
+export const isExtraOperateConfigured = (val: any): boolean => {
+  const n = normalizeExtraOperate(val);
+  if (n.type && n.type !== 'none') return true;
+  return !!(n.target || n.payload || n.script);
+};
+
+/** 附加操作一句话摘要（表格单元格展示） */
+export const extraOperateSummary = (val: any): string => {
+  if (!isExtraOperateConfigured(val)) return '';
+  const n = normalizeExtraOperate(val);
+  const typeLabel =
+    EXTRA_OPERATE_TYPES.find((t) => String(t.value) === n.type)?.label ?? (n.script ? '脚本' : '');
+  const desc = (n.payload || n.script || n.target || '').trim().replace(/\s+/g, ' ');
+  if (!typeLabel) return desc.slice(0, 12);
+  if (!desc) return typeLabel;
+  return `${typeLabel}：${desc.length > 12 ? `${desc.slice(0, 12)}…` : desc}`;
+};
+
 /** 解析节点 extJson（坏数据兜底为空对象） */
 export const parseExt = (node?: WfProcessNode | null): Record<string, any> => {
   try {
@@ -241,8 +360,8 @@ export const settingSummary = (def: SettingDef, val: any): string => {
 export const configuredBadges = (node?: WfProcessNode | null): string[] => {
   const s = nodeSettings(node);
   const out: string[] = [];
-  if (s.preOperate?.script) out.push('前附加操作');
-  if (s.postOperate?.script) out.push('后附加操作');
+  if (isExtraOperateConfigured(s.preOperate)) out.push('前附加操作');
+  if (isExtraOperateConfigured(s.postOperate)) out.push('后附加操作');
   if (s.timeout?.hours > 0) out.push('超时设置');
   if (s.subflow?.flowKey) out.push('子流程');
   if (s.appointFlow?.mode) out.push('指定流转');

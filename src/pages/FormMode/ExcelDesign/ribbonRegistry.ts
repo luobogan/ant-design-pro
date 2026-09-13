@@ -282,7 +282,7 @@ export const registerDesignerRibbon = (opts: RegisterRibbonOptions): boolean => 
   };
 
   // ── 模板 ──（统一走 callOpt：点击时才取最新处理器，避免绑到已卸载的旧实例）
-  addItem(TAB.TEMPLATE, 'ops', 'tpl.save', '保存', callOpt('onSave'), '保存布局', 0, 'save');
+  // 注：「保存」不在原生 ribbon 里挂项——弹窗场景由底部「保存」按钮承担，页签里不再重复放（避免点了没反应）。
   addItem(TAB.TEMPLATE, 'ops', 'tpl.preview', '预览', callOpt('onPreview'), '预览表单', 1, 'preview');
   addItem(TAB.TEMPLATE, 'ops', 'tpl.import', '导入', callOpt('onImport'), '导入布局', 2, 'import');
   addItem(TAB.TEMPLATE, 'ops', 'tpl.export', '导出', callOpt('onExport'), '导出布局', 3, 'export');

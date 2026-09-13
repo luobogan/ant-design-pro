@@ -24,6 +24,8 @@ import {
   WfNodeOperator,
   WfProcessNode,
 } from '@/services/workflow';
+import NodeOperateMenuModal from './NodeOperateMenuModal';
+import NodeExtraOperateModal from './NodeExtraOperateModal';
 import { FormFieldBrief } from './LinkInfoPanel';
 import { isSettingConfigured, SETTING_DEFS, SettingDef, SettingField } from './nodeSettings';
 import {
@@ -498,6 +500,11 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
     return true;
   });
 
+  // 「操作菜单」独立弹窗（E9 形态）
+  const [menuOpen, setMenuOpen] = useState(false);
+  // 「节点前/后附加操作」独立弹窗（E9 形态）
+  const [extraField, setExtraField] = useState<'preOperate' | 'postOperate' | undefined>();
+
   const settingsTab = (
     <>
       <div style={{ border: '1px solid #f0f0f0', borderRadius: 6, overflow: 'hidden' }}>
@@ -513,7 +520,12 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                 type="text"
                 size="small"
                 icon={<SettingOutlined />}
-                onClick={() => setSettingKey(d.key)}
+                // 操作菜单、前后附加操作走 E9 形态的独立弹窗，其余沿用通用表单弹窗
+                onClick={() => {
+                  if (d.key === 'operateMenu') setMenuOpen(true);
+                  else if (d.key === 'preOperate' || d.key === 'postOperate') setExtraField(d.key);
+                  else setSettingKey(d.key);
+                }}
               />
               {isConfigured(d) && <CheckCircleFilled style={{ color: '#52c41a' }} />}
             </Space>
@@ -581,6 +593,37 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
           </Form>
         )}
       </Modal>
+
+      <NodeOperateMenuModal
+        open={menuOpen}
+        defId={defId}
+        node={node}
+        onClose={() => setMenuOpen(false)}
+        onSaved={(nk, extJson) => {
+          try {
+            setExt(JSON.parse(extJson));
+          } catch {
+            /* 解析失败保持原状态，父级刷新时会重新解析 */
+          }
+          onPatch?.(nk, { extJson });
+        }}
+      />
+
+      <NodeExtraOperateModal
+        open={extraField != null}
+        field={extraField ?? 'preOperate'}
+        defId={defId}
+        node={node}
+        onClose={() => setExtraField(undefined)}
+        onSaved={(nk, extJson) => {
+          try {
+            setExt(JSON.parse(extJson));
+          } catch {
+            /* 解析失败保持原状态，父级刷新时会重新解析 */
+          }
+          onPatch?.(nk, { extJson });
+        }}
+      />
     </>
   );
 };

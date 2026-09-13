@@ -210,11 +210,24 @@ export async function deployDefinition(id: number) {
 }
 
 // BPMN 画布（bpmn-js）保存 / 获取
+// 注意：bpmnXml 含大量 <bpmn:*> 标签，会被后端 SpringBlade XSS 过滤器当作非法 HTML 整段删掉，
+// 导致只剩文本而无法解析。故发送前做 UTF-8 安全的 base64 编码，后端 WfDefinitionServiceImpl 再解码还原。
 export async function saveBpmn(id: number, bpmnXml: string) {
+  const encoded = utf8ToBase64(bpmnXml);
   return request<ApiResponse<number>>(`${WORKFLOW}/definition/${id}/bpmn`, {
     method: 'PUT',
-    data: { bpmnXml },
+    data: { bpmnXml: encoded },
   });
+}
+
+function utf8ToBase64(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
 }
 
 export async function getBpmn(id: number) {
@@ -307,6 +320,13 @@ export async function updateLink(id: number, linkId: number, link: Partial<WfNod
 /** 删除出口（连线） */
 export async function deleteLink(id: number, linkId: number) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/link/${linkId}`, {
+    method: 'DELETE',
+  });
+}
+
+/** 移除节点（级联清理操作者/字段权限/明细权限/出口连线/布局） */
+export async function deleteNode(id: number, nodeKey: string) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/node/${nodeKey}`, {
     method: 'DELETE',
   });
 }
