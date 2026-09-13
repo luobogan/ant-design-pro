@@ -615,6 +615,8 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
         defId={defId}
         node={node}
         formFields={formFields}
+        formBound={!!formId}
+        formName={formName}
         onClose={() => setExtraField(undefined)}
         onSaved={(nk, extJson) => {
           try {

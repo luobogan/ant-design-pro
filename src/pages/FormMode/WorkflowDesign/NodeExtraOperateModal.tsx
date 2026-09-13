@@ -14,9 +14,11 @@ import {
   Tabs,
   message,
 } from 'antd';
-import { DeleteOutlined, HolderOutlined, SearchOutlined } from '@ant-design/icons';
-import { updateNode, WfProcessNode } from '@/services/workflow';
+import { DeleteOutlined, HolderOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import { pickPayload } from '@/utils/utils';
+import { listCustomActions, updateNode, WfProcessNode, WfCustomAction } from '@/services/workflow';
 import { FormFieldBrief } from './LinkInfoPanel';
+import CustomActionRegisterModal from './CustomActionRegisterModal';
 import { EXTRA_OPERATE_TYPES, FAIL_MODES } from './wfDict';
 import {
   buildExtJson,
@@ -40,6 +42,10 @@ export interface NodeExtraOperateModalProps {
   node?: WfProcessNode;
   /** 表单字段（「字段赋值」页签的字段下拉来源） */
   formFields?: FormFieldBrief[];
+  /** 当前流程是否已绑定表单（用于区分「未绑定表单」与「表单没有字段」两种提示） */
+  formBound?: boolean;
+  /** 已绑定表单的名称（提示文案展示用） */
+  formName?: string;
   /** 草稿模式：不落库，仅通过 onSaved 回传新的 extJson */
   draftMode?: boolean;
   onSaved?: (nodeKey: string, extJson: string) => void;
@@ -48,7 +54,9 @@ export interface NodeExtraOperateModalProps {
 
 /** 「外部接口」页签的动作类型（对齐 E9：自定义接口动作 / 其它接口类动作） */
 const API_TYPES = [
-  { value: 'callApi', label: '自定义接口动作' },
+  // 对齐 E9「外部接口 → 自定义接口动作」：选用「注册自定义接口」登记的 Java 动作类
+  { value: 'customAction', label: '自定义接口动作' },
+  { value: 'callApi', label: 'HTTP 接口(GET)' },
   { value: 'updateTable', label: '更新业务表' },
   { value: 'sendMsg', label: '发送消息' },
   { value: 'script', label: '自定义脚本' },
@@ -56,6 +64,12 @@ const API_TYPES = [
 
 /** 动作类型的「来源 / 内容」输入项落到明细的哪个字段（决定映射出的执行命令） */
 const API_TARGET_META: Record<string, { field: 'target' | 'payload' | 'script'; label: string; ph: string; hint?: string }> = {
+  customAction: {
+    field: 'target',
+    label: '接口动作',
+    ph: '选择已注册的自定义接口动作',
+    hint: '执行时由后端反射实例化该动作类并调用 execute(WfActionRequest)',
+  },
   callApi: {
     field: 'target',
     label: '接口来源',
@@ -85,6 +99,7 @@ const API_TARGET_META: Record<string, { field: 'target' | 'payload' | 'script'; 
 /** 详情编辑弹窗（高级字段：脚本 / 执行失败时 / 备注 / 启用）——等价 E9 的「更多 »」 */
 const DETAIL_TYPE_LABELS: Record<string, { target: string; payload: string; targetPh?: string; payloadPh?: string }> = {
   fieldAssign: { target: '目标字段', payload: '赋值表达式', targetPh: '如：amount', payloadPh: '如：${price} * ${qty}' },
+  customAction: { target: '接口动作标识', payload: '（该类型不使用）', targetPh: '如：demo_log_field' },
   updateTable: { target: '业务表(说明)', payload: '执行 SQL', targetPh: '如：biz_order', payloadPh: '如：update biz_order set status=2 where id=${billId}' },
   callApi: { target: '接口地址', payload: '备注/请求体', targetPh: '如：https://api.xxx.com/notify', payloadPh: '当前执行器仅发 GET' },
   sendMsg: { target: '接收人', payload: '消息内容', targetPh: '如：${operator}', payloadPh: '如：您有一张单据待处理' },
@@ -113,6 +128,8 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
   field,
   node,
   formFields,
+  formBound,
+  formName,
   draftMode,
   onSaved,
   onClose,
@@ -128,9 +145,19 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
   // 新增工具条（字段赋值 / 外部接口各一套草稿）
   const [assignField, setAssignField] = useState('');
   const [assignValue, setAssignValue] = useState('');
-  const [apiType, setApiType] = useState('callApi');
+  const [apiType, setApiType] = useState('customAction');
   const [apiName, setApiName] = useState('');
   const [apiTarget, setApiTarget] = useState('');
+  /** 已注册的自定义接口动作（动作类型=自定义接口动作 时的下拉来源） */
+  const [customActions, setCustomActions] = useState<WfCustomAction[]>([]);
+  /** 「注册自定义接口」弹窗 */
+  const [registerOpen, setRegisterOpen] = useState(false);
+
+  const loadCustomActions = () => {
+    listCustomActions()
+      .then((r: any) => setCustomActions(pickPayload(r) || []))
+      .catch(() => setCustomActions([]));
+  };
 
   // 详情编辑
   const [editing, setEditing] = useState<ExtraOperateItem | undefined>();
@@ -149,9 +176,11 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
     setDragOverKey(undefined);
     setAssignField('');
     setAssignValue('');
-    setApiType('callApi');
+    setApiType('customAction');
     setApiName('');
     setApiTarget('');
+    // 已注册的自定义接口动作（动作类型=自定义接口动作 时作为下拉来源）
+    loadCustomActions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, field, node?.nodeKey, node?.extJson]);
 
@@ -195,6 +224,31 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
   const addApiItem = () => {
     const name = apiName.trim();
     const target = apiTarget.trim();
+
+    // 自定义接口动作：目标是「接口动作标识」；名称可留空（自动取注册记录的接口动作名称）
+    if (apiType === 'customAction') {
+      const act = customActions.find((a) => String(a.actionKey) === target);
+      if (!target || !act) {
+        message.warning('请选择已注册的自定义接口动作（没有的话点右侧「＋」注册）');
+        return;
+      }
+      setItems((prev) => [
+        ...prev,
+        {
+          key: newItemKey(),
+          name: name || String(act.actionName || act.actionKey || ''),
+          type: 'customAction',
+          target,
+          failMode: 'continue',
+          enabled: true,
+          triggerOnReject: false,
+        },
+      ]);
+      setApiName('');
+      setApiTarget('');
+      return;
+    }
+
     if (!name) {
       message.warning('请填写动作名称');
       return;
@@ -450,8 +504,12 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
                     </Button>
                   </Space>
                   {!fieldOptions.length && (
-                    <span style={{ color: '#faad14', fontSize: 12 }}>
-                      当前流程未绑定表单（或表单还没有字段），字段只能手工输入；绑定表单后这里会是下拉选择。
+                    <span style={{ color: formBound ? '#8c8c8c' : '#faad14', fontSize: 12 }}>
+                      {formBound
+                        ? `当前流程已绑定表单${
+                            formName ? `「${formName}」` : ''
+                          }，但该表单还没有任何字段（主表/明细表都没有）——请先到表单设计里添加字段；现在只能手工输入字段名，加好字段后这里会变成下拉选择。`
+                        : '当前流程尚未绑定表单，请到「基础设置」选择表单；现在只能手工输入字段名。'}
                     </span>
                   )}
                 </Space>
@@ -479,14 +537,46 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
                     allowClear
                   />
                   <span style={{ color: '#ff4d4f' }}>*</span>
-                  <Input
-                    style={{ width: 300 }}
-                    value={apiTarget}
-                    onChange={(e) => setApiTarget(e.target.value)}
-                    placeholder={apiMeta.label}
-                    suffix={<SearchOutlined style={{ color: '#bbb' }} />}
-                    allowClear
-                  />
+                  {apiType === 'customAction' ? (
+                    <>
+                      <Select
+                        showSearch
+                        allowClear
+                        optionFilterProp="label"
+                        style={{ width: 300 }}
+                        value={apiTarget || undefined}
+                        options={customActions.map((a) => ({
+                          value: String(a.actionKey),
+                          label: `${a.actionName || a.actionKey}（${a.actionKey}）`,
+                        }))}
+                        onChange={(v) => {
+                          const key = v ? String(v) : '';
+                          setApiTarget(key);
+                          const act = customActions.find((a) => String(a.actionKey) === key);
+                          if (act && !apiName.trim()) {
+                            setApiName(String(act.actionName || act.actionKey || ''));
+                          }
+                        }}
+                        placeholder="选择已注册的自定义接口动作"
+                        notFoundContent="暂无已注册动作，点右侧「＋」注册"
+                      />
+                      <Button
+                        icon={<PlusOutlined />}
+                        title="注册自定义接口（Java 动作类）"
+                        onClick={() => setRegisterOpen(true)}
+                      />
+                      <span style={{ color: '#bbb', fontSize: 12 }}>（Java 类）</span>
+                    </>
+                  ) : (
+                    <Input
+                      style={{ width: 300 }}
+                      value={apiTarget}
+                      onChange={(e) => setApiTarget(e.target.value)}
+                      placeholder={apiMeta.label}
+                      suffix={<SearchOutlined style={{ color: '#bbb' }} />}
+                      allowClear
+                    />
+                  )}
                   <span style={{ color: '#ff4d4f' }}>*</span>
                   <Button type="primary" onClick={addApiItem}>
                     确定
@@ -617,6 +707,20 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
           />
         )}
       </Modal>
+
+      {/* 注册自定义接口（对齐 E9）：登记 Java 动作类供「自定义接口动作」选用 */}
+      <CustomActionRegisterModal
+        open={registerOpen}
+        onClose={() => setRegisterOpen(false)}
+        onSaved={(saved) => {
+          loadCustomActions();
+          if (saved?.actionKey) {
+            setApiType('customAction');
+            setApiTarget(String(saved.actionKey));
+            setApiName(String(saved.actionName || saved.actionKey));
+          }
+        }}
+      />
     </>
   );
 };

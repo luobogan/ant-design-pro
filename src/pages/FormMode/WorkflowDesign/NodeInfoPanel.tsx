@@ -104,6 +104,7 @@ const NodeInfoPanel: React.FC<NodeInfoPanelProps> = ({
         onLocate={onLocate}
         formId={formId}
         formFields={formFields}
+        formName={formName}
         onEditLayout={onGenerateLayout}
         onCreateNodes={onCreateNodes}
         onDeleteNode={onDeleteNode}

@@ -284,7 +284,7 @@ const NodeOperateMenuModal: React.FC<NodeOperateMenuModalProps> = ({
         })}
       />
       <div style={{ color: '#999', fontSize: 12, marginTop: 8 }}>
-        对齐 E9：可改显示名称、启停与顺序（按住左侧拖柄可鼠标拖动排序，也可用上移/下移按钮）；
+        可改显示名称、启停与顺序（按住左侧拖柄可鼠标拖动排序，也可用上移/下移按钮）；
         「默认」指定打开表单时默认选中的操作（需先启用）。
       </div>
     </Modal>

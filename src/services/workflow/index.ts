@@ -309,6 +309,39 @@ export async function createLink(id: number, link: Partial<WfNodeLink>) {
   });
 }
 
+// ───────────── 自定义接口动作（注册自定义接口，对齐 ecology E9） ─────────────
+
+export interface WfCustomAction {
+  id?: number;
+  /** 接口动作名称 */
+  actionName?: string;
+  /** 接口动作标识（唯一，节点附加操作按此引用） */
+  actionKey?: string;
+  /** 接口动作类文件：类全名，须实现 org.springblade.workflow.action.IWfCustomAction */
+  className?: string;
+  /** 参数设置（JSON 字符串：[{name,value,isDataSource}]） */
+  paramsJson?: string;
+  remark?: string;
+}
+
+/** 已注册的自定义接口动作列表（节点附加操作「自定义接口动作」下拉来源） */
+export async function listCustomActions() {
+  return request<ApiResponse<WfCustomAction[]>>(`${WORKFLOW}/custom-action/list`, { method: 'GET' });
+}
+
+/** 注册 / 更新自定义接口动作（标识唯一；类文件须为类全名且实现 IWfCustomAction） */
+export async function saveCustomAction(data: WfCustomAction) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/custom-action/save`, {
+    method: 'POST',
+    data,
+  });
+}
+
+/** 删除自定义接口动作（后端物理删除，避免唯一标识被逻辑删除行占用） */
+export async function deleteCustomAction(id: number) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/custom-action/${id}`, { method: 'DELETE' });
+}
+
 /** 更新出口（连线） */
 export async function updateLink(id: number, linkId: number, link: Partial<WfNodeLink>) {
   return request<ApiResponse<WfNodeLink>>(`${WORKFLOW}/definition/${id}/link/${linkId}`, {

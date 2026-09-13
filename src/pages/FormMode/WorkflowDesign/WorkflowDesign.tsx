@@ -305,7 +305,11 @@ const WorkflowDesignPage: React.FC = () => {
     fieldDefinitionApi
       .getByFormId(String(current.formId))
       .then((r: any) => {
-        const list = (r?.data || []).map((f: any) => {
+        // ⚠️ fieldDefinitionApi.getByFormId 内部已 return response.data（返回的就是字段数组），
+        //    这里不能再取 .data —— 否则恒为 undefined → formFieldList 永远为空
+        //    （表现为：节点信息里的字段权限表为空、附加操作「字段赋值」没有下拉候选）。
+        //    用 pickPayload 兼容裸载荷 / {data} / {data:{data}} 三种形态。
+        const list = (pickPayload(r) || []).map((f: any) => {
           const dt = Number(f.detailTable ?? f.detailtable ?? 0);
           const scope = dt > 0 ? `dt${dt}` : 'main';
           return {
@@ -687,7 +691,8 @@ const WorkflowDesignPage: React.FC = () => {
               if (current?.formId) {
                 fieldDefinitionApi.getByFormId(String(current.formId)).then((r: any) => {
                   setFormFieldList(
-                    (r?.data || []).map((f: any) => {
+                    // 同上：getByFormId 返回的是数组本身，用 pickPayload 兜住各种包装形态
+                    (pickPayload(r) || []).map((f: any) => {
                       const dt = Number(f.detailTable ?? f.detailtable ?? 0);
                       return {
                         scope: dt > 0 ? `dt${dt}` : 'main',

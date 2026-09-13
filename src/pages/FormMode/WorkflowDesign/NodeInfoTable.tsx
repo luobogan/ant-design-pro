@@ -35,6 +35,8 @@ export interface NodeInfoTableProps {
   formId?: string;
   /** 表单字段（「附加操作」弹窗的字段下拉来源） */
   formFields?: FormFieldBrief[];
+  /** 当前流程绑定的表单名称（「附加操作」提示文案展示用） */
+  formName?: string;
   /** 打开该节点的 Excel 布局设计器 */
   onEditLayout?: (nodeKey: string) => void;
   /** 鼠标拖拽调整节点顺序：回传按新顺序排列的 nodeKey 列表（仅已保存节点，草稿行不参与） */
@@ -99,6 +101,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
   onLocate,
   formId,
   formFields,
+  formName,
   onEditLayout,
   onCreateNodes,
   onDeleteNode,
@@ -849,6 +852,8 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
         defId={defId}
         node={extraNode}
         formFields={formFields}
+        formBound={!!formId}
+        formName={formName}
         onSaved={(nodeKey, extJson) => {
           if (extraCell?.draftIndex != null) {
             setDraftRows((prev) =>

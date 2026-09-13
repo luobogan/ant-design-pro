@@ -76,8 +76,10 @@ export const MENUS_OPTIONS: DictItem[] = [
 export const EXTRA_OPERATE_TYPES: DictItem[] = [
   { value: 'none', label: '无' },
   { value: 'fieldAssign', label: '字段赋值' },
+  // 对齐 E9「外部接口 → 自定义接口动作」：选用「注册自定义接口」里登记的 Java 动作类
+  { value: 'customAction', label: '自定义接口动作' },
   { value: 'updateTable', label: '更新业务表' },
-  { value: 'callApi', label: '调用接口' },
+  { value: 'callApi', label: '调用接口(HTTP)' },
   { value: 'sendMsg', label: '发送消息' },
   { value: 'script', label: '自定义脚本' },
 ];

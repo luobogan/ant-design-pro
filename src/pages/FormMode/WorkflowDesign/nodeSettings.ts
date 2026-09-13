@@ -302,6 +302,8 @@ export const extraOperateCommand = (it: ExtraOperateItem): string => {
   const t = String(it.type || '');
   if (t === 'fieldAssign') return it.target ? `field:${it.target}=${it.payload ?? ''}` : '';
   if (t === 'updateTable') return it.payload ? `dml:${it.payload}` : '';
+  // 自定义接口动作：target 存「接口动作标识」，执行时由后端反射调用注册的 Java 动作类
+  if (t === 'customAction') return it.target ? `action:${it.target}` : '';
   if (t === 'callApi') return (it.target || '').trim();
   return (it.script || '').trim();
 };
@@ -316,6 +318,8 @@ export const extraOperateLabel = (it: ExtraOperateItem): string => {
   if (name) return name;
   if (it.type === 'fieldAssign') return `${it.target || '字段'} = ${it.payload || ''}`.trim();
   if (it.type === 'callApi') return it.target || extraTypeLabel(it.type);
+  // 自定义接口动作：target 为接口动作标识
+  if (it.type === 'customAction') return it.target || '自定义接口动作';
   return extraTypeLabel(it.type) || (it.script ? '自定义脚本' : '');
 };
 
