@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Popconfirm, Select, Space, Table, Tag, message } from 'antd';
-import { CheckCircleFilled, PlusOutlined } from '@ant-design/icons';
+import { CheckCircleFilled, HolderOutlined, PlusOutlined } from '@ant-design/icons';
 import { getNodeOperators, updateNode, WfNodeOperator, WfProcessNode } from '@/services/workflow';
 import NodeOperatorModal from './NodeOperatorModal';
 import NodeSettingModal from './NodeSettingModal';
@@ -16,6 +16,7 @@ import {
   SETTING_DEFS,
 } from './nodeSettings';
 import { FORM_CONTENT_OPTIONS, NODE_TYPES } from './wfDict';
+import type { FormFieldBrief } from './LinkInfoPanel';
 
 export interface NodeInfoTableProps {
   defId: any;
@@ -32,8 +33,12 @@ export interface NodeInfoTableProps {
   onLocate?: (nodeKey: string) => void;
   /** 当前流程绑定的表单ID（节点布局入口依赖） */
   formId?: string;
+  /** 表单字段（「附加操作」弹窗的字段下拉来源） */
+  formFields?: FormFieldBrief[];
   /** 打开该节点的 Excel 布局设计器 */
   onEditLayout?: (nodeKey: string) => void;
+  /** 鼠标拖拽调整节点顺序：回传按新顺序排列的 nodeKey 列表（仅已保存节点，草稿行不参与） */
+  onReorder?: (orderedNodeKeys: string[]) => void;
   /** 移除（删除）已存在节点：调用方负责请求后端并刷新列表，组件侧只清本地临时态 */
   onDeleteNode?: (nodeKey: string) => void;
   /** 一次性创建多个新节点（含草稿期间填好的操作者/设置），由父级在画布创建并保存 */
@@ -93,9 +98,11 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
   onRename,
   onLocate,
   formId,
+  formFields,
   onEditLayout,
   onCreateNodes,
   onDeleteNode,
+  onReorder,
 }) => {
   /** 文本类单元格的输入草稿（key = `${nodeKey}|${field}`），失焦/回车才提交，避免每键一次请求 */
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -116,6 +123,10 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
   const [extraCell, setExtraCell] = useState<
     { nodeKey?: string; draftIndex?: number; field: 'preOperate' | 'postOperate' } | undefined
   >();
+  /** 拖拽排序：正在拖动的节点 key（按住左侧拖柄时设置） */
+  const [dragKey, setDragKey] = useState<string | undefined>();
+  /** 拖拽排序：当前悬停的目标节点 key（仅用于高亮落点行） */
+  const [dragOverKey, setDragOverKey] = useState<string | undefined>();
   /** 正在编辑的设置项 key */
   const [settingDefKey, setSettingDefKey] = useState<string | undefined>();
   /**
@@ -379,7 +390,61 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
     );
   };
 
+  /**
+   * 拖拽排序：把 fromKey 拖到 toKey 的位置，回传重排后的 nodeKey 顺序给父级
+   * （父级负责本地重排 + 逐个持久化 sortOrder）。草稿行无真实 nodeKey，不参与。
+   */
+  const moveNode = (fromKey: string, toKey: string) => {
+    if (!fromKey || !toKey || fromKey === toKey) return;
+    const keys = nodes.map((n) => n.nodeKey!).filter(Boolean);
+    const from = keys.indexOf(fromKey);
+    const to = keys.indexOf(toKey);
+    if (from < 0 || to < 0) return;
+    const next = keys.slice();
+    next.splice(from, 1);
+    next.splice(to, 0, fromKey);
+    onReorder?.(next);
+  };
+
   const columns: any[] = [
+    {
+      key: 'dragSort',
+      title: '',
+      width: 36,
+      align: 'center',
+      render: (_: any, r: WfProcessNode) => {
+        const draft = isDraft(r);
+        return (
+          <span
+            draggable={!draft}
+            title={draft ? '保存后可拖动排序' : '按住拖动调整节点顺序'}
+            style={{
+              cursor: draft ? 'not-allowed' : 'grab',
+              color: draft ? '#d9d9d9' : '#8c8c8c',
+              display: 'inline-flex',
+              alignItems: 'center',
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onDragStart={(e) => {
+              if (draft) {
+                e.preventDefault();
+                return;
+              }
+              setDragKey(r.nodeKey!);
+              e.dataTransfer.effectAllowed = 'move';
+              // Firefox 需 setData 才会真正启动拖拽
+              e.dataTransfer.setData('text/plain', String(r.nodeKey));
+            }}
+            onDragEnd={() => {
+              setDragKey(undefined);
+              setDragOverKey(undefined);
+            }}
+          >
+            <HolderOutlined />
+          </span>
+        );
+      },
+    },
     {
       title: '节点名称',
       dataIndex: 'nodeName',
@@ -488,24 +553,29 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
               options={FORM_CONTENT_OPTIONS}
               onChange={onMode}
             />
-            {mode === 'custom' &&
-              (draft ? (
-                // ⚠️ 节点未保存（草稿行）禁止进入布局设计：草稿没有真实 nodeKey，
-                // 进入设计器保存会以无效的草稿 key 落库，造成孤立布局。
-                <span style={{ color: '#bbb', fontSize: 12 }} title="请先保存节点后再进行布局设计">
-                  保存节点后可设计
-                </span>
-              ) : (
-                <Button
-                  type="link"
-                  size="small"
-                  disabled={!formId}
-                  title={formId ? '进入节点布局设计器' : '该流程尚未绑定表单'}
-                  onClick={() => onEditLayout?.(r.nodeKey!)}
-                >
-                  设计
-                </Button>
-              ))}
+            {draft ? (
+              // ⚠️ 节点未保存（草稿行）禁止进入布局设计：草稿没有真实 nodeKey，
+              // 进入设计器保存会以无效的草稿 key 落库，造成孤立布局。
+              <span style={{ color: '#bbb', fontSize: 12 }} title="请先保存节点后再进行布局设计">
+                保存节点后可设计
+              </span>
+            ) : formId ? (
+              // 布局设计按 nodeKey 独立保存（后端 getByFormId 支持节点级优先、回退表单级），
+              // 故「设计」入口对「所有已保存且已绑定表单」的节点开放，与表单内容模式解耦，
+              // 满足「每个节点都能独立重新设计其布局、互不影响」。
+              <Button
+                type="link"
+                size="small"
+                title="进入节点布局设计器（按节点独立保存，互不影响）"
+                onClick={() => onEditLayout?.(r.nodeKey!)}
+              >
+                设计
+              </Button>
+            ) : (
+              <span style={{ color: '#bbb', fontSize: 12 }} title="该流程尚未绑定表单">
+                未绑定表单
+              </span>
+            )}
           </Space>
         );
       },
@@ -641,6 +711,9 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
         locale={{ emptyText: '暂无节点，点下方「新增节点」添加' }}
         rowClassName={(r: WfProcessNode) => {
           if ((r as any)._draft) return 'wf-row-draft';
+          if (dragKey && dragOverKey && r.nodeKey === dragOverKey && r.nodeKey !== dragKey) {
+            return 'wf-row-dragover';
+          }
           return r.nodeKey === selectedNodeKey ? 'wf-row-active' : '';
         }}
         onRow={(r: WfProcessNode) => ({
@@ -648,6 +721,20 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
             if (!isDraft(r)) onSelect?.(r.nodeKey!);
           },
           style: { cursor: isDraft(r) ? 'default' : 'pointer' },
+          // 拖拽排序：仅「已保存节点」之间可互换位置
+          onDragOver: (e: React.DragEvent) => {
+            if (!dragKey || isDraft(r) || r.nodeKey === dragKey) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            if (dragOverKey !== r.nodeKey) setDragOverKey(r.nodeKey!);
+          },
+          onDrop: (e: React.DragEvent) => {
+            if (!dragKey || isDraft(r) || r.nodeKey === dragKey) return;
+            e.preventDefault();
+            moveNode(dragKey, r.nodeKey!);
+            setDragKey(undefined);
+            setDragOverKey(undefined);
+          },
         })}
       />
       {/* 新增区常驻在表格下方（不放 Table.footer：草稿存在时 footer 会被整体移除）。
@@ -761,6 +848,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
         draftMode={extraCell?.draftIndex != null}
         defId={defId}
         node={extraNode}
+        formFields={formFields}
         onSaved={(nodeKey, extJson) => {
           if (extraCell?.draftIndex != null) {
             setDraftRows((prev) =>

@@ -614,6 +614,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
         field={extraField ?? 'preOperate'}
         defId={defId}
         node={node}
+        formFields={formFields}
         onClose={() => setExtraField(undefined)}
         onSaved={(nk, extJson) => {
           try {

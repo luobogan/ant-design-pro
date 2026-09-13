@@ -166,6 +166,12 @@ export interface BpmnDesignerProps {
     seq: number;
     nodes: { nodeName: string; nodeType: number; operators?: any[]; extJson?: string }[];
   };
+  /**
+   * 外部删除画布节点（节点信息列表「删除」后同步移除形状，seq 变化触发）：
+   * 移除该元素及其进/出连线，随后自动保存画布。
+   * 否则画布上仍留着已删节点，下次保存会被 saveBpmn 重新创建回库（撞节点唯一键）。
+   */
+  deleteNodeEvt?: { seq: number; nodeKey: string };
   /** 批量新增完成（已自动保存画布）回调，传出新建节点的 {nodeKey, nodeType, operators, extJson} 供父级回写特殊类型与草稿期间填好的配置 */
   onNodesCreated?: (
     created: { nodeKey: string; nodeType: number; operators?: any[]; extJson?: string }[],
@@ -187,6 +193,7 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
   linkCommand,
   focusEvt,
   createNodesEvt,
+  deleteNodeEvt,
   onNodesCreated,
   nodeBadges,
 }) => {
@@ -209,6 +216,7 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
   const flashTimerRef = useRef<any>(null);
   /** 已处理过的「批量新增节点」seq（保证同一 seq 只执行一次） */
   const lastCreateSeqRef = useRef(0);
+  const lastDeleteSeqRef = useRef(0);
   /** 节点设置项角标数据（nodeKey → 短标签数组），随 props 变化重绘画布叠加层 */
   const badgesRef = useRef<Record<string, string[]>>({});
   useEffect(() => {
@@ -655,6 +663,46 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createNodesEvt?.seq]);
+
+  // 节点信息列表「删除」→ 同步移除画布上的形状（含其进/出连线），随后自动保存画布。
+  // 与「批量新增」同理：展示态下 elements.delete 会被只读拦截静默阻断，必须先切编辑态。
+  // 若不同步移除，画布仍留着已删节点，下次保存会被 saveBpmn 重新创建回库（撞节点唯一键）。
+  useEffect(() => {
+    if (!deleteNodeEvt?.seq) return;
+    if (lastDeleteSeqRef.current === deleteNodeEvt.seq) return;
+    lastDeleteSeqRef.current = deleteNodeEvt.seq;
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
+      const m = modelerRef.current;
+      // 画布懒加载 / 尚未导入完：重试
+      if (!m) {
+        setTimeout(run, 200);
+        return;
+      }
+      try {
+        editModeRef.current = true;
+        setEditMode(true);
+        const registry = m.get('elementRegistry');
+        const modeling = m.get('modeling');
+        const el = registry.get(deleteNodeEvt.nodeKey);
+        if (!el) {
+          console.warn('[BpmnDesigner] 画布上未找到待删除节点，跳过', deleteNodeEvt.nodeKey);
+          return;
+        }
+        // removeElements 会连同该元素的进/出连线一并移除
+        modeling.removeElements([el]);
+        handleSave();
+      } catch (e: any) {
+        console.warn('[BpmnDesigner] 同步删除画布节点失败', e);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deleteNodeEvt?.seq]);
 
   // 展示 / 编辑切换：属性面板显隐会改变画布宽度，需修正尺寸；回到展示态时自动适配视口
   const firstMode = useRef(true);

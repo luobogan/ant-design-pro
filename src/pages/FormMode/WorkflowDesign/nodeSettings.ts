@@ -1,5 +1,5 @@
 import { WfProcessNode } from '@/services/workflow';
-import { EXTRA_OPERATE_TYPES, FAIL_MODES, MENUS_OPTIONS, SELECT_NEXT_FLOW_MODES } from './wfDict';
+import { EXTRA_OPERATE_TYPES, MENUS_OPTIONS, SELECT_NEXT_FLOW_MODES } from './wfDict';
 
 /**
  * 节点「设置项」的 schema 定义（单一来源）。
@@ -50,26 +50,14 @@ export const SETTING_DEFS: SettingDef[] = [
   {
     key: 'preOperate',
     label: '节点前附加操作',
-    fields: [
-      { name: 'type', label: '操作类型', type: 'select', options: EXTRA_OPERATE_TYPES },
-      { name: 'target', label: '目标', type: 'text', placeholder: '字段名 / 表名 / 接口地址 / 接收人' },
-      { name: 'payload', label: '内容', type: 'textarea', placeholder: '赋值表达式 / 更新内容 / 请求体 / 消息内容' },
-      { name: 'script', label: '自定义脚本', type: 'textarea', placeholder: '如：业务校验 / 字段赋值 / 调用接口' },
-      { name: 'failMode', label: '执行失败时', type: 'radio', options: FAIL_MODES },
-      { name: 'remark', label: '备注', type: 'text' },
-    ],
+    // 对齐 E9：附加操作是**多条列表**（新增/编辑/删除/拖动排序/启用），由 NodeExtraOperateModal 专用弹窗承载。
+    // 这里只声明「是否已配置」判定所需字段：settings.preOperate.items 为非空数组即为已配置。
+    fields: [{ name: 'items', label: '附加操作', type: 'text' }],
   },
   {
     key: 'postOperate',
     label: '节点后附加操作',
-    fields: [
-      { name: 'type', label: '操作类型', type: 'select', options: EXTRA_OPERATE_TYPES },
-      { name: 'target', label: '目标', type: 'text', placeholder: '字段名 / 表名 / 接口地址 / 接收人' },
-      { name: 'payload', label: '内容', type: 'textarea', placeholder: '赋值表达式 / 更新内容 / 请求体 / 消息内容' },
-      { name: 'script', label: '自定义脚本', type: 'textarea', placeholder: '如：更新业务表 / 发送通知' },
-      { name: 'failMode', label: '执行失败时', type: 'radio', options: FAIL_MODES },
-      { name: 'remark', label: '备注', type: 'text' },
-    ],
+    fields: [{ name: 'items', label: '附加操作', type: 'text' }],
   },
   {
     key: 'signOpinion',
@@ -234,49 +222,154 @@ export const operateMenuLabels = (val: any): string[] =>
     .map((m) => m.name || m.key);
 
 /**
- * 「节点前/后附加操作」配置（对齐 ecology 附加操作：类型 + 目标 + 内容 + 脚本 + 失败处理 + 备注）。
- * 兼容旧形态 { script }：仅有 script 时视为 type='script'。
+ * 「节点前/后附加操作」的单条明细（对齐 ecology E9 附加操作列表的一行：
+ * 名称 + 操作类型 + 目标 + 内容 + 自定义脚本 + 执行失败时 + 备注）。
  */
-export interface ExtraOperate {
+export interface ExtraOperateItem {
+  /** 稳定标识（列表 rowKey / 排序用） */
+  key: string;
+  /** 操作名称（E9 列表首列「节点前附加操作」显示的名称；留空则按类型/字段派生） */
+  name?: string;
   type: string;
   target?: string;
   payload?: string;
   script?: string;
   failMode?: string;
   remark?: string;
+  /** 未启用则不参与执行（缺省视为启用） */
+  enabled?: boolean;
+  /** 对齐 E9「退回时触发」列：勾选后，退回场景也会执行该条（缺省 false = 仅正常提交时执行） */
+  triggerOnReject?: boolean;
 }
 
-export const normalizeExtraOperate = (val: any): ExtraOperate => {
-  const v = val || {};
-  const script = typeof v.script === 'string' ? v.script : '';
-  const type = typeof v.type === 'string' && v.type ? v.type : script ? 'script' : 'none';
+/**
+ * 节点前/后附加操作配置（对齐 ecology E9：**一个节点可挂多条附加操作，按顺序执行**）。
+ *
+ * 存储形态：settings[preOperate|postOperate] = { items, script, scriptOnReject }
+ * 其中 script / scriptOnReject 是 items 的**派生字段**（启用项按序映射为多行命令），
+ * 保留旧语义，使后端 WfNodeSettingsUtil / NodeActionExecutor 的读取路径保持简单。
+ */
+export interface ExtraOperateConfig {
+  items: ExtraOperateItem[];
+  /** 派生：正常提交时执行的多行命令（全部启用项，含勾选「退回时触发」的） */
+  script?: string;
+  /** 派生：退回时执行的多行命令（**仅**勾选「退回时触发」的启用项） */
+  scriptOnReject?: string;
+}
+
+/** 归一化单条明细（兼容旧形态缺字段） */
+const normalizeExtraItem = (v: any, idx: number): ExtraOperateItem => {
+  const src = v || {};
+  const script = typeof src.script === 'string' ? src.script : '';
+  const type = typeof src.type === 'string' && src.type ? src.type : script ? 'script' : 'none';
   return {
+    key: typeof src.key === 'string' && src.key ? src.key : `op_${idx}`,
+    name: src.name ?? '',
     type,
-    target: v.target ?? '',
-    payload: v.payload ?? '',
+    target: src.target ?? '',
+    payload: src.payload ?? '',
     script,
-    failMode: v.failMode ?? 'continue',
-    remark: v.remark ?? '',
+    failMode: src.failMode ?? 'continue',
+    remark: src.remark ?? '',
+    enabled: src.enabled !== false,
+    triggerOnReject: src.triggerOnReject === true,
+  };
+};
+
+/** 单条是否已配置（决定是否保留 / 是否显示摘要） */
+export const isExtraItemConfigured = (it: ExtraOperateItem): boolean => {
+  if (it.type && it.type !== 'none') return true;
+  return !!(it.target || it.payload || it.script);
+};
+
+/**
+ * 归一化附加操作，兼容三种历史形态：
+ * ① { items: [...] }（新，多条）② 单条对象 { type, target, ... } ③ 旧版 { script }。
+ */
+export const normalizeExtraOperate = (val: any): ExtraOperateConfig => {
+  const v = val || {};
+  const single = normalizeExtraItem(v, 0);
+  const raw: any[] = Array.isArray(v.items) ? v.items : isExtraItemConfigured(single) ? [v] : [];
+  const items = raw.map((it, i) => normalizeExtraItem(it, i)).filter(isExtraItemConfigured);
+  return { items };
+};
+
+/**
+ * 单条明细 → 可被后端 {@code WfActionExecutor} 执行的一条命令
+ * （按前缀分派：http(s):// / sql: / dml: / field: / set:）。
+ */
+export const extraOperateCommand = (it: ExtraOperateItem): string => {
+  const t = String(it.type || '');
+  if (t === 'fieldAssign') return it.target ? `field:${it.target}=${it.payload ?? ''}` : '';
+  if (t === 'updateTable') return it.payload ? `dml:${it.payload}` : '';
+  if (t === 'callApi') return (it.target || '').trim();
+  return (it.script || '').trim();
+};
+
+/** 操作类型字典名 */
+const extraTypeLabel = (t: string): string =>
+  EXTRA_OPERATE_TYPES.find((o) => String(o.value) === t)?.label ?? (t && t !== 'none' ? t : '');
+
+/** E9 列表「节点前/后附加操作」列显示的名称：优先自定义名称，其次按类型派生（字段赋值显示「字段 = 值」） */
+export const extraOperateLabel = (it: ExtraOperateItem): string => {
+  const name = (it.name || '').trim();
+  if (name) return name;
+  if (it.type === 'fieldAssign') return `${it.target || '字段'} = ${it.payload || ''}`.trim();
+  if (it.type === 'callApi') return it.target || extraTypeLabel(it.type);
+  return extraTypeLabel(it.type) || (it.script ? '自定义脚本' : '');
+};
+
+/** 由明细派生多行命令；onlyReject=true 时只取勾选「退回时触发」的启用项 */
+const pickCommands = (items: ExtraOperateItem[], onlyReject: boolean): string =>
+  (items || [])
+    .filter((i) => i.enabled !== false && (!onlyReject || i.triggerOnReject === true))
+    .map(extraOperateCommand)
+    .filter((s) => !!s)
+    .join('\n');
+
+/** 正常提交时执行的多行 script（全部启用项，含勾选「退回时触发」的） */
+export const extraOperateScript = (items: ExtraOperateItem[]): string => pickCommands(items, false);
+
+/** 退回时执行的多行 script（仅勾选「退回时触发」的启用项） */
+export const extraOperateRejectScript = (items: ExtraOperateItem[]): string => pickCommands(items, true);
+
+/** 组装最终落库结构：items + 派生 script / scriptOnReject */
+export const buildExtraOperateConfig = (items: ExtraOperateItem[]): ExtraOperateConfig => {
+  const cleaned = (items || []).map((i) => ({
+    ...i,
+    enabled: i.enabled !== false,
+    triggerOnReject: i.triggerOnReject === true,
+  }));
+  return {
+    items: cleaned,
+    script: extraOperateScript(cleaned),
+    scriptOnReject: extraOperateRejectScript(cleaned),
   };
 };
 
 /** 附加操作是否已配置（用于画布角标 / 列表绿勾） */
-export const isExtraOperateConfigured = (val: any): boolean => {
-  const n = normalizeExtraOperate(val);
-  if (n.type && n.type !== 'none') return true;
-  return !!(n.target || n.payload || n.script);
-};
+export const isExtraOperateConfigured = (val: any): boolean =>
+  normalizeExtraOperate(val).items.length > 0;
 
-/** 附加操作一句话摘要（表格单元格展示） */
+/** 附加操作条数 */
+export const extraOperateCount = (val: any): number => normalizeExtraOperate(val).items.length;
+
+/** 附加操作一句话摘要（表格单元格展示）：字段赋值显示「字段 = 值」，其余按类型；多条显示「XXX 等 N 项」 */
 export const extraOperateSummary = (val: any): string => {
-  if (!isExtraOperateConfigured(val)) return '';
-  const n = normalizeExtraOperate(val);
-  const typeLabel =
-    EXTRA_OPERATE_TYPES.find((t) => String(t.value) === n.type)?.label ?? (n.script ? '脚本' : '');
-  const desc = (n.payload || n.script || n.target || '').trim().replace(/\s+/g, ' ');
-  if (!typeLabel) return desc.slice(0, 12);
-  if (!desc) return typeLabel;
-  return `${typeLabel}：${desc.length > 12 ? `${desc.slice(0, 12)}…` : desc}`;
+  const { items } = normalizeExtraOperate(val);
+  if (!items.length) return '';
+  const brief = (it: ExtraOperateItem): string => {
+    const name = (it.name || '').trim();
+    const desc = (it.payload || it.script || it.target || '').trim().replace(/\s+/g, ' ');
+    if (name) return name;
+    if (it.type === 'fieldAssign') return `${it.target || '字段'} = ${it.payload || ''}`.trim();
+    const typeLabel = extraTypeLabel(it.type) || (it.script ? '脚本' : '');
+    if (!typeLabel) return desc.slice(0, 12);
+    if (!desc) return typeLabel;
+    return `${typeLabel}：${desc.length > 12 ? `${desc.slice(0, 12)}…` : desc}`;
+  };
+  if (items.length === 1) return brief(items[0]);
+  return `${brief(items[0])} 等 ${items.length} 项`;
 };
 
 /** 解析节点 extJson（坏数据兜底为空对象） */

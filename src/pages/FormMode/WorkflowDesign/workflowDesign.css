@@ -30,3 +30,9 @@
 .wf-row-draft .ant-input {
   background: #fff;
 }
+
+/* 拖拽排序落点行：浅蓝底 + 顶部插入线，提示"将插入到该行之前" */
+.wf-row-dragover > td {
+  background: #f0f5ff !important;
+  box-shadow: inset 0 2px 0 #1677ff;
+}

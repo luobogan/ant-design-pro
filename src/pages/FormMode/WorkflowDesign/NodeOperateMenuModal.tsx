@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Input, Modal, Radio, Space, Switch, Table, Tag, message } from 'antd';
-import { ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons';
+import { ArrowDownOutlined, ArrowUpOutlined, HolderOutlined } from '@ant-design/icons';
 import { updateNode, WfProcessNode } from '@/services/workflow';
 import { MENUS_OPTIONS } from './wfDict';
 import {
@@ -68,6 +68,24 @@ const NodeOperateMenuModal: React.FC<NodeOperateMenuModalProps> = ({
     });
   };
 
+  /** 鼠标拖拽排序：正在拖动的项 key / 当前悬停落点项 key */
+  const [dragKey, setDragKey] = useState<string | undefined>();
+  const [dragOverKey, setDragOverKey] = useState<string | undefined>();
+
+  /** 把 fromKey 拖到 toKey 的位置（插入其后之前，即占用 toKey 原下标） */
+  const moveTo = (fromKey: string, toKey: string) => {
+    if (!fromKey || !toKey || fromKey === toKey) return;
+    setItems((prev) => {
+      const from = prev.findIndex((i) => i.key === fromKey);
+      const to = prev.findIndex((i) => i.key === toKey);
+      if (from < 0 || to < 0) return prev;
+      const next = [...prev];
+      const [cur] = next.splice(from, 1);
+      next.splice(to, 0, cur);
+      return next;
+    });
+  };
+
   /** 全选 / 清空 / 恢复默认（默认 = 提交 + 退回，名称还原字典名） */
   const setAll = (enabled: boolean) => setItems((prev) => prev.map((i) => ({ ...i, enabled })));
   const resetDefault = () => {
@@ -123,9 +141,32 @@ const NodeOperateMenuModal: React.FC<NodeOperateMenuModalProps> = ({
   const columns = [
     {
       title: '排序',
-      width: 80,
-      render: (_: any, __: any, index: number) => (
+      width: 124,
+      render: (_: any, r: OperateMenuItem, index: number) => (
         <Space size={0}>
+          <span
+            draggable
+            title="按住拖动调整顺序"
+            style={{
+              cursor: 'grab',
+              color: '#8c8c8c',
+              marginRight: 2,
+              display: 'inline-flex',
+              alignItems: 'center',
+            }}
+            onDragStart={(e) => {
+              setDragKey(r.key);
+              e.dataTransfer.effectAllowed = 'move';
+              // Firefox 需 setData 才会真正启动拖拽
+              e.dataTransfer.setData('text/plain', String(r.key));
+            }}
+            onDragEnd={() => {
+              setDragKey(undefined);
+              setDragOverKey(undefined);
+            }}
+          >
+            <HolderOutlined />
+          </span>
           <Button
             type="text"
             size="small"
@@ -222,9 +263,29 @@ const NodeOperateMenuModal: React.FC<NodeOperateMenuModalProps> = ({
         dataSource={items}
         columns={columns as any}
         scroll={{ y: 360 }}
+        // 鼠标拖拽排序：拖到目标行即插入该位置（保留上移/下移按钮作兜底）
+        rowClassName={(r: OperateMenuItem) =>
+          dragKey && dragOverKey && r.key === dragOverKey && r.key !== dragKey ? 'wf-row-dragover' : ''
+        }
+        onRow={(r: OperateMenuItem) => ({
+          onDragOver: (e: React.DragEvent) => {
+            if (!dragKey || r.key === dragKey) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            if (dragOverKey !== r.key) setDragOverKey(r.key);
+          },
+          onDrop: (e: React.DragEvent) => {
+            if (!dragKey || r.key === dragKey) return;
+            e.preventDefault();
+            moveTo(dragKey, r.key);
+            setDragKey(undefined);
+            setDragOverKey(undefined);
+          },
+        })}
       />
       <div style={{ color: '#999', fontSize: 12, marginTop: 8 }}>
-        对齐 E9：可改显示名称、启停与顺序；「默认」指定打开表单时默认选中的操作（需先启用）。
+        对齐 E9：可改显示名称、启停与顺序（按住左侧拖柄可鼠标拖动排序，也可用上移/下移按钮）；
+        「默认」指定打开表单时默认选中的操作（需先启用）。
       </div>
     </Modal>
   );

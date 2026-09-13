@@ -104,6 +104,11 @@ const WorkflowDesignPage: React.FC = () => {
     setCreateNodesEvt({ seq: createSeqRef.current, nodes: list });
   };
 
+  // 画布删除节点信号（seq 递增触发 BpmnDesigner 移除该形状并自动保存画布）
+  const [deleteNodeEvt, setDeleteNodeEvt] = useState<{ seq: number; nodeKey: string } | undefined>();
+  /** 自增计数器，理由同 createNodesEvt 的 seq（同一毫秒内重复触发需保证 seq 变化） */
+  const deleteSeqRef = useRef(0);
+
   // 流程卡片：解析路径类型(formmode 名)与表单名
   const [metaLabels, setMetaLabels] = useState<{ wftype?: string; formName?: string }>({});
   // 表单管理：当前表单的字段结构
@@ -203,6 +208,39 @@ const WorkflowDesignPage: React.FC = () => {
       .catch(() => {});
   };
 
+  /**
+   * 节点列表鼠标拖拽排序：本地即时重排（sortOrder 重算，1 起）+ 逐个持久化。
+   * 后端 saveBpmn 已改为「保留既有节点 sortOrder、仅新节点续接」，
+   * 因此手动拖拽的顺序不会被后续保存画布打回流程顺序。
+   */
+  const handleReorderNodes = async (orderedKeys: string[]) => {
+    if (current?.id == null) return;
+    const id = current.id;
+    const byKey = new Map(nodes.map((n) => [String(n.nodeKey), n]));
+    const ordered: WfProcessNode[] = [];
+    orderedKeys.forEach((k, i) => {
+      const n = byKey.get(String(k));
+      if (n) ordered.push({ ...n, sortOrder: i + 1 });
+    });
+    // 兜底：未出现在 orderedKeys 中的节点（理论上不会发生）按原顺序追加在后
+    nodes.forEach((n) => {
+      if (!orderedKeys.includes(String(n.nodeKey))) ordered.push(n);
+    });
+    setNodes(ordered);
+    try {
+      // 只提交顺序真正变化的节点，避免每次拖拽对全表打一记 PUT
+      const changed = ordered.filter((n) => {
+        if (!n.nodeKey) return false;
+        const before = byKey.get(String(n.nodeKey));
+        return !before || before.sortOrder !== n.sortOrder;
+      });
+      await Promise.all(changed.map((n) => updateNode(id, n.nodeKey!, { sortOrder: n.sortOrder })));
+    } catch {
+      message.error('排序保存失败，已刷新列表');
+      refreshNodes();
+    }
+  };
+
   const refreshLinks = () => {
     if (current?.id == null) return;
     listLinks(current.id)
@@ -233,6 +271,10 @@ const WorkflowDesignPage: React.FC = () => {
         delete (window as any).__pendingField;
       }
       if (selectedNodeKey === nodeKey) setSelectedNodeKey(undefined);
+      // 同步从画布移除该形状：否则画布上仍留着它，下次保存画布会被 saveBpmn「重新创建」回库，
+      // 而逻辑删除的行仍占着唯一键 uk_def_node(def_id,node_key) → DuplicateKeyException。
+      deleteSeqRef.current += 1;
+      setDeleteNodeEvt({ seq: deleteSeqRef.current, nodeKey });
       refreshNodes();
       refreshLinks();
     } catch {
@@ -471,6 +513,7 @@ const WorkflowDesignPage: React.FC = () => {
         linkCommand={linkCmd}
         focusEvt={focusEvt}
         createNodesEvt={createNodesEvt}
+        deleteNodeEvt={deleteNodeEvt}
         onNodesCreated={handleNodesCreated}
         nodeBadges={nodeBadges}
         onSaved={() => {
@@ -527,6 +570,7 @@ const WorkflowDesignPage: React.FC = () => {
                   )
                 }
                 onDeleteNode={handleDeleteNode}
+                onReorder={handleReorderNodes}
                 onGenerateLayout={(nk) => {
                   setExcelDesignNodeKey(nk);
                   setExcelDesignOpen(true);
