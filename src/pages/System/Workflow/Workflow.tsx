@@ -26,6 +26,7 @@ interface WorkflowDef {
   formType?: number;
   description?: string;
   sortOrder?: number;
+  activeVersionId?: number | string;
 }
 
 const STATUS_TAG = (s?: number) => {
@@ -47,7 +48,19 @@ const Workflow: React.FC = () => {
 
   // 列表：全局拦截器返回 ApiResponse 包装体，用 data?.data 取数组（兼容后端直接返回数组的情况）
   const { data, loading, refresh } = useRequest(() => workflowApi.listDefinitions());
-  const defs: WorkflowDef[] = Array.isArray(data) ? data : (data?.data || []);
+  const allDefs: WorkflowDef[] = Array.isArray(data) ? data : (data?.data || []);
+  // 每个流程（同 procKey 版本组）仅展示「当前激活版本」那一行：
+  // 锚点 = activeVersionId 非空则取其值，否则为自身 id；仅保留 id 与锚点相等的记录。
+  const defs = useMemo<WorkflowDef[]>(() => {
+    const map = new Map<string, WorkflowDef>();
+    for (const d of allDefs) {
+      const anchor = d.activeVersionId != null ? d.activeVersionId : d.id;
+      if (String(anchor) === String(d.id)) {
+        map.set(String(anchor), d);
+      }
+    }
+    return Array.from(map.values());
+  }, [allDefs]);
   const { buttons: pageButtons } = usePageButtons();
   // 按钮 code 门禁：与后端 workflow 角色门禁口径一致（菜单/按钮由 blade_role_menu 按角色授权）
   const hasPerm = (code: string) => pageButtons.some((b: any) => b.code === code);
@@ -133,6 +146,11 @@ const Workflow: React.FC = () => {
               进入设计
             </Button>
           )}
+          {hasPerm('workflow_delete') && (
+            <Button type="link" danger onClick={() => handleRemove(record)}>
+              删除
+            </Button>
+          )}
         </>
       ),
     },
@@ -181,6 +199,23 @@ const Workflow: React.FC = () => {
           refresh();
         } catch {
           message.error('停用失败');
+        }
+      },
+    });
+  };
+
+  const handleRemove = (r: WorkflowDef) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除流程「${r.name}」（版本 v${r.version}）吗？将级联清理节点、出口、操作者、权限与布局。`,
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await workflowApi.removeDefinition(r.id!);
+          message.success('删除成功');
+          refresh();
+        } catch {
+          message.error('删除失败');
         }
       },
     });

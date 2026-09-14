@@ -236,12 +236,19 @@ export async function getBpmn(id: number) {
   return request<ApiResponse<string>>(`${WORKFLOW}/definition/${id}/bpmn`, { method: 'GET' });
 }
 
-export async function saveAsNewVersion(id: number) {
-  return request<ApiResponse<number>>(`${WORKFLOW}/definition/${id}/version`, { method: 'POST' });
+export async function saveAsNewVersion(id: string | number) {
+  return request<ApiResponse<string>>(`${WORKFLOW}/definition/${id}/version`, { method: 'POST' });
+}
+
+/** 切换当前（激活）版本：版本组内锚点统一指向该版本（不部署、不改发布状态） */
+export async function activateVersion(id: string | number) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/version/activate`, {
+    method: 'POST',
+  });
 }
 
 /** 版本列表（同 procKey 版本组全部版本，按版本号升序） */
-export async function listVersions(id: number) {
+export async function listVersions(id: string | number) {
   return request<ApiResponse<WfProcessDefinition[]>>(`${WORKFLOW}/definition/${id}/versions`, {
     method: 'GET',
   });
@@ -317,6 +324,12 @@ export async function listDefinitions(formId?: number) {
   return request<ApiResponse<WfProcessDefinition[]>>(`${WORKFLOW}/definition/list`, {
     method: 'GET',
     params: { formId },
+  });
+}
+
+export async function removeDefinition(id: number) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}`, {
+    method: 'DELETE',
   });
 }
 

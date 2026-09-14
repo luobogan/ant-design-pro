@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import { Button, Card, Descriptions, message, Modal, Select, Space, Table, Tag, Tabs } from 'antd';
 import {
+  activateVersion,
   deployDefinition,
   getBpmn,
   listDefinitions,
@@ -122,6 +123,8 @@ const WorkflowDesignPage: React.FC = () => {
   // 版本控制：同 procKey 版本组的版本列表 + 版本对比弹窗
   const [versions, setVersions] = useState<WfProcessDefinition[]>([]);
   const [versionDiffOpen, setVersionDiffOpen] = useState(false);
+  // 已尝试过「进入即自动激活」的版本 defId（同一页面只做一次，避免重复写库）
+  const autoActivatedRef = useRef<string>('');
 
   // 生成表单布局：节点级 Excel 布局设计器弹窗（布局绑定 nodeKey）
   const [excelDesignOpen, setExcelDesignOpen] = useState(false);
@@ -299,6 +302,15 @@ const WorkflowDesignPage: React.FC = () => {
     if (target) {
       selectDef(target);
       setActiveTab('flow');
+      // URL 指向哪个版本 = 当前（激活）版本：非激活时自动切换版本组锚点（幂等，同值不写库），
+      // 保证「显示的」与「激活的」始终一致。
+      const anchor = String((target as any).activeVersionId || target.id);
+      if (String(target.id) !== anchor && autoActivatedRef.current !== String(target.id)) {
+        autoActivatedRef.current = String(target.id);
+        activateVersion(target.id)
+          .then(() => refresh())
+          .catch(() => {});
+      }
     }
   }, [defs, defIdParam]);
 
@@ -590,9 +602,19 @@ const WorkflowDesignPage: React.FC = () => {
           size="small"
           style={{ minWidth: 170 }}
           value={String(current.id)}
-          onChange={(id) => {
-            if (String(id) !== String(current.id)) {
+          onChange={async (id) => {
+            if (String(id) === String(current.id)) return;
+            try {
+              const r: any = await activateVersion(id);
+              if (r?.success === false) {
+                message.error('切换版本失败');
+                return;
+              }
+              // 先刷新定义列表（各版本 activeVersionId 已变），再跳转由 defId effect 加载该版本内容
+              refresh();
               history.push(`/formmode/workflowdesign?defId=${id}`);
+            } catch {
+              message.error('切换版本失败');
             }
           }}
           options={versions.map((v) => ({
