@@ -97,7 +97,15 @@ const hasDisplayableContent = (xml: any): boolean =>
   xml.trim().length > 0 &&
   (/<(\w+:)?process[\s/>]/.test(xml) || /<(\w+:)?collaboration[\s/>]/.test(xml));
 
-const NODE_TYPES = ['bpmn:StartEvent', 'bpmn:UserTask', 'bpmn:EndEvent'];
+const NODE_TYPES = [
+  'bpmn:StartEvent',
+  'bpmn:UserTask',
+  'bpmn:EndEvent',
+  'bpmn:IntermediateCatchEvent',
+  'bpmn:IntermediateThrowEvent',
+  'bpmn:BoundaryEvent',
+  'bpmn:ServiceTask',
+];
 
 const isNodeElement = (el: any): boolean =>
   !!el && NODE_TYPES.indexOf(el?.businessObject?.$type) >= 0;
