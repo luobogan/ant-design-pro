@@ -252,7 +252,8 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
 
   const batchRemove = () => {
     if (!selectedKeys.length) return;
-    setOps((prev) => prev.filter((_, i) => !selectedKeys.includes(i)));
+    // rowKey 是字符串下标（String(i)），这里比对应转成字符串，否则类型不匹配导致筛不掉
+    setOps((prev) => prev.filter((_, i) => !selectedKeys.includes(String(i))));
     setSelectedKeys([]);
   };
 

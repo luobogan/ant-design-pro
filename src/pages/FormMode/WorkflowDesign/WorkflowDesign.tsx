@@ -31,7 +31,7 @@ import LinkInfoPanel from './LinkInfoPanel';
 import VersionDiffModal from './VersionDiffModal';
 import SimulateModal from './SimulateModal';
 // 「定位并高亮」指令类型：type-only import，运行时被擦除，不影响画布的懒加载
-import type { FocusEvt } from './BpmnDesigner';
+import type { FocusEvt, SimulateEvt } from './BpmnDesigner';
 import './workflowDesign.css';
 // Excel 设计器（Univer 较重）按需懒加载，避免拖累设计页首屏
 const ExcelDesignLazy = React.lazy(() => import('@/pages/FormMode/ExcelDesign/ExcelDesign'));
@@ -157,6 +157,17 @@ const WorkflowDesignPage: React.FC = () => {
   // 流程模拟运行弹窗（设计期校验：带模拟表单数据走查节点/网关条件）
   const [simulateOpen, setSimulateOpen] = useState(false);
   const [formRefresh, setFormRefresh] = useState(0);
+  // 模拟运行：路径演示信号（seq 递增触发 BpmnDesigner 在画布上动画走查）
+  const [simulateEvt, setSimulateEvt] = useState<SimulateEvt | undefined>();
+  const simulateSeqRef = useRef(0);
+  /** 弹窗「在画布上演示路径」：切到图形编辑页签并触发画布路径动画 */
+  const playSimPath = (res: any) => {
+    setActiveTab('flow');
+    setFlowSubTab('canvas');
+    simulateSeqRef.current += 1;
+    setSimulateEvt({ seq: simulateSeqRef.current, path: res?.path || [], nodes: res?.nodes || [] });
+    setSimulateOpen(false);
+  };
 
   // 版本控制：同 procKey 版本组的版本列表 + 版本对比弹窗
   const [versions, setVersions] = useState<WfProcessDefinition[]>([]);
@@ -612,6 +623,9 @@ const WorkflowDesignPage: React.FC = () => {
         renameNode={renameEvt}
         linkCommand={linkCmd}
         focusEvt={focusEvt}
+        simulateEvt={simulateEvt}
+        // 画布工具栏「模拟运行」入口：打开模拟弹窗（与「编辑」按钮并排）
+        onSimulate={() => setSimulateOpen(true)}
         createNodesEvt={createNodesEvt}
         deleteNodeEvt={deleteNodeEvt}
         onNodesCreated={handleNodesCreated}
@@ -652,9 +666,6 @@ const WorkflowDesignPage: React.FC = () => {
       );
     return (
       <Space size="small" style={{ marginRight: 8 }}>
-        <Button size="small" onClick={() => setSimulateOpen(true)}>
-          模拟运行
-        </Button>
         <span style={{ color: '#999' }}>版本</span>
         <Select
           size="small"
@@ -930,6 +941,7 @@ const WorkflowDesignPage: React.FC = () => {
         formFields={formFieldList}
         onClose={() => setSimulateOpen(false)}
         onSaved={refreshNodes}
+        onPlayPath={playSimPath}
       />
     </PageContainer>
   );

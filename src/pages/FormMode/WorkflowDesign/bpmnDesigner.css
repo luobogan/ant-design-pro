@@ -61,22 +61,214 @@
 
 /* ───────── 「定位」闪烁高亮 ─────────
    canvas.addMarker(el, 'wf-flash') 会把 class 加到元素的 g.djs-element 上（纯视觉，不涉及指针事件），
-   形状与连线都是 SVG，故描边动画作用在 .djs-visual 的直接子节点（rect / path）上。 */
+   形状与连线都是 SVG，故描边动画作用在 .djs-visual 的**图形子节点**上（排除 text，避免给文字描边）。 */
 @keyframes wfFlashPulse {
   0%,
   100% {
     stroke: #1677ff;
-    stroke-width: 3;
+    stroke-width: 2.5;
   }
   50% {
-    stroke: #fa541c;
-    stroke-width: 6;
+    stroke: #69b1ff;
+    stroke-width: 4;
   }
 }
 
-.wf-flash .djs-visual > * {
-  animation: wfFlashPulse 0.5s ease-in-out 4;
+.wf-flash .djs-visual > rect,
+.wf-flash .djs-visual > path,
+.wf-flash .djs-visual > circle,
+.wf-flash .djs-visual > ellipse,
+.wf-flash .djs-visual > polygon {
+  animation: wfFlashPulse 0.6s ease-in-out 4;
 }
+
+/* ───────── 模拟运行：路径动画走查 ─────────
+   设计期校验「模拟运行」后，在画布上按 path 顺序高亮节点 + 连线行进光点，
+   未通过的节点标红（提醒线画错 / 走不通）。canvas.addMarker 把 class 加到
+   g.djs-element 上，节点与连线都是 SVG。
+
+   风格对齐 E9 流转图：**已到达节点浅绿填充 + 绿边**、已走过出口绿色虚线 + 绿色 ✓ 角标，
+   未通过节点浅红填充；不再用粗描边脉冲（原 stroke-width 6 刺眼且会给文字描边）。
+   注意选择器只命中**图形子节点**（rect / circle / polygon），排除 text 与
+   网关/事件里的图标 path，避免给文字描边、避免把图标涂绿。
+
+   演示结束后**保留**高亮，不自动还原；由工具栏「重置状态」手动还原原始状态。 */
+
+/* 走过的节点：浅绿填充 + 绿边 + 极轻的绿色呼吸光晕 */
+@keyframes wfSimNodeBreath {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 2px rgba(82, 196, 26, 0.25));
+  }
+  50% {
+    filter: drop-shadow(0 0 7px rgba(82, 196, 26, 0.7));
+  }
+}
+
+.wf-sim-node .djs-visual {
+  animation: wfSimNodeBreath 2s ease-in-out infinite;
+}
+
+.wf-sim-node .djs-visual > rect,
+.wf-sim-node .djs-visual > circle,
+.wf-sim-node .djs-visual > polygon {
+  fill: #d9f7be !important;
+  stroke: #52c41a !important;
+  stroke-width: 2 !important;
+}
+
+/* 走过的连线：绿色流畅虚线（蚂蚁线）+ 光晕 */
+@keyframes wfSimDash {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+
+.wf-sim-flow .djs-visual path {
+  stroke: #52c41a !important;
+  stroke-width: 3 !important;
+  stroke-linecap: round !important;
+  stroke-dasharray: 12 8 !important;
+  filter: drop-shadow(0 0 4px rgba(82, 196, 26, 0.7));
+  animation: wfSimDash 0.7s linear infinite;
+}
+
+/* 上游节点未通过 → 该出口走不通：红色虚线（与绿线同形，仅换色） */
+.wf-sim-flow-fail .djs-visual path {
+  stroke: #ff4d4f !important;
+  stroke-width: 3 !important;
+  stroke-linecap: round !important;
+  stroke-dasharray: 12 8 !important;
+  filter: drop-shadow(0 0 4px rgba(255, 77, 79, 0.7));
+}
+
+/* 未通过节点：浅红填充 + 红边（!important 覆盖上面的绿色呼吸） */
+@keyframes wfSimFailBreath {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 2px rgba(255, 77, 79, 0.35));
+  }
+  50% {
+    filter: drop-shadow(0 0 8px rgba(255, 77, 79, 0.9));
+  }
+}
+
+.wf-sim-fail .djs-visual {
+  animation: wfSimFailBreath 2s ease-in-out infinite !important;
+}
+
+.wf-sim-fail .djs-visual > rect,
+.wf-sim-fail .djs-visual > circle,
+.wf-sim-fail .djs-visual > polygon {
+  fill: #ffccc7 !important;
+  stroke: #ff4d4f !important;
+  stroke-width: 2 !important;
+}
+
+/* 连线之上行进的光点：绿色珠点 + 光晕 */
+.wf-sim-dot {
+  filter: drop-shadow(0 0 6px rgba(82, 196, 26, 0.9));
+}
+
+/* 已走过出口上的绿色 ✓ 角标（BpmnDesigner 注入的 SVG） */
+.wf-sim-check {
+  pointer-events: none;
+}
+
+/* ───────── 模拟日志：画布右下角浮层 ───────── */
+.wf-sim-log {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 320px;
+  max-height: 46%;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid #91caff;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  z-index: 20;
+  font-size: 12px;
+}
+
+.wf-sim-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  background: #e6f4ff;
+  color: #1677ff;
+  font-weight: 600;
+  border-bottom: 1px solid #91caff;
+}
+
+.wf-sim-log-head .anticon {
+  cursor: pointer;
+  color: #1677ff;
+}
+
+.wf-sim-log-body {
+  overflow: auto;
+  padding: 4px 8px;
+}
+
+.wf-sim-log-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  border-bottom: 1px dashed #f0f0f0;
+}
+
+.wf-sim-log-row:last-child {
+  border-bottom: none;
+}
+
+/* 行首标记：方点=节点，圆点=走线；绿=成功，红=失败 */
+.wf-sim-log-ico {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+}
+
+.wf-sim-log-ico.node {
+  border-radius: 2px;
+}
+
+.wf-sim-log-ico.link {
+  border-radius: 50%;
+}
+
+.wf-sim-log-ico.ok {
+  background: #52c41a;
+}
+
+.wf-sim-log-ico.fail {
+  background: #ff4d4f;
+}
+
+.wf-sim-log-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #333;
+}
+
+.wf-sim-log-extra {
+  flex: 0 0 auto;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #999;
+  font-size: 11px;
+}
+
+
 
 /* ───────── 节点「设置项角标」 ─────────
    BpmnDesigner 用 overlays.add(key, {type:'wf-badge'}) 在节点右上角标注「已配置的设置项」数量，

@@ -333,6 +333,12 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
     : opDraftIndex != null
       ? draftRows[opDraftIndex]
       : undefined;
+  // 真实节点的操作者单独存在 operatorsMap 里（节点对象不携带），草稿行的在 operators 字段
+  const opNodeOperators = opNodeKey
+    ? operatorsMap[opNodeKey] || []
+    : opDraftIndex != null
+      ? draftRows[opDraftIndex]?.operators || []
+      : [];
   // 当前正在编辑「设置项」的节点（真实 or 草稿）
   const settingNode =
     settingCell != null
@@ -794,7 +800,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
         defId={defId}
         nodeKey={opNodeKey ?? (opDraftIndex != null ? `__draft_${opDraftIndex}` : undefined)}
         nodeName={opNode?.nodeName}
-        operators={opNode ? opNode.operators || [] : []}
+        operators={opNodeOperators}
         onSaved={(nodeKey, ops) => {
           if (opDraftIndex != null) {
             setDraftRows((prev) => prev.map((d, i) => (i === opDraftIndex ? { ...d, operators: ops } : d)));

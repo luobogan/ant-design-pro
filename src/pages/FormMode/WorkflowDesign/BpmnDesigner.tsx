@@ -10,18 +10,21 @@ import {
 } from 'bpmn-js-properties-panel';
 import camundaModdleDescriptor from 'camunda-bpmn-moddle/resources/camunda.json';
 import '@bpmn-io/properties-panel/dist/assets/properties-panel.css';
-import { Button, Dropdown, Input, Modal, Space, Tooltip, message } from 'antd';
+import { Button, Dropdown, Input, Modal, Space, Tag, Tooltip, message } from 'antd';
 import {
   AlignCenterOutlined,
   AlignLeftOutlined,
   AlignRightOutlined,
+  CloseOutlined,
   ColumnHeightOutlined,
   ColumnWidthOutlined,
   DownloadOutlined,
   FolderOpenOutlined,
   FullscreenExitOutlined,
   FullscreenOutlined,
+  PlayCircleOutlined,
   RedoOutlined,
+  ReloadOutlined,
   UndoOutlined,
   VerticalAlignBottomOutlined,
   VerticalAlignMiddleOutlined,
@@ -134,6 +137,26 @@ export interface FocusEvt {
   link?: { from: string; to: string };
 }
 
+/** 外部「模拟运行路径演示」指令（seq 递增触发）：在画布上按 path 顺序动画走查节点/连线 */
+export interface SimulateEvt {
+  seq: number;
+  /** 流转路径（含源/目标节点 Key 与所走出口条件） */
+  path?: { fromNodeKey?: string; toNodeKey?: string; conditionCn?: string }[];
+  /** 逐节点校验结果（status=2 未通过的节点会在画布上标红提醒） */
+  nodes?: { nodeKey?: string; nodeName?: string; nodeType?: number; status?: number; message?: string }[];
+}
+
+/** 「模拟运行」画布右下角日志浮层的一行 */
+interface SimLogItem {
+  /** node=节点 / link=走线 */
+  kind: 'node' | 'link';
+  label: string;
+  /** 是否成功（节点校验通过 / 连线走出） */
+  ok: boolean;
+  /** 补充说明（出口条件 / 未通过原因） */
+  extra?: string;
+}
+
 export interface BpmnDesignerProps {
   defId?: number;
   procKey?: string;
@@ -161,6 +184,10 @@ export interface BpmnDesignerProps {
   };
   /** 外部「定位并高亮」节点/连线（seq 变化触发），用于列表 ↔ 画布联动 */
   focusEvt?: FocusEvt;
+  /** 外部「模拟运行路径演示」：在画布上按 path 顺序动画走查，未通过的节点标红提醒 */
+  simulateEvt?: SimulateEvt;
+  /** 点工具栏「模拟运行」：打开模拟弹窗（由父级提供） */
+  onSimulate?: () => void;
   /** 批量新增节点（节点信息「编辑」弹窗）：在画布尾部追加节点形状并连线，随后自动保存 */
   createNodesEvt?: {
     seq: number;
@@ -192,6 +219,8 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
   renameNode,
   linkCommand,
   focusEvt,
+  simulateEvt,
+  onSimulate,
   createNodesEvt,
   deleteNodeEvt,
   onNodesCreated,
@@ -219,6 +248,16 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
   const lastDeleteSeqRef = useRef(0);
   /** 节点设置项角标数据（nodeKey → 短标签数组），随 props 变化重绘画布叠加层 */
   const badgesRef = useRef<Record<string, string[]>>({});
+  // 「模拟运行」路径动画：已加的 marker / 注入的 SVG 行进光点 / 计时器，供清理与打断重复触发
+  const simMarksRef = useRef<[any, string][]>([]);
+  const simSvgRef = useRef<SVGElement[]>([]);
+  const simTimersRef = useRef<any[]>([]);
+  const simCancelRef = useRef<() => void>(() => {});
+  // 工具栏「重置状态」：立即停止模拟动画并清掉画布高亮 / 日志浮层
+  const simResetRef = useRef<() => void>(() => {});
+  // 「模拟日志」浮层：随动画逐条追加「节点 / 走线 是否成功」，画布右下角小窗展示
+  const [simLog, setSimLog] = useState<SimLogItem[]>([]);
+  const [simLogOpen, setSimLogOpen] = useState(false);
   useEffect(() => {
     badgesRef.current = nodeBadges || {};
     renderOverlaysRef.current?.();
@@ -411,6 +450,13 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
       if (ro) ro.disconnect();
       if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
       if (autoSaveTimer) clearTimeout(autoSaveTimer);
+      // 模拟路径动画：清理行进光点与待触发计时器（marker 随 modeler.destroy 一并消失）
+      simTimersRef.current.forEach((t) => clearTimeout(t));
+      simTimersRef.current = [];
+      simSvgRef.current.forEach((d) => {
+        if (d.parentNode) d.parentNode.removeChild(d);
+      });
+      simSvgRef.current = [];
       eventBus.off('commandStack.changed', scheduleAutoSave);
       modeler.destroy();
       modelerRef.current = null;
@@ -491,6 +537,33 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
     if (!focusEvt?.seq) return;
     let cancelled = false;
     let tries = 0;
+    // 按源/目标节点找 SequenceFlow：先试直连，再 BFS 穿透网关还原真实连线。
+    // wf_node_link 出口是「穿透网关折叠」的逻辑出口（A→网关→B 记 A→B，viaGateway=1），
+    // 画布上并无 A→B 直连，故出口信息「定位」也须穿透网关，否则 viaGateway 出口会定位失败。
+    const isGateway = (n: any) =>
+      typeof n?.businessObject?.$type === 'string' && n.businessObject.$type.includes('Gateway');
+    const findFlowThroughGateway = (registry: any, from: string, to: string): any => {
+      const fromEl = registry.get(from);
+      const match = (c: any) => c.target?.id === to || c.businessObject?.targetRef?.id === to;
+      const direct = (fromEl?.outgoing || []).find(match);
+      if (direct) return direct;
+      const queue: string[] = [from];
+      const seen = new Set<string>([from]);
+      while (queue.length) {
+        const cur = queue.shift() as string;
+        for (const c of registry.get(cur)?.outgoing || []) {
+          const t = c.target;
+          if (!t) continue;
+          if (t.id === to) return c;
+          // 只穿透网关继续找（与 saveBpmn 折叠规则一致），不越过中间业务节点
+          if (isGateway(t) && !seen.has(t.id)) {
+            seen.add(t.id);
+            queue.push(t.id);
+          }
+        }
+      }
+      return undefined;
+    };
     const run = () => {
       if (cancelled) return;
       const m = modelerRef.current;
@@ -508,9 +581,8 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
         if (focusEvt.nodeKey) {
           el = registry.get(focusEvt.nodeKey);
         } else if (focusEvt.link) {
-          const to = focusEvt.link.to;
-          const fromEl = registry.get(focusEvt.link.from);
-          el = (fromEl?.outgoing || []).find((c: any) => c.businessObject?.targetRef === to);
+          // 出口可能是「穿透网关折叠」的逻辑出口（A→B viaGateway），画布上只有 A→网关→B
+          el = findFlowThroughGateway(registry, focusEvt.link.from, focusEvt.link.to);
         }
         // XML 尚未导入完时 elementRegistry 还是空的，同样重试
         if (!el) {
@@ -543,6 +615,316 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusEvt?.seq]);
+
+  // 外部「模拟运行路径演示」：按 path 顺序在画布上动画走查（高亮节点 + 连线行进光点），
+  // 未通过的节点（status=2）静态标红，作为「走不通 / 线画错」的提醒。
+  useEffect(() => {
+    if (!simulateEvt?.seq) return;
+    let cancelled = false;
+    const reg = () => modelerRef.current?.get('elementRegistry');
+    const cv = () => modelerRef.current?.get('canvas');
+
+    const clearDot = (dot: SVGElement | null) => {
+      if (dot && dot.parentNode) dot.parentNode.removeChild(dot);
+    };
+    // 清掉上一轮（或上一 seq）的 marker / 光点 / 计时器，保证重复演示不残留、不叠加
+    const cleanup = () => {
+      const c = cv();
+      simMarksRef.current.forEach(([el, mk]) => {
+        try {
+          c?.removeMarker(el, mk);
+        } catch {
+          /* ignore */
+        }
+      });
+      simMarksRef.current = [];
+      simSvgRef.current.forEach((d) => clearDot(d));
+      simSvgRef.current = [];
+      simTimersRef.current.forEach((t) => clearTimeout(t));
+      simTimersRef.current = [];
+    };
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, ms);
+        simTimersRef.current.push(t);
+      });
+
+    /** 在连线之上注入一个沿路径行进的绿色光点（SVG animateMotion，d 取自连线的真实折线路径） */
+    const injectDot = (connectionId: string): SVGElement | null => {
+      const m = modelerRef.current;
+      if (!m) return null;
+      const gfx: any = m.get('elementRegistry').getGraphics(connectionId);
+      const pathEl: any = gfx?.querySelector?.('path');
+      const d = pathEl?.getAttribute?.('d');
+      if (!d || !gfx?.parentNode) return null;
+      const NS = 'http://www.w3.org/2000/svg';
+      const circle = document.createElementNS(NS, 'circle') as SVGElement;
+      circle.setAttribute('r', '5');
+      circle.setAttribute('fill', '#52c41a');
+      circle.setAttribute('stroke', '#fff');
+      circle.setAttribute('stroke-width', '1.5');
+      circle.setAttribute('class', 'wf-sim-dot');
+      const motion = document.createElementNS(NS, 'animateMotion') as SVGElement;
+      motion.setAttribute('dur', '0.9s');
+      motion.setAttribute('path', d);
+      motion.setAttribute('fill', 'freeze');
+      motion.setAttribute('rotate', 'auto');
+      circle.appendChild(motion);
+      // 挂到连线所在图层（世界坐标空间），光点即贴合连线；不挂进连线 gfx 本身，避免被 bpmn 重绘清掉
+      gfx.parentNode.appendChild(circle);
+      return circle;
+    };
+
+    /**
+     * 在已走过的出口上注入绿色对勾角标（对齐 E9 流转图「已走线」的 ✓ 标记）。
+     * 位置取连线路径 60% 处（getPointAtLength），与光点同挂图层；同样不挂进连线 gfx 内部。
+     */
+    const injectCheck = (connection: any): SVGElement | null => {
+      const m = modelerRef.current;
+      if (!m) return null;
+      const gfx: any = m.get('elementRegistry').getGraphics(connection.id);
+      const pathEl: any = gfx?.querySelector?.('path');
+      if (!pathEl?.getTotalLength || !gfx?.parentNode) return null;
+      let p: { x: number; y: number };
+      try {
+        p = pathEl.getPointAtLength(pathEl.getTotalLength() * 0.6);
+      } catch {
+        return null;
+      }
+      const NS = 'http://www.w3.org/2000/svg';
+      const g = document.createElementNS(NS, 'g') as SVGElement;
+      g.setAttribute('class', 'wf-sim-check');
+      g.setAttribute('transform', `translate(${p.x}, ${p.y})`);
+      const ring = document.createElementNS(NS, 'circle');
+      ring.setAttribute('r', '9');
+      ring.setAttribute('fill', '#52c41a');
+      ring.setAttribute('stroke', '#fff');
+      ring.setAttribute('stroke-width', '1.5');
+      const tick = document.createElementNS(NS, 'path');
+      tick.setAttribute('d', 'M -4 0.6 L -1.2 3.4 L 4.2 -3.2');
+      tick.setAttribute('fill', 'none');
+      tick.setAttribute('stroke', '#fff');
+      tick.setAttribute('stroke-width', '2');
+      tick.setAttribute('stroke-linecap', 'round');
+      tick.setAttribute('stroke-linejoin', 'round');
+      g.appendChild(ring);
+      g.appendChild(tick);
+      gfx.parentNode.appendChild(g);
+      return g;
+    };
+
+    /** 按源/目标节点 Key 找到对应的 SequenceFlow 连线元素 */
+    const findConn = (fromKey?: string, toKey?: string) => {
+      const r = reg();
+      if (!r || !fromKey || !toKey) return undefined;
+      const from = r.get(fromKey);
+      return (from?.outgoing || []).find(
+        (c: any) => c.target?.id === toKey || c.businessObject?.targetRef?.id === toKey,
+      );
+    };
+
+    /** 给元素加高亮 marker 并登记，便于统一清理 */
+    const mark = (key?: string, cls: string) => {
+      const r = reg();
+      const c = cv();
+      const el = key ? r?.get(key) : undefined;
+      if (el && c) {
+        c.addMarker(el, cls);
+        simMarksRef.current.push([el, cls]);
+      }
+    };
+
+    /** 取某节点的校验结果 */
+    const nodeInfo = (key?: string) => (simulateEvt.nodes || []).find((n) => n.nodeKey === key);
+    /** 全量流程节点 key（后端逐节点结果即「全量节点」）：用于区分「流程节点」与「网关等中转元素」 */
+    const nodeKeySet = new Set(
+      (simulateEvt.nodes || []).map((n) => n.nodeKey).filter(Boolean) as string[],
+    );
+    /** 元素显示名：优先校验结果里的节点名，其次画布元素名，无名网关回退「网关」 */
+    const nodeLabel = (key?: string) => {
+      const info = nodeInfo(key);
+      if (info?.nodeName) return info.nodeName;
+      const el = key ? reg()?.get(key) : undefined;
+      const nm = el?.businessObject?.name;
+      if (nm) return nm;
+      const t = el?.businessObject?.$type;
+      if (typeof t === 'string' && t.includes('Gateway')) return '网关';
+      return key || '-';
+    };
+    /**
+     * 找 from→to 的**真实走线**（逐跳 SequenceFlow 数组）。
+     *
+     * 后端 wf_node_link 的出口是「穿透网关折叠」后的**逻辑出口**（A→网关→B 记为 A→B，
+     * viaGateway=1，见 WfDefinitionServiceImpl#saveBpmn），画布上并不存在 A→B 的直连，
+     * 所以只按 (from,to) 找连线时，凡经过网关的段落都会误报「未找到连线」。
+     * 这里先试直连，失败再 BFS 穿透「非流程节点」的中转元素（网关/事件）还原 A→网关→B；
+     * 与后端折叠规则一致：不越过中间业务节点。找不到任何路线返回空数组（=走线失败）。
+     */
+    const findRoute = (fromKey?: string, toKey?: string): any[] => {
+      if (!fromKey || !toKey) return [];
+      const r = reg();
+      if (!r) return [];
+      const direct = findConn(fromKey, toKey);
+      if (direct) return [direct];
+      const queue: { key: string; chain: any[] }[] = [{ key: fromKey, chain: [] }];
+      const seen = new Set<string>([fromKey]);
+      while (queue.length) {
+        const cur = queue.shift() as { key: string; chain: any[] };
+        for (const conn of r.get(cur.key)?.outgoing || []) {
+          const tid = conn.target?.id;
+          if (!tid) continue;
+          const chain = [...cur.chain, conn];
+          if (tid === toKey) return chain;
+          // 只穿透网关/事件等中转元素；中间业务节点不越过（避免 A→B→C 被压成 A→C）
+          if (!nodeKeySet.has(tid) && !seen.has(tid)) {
+            seen.add(tid);
+            queue.push({ key: tid, chain });
+          }
+        }
+      }
+      return [];
+    };
+    /** 追加一行日志（函数式更新，避免闭包捕获过期数组） */
+    const pushLog = (item: SimLogItem) => setSimLog((prev) => [...prev, item]);
+
+    const run = async () => {
+      // 画布可能刚切回可见 / 懒加载未完成：重试等待
+      for (let i = 0; i < 12; i++) {
+        if (modelerRef.current && (reg()?.getAll?.()?.length || 0) > 0) break;
+        if (cancelled) return;
+        await sleep(150);
+      }
+      const m = modelerRef.current;
+      const c = cv();
+      if (!m || !c || cancelled) return;
+      try {
+        c.resized();
+      } catch {
+        /* ignore */
+      }
+      cleanup();
+      // 日志浮层：新一轮演示先清空，走路即有日志时才展开
+      setSimLog([]);
+
+      // 1) 未通过的节点静态标红（提醒：走不通 / 线画错）
+      (simulateEvt.nodes || [])
+        .filter((n) => n.status === 2)
+        .forEach((n) => mark(n.nodeKey, 'wf-sim-fail'));
+
+      const path = simulateEvt.path || [];
+      if (!path.length) return;
+      setSimLogOpen(true);
+
+      // 2) 节点顺序：起点 + 每段的目标
+      const seq = [path[0].fromNodeKey, ...path.map((p) => p.toNodeKey)];
+      const startInfo = nodeInfo(seq[0]);
+      mark(seq[0], 'wf-sim-node');
+      pushLog({
+        kind: 'node',
+        label: nodeLabel(seq[0]),
+        ok: startInfo?.status !== 2,
+        extra: startInfo?.status === 2 ? startInfo?.message : undefined,
+      });
+      await sleep(550);
+      if (cancelled) return;
+
+      for (let i = 0; i < path.length; i++) {
+        if (cancelled) return;
+        const fromKey = path[i].fromNodeKey;
+        const toKey = path[i].toNodeKey;
+        // 上游节点未通过（status=2，如「人工节点未选择操作者」）→ 该出口走不通，
+        // 不能再点亮成「通过」：出口标红 + 日志记未通过，并停止后续演示（后续路径已不可达）。
+        const fromInfo = nodeInfo(fromKey);
+        if (fromInfo?.status === 2) {
+          // 上游节点未通过 → 该出口走不通：标红（不再点亮成「通过」）并记未通过，
+          // 但**不中止**演示：其它还有路可走的段继续走；下游节点不可达，跳过其点亮。
+          findRoute(fromKey, toKey).forEach((conn) => {
+            c.addMarker(conn, 'wf-sim-flow-fail');
+            simMarksRef.current.push([conn, 'wf-sim-flow-fail']);
+          });
+          pushLog({
+            kind: 'link',
+            label: `${nodeLabel(fromKey)} → ${nodeLabel(toKey)}`,
+            ok: false,
+            extra: fromInfo.message || '上游节点未通过，出口走不通',
+          });
+          await sleep(500);
+          continue;
+        }
+        // 真实走线：直连为 1 跳；经网关折叠的出口为多跳（A→网关→B），逐跳点亮并记日志
+        const route = findRoute(fromKey, toKey);
+        if (route.length) {
+          for (let h = 0; h < route.length; h++) {
+            if (cancelled) return;
+            const conn = route[h];
+            c.addMarker(conn, 'wf-sim-flow');
+            simMarksRef.current.push([conn, 'wf-sim-flow']);
+            const dot = injectDot(conn.id);
+            if (dot) simSvgRef.current.push(dot);
+            pushLog({
+              kind: 'link',
+              label: `${nodeLabel(conn.source?.id || fromKey)} → ${nodeLabel(conn.target?.id || toKey)}`,
+              ok: true,
+              // 末跳带出口条件；中间跳是网关中转
+              extra: h === route.length - 1 ? path[i].conditionCn : '网关中转',
+            });
+            await sleep(950);
+            if (cancelled) return;
+            // 行进光点抵达后移除，交棒给下一跳（显式移除本跳光点，避免误删已留下的 ✓ 角标）
+            clearDot(dot);
+            // 走过的出口留一枚绿色 ✓（E9 流转图观感），随 cleanup 统一清除
+            const check = injectCheck(conn);
+            if (check) simSvgRef.current.push(check);
+            // 网关等中转元素也一并点亮，走线才看得见（不参与节点判定）
+            const midKey = conn.target?.id;
+            if (midKey && midKey !== toKey) {
+              mark(midKey, 'wf-sim-node');
+            }
+          }
+        } else {
+          // 整条路（含穿透网关）都找不到连线 → 该段线确实缺失/画错
+          pushLog({
+            kind: 'link',
+            label: `${nodeLabel(fromKey)} → ${nodeLabel(toKey)}`,
+            ok: false,
+            extra: '未找到连线',
+          });
+          await sleep(400);
+          if (cancelled) return;
+        }
+        // 高亮目标节点（若该节点本身未通过则保留红色）
+        const info = nodeInfo(toKey);
+        if (info?.status !== 2) {
+          mark(toKey, 'wf-sim-node');
+        }
+        pushLog({
+          kind: 'node',
+          label: nodeLabel(toKey),
+          ok: info?.status !== 2,
+          extra: info?.status === 2 ? info?.message : undefined,
+        });
+        await sleep(350);
+        if (cancelled) return;
+      }
+    };
+
+    simCancelRef.current = () => {
+      cancelled = true;
+    };
+    // 演示走完后**保留**画布高亮与日志，不自动还原；由工具栏「重置状态」手动还原原始状态
+    run();
+    // 工具栏「重置状态」：停止动画并立即还原画布（同时收起日志浮层）
+    simResetRef.current = () => {
+      cancelled = true;
+      cleanup();
+      setSimLog([]);
+      setSimLogOpen(false);
+    };
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simulateEvt?.seq]);
 
   // 批量新增节点（节点信息「编辑」弹窗）：在画布尾部追加形状并连线，随后自动保存。
   // 既有节点（改名/改类型）由父级走 updateNode + renameEvt 处理，这里只负责「新增」的形状落地。
@@ -960,6 +1342,18 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
         <Button type={editMode ? 'default' : 'primary'} onClick={() => setEditMode((v) => !v)}>
           {editMode ? '完成编辑' : '编辑'}
         </Button>
+        {onSimulate && (
+          <Button icon={<PlayCircleOutlined />} onClick={onSimulate}>
+            模拟运行
+          </Button>
+        )}
+        <Button
+          icon={<ReloadOutlined />}
+          onClick={() => simResetRef.current?.()}
+          disabled={!simLogOpen && simLog.length === 0}
+        >
+          重置状态
+        </Button>
         <Button
           icon={fullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
           onClick={toggleFullscreen}
@@ -1040,8 +1434,47 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
         onChange={handlePickFile}
       />
 
-      <div style={{ flex: 1, minHeight: 0, border: '1px solid #d9d9d9', overflow: 'hidden', display: 'flex' }}>
-        <div ref={containerRef} style={{ flex: 1, minWidth: 0, height: '100%', background: '#fff' }} />
+      <div
+        style={{
+          position: 'relative',
+          flex: 1,
+          minHeight: 0,
+          border: '1px solid #d9d9d9',
+          overflow: 'hidden',
+          display: 'flex',
+        }}
+      >
+        {/* 画布本体：相对定位容器，模拟日志浮层锚定在「画布」右下角（不含右侧属性面板） */}
+        <div style={{ position: 'relative', flex: 1, minWidth: 0, height: '100%' }}>
+          <div ref={containerRef} style={{ position: 'absolute', inset: 0, background: '#fff' }} />
+
+          {/* 模拟运行日志：右下角小窗，随动画逐条显示「节点 / 走线 是否成功」 */}
+          {simLogOpen && simLog.length > 0 && (
+            <div className="wf-sim-log">
+              <div className="wf-sim-log-head">
+                <span>模拟日志</span>
+                <CloseOutlined onClick={() => setSimLogOpen(false)} />
+              </div>
+              <div className="wf-sim-log-body">
+                {simLog.map((it, idx) => (
+                  <div className="wf-sim-log-row" key={`${it.kind}-${idx}`}>
+                    <span className={`wf-sim-log-ico ${it.kind} ${it.ok ? 'ok' : 'fail'}`} />
+                    <span className="wf-sim-log-name" title={it.label}>
+                      {it.label}
+                    </span>
+                    {it.extra ? <span className="wf-sim-log-extra">{it.extra}</span> : null}
+                    <Tag
+                      color={it.ok ? 'success' : 'error'}
+                      style={{ marginInlineStart: 'auto', marginRight: 0 }}
+                    >
+                      {it.kind === 'link' ? (it.ok ? '走线成功' : '走线失败') : it.ok ? '通过' : '未通过'}
+                    </Tag>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
         {/* bpmn-js 内置属性面板（展示态由 .wf-designer-view .wf-props 隐藏） */}
         <div ref={propsPanelRef} className="wf-props" />
       </div>

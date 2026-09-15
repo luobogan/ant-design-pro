@@ -226,17 +226,20 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
     }
   };
 
+  // 列宽用百分比，让表格撑满「出口信息」页签容器（maxWidth 960）并按比例收缩，
+  // 不再写死 px 宽度 + scroll.x:max-content（那样会恒宽横向滚动、不自适应）。
   const columns = [
     {
       title: '源节点',
       dataIndex: 'fromNodeKey',
-      width: 150,
+      width: '12%',
+      ellipsis: true,
       render: (v: string) => nodeName(v),
     },
     {
       title: '目标节点',
       dataIndex: 'toNodeKey',
-      width: 180,
+      width: '16%',
       render: (v: string, r: WfNodeLink) => {
         const isDraft = r.id === -1;
         return (
@@ -274,7 +277,7 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
     {
       title: '出口名称',
       dataIndex: 'linkName',
-      width: 200,
+      width: '16%',
       ellipsis: true,
       render: (_: any, r: WfNodeLink) =>
         r.id === -1 ? <span style={{ color: '#999' }}>待保存</span> : linkName(r),
@@ -282,7 +285,7 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
     {
       title: '是否退回',
       dataIndex: 'isReject',
-      width: 90,
+      width: '8%',
       align: 'center' as const,
       render: (v: number, r: WfNodeLink) =>
         r.id === -1 ? (
@@ -301,7 +304,7 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
     {
       title: '必经分支',
       dataIndex: 'isMustPass',
-      width: 90,
+      width: '8%',
       align: 'center' as const,
       render: (v: number, r: WfNodeLink) =>
         r.id === -1 ? (
@@ -320,18 +323,22 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
     {
       title: '流转条件',
       dataIndex: 'conditionCn',
-      width: 220,
+      width: '18%',
+      ellipsis: true,
       render: (_: any, r: WfNodeLink) => {
         if (r.id === -1) return '-';
         const text = r.conditionCn || r.conditionExpr;
         return (
-          <Space size={4}>
+          <Space size={4} style={{ width: '100%' }}>
             <Button type="link" size="small" style={{ padding: 0 }} disabled={locked} onClick={() => openCond(r)}>
               {text ? '编辑' : '设置'}
             </Button>
             {text ? (
               <Tooltip title={r.conditionExpr || text}>
-                <Tag color="blue" style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <Tag
+                  color="blue"
+                  style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                >
                   {text}
                 </Tag>
               </Tooltip>
@@ -345,7 +352,7 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
     {
       title: '排序',
       dataIndex: 'sortOrder',
-      width: 90,
+      width: '9%',
       render: (v: number, r: WfNodeLink) =>
         r.id === -1 ? (
           '-'
@@ -353,7 +360,7 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
           <div onClick={stop} onMouseDown={stop}>
             <InputNumber
               size="small"
-              style={{ width: 70 }}
+              style={{ width: '100%', maxWidth: 70 }}
               min={0}
               value={v ?? 0}
               onChange={(nv) => patchLink(r, { sortOrder: nv ?? 0 }, '排序')}
@@ -363,7 +370,8 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
     },
     {
       title: '操作',
-      width: 130,
+      dataIndex: 'op',
+      width: '13%',
       align: 'center' as const,
       render: (_: any, r: WfNodeLink) => {
         if (r.id === -1) {
@@ -471,7 +479,6 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
         size="small"
         dataSource={dataSource}
         pagination={false}
-        scroll={{ x: 'max-content' }}
         locale={{ emptyText: '暂无出口。可在「图形编辑」页签连好线后保存，或点「+ 新增出口」' }}
         rowClassName={(r) => {
           if (r.id === -1) return 'wf-row-draft';

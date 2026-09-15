@@ -26,6 +26,8 @@ export interface SimulateModalProps {
   onClose: () => void;
   /** 模拟成功（已回写各节点测试状态）后刷新父级 nodes */
   onSaved?: () => void;
+  /** 点击「在画布上演示路径」：把模拟结果交父级，由画布动画走查 */
+  onPlayPath?: (result: SimulateResult) => void;
 }
 
 const NODE_TYPE = ['创建', '审批', '提交', '归档', '等待', '自动'];
@@ -55,6 +57,7 @@ const SimulateModal: React.FC<SimulateModalProps> = ({
   formFields,
   onClose,
   onSaved,
+  onPlayPath,
 }) => {
   /** 模拟表单数据（暂未开放录入，按全量走查） */
   const [formData] = useState<Record<string, string>>({});
@@ -101,6 +104,16 @@ const SimulateModal: React.FC<SimulateModalProps> = ({
       width={760}
       footer={
         <Space>
+          {result && onPlayPath && (
+            <Button
+              onClick={() => {
+                onPlayPath(result);
+                onClose();
+              }}
+            >
+              在画布上演示路径
+            </Button>
+          )}
           <Button onClick={close}>关闭</Button>
           <Button type="primary" loading={loading} onClick={run}>
             运行模拟
