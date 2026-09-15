@@ -75,6 +75,16 @@ const NodeInfoPanel: React.FC<NodeInfoPanelProps> = ({
         }}
       >
         <Space size={8} wrap>
+          {(() => {
+            const total = nodes.length;
+            const passed = nodes.filter((n) => n.testStatus === 1).length;
+            const allPassed = total > 0 && passed === total;
+            return (
+              <Tag color={allPassed ? 'green' : passed > 0 ? 'gold' : 'default'}>
+                测试通过 {passed}/{total}
+              </Tag>
+            );
+          })()}
           {current ? (
             <>
               <span style={{ color: '#888' }}>当前节点：</span>

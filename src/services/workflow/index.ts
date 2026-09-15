@@ -121,6 +121,8 @@ export interface WfProcessNode {
   allowForward?: number;
   autoApprove?: number;
   sortOrder?: number;
+  /** 节点测试状态 0未测试 1通过 2未通过（模拟运行校验结果，设计期使用） */
+  testStatus?: number;
   extJson?: string; // 扩展属性（超时/提醒/签章等）
 }
 
@@ -158,6 +160,8 @@ export interface WfNodeLink {
   conditionExpr?: string;
   conditionCn?: string;
   sortOrder?: number;
+  /** 是否经由网关折叠而来的逻辑连线 1=是 */
+  viaGateway?: number;
 }
 
 // 流程定义保存请求（后端 DefinitionSaveDTO）
@@ -427,6 +431,46 @@ export async function deleteNode(id: number, nodeKey: string) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/node/${nodeKey}`, {
     method: 'DELETE',
   });
+}
+
+/** 流程模拟运行结果：路径中的一段 */
+export interface SimulatePathStep {
+  fromNodeKey?: string;
+  toNodeKey?: string;
+  conditionCn?: string;
+}
+
+/** 流程模拟运行结果：单个节点校验结果 */
+export interface SimulateNodeResult {
+  nodeKey?: string;
+  nodeName?: string;
+  nodeType?: number;
+  status?: number; // 0未测试 1通过 2未通过
+  message?: string;
+}
+
+/** 流程模拟运行结果（带模拟表单数据走查节点/网关条件） */
+export interface SimulateResult {
+  allPassed?: boolean;
+  path?: SimulatePathStep[];
+  nodes?: SimulateNodeResult[];
+  summary?: string;
+}
+
+/** 流程模拟运行：带模拟表单数据走查节点/网关条件，回写节点测试状态 */
+export async function simulateDefinition(id: number, formData?: Record<string, any>) {
+  return request<ApiResponse<SimulateResult>>(`${WORKFLOW}/definition/${id}/simulate`, {
+    method: 'POST',
+    data: formData || {},
+  });
+}
+
+/** 保存节点测试状态 0未测试 1通过 2未通过 */
+export async function saveNodeTestStatus(id: number, nodeKey: string, status: number) {
+  return request<ApiResponse<boolean>>(
+    `${WORKFLOW}/definition/${id}/node/${nodeKey}/test-status?status=${status}`,
+    { method: 'POST' },
+  );
 }
 
 export async function getFieldPerm(id: number, nodeKey: string) {

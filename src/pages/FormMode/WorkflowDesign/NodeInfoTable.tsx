@@ -515,6 +515,19 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
         ),
     },
     {
+      title: '测试状态',
+      dataIndex: 'testStatus',
+      width: 100,
+      __draftAware: true,
+      render: (_: any, r: WfProcessNode) => {
+        if (isDraft(r)) return '-';
+        const ts = r.testStatus;
+        if (ts === 1) return <Tag color="green">通过</Tag>;
+        if (ts === 2) return <Tag color="red">未通过</Tag>;
+        return <Tag color="default">未测试</Tag>;
+      },
+    },
+    {
       title: '操作者',
       width: 120,
       render: (_: any, r: WfProcessNode) => {

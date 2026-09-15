@@ -29,6 +29,7 @@ import NodeInfoPanel from './NodeInfoPanel';
 import { configuredBadges } from './nodeSettings';
 import LinkInfoPanel from './LinkInfoPanel';
 import VersionDiffModal from './VersionDiffModal';
+import SimulateModal from './SimulateModal';
 // 「定位并高亮」指令类型：type-only import，运行时被擦除，不影响画布的懒加载
 import type { FocusEvt } from './BpmnDesigner';
 import './workflowDesign.css';
@@ -153,6 +154,8 @@ const WorkflowDesignPage: React.FC = () => {
   const [formFieldList, setFormFieldList] = useState<{ scope: string; fieldName: string; fieldLabel: string }[]>([]);
   const [formDesignOpen, setFormDesignOpen] = useState(false);
   const [formDesignId, setFormDesignId] = useState<string>('');
+  // 流程模拟运行弹窗（设计期校验：带模拟表单数据走查节点/网关条件）
+  const [simulateOpen, setSimulateOpen] = useState(false);
   const [formRefresh, setFormRefresh] = useState(0);
 
   // 版本控制：同 procKey 版本组的版本列表 + 版本对比弹窗
@@ -649,6 +652,9 @@ const WorkflowDesignPage: React.FC = () => {
       );
     return (
       <Space size="small" style={{ marginRight: 8 }}>
+        <Button size="small" onClick={() => setSimulateOpen(true)}>
+          模拟运行
+        </Button>
         <span style={{ color: '#999' }}>版本</span>
         <Select
           size="small"
@@ -914,6 +920,16 @@ const WorkflowDesignPage: React.FC = () => {
           version: v.version,
           status: v.status,
         }))}
+      />
+
+      {/* 流程模拟运行（设计期校验：带模拟表单数据走查节点/网关条件，回写节点测试状态） */}
+      <SimulateModal
+        open={simulateOpen}
+        defId={current?.id}
+        nodes={nodes}
+        formFields={formFieldList}
+        onClose={() => setSimulateOpen(false)}
+        onSaved={refreshNodes}
       />
     </PageContainer>
   );

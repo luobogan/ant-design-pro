@@ -211,7 +211,7 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
   // 供初始化闭包读取最新状态（init effect 仅执行一次，避免捕获过期值）
   const editModeRef = useRef(false);
   editModeRef.current = editMode;
-  const handleSaveRef = useRef<() => void>(() => {});
+  const handleSaveRef = useRef<(silent?: boolean) => Promise<boolean>>(async () => false);
   /** 「定位并高亮」的闪烁定时器（卸载时需清理，避免内存泄漏） */
   const flashTimerRef = useRef<any>(null);
   /** 已处理过的「批量新增节点」seq（保证同一 seq 只执行一次） */
@@ -360,6 +360,17 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
     eventBus.on('canvas.viewbox.changed', syncZoom);
     eventBus.on('commandStack.changed', syncStack);
 
+    // 画布结构变更（新建/删除节点、连线、移动布局等）后自动保存：让「图形编辑」与
+    // 「节点信息 / 出口信息」始终一致 —— 直接拖拽新建的节点不再需手动点「保存画布」才落库。
+    let autoSaveTimer: any = null;
+    const scheduleAutoSave = () => {
+      if (autoSaveTimer) window.clearTimeout(autoSaveTimer);
+      autoSaveTimer = window.setTimeout(() => {
+        handleSaveRef.current?.(true);
+      }, 700);
+    };
+    eventBus.on('commandStack.changed', scheduleAutoSave);
+
     const xml = hasDisplayableContent(bpmnXml)
       ? (bpmnXml as string)
       : BLANK_XML(procKey || 'Process_1', name || '流程');
@@ -399,6 +410,8 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
     return () => {
       if (ro) ro.disconnect();
       if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+      if (autoSaveTimer) clearTimeout(autoSaveTimer);
+      eventBus.off('commandStack.changed', scheduleAutoSave);
       modeler.destroy();
       modelerRef.current = null;
       renderOverlaysRef.current = () => {};
@@ -783,24 +796,24 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
     };
   }, []);
 
-  const handleSave = async (): Promise<boolean> => {
+  const handleSave = async (silent = false): Promise<boolean> => {
     if (!modelerRef.current || defId == null) {
-      message.warning('请先选择流程定义');
+      if (!silent) message.warning('请先选择流程定义');
       return false;
     }
     try {
       const { xml } = await modelerRef.current.saveXML({ format: true });
       const r: any = await saveBpmn(defId, xml);
       if (r?.success) {
-        message.success('BPMN 已保存并解析节点/出口');
+        if (!silent) message.success('BPMN 已保存并解析节点/出口');
         onSaved?.();
         renderOverlaysRef.current();
         return true;
       }
-      message.error('保存失败');
+      if (!silent) message.error('保存失败');
       return false;
     } catch (e: any) {
-      message.error('保存失败：' + (e?.message || e));
+      if (!silent) message.error('保存失败：' + (e?.message || e));
       return false;
     }
   };

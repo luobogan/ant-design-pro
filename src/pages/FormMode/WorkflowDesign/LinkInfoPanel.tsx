@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Alert,
   Button,
   Card,
   Descriptions,
@@ -103,6 +104,14 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
     [nodes],
   );
 
+  /**
+   * 闸门：仅当所有节点均测试通过（testStatus=1）后，才允许新增 / 编辑出口属性
+   * （目标节点 / 退回 / 必经 / 流转条件 / 排序）。模拟运行未通过前出口信息只读，避免
+   * 在不完整的流程上生成不可靠的流转规则。
+   */
+  const allTested = nodes.length > 0 && nodes.every((n) => n.testStatus === 1);
+  const locked = !allTested;
+
   const condFields: CondField[] = useMemo(
     () =>
       formFields.map((f) => ({
@@ -197,7 +206,7 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
   };
 
   const submitCond = async () => {
-    if (!condLink) return;
+    if (!condLink || locked) return;
     setSavingCond(true);
     try {
       const { expr, cn } = buildCondExpr(condRows);
@@ -235,6 +244,7 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
             <Select
               size="small"
               style={{ width: '100%' }}
+              disabled={locked}
               placeholder="选择目标节点"
               value={v}
               options={nodeOptions.filter((o) => o.value !== r.fromNodeKey)}
@@ -281,6 +291,7 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
           <div onClick={stop} onMouseDown={stop}>
             <Switch
               size="small"
+              disabled={locked}
               checked={v === 1}
               onChange={(ck) => patchLink(r, { isReject: ck ? 1 : 0 }, '是否退回')}
             />
@@ -299,6 +310,7 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
           <div onClick={stop} onMouseDown={stop}>
             <Switch
               size="small"
+              disabled={locked}
               checked={v === 1}
               onChange={(ck) => patchLink(r, { isMustPass: ck ? 1 : 0 }, '必经分支')}
             />
@@ -314,7 +326,7 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
         const text = r.conditionCn || r.conditionExpr;
         return (
           <Space size={4}>
-            <Button type="link" size="small" style={{ padding: 0 }} onClick={() => openCond(r)}>
+            <Button type="link" size="small" style={{ padding: 0 }} disabled={locked} onClick={() => openCond(r)}>
               {text ? '编辑' : '设置'}
             </Button>
             {text ? (
@@ -390,7 +402,7 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
       title={<span>当前出口：{linkName(currentLink)}</span>}
       extra={
         <Space size={4}>
-          <Button size="small" onClick={() => openCond(currentLink)}>
+          <Button size="small" disabled={locked} onClick={() => openCond(currentLink)}>
             设置条件
           </Button>
           <Button
@@ -426,12 +438,22 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
 
   return (
     <div>
+      {locked && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 8 }}
+          message="出口信息已锁定"
+          description="请先在「节点信息」中运行流程模拟，且所有节点测试通过后，才能新增 / 编辑出口的目标节点、退回、必经、流转条件与排序。"
+        />
+      )}
       {currentCard}
 
       <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
         <Button
           type="primary"
           size="small"
+          disabled={locked}
           onClick={() => {
             setAddFrom(undefined);
             setAddOpen(true);
