@@ -5,6 +5,7 @@ import {
   activateVersion,
   deployDefinition,
   getBpmn,
+  saveBpmn,
   listDefinitions,
   listLinks,
   listNodes,
@@ -53,6 +54,40 @@ const STATUS_TAG = (s?: number) => {
 
 const SIGN_ORDER = ['或签', '会签', '依次', '抄送不需提交', '抄送需提交'];
 const NODE_TYPE = ['创建', '审批', '提交', '归档', '等待', '自动'];
+
+/**
+ * 默认流程画布：开始 → 结束（带 BPMN DI 坐标，画布可直接渲染）。
+ * 新建 / 从未保存画布的流程在打开设计器时自动初始化，节点信息列表即带「开始」「结束」两个节点，
+ * 不必等用户点保存才由 saveBpmn 从画布反推生成。
+ */
+const buildDefaultBpmn = (def: WfProcessDefinition): string => {
+  const pid =
+    def.procKey && /^[A-Za-z_]/.test(def.procKey) ? def.procKey : `Process_${def.id}`;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_${pid}" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="${pid}" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_1" name="开始" />
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="EndEvent_1" />
+    <bpmn:endEvent id="EndEvent_1" name="结束" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${pid}">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="160" y="100" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="160" y="140" width="36" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_1_di" bpmnElement="EndEvent_1">
+        <dc:Bounds x="460" y="100" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="460" y="140" width="36" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
+        <di:waypoint x="196" y="118" />
+        <di:waypoint x="460" y="118" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>`;
+};
 
 const WorkflowDesignPage: React.FC = () => {
   const [defs, setDefs] = useState<WfProcessDefinition[]>([]);
@@ -202,9 +237,26 @@ const WorkflowDesignPage: React.FC = () => {
         listLinks(def.id!),
         getBpmn(def.id!),
       ]);
-      setNodes(pickPayload(nodeRes) || []);
-      setLinks(pickPayload(linkRes) || []);
-      setBpmn(pickPayload(bpmnRes) || '');
+      let nodesList: WfProcessNode[] = pickPayload(nodeRes) || [];
+      let linksList: WfNodeLink[] = pickPayload(linkRes) || [];
+      let bpmnXml: string = pickPayload(bpmnRes) || '';
+      // 新建 / 从未保存画布的流程：默认初始化「开始 → 结束」，节点信息列表即带这两个节点，
+      // 不必等用户点保存才由 saveBpmn 从画布反推生成。
+      if (!bpmnXml && nodesList.length === 0) {
+        bpmnXml = buildDefaultBpmn(def);
+        await saveBpmn(def.id as any, bpmnXml);
+        const [nr, lr, br] = await Promise.all([
+          listNodes(def.id!),
+          listLinks(def.id!),
+          getBpmn(def.id!),
+        ]);
+        nodesList = pickPayload(nr) || [];
+        linksList = pickPayload(lr) || [];
+        bpmnXml = pickPayload(br) || bpmnXml;
+      }
+      setNodes(nodesList);
+      setLinks(linksList);
+      setBpmn(bpmnXml);
     } catch {
       message.error('加载流程定义失败');
     }
