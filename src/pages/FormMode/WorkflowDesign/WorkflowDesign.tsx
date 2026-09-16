@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
-import { Button, Card, Descriptions, Empty, message, Modal, Select, Space, Table, Tag, Tabs } from 'antd';
+import { Button, Card, Descriptions, Empty, message, Modal, Select, Slider, Space, Switch, Table, Tag, Tabs } from 'antd';
 import {
   activateVersion,
   deployDefinition,
@@ -183,6 +183,10 @@ const WorkflowDesignPage: React.FC = () => {
   // 设计器回传的保存函数（由 ExcelDesign 的 onReady 注入），供弹窗底部「保存」按钮调用
   const excelSaveRef = useRef<(() => Promise<boolean>) | null>(null);
   const [excelSaving, setExcelSaving] = useState(false);
+  // 临时调试开关：把 bpmn 内置属性面板投到右栏下半区，与自定义节点/出口信息上下分屏，
+  // 方便对照调试。仅 dev 环境渲染控制条（import.meta.env.DEV），生产构建不出现。
+  const [debugProps, setDebugProps] = useState(false);
+  const [debugSplit, setDebugSplit] = useState(50);
   const handleExcelSave = async () => {
     const save = excelSaveRef.current;
     if (!save) {
@@ -658,7 +662,38 @@ const WorkflowDesignPage: React.FC = () => {
       );
 
     return (
-      <div className="wf-flow-layout">
+      <>
+        {import.meta.env.DEV && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '6px 12px',
+              marginBottom: 8,
+              background: '#fffbe6',
+              border: '1px solid #ffe58f',
+              borderRadius: 4,
+            }}
+          >
+            <span style={{ fontWeight: 600 }}>调试</span>
+            <span>内置面板</span>
+            <Switch checked={debugProps} onChange={setDebugProps} />
+            <span>分屏 {debugSplit}%</span>
+            <Slider
+              min={20}
+              max={80}
+              value={debugSplit}
+              onChange={setDebugSplit}
+              disabled={!debugProps}
+              style={{ width: 160 }}
+            />
+          </div>
+        )}
+        <div
+          className={`wf-flow-layout${debugProps ? ' debug-props' : ''}`}
+          style={{ '--dbg-split': `${debugSplit}%` } as React.CSSProperties}
+        >
         <div style={{ flex: 1, minWidth: 0, height: '100%' }}>{renderCanvas()}</div>
         <div className="wf-side-panel">
           <div className="wf-side-head">
@@ -712,6 +747,7 @@ const WorkflowDesignPage: React.FC = () => {
           </div>
         </div>
       </div>
+      </>      
     );
   };
 

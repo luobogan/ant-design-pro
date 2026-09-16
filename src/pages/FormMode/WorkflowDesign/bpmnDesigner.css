@@ -44,18 +44,18 @@
   position: relative;
   --dbg-split: 50%;
 }
-div:has(> .wf-props) {
+.wf-flow-layout.debug-props div:has(> .wf-props) {
   overflow: visible !important;
   position: static !important;
 }
 
-/* 自定义栏正文限高到上半部分，避免被内置面板盖住后仍向下溢出 */
-.wf-side-body {
+/* 自定义栏正文限高到上半部分，避免被内置面板盖住后仍向下溢出（仅调试分屏时生效） */
+.wf-flow-layout.debug-props .wf-side-body {
   flex: none;
   height: calc(var(--dbg-split) - 39px);
 }
 
-.wf-props {
+.wf-flow-layout.debug-props .wf-props {
   position: absolute;
   /* 下沉到自定义栏「节点信息 / 出口信息」标题头之下，避免把标题挡住。
      标题头高度 = padding 8*2 + 标题行高 22 + 下边框 1 ≈ 39px（.wf-side-head）。 */
