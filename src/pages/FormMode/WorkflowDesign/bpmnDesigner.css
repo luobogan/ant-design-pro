@@ -29,19 +29,48 @@
 }
 
 /* 内置属性面板（bpmn-js BpmnPropertiesPanelModule 的挂载点）。
-   注意：面板始终渲染（模型器创建时即需存在），展示态只做隐藏，避免重新挂载。
-   它与 .djs-container 是兄弟节点，故不受上面的只读 pointer-events 规则影响。 */
-.wf-props {
-  flex: none;
-  width: 280px;
-  height: 100%;
-  border-left: 1px solid #e5e7eb;
-  background: #fff;
-  overflow: hidden;
+   注意：面板始终渲染（模型器创建时即需存在，BpmnPropertiesPanelModule 依赖此节点），
+   但不再显示——画布右侧统一由「图形编辑」页签的自定义信息栏（NodeDetail / LinkDetail）
+   承载节点 / 出口信息，故这里只隐藏，避免重新挂载。 */
+/* ⚠️ 临时调试（用完删掉本段、恢复上面的 display:none !important）：
+   把 bpmn-js 内置属性面板「搬到」右侧信息栏那一列显示。
+   面板挂载点 .wf-props 的父容器（画布区）是 overflow:hidden，会裁掉溢出内容，
+   故用 :has() 精准放开它的裁剪，再绝对定位到右侧 340px 的信息栏上。 */
+/* 让右侧栏整列 .wf-flow-layout 成为定位基准，使 .wf-props 的 top/right/bottom 相对它对齐
+   （否则会被画布容器本身占用顶栏高度，导致面板偏短、上方留白）。
+   同时让画布区容器不再做定位上下文（position:static !important），
+   否则它仍是 .wf-props 最近的定位祖先，覆盖上面的 .wf-flow-layout。 */
+.wf-flow-layout {
+  position: relative;
+  --dbg-split: 50%;
+}
+div:has(> .wf-props) {
+  overflow: visible !important;
+  position: static !important;
 }
 
-.wf-designer-view .wf-props {
-  display: none !important;
+/* 自定义栏正文限高到上半部分，避免被内置面板盖住后仍向下溢出 */
+.wf-side-body {
+  flex: none;
+  height: calc(var(--dbg-split) - 39px);
+}
+
+.wf-props {
+  position: absolute;
+  /* 下沉到自定义栏「节点信息 / 出口信息」标题头之下，避免把标题挡住。
+     标题头高度 = padding 8*2 + 标题行高 22 + 下边框 1 ≈ 39px（.wf-side-head）。 */
+  top: var(--dbg-split);
+  bottom: 0;
+  /* 定位基准已是右侧栏整列 .wf-flow-layout，其右缘即右栏右缘 → right:0 即对齐右栏右边，
+     宽 340px 正好盖住右栏（.wf-side-panel 内容区）；top:39 留开标题头。 */
+  right: 0;
+  width: 340px;
+  z-index: 20;
+  background: #fff;
+  border-left: 1px solid #e5e7eb;
+  border-top: 1px solid #e5e7eb;
+  overflow: auto;
+  display: block !important;
 }
 
 /* 属性面板内部自带滚动条容器，统一美化一下（与 antd 观感一致） */

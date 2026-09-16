@@ -10,6 +10,54 @@
   background: #e6f4ff !important;
 }
 
+/* ───────── 流转设置「图形编辑」页签：左画布 + 右信息栏 ─────────
+   对齐 ecology 的画布属性面板：点画布上的节点 / 连线，右侧栏即显示其
+   节点操作信息 / 出口信息，可就地编辑。 */
+.wf-flow-layout {
+  display: flex;
+  height: 72vh;
+}
+
+.wf-side-panel {
+  flex: none;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #e5e7eb;
+  background: #fff;
+  overflow: hidden;
+}
+
+.wf-side-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  font-weight: 600;
+  background: #fafafa;
+}
+
+.wf-side-title {
+  font-size: 14px;
+}
+
+.wf-side-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+
+.wf-side-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #999;
+}
+
 .wf-row-active > td:first-child {
   box-shadow: inset 3px 0 0 #1677ff;
 }

@@ -2,8 +2,6 @@ import React, { useMemo, useState } from 'react';
 import {
   Alert,
   Button,
-  Card,
-  Descriptions,
   Form,
   InputNumber,
   message,
@@ -17,18 +15,13 @@ import {
 } from 'antd';
 import {
   createLink,
-  deleteLink,
   updateLink,
   WfNodeLink,
   WfProcessNode,
 } from '@/services/workflow';
-import ConditionBuilder, {
-  buildCondExpr,
-  CondField,
-  CondRow,
-  parseCondExpr,
-} from './ConditionBuilder';
 import { scopeLabel } from './wfDict';
+import LinkDetail from './LinkDetail';
+import { useLinkActions } from './useLinkActions';
 
 /** 阻止行内控件的点击冒泡到 Table 的 onRow.onClick */
 const stop = (e: React.MouseEvent) => e.stopPropagation();
@@ -92,9 +85,6 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
   const [addFrom, setAddFrom] = useState<string | undefined>();
   /** 有值表示表尾存在一条待填写目标节点的草稿行 */
   const [draftFrom, setDraftFrom] = useState<string | undefined>();
-  const [condLink, setCondLink] = useState<WfNodeLink | undefined>();
-  const [condRows, setCondRows] = useState<CondRow[]>([]);
-  const [savingCond, setSavingCond] = useState(false);
 
   const nodeName = (key?: string) =>
     nodes.find((n) => n.nodeKey === key)?.nodeName || key || '-';
@@ -112,16 +102,12 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
   const allTested = nodes.length > 0 && nodes.every((n) => n.testStatus === 1);
   const locked = !allTested;
 
-  const condFields: CondField[] = useMemo(
-    () =>
-      formFields.map((f) => ({
-        key: f.scope === 'main' ? f.fieldName : `${f.scope}.${f.fieldName}`,
-        label: f.scope === 'main' ? f.fieldLabel : `${f.fieldLabel}（${scopeLabel(f.scope)}）`,
-      })),
-    [formFields],
-  );
-
-  const condPreview = buildCondExpr(condRows);
+  // 出口的「流转条件编辑弹窗 / 删除确认」：表格行内操作与右侧栏（LinkDetail）共用
+  const { openCond, confirmDelete, modal } = useLinkActions(defId, nodes, formFields, {
+    onPatch,
+    onChanged,
+    locked,
+  });
 
   /** 出口名称：E9 也是自动生成「源节点 至 目标节点」，本地不落库派生展示 */
   const linkName = (l: WfNodeLink) =>
@@ -176,53 +162,6 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
       setDraftFrom(undefined);
     } catch {
       message.error('新增出口失败');
-    }
-  };
-
-  const confirmDelete = (link: WfNodeLink) => {
-    Modal.confirm({
-      title: '删除出口',
-      content: `确定删除「${linkName(link)}」吗？画布上的对应连线也会同步删除。`,
-      okType: 'danger',
-      onOk: async () => {
-        try {
-          await deleteLink(defId, link.id!);
-          message.success('出口已删除');
-          onChanged?.({
-            type: 'delete',
-            from: String(link.fromNodeKey),
-            to: String(link.toNodeKey),
-          });
-        } catch {
-          message.error('删除失败');
-        }
-      },
-    });
-  };
-
-  const openCond = (link: WfNodeLink) => {
-    setCondLink(link);
-    setCondRows(parseCondExpr(link.conditionExpr));
-  };
-
-  const submitCond = async () => {
-    if (!condLink || locked) return;
-    setSavingCond(true);
-    try {
-      const { expr, cn } = buildCondExpr(condRows);
-      const patch = { conditionExpr: expr || undefined, conditionCn: cn || undefined };
-      const r: any = await updateLink(defId, condLink.id!, patch);
-      if (r?.success === false) {
-        message.error('保存失败');
-        return;
-      }
-      onPatch?.(condLink.id!, patch);
-      message.success('流转条件已保存');
-      setCondLink(undefined);
-    } catch {
-      message.error('保存失败');
-    } finally {
-      setSavingCond(false);
     }
   };
 
@@ -402,48 +341,6 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
     },
   ];
 
-  /** 当前出口（画布点中的那条连线）的信息与操作 */
-  const currentCard = currentLink ? (
-    <Card
-      size="small"
-      style={{ marginBottom: 12, borderColor: '#91caff', background: '#f0f7ff' }}
-      title={<span>当前出口：{linkName(currentLink)}</span>}
-      extra={
-        <Space size={4}>
-          <Button size="small" disabled={locked} onClick={() => openCond(currentLink)}>
-            设置条件
-          </Button>
-          <Button
-            size="small"
-            onClick={() => onLocate?.(String(currentLink.fromNodeKey), String(currentLink.toNodeKey))}
-          >
-            定位
-          </Button>
-          <Button size="small" danger onClick={() => confirmDelete(currentLink)}>
-            删除
-          </Button>
-        </Space>
-      }
-    >
-      <Descriptions size="small" column={2} colon={false}>
-        <Descriptions.Item label="源节点">{nodeName(currentLink.fromNodeKey)}</Descriptions.Item>
-        <Descriptions.Item label="目标节点">{nodeName(currentLink.toNodeKey)}</Descriptions.Item>
-        <Descriptions.Item label="是否退回">
-          {currentLink.isReject === 1 ? <Tag color="red">退回</Tag> : '否'}
-        </Descriptions.Item>
-        <Descriptions.Item label="必经分支">
-          {currentLink.isMustPass === 1 ? <Tag color="blue">必经</Tag> : '否'}
-        </Descriptions.Item>
-        <Descriptions.Item label="排序">{currentLink.sortOrder ?? 0}</Descriptions.Item>
-        <Descriptions.Item label="流转条件">
-          {currentLink.conditionCn || currentLink.conditionExpr || (
-            <span style={{ color: '#bbb' }}>未设置</span>
-          )}
-        </Descriptions.Item>
-      </Descriptions>
-    </Card>
-  ) : null;
-
   return (
     <div>
       {locked && (
@@ -455,7 +352,17 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
           description="请先在「节点信息」中运行流程模拟，且所有节点测试通过后，才能新增 / 编辑出口的目标节点、退回、必经、流转条件与排序。"
         />
       )}
-      {currentCard}
+      {/* 当前出口详情卡（选中连线时显示，可编辑条件 / 定位 / 删除）—— 与「图形编辑」页签右侧栏复用同一组件 */}
+      <LinkDetail
+        defId={defId}
+        nodes={nodes}
+        links={links}
+        selectedLink={selectedLink}
+        formFields={formFields}
+        onPatch={onPatch}
+        onChanged={onChanged}
+        onLocate={onLocate}
+      />
 
       <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
         <Button
@@ -518,23 +425,8 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
           </Form.Item>
         </Form>
       </Modal>
-
-      {/* 流转条件编辑 */}
-      <Modal
-        title={condLink ? `流转条件（${linkName(condLink)}）` : '流转条件'}
-        open={!!condLink}
-        onOk={submitCond}
-        confirmLoading={savingCond}
-        onCancel={() => setCondLink(undefined)}
-        width={720}
-        destroyOnClose
-      >
-        <ConditionBuilder rows={condRows} onChange={setCondRows} fields={condFields} />
-        <div style={{ marginTop: 12, color: condPreview.expr ? '#1677ff' : '#999', fontSize: 12 }}>
-          条件预览：{condPreview.cn || '未设置条件'}
-          {condPreview.expr ? <div style={{ color: '#888' }}>{condPreview.expr}</div> : null}
-        </div>
-      </Modal>
+      {/* 流转条件编辑弹窗（与右侧栏共用） */}
+      {modal}
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
-import { Button, Card, Descriptions, message, Modal, Select, Space, Table, Tag, Tabs } from 'antd';
+import { Button, Card, Descriptions, Empty, message, Modal, Select, Space, Table, Tag, Tabs } from 'antd';
 import {
   activateVersion,
   deployDefinition,
@@ -26,6 +26,8 @@ import { usePageButtons } from '@/hooks/usePageButtons';
 import WorkflowDefForm from '@/pages/System/Workflow/components/WorkflowDefForm';
 import TableDesign from '@/pages/FormMode/TableDesign/TableDesign';
 import NodeInfoPanel from './NodeInfoPanel';
+import NodeDetail from './NodeDetail';
+import LinkDetail from './LinkDetail';
 import { configuredBadges } from './nodeSettings';
 import LinkInfoPanel from './LinkInfoPanel';
 import VersionDiffModal from './VersionDiffModal';
@@ -618,7 +620,11 @@ const WorkflowDesignPage: React.FC = () => {
         bpmnXml={bpmn}
         // 只同步选中项，**不切页签**（点节点只在画布上高亮，由用户自己点页签查看），
         // 否则编辑态下每选一次就被弹走，没法在画布上连续操作。
-        onSelectNode={(k) => setSelectedNodeKey(k)}
+        // 点节点：只选中该节点，并清掉上一次的出口选中（让右侧栏互斥显示节点 / 出口信息）
+        onSelectNode={(k) => {
+          setSelectedNodeKey(k);
+          setSelectedLink(undefined);
+        }}
         onSelectLink={(from, to) => setSelectedLink({ from, to })}
         renameNode={renameEvt}
         linkCommand={linkCmd}
@@ -640,6 +646,74 @@ const WorkflowDesignPage: React.FC = () => {
       />
     </React.Suspense>
   );
+
+  // 「图形编辑」页签：左画布 + 右信息栏。点画布节点 / 连线即在右侧栏显示其
+  // 节点操作信息 / 出口信息（对齐 ecology 的画布属性面板），无需切换页签。
+  const renderCanvasTab = () => {
+    const currentNode = nodes.find((n) => n.nodeKey === selectedNodeKey);
+    const currentLink =
+      selectedLink &&
+      links.find(
+        (l) => String(l.fromNodeKey) === selectedLink.from && String(l.toNodeKey) === selectedLink.to,
+      );
+
+    return (
+      <div className="wf-flow-layout">
+        <div style={{ flex: 1, minWidth: 0, height: '100%' }}>{renderCanvas()}</div>
+        <div className="wf-side-panel">
+          <div className="wf-side-head">
+            <span className="wf-side-title">{selectedNodeKey ? '节点信息' : '出口信息'}</span>
+            {currentNode && (
+              <Tag color="blue">{currentNode.nodeName || currentNode.nodeKey}</Tag>
+            )}
+          </div>
+          <div className="wf-side-body">
+            {currentNode ? (
+              <NodeDetail
+                defId={current!.id}
+                node={currentNode}
+                nodes={nodes}
+                formFields={formFieldList}
+                formId={current?.formId ? String(current.formId) : undefined}
+                formName={metaLabels.formName}
+                onSaved={(nk, name) => setRenameEvt({ seq: Date.now(), nodeKey: nk, name })}
+                onPatch={(nk, patch) =>
+                  setNodes((prev) => prev.map((n) => (n.nodeKey === nk ? { ...n, ...patch } : n)))
+                }
+                onOpenLayout={(nk) => {
+                  setExcelDesignNodeKey(nk);
+                  setExcelDesignOpen(true);
+                }}
+              />
+            ) : currentLink ? (
+              <LinkDetail
+                defId={current!.id}
+                nodes={nodes}
+                links={links}
+                selectedLink={selectedLink}
+                formFields={formFieldList}
+                onPatch={(linkId, patch) =>
+                  setLinks((prev) => prev.map((l) => (l.id === linkId ? { ...l, ...patch } : l)))
+                }
+                onChanged={(change) => {
+                  refreshLinks();
+                  if (change) setLinkCmd({ seq: Date.now(), ...change });
+                }}
+                onLocate={locateLink}
+              />
+            ) : (
+              <div className="wf-side-empty">
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description="在画布上点选「节点」或「连线」，可在此查看并编辑其信息"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   // 流转设置：图形编辑 / 节点信息 / 出口信息 三个平级页签，选中节点三处联动。
   // · 画布页签「保持挂载」：rc-tabs 只在首次激活时挂载、之后切走不销毁（仅 display:none），
@@ -718,7 +792,7 @@ const WorkflowDesignPage: React.FC = () => {
         {
           key: 'canvas',
           label: '图形编辑',
-          children: renderCanvas(),
+          children: renderCanvasTab(),
         },
         {
           key: 'node',

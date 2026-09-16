@@ -105,6 +105,15 @@ const NODE_TYPES = [
   'bpmn:IntermediateThrowEvent',
   'bpmn:BoundaryEvent',
   'bpmn:ServiceTask',
+  // 「更改元素」可替换出的其余任务类型：必须一并纳入，否则点击/选中它们时
+  // 不会当作节点抛给父级，「节点信息」永远匹配不到（后端 nodeTypeOf 已同步支持）
+  'bpmn:Task',
+  'bpmn:ManualTask',
+  'bpmn:ReceiveTask',
+  'bpmn:SendTask',
+  'bpmn:ScriptTask',
+  'bpmn:BusinessRuleTask',
+  'bpmn:CallActivity',
 ];
 
 const isNodeElement = (el: any): boolean =>
