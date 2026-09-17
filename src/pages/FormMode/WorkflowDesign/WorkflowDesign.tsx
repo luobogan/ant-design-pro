@@ -32,6 +32,7 @@ import { configuredBadges } from './nodeSettings';
 import LinkInfoPanel from './LinkInfoPanel';
 import VersionDiffModal from './VersionDiffModal';
 import SimulateModal from './SimulateModal';
+import WorkflowTestModal from './WorkflowTestModal';
 // 「定位并高亮」指令类型：type-only import，运行时被擦除，不影响画布的懒加载
 import type { FocusEvt, SimulateEvt } from './BpmnDesigner';
 import './workflowDesign.css';
@@ -158,6 +159,8 @@ const WorkflowDesignPage: React.FC = () => {
   const [formDesignId, setFormDesignId] = useState<string>('');
   // 流程模拟运行弹窗（设计期校验：带模拟表单数据走查节点/网关条件）
   const [simulateOpen, setSimulateOpen] = useState(false);
+  // 流程测试弹窗（设计期校验：指定发起人走查路径 + 逐节点解析操作者 + 产出测试日志）
+  const [testOpen, setTestOpen] = useState(false);
   const [formRefresh, setFormRefresh] = useState(0);
   // 模拟运行：路径演示信号（seq 递增触发 BpmnDesigner 在画布上动画走查）
   const [simulateEvt, setSimulateEvt] = useState<SimulateEvt | undefined>();
@@ -636,6 +639,8 @@ const WorkflowDesignPage: React.FC = () => {
         simulateEvt={simulateEvt}
         // 画布工具栏「模拟运行」入口：打开模拟弹窗（与「编辑」按钮并排）
         onSimulate={() => setSimulateOpen(true)}
+        // 画布工具栏「流程测试」入口：打开流程测试弹窗
+        onTest={() => setTestOpen(true)}
         createNodesEvt={createNodesEvt}
         deleteNodeEvt={deleteNodeEvt}
         onNodesCreated={handleNodesCreated}
@@ -1052,6 +1057,15 @@ const WorkflowDesignPage: React.FC = () => {
         onClose={() => setSimulateOpen(false)}
         onSaved={refreshNodes}
         onPlayPath={playSimPath}
+      />
+
+      {/* 流程测试（真实引擎 + 真实表单 + 测试态标记） */}
+      <WorkflowTestModal
+        open={testOpen}
+        defId={current?.id}
+        defName={current?.name}
+        formId={current?.formId}
+        onClose={() => setTestOpen(false)}
       />
     </PageContainer>
   );

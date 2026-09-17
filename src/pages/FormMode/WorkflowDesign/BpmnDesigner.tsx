@@ -19,6 +19,7 @@ import {
   ColumnHeightOutlined,
   ColumnWidthOutlined,
   DownloadOutlined,
+  ExperimentOutlined,
   FolderOpenOutlined,
   FullscreenExitOutlined,
   FullscreenOutlined,
@@ -205,6 +206,8 @@ export interface BpmnDesignerProps {
   simulateEvt?: SimulateEvt;
   /** 点工具栏「模拟运行」：打开模拟弹窗（由父级提供） */
   onSimulate?: () => void;
+  /** 点工具栏「流程测试」：打开流程测试弹窗（由父级提供，设计期校验） */
+  onTest?: () => void;
   /** 批量新增节点（节点信息「编辑」弹窗）：在画布尾部追加节点形状并连线，随后自动保存 */
   createNodesEvt?: {
     seq: number;
@@ -238,6 +241,7 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
   focusEvt,
   simulateEvt,
   onSimulate,
+  onTest,
   createNodesEvt,
   deleteNodeEvt,
   onNodesCreated,
@@ -1362,6 +1366,11 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
         {onSimulate && (
           <Button icon={<PlayCircleOutlined />} onClick={onSimulate}>
             模拟运行
+          </Button>
+        )}
+        {onTest && (
+          <Button icon={<ExperimentOutlined />} onClick={onTest}>
+            流程测试
           </Button>
         )}
         <Button

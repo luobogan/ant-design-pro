@@ -630,3 +630,107 @@ export async function createWorkflowType(dto: {
     data: dto,
   });
 }
+
+// ───────────── 流程测试（设计期校验） ─────────────
+// 对齐 ecology「流程测试」：指定发起人走查路径 → 逐节点解析操作者 → 产出测试日志。
+// ⚠️ 与 ecology 差异：ecology 走真实引擎 + 测试态标记；本项目草稿未部署 Flowable，
+//    故走「配置走查测试」（基于节点/出口/操作者配置），不落真实实例。
+
+/** 流程测试：节点操作者 */
+export interface WfTestOperator {
+  userId?: number;
+  userName?: string;
+  source?: string;
+}
+
+/** 流程测试：单个节点结果 */
+export interface WfTestNodeResult {
+  nodeKey?: string;
+  nodeName?: string;
+  nodeType?: number; // 0创建 1审批 2提交 3归档 5等待 6自动处理
+  passTimes?: number;
+  status?: number; // 0未走到 1走通 2走不通
+  message?: string;
+  operators?: WfTestOperator[];
+}
+
+/** 流程测试：路径中的一段 */
+export interface WfTestStep {
+  fromNodeKey?: string;
+  toNodeKey?: string;
+  conditionCn?: string;
+}
+
+/** 流程测试结果 */
+export interface WfTestResult {
+  logId?: string;
+  testStatus?: number; // 0未通过 1通过 2异常中断
+  reachedEnd?: boolean;
+  nodeTotal?: number;
+  nodePassed?: number;
+  costMs?: number;
+  summary?: string;
+  /** 节点经过次数：nodeKey -> 次数 */
+  nodeTimes?: Record<string, number>;
+  nodes?: WfTestNodeResult[];
+  path?: WfTestStep[];
+  /** 测试日志（逐行） */
+  log?: string[];
+}
+
+/** 流程测试历史记录（wf_test_log） */
+export interface WfTestLogItem {
+  id?: string;
+  defId?: string;
+  defVersion?: number;
+  procKey?: string;
+  defName?: string;
+  testUserId?: string;
+  testUserName?: string;
+  testTime?: string;
+  costMs?: number;
+  testStatus?: number;
+  nodeTotal?: number;
+  nodePassed?: number;
+  reachedEnd?: number;
+  summary?: string;
+  logContent?: string;
+  resultJson?: string;
+}
+
+/** 运行一次流程测试 */
+export async function runWorkflowTest(dto: {
+  defId: any;
+  testUserId: any;
+  testUserName?: string;
+  formData?: Record<string, any>;
+}) {
+  return request<ApiResponse<WfTestResult>>(`${WORKFLOW}/test/run`, { method: 'POST', data: dto });
+}
+
+/** 测试历史列表（不传 defId 查全部） */
+export async function listWorkflowTest(defId?: any) {
+  return request<ApiResponse<WfTestLogItem[]>>(`${WORKFLOW}/test/list`, {
+    method: 'GET',
+    params: { defId },
+  });
+}
+
+/** 测试详情（含日志正文与结构化结果） */
+export async function getWorkflowTest(id: any) {
+  return request<ApiResponse<WfTestLogItem>>(`${WORKFLOW}/test/${id}`, { method: 'GET' });
+}
+
+/** 删除测试记录 */
+export async function removeWorkflowTest(ids: any[]) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/test?ids=${ids.join(',')}`, { method: 'DELETE' });
+}
+
+/** 清理测试数据：删除所有测试态（is_test=1）的实例/待办/日志/快照，并级联卸载测试部署。
+ *  defId 为空时清理全部测试数据。 */
+export async function cleanupWorkflowTest(defId?: any) {
+  return request<ApiResponse<number>>(`${WORKFLOW}/test/cleanup`, {
+    method: 'POST',
+    params: { defId },
+  });
+}
