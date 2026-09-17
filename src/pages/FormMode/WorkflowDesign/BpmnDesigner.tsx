@@ -184,6 +184,8 @@ export interface BpmnDesignerProps {
   onDeployed?: () => void;
   /** 选中节点（元素）时回调，传出 nodeKey；未选中节点时传 undefined */
   onSelectNode?: (nodeKey?: string) => void;
+  /** 选中网关时回调，传出网关节点 key 与名称；网关不入节点表，单独通道便于呈现其下游分支 */
+  onSelectGateway?: (gatewayKey?: string, gatewayName?: string) => void;
   /** 选中连线（SequenceFlow）时回调，传出源/目标节点 Key（只同步，不切页签） */
   onSelectLink?: (fromNodeKey: string, toNodeKey: string) => void;
   /** 外部改名回写画布（seq 变化触发） */
@@ -236,6 +238,7 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
   onDeployed,
   onSelectNode,
   onSelectLink,
+  onSelectGateway,
   renameNode,
   linkCommand,
   focusEvt,
@@ -285,8 +288,8 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
   }, [nodeBadges]);
 
   // 回调放入 ref，避免初始化时闭包捕获过期引用
-  const cbRef = useRef({ onSelectNode, onSelectLink });
-  cbRef.current = { onSelectNode, onSelectLink };
+  const cbRef = useRef({ onSelectNode, onSelectLink, onSelectGateway });
+  cbRef.current = { onSelectNode, onSelectLink, onSelectGateway };
 
   // 内置属性面板容器：必须始终渲染（模型器创建时就会挂载面板），展示态由 CSS 隐藏
   const propsPanelRef = useRef<HTMLDivElement>(null);
@@ -332,6 +335,37 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
       );
     });
 
+    // 删除「追加的边界事件」时，把它身上的出线接回宿主节点。
+    // 背景：bpmn-js「追加边界事件」会把宿主原出线(A→B)的 sourceRef 改挂到边界事件(BE→B)；
+    //    若不处理，删除边界事件时这条线会随之一起被删，导致宿主原出口（含出口条件）丢失。
+    //    这里在删除命令真正执行前，把边界事件的 SequenceFlow 起点改回宿主，恢复 A→B。
+    //    采用与 bpmn-js 内置 RemoveElementBehavior 相同的做法：在 shape.delete 的 preExecute
+    //    阶段用 modeling.reconnectStart 改连，避免连线被当作边界事件的悬挂连线一并删除。
+    eventBus.on('commandStack.shape.delete.preExecute', 2000, (e: any) => {
+      const shape = e?.context?.shape;
+      if (!shape) return;
+      const bo = shape.businessObject;
+      if (!bo || bo.$type !== 'bpmn:BoundaryEvent') return;
+      const hostRef = bo.attachedToRef;
+      if (!hostRef) return;
+      const registry = modeler.get('elementRegistry');
+      const hostShape = registry.get(hostRef.id);
+      if (!hostShape) return;
+      const modeling = modeler.get('modeling');
+      (shape.outgoing || []).forEach((conn: any) => {
+        if (conn.businessObject && conn.businessObject.$type === 'bpmn:SequenceFlow') {
+          try {
+            modeling.reconnectStart(conn, hostShape, {
+              x: hostShape.x + hostShape.width / 2,
+              y: hostShape.y + hostShape.height / 2,
+            });
+          } catch {
+            /* 个别非法几何忽略，交由默认删除逻辑 */
+          }
+        }
+      });
+    });
+
     // 节点 / 连线上的「≡」「➤」图标与透明点击热区已移除：改为直接点节点 / 连线
     // （bpmn-js 原生 selection）→ 右侧栏展示当前节点 / 出口信息，无需在画布上叠加任何图形
     // （见 bpmnDesigner.css：展示态仅放开 .djs-element 的 pointer-events）。
@@ -363,6 +397,14 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
       //    （排除 labelTarget 即标签，且限定为我们认的节点类型）。
       const shape = list.find((x: any) => !x.labelTarget && isNodeElement(x));
       cbRef.current.onSelectNode?.(shape ? shape.id : undefined);
+      // 网关不入节点表，单独识别并抛出（供右侧栏 / 出口信息呈现其下游分支）
+      const gw = list.find(
+        (x: any) =>
+          !x.labelTarget &&
+          typeof x.businessObject?.$type === 'string' &&
+          x.businessObject.$type.includes('Gateway'),
+      );
+      cbRef.current.onSelectGateway?.(gw ? gw.id : undefined, gw?.businessObject?.name);
       // 选中连线时额外抛出源/目标节点 Key，供「出口信息」呈现当前出口（同样不切页签）
       const conn = list.find((x: any) => x.businessObject?.$type === 'bpmn:SequenceFlow');
       if (conn) {

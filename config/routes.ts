@@ -29,6 +29,13 @@ export default [
     layout: false,
     component: './FormMode/ExcelDesign/ExcelPreviewPage',
   },
+  // 流程审批界面「独立页面」：由待办列表（或 URL 直接带 instanceId+taskId）打开。
+  // layout: false 不套 ProLayout 外壳，整页渲染审批表单 + E9 风格操作按钮栏。
+  {
+    path: '/formmode/approval/ApprovalPage',
+    layout: false,
+    component: './FormMode/Approval/ApprovalPage',
+  },
   {
     path: '/',
     routes: [

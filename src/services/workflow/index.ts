@@ -162,6 +162,8 @@ export interface WfNodeLink {
   sortOrder?: number;
   /** 是否经由网关折叠而来的逻辑连线 1=是 */
   viaGateway?: number;
+  /** 经由的网关节点 key（网关本身不入节点表，凭此字段让网关节点呈现其下游分支） */
+  viaGatewayKey?: string;
 }
 
 // 流程定义保存请求（后端 DefinitionSaveDTO）
@@ -583,6 +585,10 @@ export interface FormRenderPackage {
   fieldPerms?: FieldPermItem[];
   detailPerms?: DetailPermItem[];
   readonly?: boolean;
+  /** 当前节点「操作菜单」允许的操作码（submit/reject/forward/sign/opinion/attach/print/urge），驱动审批界面按钮栏 */
+  allowMenus?: string[];
+  /** 当前节点是否要求填写审批意见 */
+  opinionRequired?: boolean;
 }
 
 export async function renderForm(instanceId: number, taskId?: number) {

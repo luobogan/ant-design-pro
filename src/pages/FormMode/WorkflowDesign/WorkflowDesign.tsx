@@ -112,6 +112,9 @@ const WorkflowDesignPage: React.FC = () => {
   >();
   // 画布上选中的那条出口（点连线同步进来），驱动「出口信息」的当前出口详情卡
   const [selectedLink, setSelectedLink] = useState<{ from: string; to: string } | undefined>();
+  // 画布上选中的网关节点（网关不入节点表，单独保存，用于呈现 / 配置其下游分支）
+  const [selectedGatewayKey, setSelectedGatewayKey] = useState<string | undefined>();
+  const [selectedGatewayName, setSelectedGatewayName] = useState<string | undefined>();
   // 列表 → 画布：定位并高亮（seq 递增，保证对同一目标可重复触发）
   const [focusEvt, setFocusEvt] = useState<FocusEvt | undefined>();
   // 画布批量新增信号（seq 递增触发 BpmnDesigner 追加形状）
@@ -631,6 +634,16 @@ const WorkflowDesignPage: React.FC = () => {
         onSelectNode={(k) => {
           setSelectedNodeKey(k);
           setSelectedLink(undefined);
+          setSelectedGatewayKey(undefined);
+          setSelectedGatewayName(undefined);
+        }}
+        onSelectGateway={(gk, gn) => {
+          setSelectedGatewayKey(gk);
+          setSelectedGatewayName(gn);
+          if (gk) {
+            setSelectedNodeKey(undefined);
+            setSelectedLink(undefined);
+          }
         }}
         onSelectLink={(from, to) => setSelectedLink({ from, to })}
         renameNode={renameEvt}
@@ -702,13 +715,38 @@ const WorkflowDesignPage: React.FC = () => {
         <div style={{ flex: 1, minWidth: 0, height: '100%' }}>{renderCanvas()}</div>
         <div className="wf-side-panel">
           <div className="wf-side-head">
-            <span className="wf-side-title">{selectedNodeKey ? '节点信息' : '出口信息'}</span>
+            <span className="wf-side-title">
+              {selectedGatewayKey ? '网关出口' : selectedNodeKey ? '节点信息' : '出口信息'}
+            </span>
             {currentNode && (
               <Tag color="blue">{currentNode.nodeName || currentNode.nodeKey}</Tag>
             )}
+            {selectedGatewayKey && (
+              <Tag color="purple">{selectedGatewayName || '网关'}</Tag>
+            )}
           </div>
           <div className="wf-side-body">
-            {currentNode ? (
+            {selectedGatewayKey ? (
+              <LinkInfoPanel
+                defId={current!.id}
+                nodes={nodes}
+                links={links}
+                gatewayKey={selectedGatewayKey}
+                gatewayName={selectedGatewayName}
+                selectedNodeKey={undefined}
+                selectedLink={undefined}
+                onSelect={() => {}}
+                formFields={formFieldList}
+                onLocate={locateLink}
+                onPatch={(linkId, patch) =>
+                  setLinks((prev) => prev.map((l) => (l.id === linkId ? { ...l, ...patch } : l)))
+                }
+                onChanged={(change) => {
+                  refreshLinks();
+                  if (change) setLinkCmd({ seq: Date.now(), ...change });
+                }}
+              />
+            ) : currentNode ? (
               <NodeDetail
                 defId={current!.id}
                 node={currentNode}
@@ -879,6 +917,8 @@ const WorkflowDesignPage: React.FC = () => {
                 links={links}
                 selectedNodeKey={selectedNodeKey}
                 selectedLink={selectedLink}
+                gatewayKey={selectedGatewayKey}
+                gatewayName={selectedGatewayName}
                 onSelect={setSelectedNodeKey}
                 formFields={formFieldList}
                 onLocate={locateLink}
