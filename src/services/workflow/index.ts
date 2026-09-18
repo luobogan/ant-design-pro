@@ -591,10 +591,10 @@ export interface FormRenderPackage {
   opinionRequired?: boolean;
 }
 
-export async function renderForm(instanceId: number, taskId?: number) {
+export async function renderForm(instanceId: number, taskId?: number, nodeKey?: string) {
   return request<ApiResponse<FormRenderPackage>>(`${WORKFLOW}/form/render`, {
     method: 'GET',
-    params: { instanceId, taskId },
+    params: { instanceId, taskId, nodeKey },
   });
 }
 
@@ -705,6 +705,8 @@ export interface WfTestResult {
   path?: WfTestStep[];
   /** 测试日志（逐行） */
   log?: string[];
+  /** 本次发起的测试态实例ID（wf_instance.id，is_test=1），供渲染真实流程表单界面 */
+  instId?: string;
   /** 出口总数 */
   linkTotal?: number;
   /** 被真实走过的出口数 */

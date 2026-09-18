@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Col,
+  Empty,
   Form,
   Modal,
   Row,
@@ -17,6 +18,7 @@ import {
   Typography,
   message,
 } from 'antd';
+import ApprovalFormRender from '@/pages/FormMode/ExcelDesign/components/ApprovalFormRender';
 import {
   cleanupWorkflowTest,
   getWorkflowTest,
@@ -88,6 +90,16 @@ const WorkflowTestPage: React.FC = () => {
   const [result, setResult] = useState<WfTestResult | null>(null);
   const [history, setHistory] = useState<WfTestLogItem[]>([]);
   const [logView, setLogView] = useState<{ title: string; content: string } | null>(null);
+
+  // 测试实例会被自动审批到归档，渲染包默认取"当前(结束)节点"→ 看不到开始节点布局。
+  // 这里默认选「开始」节点（类型 0），并提供下拉切换查看各节点布局。
+  const startNodeKey = useMemo(() => {
+    const ns: any[] = result?.nodes || [];
+    const start = ns.find((n) => n.nodeType === 0) || ns[0];
+    return start?.nodeKey;
+  }, [result]);
+  const [viewNodeKey, setViewNodeKey] = useState<string | undefined>();
+  const effectiveNodeKey = viewNodeKey ?? startNodeKey;
 
   const [form] = Form.useForm();
   const [formFields, setFormFields] = useState<FieldDefinition[]>([]);
@@ -241,6 +253,43 @@ const WorkflowTestPage: React.FC = () => {
       },
     });
   };
+
+  // 按出口线条顺序对「节点」排序：开始(0) 最前、结束(3) 最后，中间沿 from→to 链路展开
+  const sortedNodes = useMemo(() => {
+    const ns: any[] = result?.nodes || [];
+    if (ns.length === 0) return [];
+    const links: any[] = result?.links || [];
+    const nodeMap = new Map(ns.map((n) => [n.nodeKey, n]));
+    const incoming = new Map<string, number>();
+    const outMap = new Map<string, string[]>();
+    links.forEach((l) => {
+      incoming.set(l.toNodeKey, (incoming.get(l.toNodeKey) || 0) + 1);
+      if (!outMap.has(l.fromNodeKey)) outMap.set(l.fromNodeKey, []);
+      outMap.get(l.fromNodeKey)!.push(l.toNodeKey);
+    });
+    const start =
+      ns.find((n) => n.nodeType === 0) || ns.find((n) => !incoming.has(n.nodeKey));
+    const visited = new Set<string>();
+    const order: string[] = [];
+    const queue: string[] = start ? [start.nodeKey] : [];
+    while (queue.length) {
+      const k = queue.shift()!;
+      if (visited.has(k)) continue;
+      visited.add(k);
+      order.push(k);
+      (outMap.get(k) || []).forEach((t) => {
+        if (!visited.has(t)) queue.push(t);
+      });
+    }
+    // 链路未覆盖到的节点（孤立/异常）追加在末尾，保持原顺序
+    ns.forEach((n) => {
+      if (!visited.has(n.nodeKey)) {
+        visited.add(n.nodeKey);
+        order.push(n.nodeKey);
+      }
+    });
+    return order.map((k) => nodeMap.get(k)).filter(Boolean);
+  }, [result]);
 
   const nodeColumns = [
     { title: '节点', dataIndex: 'nodeName', render: (v: string, r: any) => v || r.nodeKey },
@@ -437,9 +486,12 @@ const WorkflowTestPage: React.FC = () => {
             showIcon
             message={result.summary || '-'}
           />
-          <Tabs
-            style={{ marginTop: 12 }}
-            items={[
+          {/* 对齐 ecology「自动测试」页：左 = 节点/出口/场景/日志，右 = 真实流程表单界面 */}
+          <Row gutter={12} style={{ marginTop: 12 }}>
+            <Col span={10}>
+              <Tabs
+                style={{ marginTop: 12 }}
+                items={[
               {
                 key: 'nodes',
                 label: `节点 (${result.nodePassed ?? 0}/${result.nodeTotal ?? 0})`,
@@ -448,7 +500,7 @@ const WorkflowTestPage: React.FC = () => {
                     size="small"
                     rowKey="nodeKey"
                     pagination={false}
-                    dataSource={result.nodes || []}
+                    dataSource={sortedNodes}
                     columns={nodeColumns}
                   />
                 ),
@@ -499,8 +551,39 @@ const WorkflowTestPage: React.FC = () => {
                   </pre>
                 ),
               },
-            ]}
-          />
+                ]}
+              />
+            </Col>
+            <Col span={14}>
+              <Card
+                size="small"
+                title={`流程表单（测试实例 #${result.instId ?? '-'}）`}
+                extra={
+                  (result.nodes || []).length > 0 && (
+                    <Space size={4}>
+                      <span style={{ fontSize: 12, color: '#888' }}>查看节点</span>
+                      <Select
+                        size="small"
+                        style={{ width: 200 }}
+                        value={effectiveNodeKey}
+                        onChange={(v: string) => setViewNodeKey(v)}
+                        options={(result.nodes || []).map((n: any) => ({
+                          value: n.nodeKey,
+                          label: `${n.nodeName || n.nodeKey}（${NODE_TYPE[n.nodeType] ?? n.nodeType}）`,
+                        }))}
+                      />
+                    </Space>
+                  )
+                }
+              >
+                {result.instId ? (
+                  <ApprovalFormRender instanceId={Number(result.instId)} nodeKey={effectiveNodeKey} />
+                ) : (
+                  <Empty description="本次未发起测试实例（预校验未通过），无真实表单可显示" />
+                )}
+              </Card>
+            </Col>
+          </Row>
         </Card>
       )}
 
