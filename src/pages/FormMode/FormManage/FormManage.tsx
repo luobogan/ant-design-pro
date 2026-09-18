@@ -126,12 +126,29 @@ const FormManageList: React.FC = () => {
       return;
     }
 
-    // 流程服务不可用：无法确认绑定关系，拒绝删除
+    // 流程服务不可用：无法确认绑定关系，给出「强制删除」选项（用户已确认无绑定时使用）
     if (check?.checkFailed) {
-      Modal.error({
+      Modal.confirm({
         title: '无法校验流程绑定关系',
+        okText: '强制删除',
+        okButtonProps: { danger: true },
+        cancelText: '取消',
         width: 560,
-        content: check.message || check.failReason || '流程服务不可用，请稍后重试',
+        content: (
+          <div>
+            <p>{check.message || check.failReason || '审批流程服务不可用，无法校验表单绑定关系。'}</p>
+            <p>若已确认该表单未被任何流程使用，可强制删除（跳过绑定校验）；否则请稍后启动流程服务再试。</p>
+          </div>
+        ),
+        onOk: async () => {
+          try {
+            await formApi.delete(record.id, true);
+            message.success('删除成功');
+            fetchData();
+          } catch (error) {
+            console.error('强制删除失败:', error);
+          }
+        },
       });
       return;
     }

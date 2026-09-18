@@ -144,10 +144,12 @@ export const workflowBillApi = {
 
   /**
    * 删除表单（级联清理字段/布局/扩展/选项与动态数据表）
+   * @param force 强制删除（跳过流程绑定校验，仅审批流程服务不可用时使用）
    */
-  delete: async (id: string) => {
+  delete: async (id: string, force?: boolean) => {
     return request(`${FORM_DEFINITION_BASE_URL}/${id}`, {
       method: 'DELETE',
+      params: force ? { force: true } : undefined,
     });
   },
 
