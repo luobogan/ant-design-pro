@@ -19,6 +19,9 @@ export const NODE_TYPES: DictItem[] = [
   { value: 3, label: '归档' },
   { value: 5, label: '等待' },
   { value: 6, label: '自动处理' },
+  // 网关：saveBpmn 会把画布网关也建成节点，使「节点→网关」「网关→节点」每条物理连线
+  // 各存一条出口（不再折叠成「节点→节点」），每条线都能独立查看 / 配置出口信息。
+  { value: 7, label: '网关' },
 ];
 
 /** 审批方式 */

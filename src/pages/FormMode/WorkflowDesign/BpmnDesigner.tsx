@@ -115,6 +115,13 @@ const NODE_TYPES = [
   'bpmn:ScriptTask',
   'bpmn:BusinessRuleTask',
   'bpmn:CallActivity',
+  // 网关：后端已把网关纳入 wf_process_node（节点类型 7「网关」），每条物理连线各存一条出口。
+  // 故画布也必须把网关当**节点元素**，点网关本身走节点信息、点它任一条连线直接命中该线自己的出口。
+  'bpmn:ExclusiveGateway',
+  'bpmn:ParallelGateway',
+  'bpmn:InclusiveGateway',
+  'bpmn:EventBasedGateway',
+  'bpmn:ComplexGateway',
 ];
 
 const isNodeElement = (el: any): boolean =>
@@ -184,8 +191,6 @@ export interface BpmnDesignerProps {
   onDeployed?: () => void;
   /** 选中节点（元素）时回调，传出 nodeKey；未选中节点时传 undefined */
   onSelectNode?: (nodeKey?: string) => void;
-  /** 选中网关时回调，传出网关节点 key 与名称；网关不入节点表，单独通道便于呈现其下游分支 */
-  onSelectGateway?: (gatewayKey?: string, gatewayName?: string) => void;
   /** 选中连线（SequenceFlow）时回调，传出源/目标节点 Key（只同步，不切页签） */
   onSelectLink?: (fromNodeKey: string, toNodeKey: string) => void;
   /** 外部改名回写画布（seq 变化触发） */
@@ -238,7 +243,6 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
   onDeployed,
   onSelectNode,
   onSelectLink,
-  onSelectGateway,
   renameNode,
   linkCommand,
   focusEvt,
@@ -288,8 +292,8 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
   }, [nodeBadges]);
 
   // 回调放入 ref，避免初始化时闭包捕获过期引用
-  const cbRef = useRef({ onSelectNode, onSelectLink, onSelectGateway });
-  cbRef.current = { onSelectNode, onSelectLink, onSelectGateway };
+  const cbRef = useRef({ onSelectNode, onSelectLink });
+  cbRef.current = { onSelectNode, onSelectLink };
 
   // 内置属性面板容器：必须始终渲染（模型器创建时就会挂载面板），展示态由 CSS 隐藏
   const propsPanelRef = useRef<HTMLDivElement>(null);
@@ -395,22 +399,18 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
       //    而标签元素的 id 是 `${id}_label`，与 wf_process_node.node_key 对不上，
       //    会导致右侧节点信息永远匹配不到。这里统一解析回「形状本身」
       //    （排除 labelTarget 即标签，且限定为我们认的节点类型）。
+      //    网关已入 wf_process_node（节点类型 7），故点网关本身即走「节点信息」。
       const shape = list.find((x: any) => !x.labelTarget && isNodeElement(x));
       cbRef.current.onSelectNode?.(shape ? shape.id : undefined);
-      // 网关不入节点表，单独识别并抛出（供右侧栏 / 出口信息呈现其下游分支）
-      const gw = list.find(
-        (x: any) =>
-          !x.labelTarget &&
-          typeof x.businessObject?.$type === 'string' &&
-          x.businessObject.$type.includes('Gateway'),
-      );
-      cbRef.current.onSelectGateway?.(gw ? gw.id : undefined, gw?.businessObject?.name);
-      // 选中连线时额外抛出源/目标节点 Key，供「出口信息」呈现当前出口（同样不切页签）
+
+      // 每条物理连线在库里各存一条出口（后端 saveBpmn 已停止「穿透网关折叠」），
+      // 故点任意一条线都直接按 (from,to) 命中它自己的那条出口 → 右侧显示该线的出口信息详情。
+      // ⚠️ sourceRef/targetRef 是 **业务对象**（直接带 .$type），不是形状。
       const conn = list.find((x: any) => x.businessObject?.$type === 'bpmn:SequenceFlow');
-      if (conn) {
-        const from = conn.businessObject.sourceRef?.id;
-        const to = conn.businessObject.targetRef?.id;
-        if (from && to) cbRef.current.onSelectLink?.(from, to);
+      const srcRef = conn?.businessObject?.sourceRef;
+      const tgtRef = conn?.businessObject?.targetRef;
+      if (srcRef?.id && tgtRef?.id) {
+        cbRef.current.onSelectLink?.(srcRef.id, tgtRef.id);
       }
     });
 

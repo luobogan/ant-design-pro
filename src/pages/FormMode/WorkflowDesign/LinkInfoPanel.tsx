@@ -52,10 +52,7 @@ export interface LinkInfoPanelProps {
   selectedNodeKey?: string;
   /** 画布上选中的那条出口（点连线同步进来），用于展示「当前出口」详情卡 */
   selectedLink?: { from: string; to: string };
-  /** 选中的网关节点 key：传入时仅展示「经此网关」的下游分支（网关本身不入节点表，凭 viaGatewayKey 归属） */
-  gatewayKey?: string;
-  /** 选中的网关节点名称（用于标题展示） */
-  gatewayName?: string;
+
   onSelect: (k?: string) => void;
   formFields: FormFieldBrief[];
   /** 出口变更后回调（用于刷新 links 并同步画布连线） */
@@ -79,18 +76,16 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
   links,
   selectedNodeKey,
   selectedLink,
-  gatewayKey,
-  gatewayName,
+
   onSelect,
   formFields,
   onChanged,
   onPatch,
   onLocate,
 }) => {
-  // 网关模式：仅展示「经此网关」的下游分支（按 viaGatewayKey 归属）
-  const visibleLinks = gatewayKey
-    ? links.filter((l) => String(l.viaGatewayKey) === String(gatewayKey))
-    : links;
+  // 每条物理连线各存一条出口（网关已入节点表、不再折叠），故出口列表即全量出口，
+  // 点画布上任意一条线都会按 (from,to) 命中它自己的那条并显示在上方详情卡。
+  const visibleLinks = links;
   const [addOpen, setAddOpen] = useState(false);
   const [addFrom, setAddFrom] = useState<string | undefined>();
   /** 有值表示表尾存在一条待填写目标节点的草稿行 */
@@ -109,7 +104,10 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
    * （目标节点 / 退回 / 必经 / 流转条件 / 排序）。模拟运行未通过前出口信息只读，避免
    * 在不完整的流程上生成不可靠的流转规则。
    */
-  const allTested = nodes.length > 0 && nodes.every((n) => n.testStatus === 1);
+  // ⚠️ 网关节点（类型 7）不参与校验：它没有操作者 / 表单，无法被「模拟运行」测试，
+  //    若计入会导致 allTested 恒为 false、出口信息永远处于锁定态。
+  const testableNodes = nodes.filter((n) => Number(n.nodeType) !== 7);
+  const allTested = testableNodes.length > 0 && testableNodes.every((n) => n.testStatus === 1);
   const locked = !allTested;
 
   // 出口的「流转条件编辑弹窗 / 删除确认」：表格行内操作与右侧栏（LinkDetail）共用
@@ -363,37 +361,31 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
         />
       )}
       {/* 当前出口详情卡（选中连线时显示，可编辑条件 / 定位 / 删除）—— 与「图形编辑」页签右侧栏复用同一组件 */}
-      {!gatewayKey && (
-        <LinkDetail
-          defId={defId}
-          nodes={nodes}
-          links={links}
-          selectedLink={selectedLink}
-          formFields={formFields}
-          onPatch={onPatch}
-          onChanged={onChanged}
-          onLocate={onLocate}
-        />
-      )}
+      <LinkDetail
+        defId={defId}
+        nodes={nodes}
+        links={links}
+        selectedLink={selectedLink}
+        formFields={formFields}
+        onPatch={onPatch}
+        onChanged={onChanged}
+        onLocate={onLocate}
+      />
 
       <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
-        {!gatewayKey && (
-          <Button
-            type="primary"
-            size="small"
-            disabled={locked}
-            onClick={() => {
-              setAddFrom(undefined);
-              setAddOpen(true);
-            }}
-          >
-            + 新增出口
-          </Button>
-        )}
+        <Button
+          type="primary"
+          size="small"
+          disabled={locked}
+          onClick={() => {
+            setAddFrom(undefined);
+            setAddOpen(true);
+          }}
+        >
+          + 新增出口
+        </Button>
         <span style={{ color: '#888', fontSize: 12 }}>
-          {gatewayKey
-            ? `共 ${visibleLinks.length} 条「经此网关（${gatewayName || '网关'}）」的下游分支。分支条件 / 退回 / 必经可直接在此维护。`
-            : `共 ${visibleLinks.length} 条出口。行内可直接改目标节点 / 退回 / 必经 / 排序；画布上连好线保存后会自动出现在此处。`}
+          {`共 ${visibleLinks.length} 条出口。行内可直接改目标节点 / 退回 / 必经 / 排序；画布上连好线保存后会自动出现在此处。`}
         </span>
       </div>
 
@@ -403,9 +395,7 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
         dataSource={dataSource}
         pagination={false}
         locale={{
-          emptyText: gatewayKey
-            ? '该网关暂无下游分支。可在「图形编辑」页签从网关拉出连线后保存。'
-            : '暂无出口。可在「图形编辑」页签连好线后保存，或点「+ 新增出口」',
+          emptyText: '暂无出口。可在「图形编辑」页签连好线后保存，或点「+ 新增出口」',
         }}
         rowClassName={(r) => {
           if (r.id === -1) return 'wf-row-draft';

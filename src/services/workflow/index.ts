@@ -667,6 +667,29 @@ export interface WfTestStep {
   conditionCn?: string;
 }
 
+/** 流程测试：单条出口（连线）的覆盖情况 */
+export interface WfTestLinkResult {
+  fromNodeKey?: string;
+  toNodeKey?: string;
+  fromNodeName?: string;
+  toNodeName?: string;
+  conditionExpr?: string;
+  conditionCn?: string;
+  passTimes?: number;
+  status?: number; // 1走过 0未走过
+}
+
+/** 流程测试：单个场景的执行概要 */
+export interface WfTestScenario {
+  index?: number;
+  label?: string;
+  formData?: Record<string, any>;
+  testStatus?: number;
+  reachedEnd?: boolean;
+  path?: string[];
+  summary?: string;
+}
+
 /** 流程测试结果 */
 export interface WfTestResult {
   logId?: string;
@@ -682,6 +705,15 @@ export interface WfTestResult {
   path?: WfTestStep[];
   /** 测试日志（逐行） */
   log?: string[];
+  /** 出口总数 */
+  linkTotal?: number;
+  /** 被真实走过的出口数 */
+  linkPassed?: number;
+  /** 逐条出口覆盖情况 */
+  links?: WfTestLinkResult[];
+  /** 实际执行的场景数（开启分支覆盖时 >1） */
+  scenarioCount?: number;
+  scenarios?: WfTestScenario[];
 }
 
 /** 流程测试历史记录（wf_test_log） */
@@ -710,6 +742,8 @@ export async function runWorkflowTest(dto: {
   testUserId: any;
   testUserName?: string;
   formData?: Record<string, any>;
+  /** 按网关分支反推变量取值、为每个分支额外真跑一次，覆盖到每条出口 */
+  coverBranches?: boolean;
 }) {
   return request<ApiResponse<WfTestResult>>(`${WORKFLOW}/test/run`, { method: 'POST', data: dto });
 }
