@@ -111,6 +111,30 @@ const WorkflowTestPage: React.FC = () => {
   );
   const formId = currentDef?.formId;
 
+  // 仅展示「激活版本」：按 procKey 分组，组内取 activeVersionId 指向的版本
+  // （无锚点则取版本号最大者），并排除已删除；标签标记版本号。
+  const activeDefs = useMemo(() => {
+    const groups = new Map<string, any[]>();
+    (defs || []).forEach((d: any) => {
+      if (d.isDeleted) return;
+      const key = d.procKey || String(d.id);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(d);
+    });
+    const out: any[] = [];
+    groups.forEach((list) => {
+      const anchor = list.find((d) => d.activeVersionId != null)?.activeVersionId;
+      let active: any;
+      if (anchor != null) {
+        active = list.find((d) => String(d.id) === String(anchor));
+      } else {
+        active = [...list].sort((a: any, b: any) => (b.version ?? 0) - (a.version ?? 0))[0];
+      }
+      if (active) out.push(active);
+    });
+    return out;
+  }, [defs]);
+
   const normalizeField = (f: FieldDefinition): any => ({
     ...f,
     options: (f.options || []).map((o) => ({ value: o.optionValue, label: o.optionLabel })),
@@ -362,10 +386,13 @@ const WorkflowTestPage: React.FC = () => {
               <span>流程</span>
               <Select
                 style={{ width: 260 }}
-                placeholder="选择流程"
+                placeholder="选择流程（仅激活版本）"
                 value={defId}
                 onChange={setDefId}
-                options={defs.map((d) => ({ value: d.id, label: d.name || d.procKey }))}
+                options={activeDefs.map((d: any) => ({
+                  value: d.id,
+                  label: `${d.name || d.procKey}（v${d.version ?? '-'}）`,
+                }))}
                 showSearch
                 optionFilterProp="label"
               />
@@ -577,9 +604,19 @@ const WorkflowTestPage: React.FC = () => {
                 }
               >
                 {result.instId ? (
-                  <ApprovalFormRender instanceId={Number(result.instId)} nodeKey={effectiveNodeKey} />
+                  <ApprovalFormRender instanceId={result.instId} nodeKey={effectiveNodeKey} />
                 ) : (
-                  <Empty description="本次未发起测试实例（预校验未通过），无真实表单可显示" />
+                  <Empty
+                    description={
+                      <div>
+                        <div>未取到测试实例ID，无法渲染真实表单</div>
+                        <div style={{ marginTop: 4, fontSize: 12, color: '#999' }}>
+                          流程已走通，但后端 /test/run 未回传 instId —— 请确认已重新编译并重启
+                          blade-workflow 服务后重跑测试
+                        </div>
+                      </div>
+                    }
+                  />
                 )}
               </Card>
             </Col>

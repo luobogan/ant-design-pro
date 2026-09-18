@@ -591,7 +591,13 @@ export interface FormRenderPackage {
   opinionRequired?: boolean;
 }
 
-export async function renderForm(instanceId: number, taskId?: number, nodeKey?: string) {
+/** 注意：instanceId 是 19 位雪花 ID，后端以字符串下发；前端务必保持字符串，
+ *  转成 number 会丢精度（如 ...92291 → ...92300）导致「流程实例不存在」。 */
+export async function renderForm(
+  instanceId: string | number,
+  taskId?: number,
+  nodeKey?: string,
+) {
   return request<ApiResponse<FormRenderPackage>>(`${WORKFLOW}/form/render`, {
     method: 'GET',
     params: { instanceId, taskId, nodeKey },

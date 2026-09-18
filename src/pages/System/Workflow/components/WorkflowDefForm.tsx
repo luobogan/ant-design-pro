@@ -73,7 +73,7 @@ const WorkflowDefForm: React.FC<WorkflowDefFormProps> = ({
   const [designOpen, setDesignOpen] = useState(false);
   const [designFormId, setDesignFormId] = useState<string>('');
 
-  // 加载字段描述并初始化表单
+  // 加载字段描述（仅依赖场景与 id；值回填由下方 effect 独立负责）
   useEffect(() => {
     let mounted = true;
     setLoading(true);
@@ -84,8 +84,6 @@ const WorkflowDefForm: React.FC<WorkflowDefFormProps> = ({
         const flds: FormField[] = cond.fields || [];
         setFields(flds);
         setTitle(cond.title || (isEdit ? '编辑路径' : '添加路径'));
-        form.resetFields();
-        form.setFieldsValue(buildInitialValues(flds, initialValues || {}));
       })
       .catch(() => mounted && message.error('加载表单配置失败'))
       .finally(() => mounted && setLoading(false));
@@ -94,6 +92,17 @@ const WorkflowDefForm: React.FC<WorkflowDefFormProps> = ({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEdit, initialValues?.id, form]);
+
+  // 值回填：字段就绪，或 initialValues（流程定义数据）变化时，重新回显。
+  // 关键修复：保存后 WorkflowDesign 会 setFormRefresh 让本组件按 key 重挂载，且
+  // reloadCurrent 更新 current 后 initialValues 引用随之变化；若只依赖 id 则 effect 不重跑，
+  // 表单会停在「保存前」旧值上，表现为「设好却回显不出来」（已发布/显示顺序/对应表单 均如此）。
+  useEffect(() => {
+    if (!fields.length) return;
+    form.resetFields();
+    form.setFieldsValue(buildInitialValues(fields, initialValues || {}));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fields, initialValues, form]);
 
   // 在表设计器创建完自定义表后切回本窗口：自动刷新表单列表
   useEffect(() => {

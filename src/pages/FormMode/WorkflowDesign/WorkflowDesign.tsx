@@ -838,7 +838,6 @@ const WorkflowDesignPage: React.FC = () => {
       size="small"
       activeKey={flowSubTab}
       onChange={setFlowSubTab}
-      tabBarExtraContent={renderVersionBar()}
       items={[
         {
           key: 'canvas',
@@ -955,6 +954,7 @@ const WorkflowDesignPage: React.FC = () => {
         <Tabs
           activeKey={activeTab}
           onChange={setActiveTab}
+          tabBarExtraContent={renderVersionBar()}
           items={[
             { key: 'processCard', label: '流程卡片', children: renderProcessCard() },
             { key: 'basic', label: '基础设置', children: renderBasic() },

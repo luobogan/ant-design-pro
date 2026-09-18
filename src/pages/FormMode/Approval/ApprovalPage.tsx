@@ -87,7 +87,8 @@ const ApprovalPage: React.FC = () => {
     }
     setLoading(true);
     const tid = taskId ? Number(taskId) : undefined;
-    renderForm(Number(instanceId), tid)
+    // 19 位雪花 ID 保持字符串：Number() 会丢精度导致查不到实例
+    renderForm(instanceId, tid)
       .then(async (res: any) => {
         const p = res?.data;
         if (!p) {

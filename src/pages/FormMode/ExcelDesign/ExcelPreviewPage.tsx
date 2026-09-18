@@ -47,7 +47,8 @@ const ExcelPreviewPageContent: React.FC = () => {
     if (isApproval) {
       // 审批态：从服务端拉渲染包（布局 + 业务数据 + 节点权限）
       setLoading(true);
-      const instanceId = Number(params.instanceId);
+      // 19 位雪花 ID 保持字符串：Number() 会丢精度导致查不到实例
+      const instanceId = params.instanceId;
       const taskId = params.taskId ? Number(params.taskId) : undefined;
       renderForm(instanceId, taskId)
         .then((res: any) => {

@@ -16,7 +16,8 @@ import { renderForm } from '@/services/workflow';
  * 注：以 `standalone` 渲染（不套 Modal），便于直接内嵌到任意面板 / 分栏中。
  */
 export interface ApprovalFormRenderProps {
-  instanceId: number;
+  /** 19 位雪花 ID：后端以字符串下发，务必保持字符串，转 number 会丢精度 */
+  instanceId: string | number;
   taskId?: number;
   /** 传入则用它作为当前节点，否则用渲染包回传的 nodeKey */
   nodeKey?: string;
