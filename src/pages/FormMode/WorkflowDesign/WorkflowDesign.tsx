@@ -30,6 +30,7 @@ import NodeDetail from './NodeDetail';
 import LinkDetail from './LinkDetail';
 import { configuredBadges } from './nodeSettings';
 import LinkInfoPanel from './LinkInfoPanel';
+import FormContentDesignModal from './FormContentDesignModal';
 import VersionDiffModal from './VersionDiffModal';
 import SimulateModal from './SimulateModal';
 import WorkflowTestModal from './WorkflowTestModal';
@@ -103,6 +104,11 @@ const WorkflowDesignPage: React.FC = () => {
 
   // 流转设置：图形编辑 / 节点信息 / 出口信息 三平级页签，共享选中节点联动
   const [flowSubTab, setFlowSubTab] = useState<string>('canvas');
+  // 「表单内容 → 设计」弹框（核心版）：显示模式 + 显示模板设置
+  const [formContentOpen, setFormContentOpen] = useState(false);
+  const [formContentNodeKey, setFormContentNodeKey] = useState<string | undefined>();
+  // 「节点信息」里 NodeDetail 的受控页签：供弹框的「设置字段属性」直接跳到「字段权限」
+  const [nodeDetailTab, setNodeDetailTab] = useState<string | undefined>();
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | undefined>();
   // 外部→画布同步信号
   const [renameEvt, setRenameEvt] = useState<{ seq: number; nodeKey: string; name: string } | undefined>();
@@ -726,6 +732,8 @@ const WorkflowDesignPage: React.FC = () => {
                   setExcelDesignNodeKey(nk);
                   setExcelDesignOpen(true);
                 }}
+                activeTab={nodeDetailTab}
+                onTabChange={setNodeDetailTab}
               />
             ) : currentLink ? (
               <LinkDetail
@@ -864,6 +872,11 @@ const WorkflowDesignPage: React.FC = () => {
                   setExcelDesignNodeKey(nk);
                   setExcelDesignOpen(true);
                 }}
+                // 「表单内容 → 设计」改为打开弹框（显示模式 / 显示模板设置），弹框内再进布局设计器
+                onDesignFormContent={(n) => {
+                  setFormContentNodeKey(n.nodeKey);
+                  setFormContentOpen(true);
+                }}
                 // 名称改动回写画布节点标签（沿用既有 renameEvt 通道）
                 onSaved={(nodeKey, name) => setRenameEvt({ seq: Date.now(), nodeKey, name })}
               />
@@ -992,6 +1005,31 @@ const WorkflowDesignPage: React.FC = () => {
           />
         ) : null}
       </Modal>
+
+      {/* 「表单内容 → 设计」弹框（核心版，仿 ecology 设置表单内容）：显示模式 + 显示模板设置 */}
+      <FormContentDesignModal
+        open={formContentOpen}
+        defId={current?.id}
+        node={nodes.find((n) => n.nodeKey === formContentNodeKey)}
+        formId={current?.formId ? String(current.formId) : undefined}
+        formName={metaLabels.formName}
+        onClose={() => setFormContentOpen(false)}
+        onPatch={(nk, patch) =>
+          setNodes((prev) => prev.map((n) => (n.nodeKey === nk ? { ...n, ...patch } : n)))
+        }
+        // 显示模板【设计】→ 复用现有节点级布局设计器
+        onEditLayout={(nk) => {
+          setFormContentOpen(false);
+          setExcelDesignNodeKey(nk);
+          setExcelDesignOpen(true);
+        }}
+        // 【设置字段属性】→ 切到节点信息并直接落到「字段权限」页签
+        onOpenFieldPerm={(nk) => {
+          setFormContentOpen(false);
+          openNodePanel(nk);
+          setNodeDetailTab('perm');
+        }}
+      />
 
       {/* 生成表单布局：节点级 Excel 布局设计器（Modal 内嵌完整 Univer 设计器，布局按 nodeKey 隔离） */}
       <Modal

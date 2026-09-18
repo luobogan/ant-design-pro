@@ -26,6 +26,8 @@ export interface NodeInfoPanelProps {
   formName?: string;
   /** 点击「生成表单布局」回调，传入当前节点 Key（弹窗由父级承载） */
   onGenerateLayout?: (nodeKey: string) => void;
+  /** 打开「设置表单内容」弹框（显示模式 / 显示模板设置）；弹窗由父级承载 */
+  onDesignFormContent?: (node: WfProcessNode) => void;
   /** 拖拽排序节点：父级负责本地重排并持久化 sortOrder */
   onReorder?: (orderedNodeKeys: string[]) => void;
   /** 列表表尾草稿行保存：一次可在画布新建多个节点 */
@@ -54,6 +56,7 @@ const NodeInfoPanel: React.FC<NodeInfoPanelProps> = ({
   formId,
   formName,
   onGenerateLayout,
+  onDesignFormContent,
   onCreateNodes,
   onDeleteNode,
   onReorder,
@@ -116,6 +119,7 @@ const NodeInfoPanel: React.FC<NodeInfoPanelProps> = ({
         formFields={formFields}
         formName={formName}
         onEditLayout={onGenerateLayout}
+        onDesignFormContent={onDesignFormContent}
         onCreateNodes={onCreateNodes}
         onDeleteNode={onDeleteNode}
         onReorder={onReorder}

@@ -39,6 +39,8 @@ export interface NodeInfoTableProps {
   formName?: string;
   /** 打开该节点的 Excel 布局设计器 */
   onEditLayout?: (nodeKey: string) => void;
+  /** 打开「设置表单内容」弹框（显示模式 / 显示模板设置）；未提供时回退为直接进布局设计器 */
+  onDesignFormContent?: (node: WfProcessNode) => void;
   /** 鼠标拖拽调整节点顺序：回传按新顺序排列的 nodeKey 列表（仅已保存节点，草稿行不参与） */
   onReorder?: (orderedNodeKeys: string[]) => void;
   /** 移除（删除）已存在节点：调用方负责请求后端并刷新列表，组件侧只清本地临时态 */
@@ -103,6 +105,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
   formFields,
   formName,
   onEditLayout,
+  onDesignFormContent,
   onCreateNodes,
   onDeleteNode,
   onReorder,
@@ -592,8 +595,10 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
               <Button
                 type="link"
                 size="small"
-                title="进入节点布局设计器（按节点独立保存，互不影响）"
-                onClick={() => onEditLayout?.(r.nodeKey!)}
+                title="打开「设置表单内容」弹框（显示模式 / 显示模板设置）"
+                onClick={() =>
+                  onDesignFormContent ? onDesignFormContent(r) : onEditLayout?.(r.nodeKey!)
+                }
               >
                 设计
               </Button>

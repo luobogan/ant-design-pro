@@ -65,6 +65,10 @@ export interface NodeDetailProps {
   onPatch?: (nodeKey: string, patch: Partial<WfProcessNode>) => void;
   /** 打开「生成表单布局」 */
   onOpenLayout?: (nodeKey: string) => void;
+  /** 受控激活的页签 key（如 'perm' 字段权限）；由「设置表单内容」弹框跳转用 */
+  activeTab?: string;
+  /** 页签切换回调（配合 activeTab 受控） */
+  onTabChange?: (key: string) => void;
 }
 
 /**
@@ -85,6 +89,8 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
   onSaved,
   onPatch,
   onOpenLayout,
+  activeTab,
+  onTabChange,
 }) => {
   const nodeKey = node?.nodeKey;
   const [baseForm] = Form.useForm();
@@ -567,6 +573,8 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
     <>
       <Tabs
         size="small"
+        activeKey={activeTab}
+        onChange={onTabChange}
         items={[
           { key: 'base', label: '基本属性', children: baseTab },
           { key: 'operator', label: '操作者', children: operatorTab },
