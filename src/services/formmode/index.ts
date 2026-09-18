@@ -129,7 +129,21 @@ export const workflowBillApi = {
   },
 
   /**
-   * 删除表单
+   * 删除前检查：流程绑定情况 + 关联数据统计
+   * 被流程设计绑定（或被流程实例占用）时 bound=true，前端据此提示并阻止删除
+   */
+  deleteCheck: async (id: string) => {
+    const response = await request<BladeResponse<FormDeleteCheckResult>>(
+      `${FORM_DEFINITION_BASE_URL}/${id}/delete-check`,
+      {
+        method: 'GET',
+      },
+    );
+    return response.data;
+  },
+
+  /**
+   * 删除表单（级联清理字段/布局/扩展/选项与动态数据表）
    */
   delete: async (id: string) => {
     return request(`${FORM_DEFINITION_BASE_URL}/${id}`, {
@@ -138,13 +152,17 @@ export const workflowBillApi = {
   },
 
   /**
-   * 批量删除表单
+   * 批量删除表单（被流程占用的表单会被跳过，结果中返回原因）
    */
   batchDelete: async (ids: string[]) => {
-    return request(`${FORM_DEFINITION_BASE_URL}/batch-delete`, {
-      method: 'POST',
-      data: { ids },
-    });
+    const response = await request<BladeResponse<BatchDeleteResult>>(
+      `${FORM_DEFINITION_BASE_URL}/batch-delete`,
+      {
+        method: 'POST',
+        data: { ids },
+      },
+    );
+    return response.data;
   },
 
   /**
@@ -248,6 +266,46 @@ export const workflowBillApi = {
     return response;
   },
 };
+
+/**
+ * 表单删除前检查结果
+ */
+export interface FormDeleteCheckResult {
+  formId: string;
+  formName: string;
+  tableName?: string;
+  /** 字段定义数量 */
+  fieldCount: number;
+  /** 表单布局数量 */
+  layoutCount: number;
+  /** 字段扩展属性数量 */
+  extendCount: number;
+  /** 字段选项数量 */
+  optionCount: number;
+  /** 动态数据表是否存在 */
+  tableExists: boolean;
+  /** 动态数据表已沉淀的数据行数 */
+  dataCount: number;
+  /** 是否被流程占用（流程定义绑定 或 已产生流程实例） */
+  bound: boolean;
+  /** 绑定校验是否失败（流程服务不可用） */
+  checkFailed: boolean;
+  definitionCount: number;
+  instanceCount: number;
+  definitionNames: string[];
+  failReason?: string;
+  /** 可直接展示的提示语 */
+  message: string;
+}
+
+/**
+ * 批量删除结果
+ */
+export interface BatchDeleteResult {
+  deleted: number;
+  failed: number;
+  blocked: { id: string; formName?: string; reason?: string }[];
+}
 
 /**
  * 同步结果类型

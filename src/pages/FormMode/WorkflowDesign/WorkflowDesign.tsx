@@ -1010,6 +1010,7 @@ const WorkflowDesignPage: React.FC = () => {
       <FormContentDesignModal
         open={formContentOpen}
         defId={current?.id}
+        nodes={nodes}
         node={nodes.find((n) => n.nodeKey === formContentNodeKey)}
         formId={current?.formId ? String(current.formId) : undefined}
         formName={metaLabels.formName}
@@ -1029,6 +1030,14 @@ const WorkflowDesignPage: React.FC = () => {
           openNodePanel(nk);
           setNodeDetailTab('perm');
         }}
+        // 【节点意见 → 去设置】→ 切到节点信息并落到「节点设置」页签（复用签字意见设置）
+        onOpenNodeSetting={(nk) => {
+          setFormContentOpen(false);
+          openNodePanel(nk);
+          setNodeDetailTab('settings');
+        }}
+        // 「同步节点」会改写其它节点的 extJson，完成后需刷新节点列表
+        onSynced={refreshNodes}
       />
 
       {/* 生成表单布局：节点级 Excel 布局设计器（Modal 内嵌完整 Univer 设计器，布局按 nodeKey 隔离） */}
