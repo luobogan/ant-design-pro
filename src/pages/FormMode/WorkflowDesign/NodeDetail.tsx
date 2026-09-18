@@ -34,6 +34,7 @@ import {
   NODE_TYPES,
   OP_TYPES,
   PERM_OPTIONS,
+  FORM_CONTENT_OPTIONS,
   SIGN_ORDERS,
   scopeLabel,
 } from './wfDict';
@@ -510,7 +511,12 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
       <div style={{ border: '1px solid #f0f0f0', borderRadius: 6, overflow: 'hidden' }}>
         <div style={ROW_STYLE}>
           <span>表单内容</span>
-          <span style={{ color: '#1677ff' }}>普通模式</span>
+          <span style={{ color: '#1677ff' }}>
+            {settings.formContent?.mode
+              ? FORM_CONTENT_OPTIONS.find((o) => o.value === settings.formContent?.mode)?.label ||
+                String(settings.formContent?.mode)
+              : '未设置'}
+          </span>
         </div>
         {visibleSettingDefs.map((d) => (
           <div key={d.key} style={ROW_STYLE}>

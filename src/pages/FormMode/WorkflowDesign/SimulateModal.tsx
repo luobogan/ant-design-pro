@@ -30,7 +30,16 @@ export interface SimulateModalProps {
   onPlayPath?: (result: SimulateResult) => void;
 }
 
-const NODE_TYPE = ['创建', '审批', '提交', '归档', '等待', '自动'];
+/** 节点类型标签（含网关 7；4 未使用） */
+const NODE_TYPE: Record<number, string> = {
+  0: '创建',
+  1: '审批',
+  2: '提交',
+  3: '归档',
+  5: '等待',
+  6: '自动处理',
+  7: '网关',
+};
 
 const testStatusTag = (s?: number) => {
   switch (s) {

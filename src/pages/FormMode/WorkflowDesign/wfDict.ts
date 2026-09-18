@@ -9,6 +9,8 @@
 export interface DictItem {
   value: any;
   label: string;
+  /** 下拉中置灰不可选（用于「暂时屏蔽」某选项，同时保留存量值的正确回显） */
+  disabled?: boolean;
 }
 
 /** 节点类型 */
@@ -93,9 +95,14 @@ export const FAIL_MODES: DictItem[] = [
   { value: 'stop', label: '中断' },
 ];
 
-/** 节点「表单内容」显示模式（对齐 ecology 节点表单内容） */
+/**
+ * 节点「表单内容」显示模式（对齐 ecology 节点表单内容）。
+ *
+ * ⚠️ 本系统**暂时屏蔽「普通模式」**：仍保留下拉项（否则存量节点存的 `normal` 会回显成
+ * 英文原文），但置灰不可选。需要恢复时：把该项 `disabled` 去掉、label 改回「普通模式」即可。
+ */
 export const FORM_CONTENT_OPTIONS: DictItem[] = [
-  { value: 'normal', label: '普通模式' },
+  { value: 'normal', label: '普通模式（已屏蔽）', disabled: true },
   { value: 'custom', label: '节点布局' },
 ];
 

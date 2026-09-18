@@ -556,7 +556,10 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
       title: '表单内容',
       width: 160,
       render: (_: any, r: WfProcessNode) => {
-        const mode = nodeSettings(r).formContent?.mode || 'normal';
+        // 「普通模式」已临时屏蔽，且流程测试 / 模拟运行会校验「表单内容」是否已设置，
+        // 故这里**如实展示存储值**：未设置 → 占位「未设置」（会被测试判不通过）；
+        // 存量为 normal → 回显灰色「普通模式（已屏蔽）」。
+        const mode = nodeSettings(r).formContent?.mode;
         const onMode = (v: any) =>
           isDraft(r)
             ? setDraftSetting(r._draftIndex as number, (s) => {
@@ -572,6 +575,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
               size="small"
               style={{ width: 100 }}
               value={mode}
+              placeholder="未设置"
               options={FORM_CONTENT_OPTIONS}
               onChange={onMode}
             />
