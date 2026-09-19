@@ -3,7 +3,6 @@ import {
   App,
   Button,
   Dropdown,
-  Input,
   Modal,
   Radio,
   Space,
@@ -14,6 +13,11 @@ import {
   Typography,
 } from 'antd';
 import { DeploymentUnitOutlined, EllipsisOutlined } from '@ant-design/icons';
+import RichTextEditor, {
+  RichTextView,
+  focusRichText,
+  isRichTextEmpty,
+} from '@/components/RichTextEditor';
 import ApprovalFormRender from '@/pages/FormMode/ExcelDesign/components/ApprovalFormRender';
 import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
 import { MENUS_OPTIONS } from '@/pages/FormMode/WorkflowDesign/wfDict';
@@ -162,7 +166,7 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
       return;
     }
     if (code === 'opinion') {
-      document.getElementById('flow-form-opinion')?.focus();
+      focusRichText('flow-form-opinion');
       return;
     }
     if (code === 'attach') {
@@ -180,6 +184,10 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
     }
     if (!taskId) {
       message.warning(`当前实例无该节点待办，无法「${menuLabel(code)}」`);
+      return;
+    }
+    if ((code === 'submit' || code === 'reject') && pkg?.opinionRequired && isRichTextEmpty(opinion)) {
+      message.warning(`当前节点要求填写签字意见，无法「${menuLabel(code)}」`);
       return;
     }
     setActing(true);
@@ -334,12 +342,13 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
                   {menus.some((c) =>
                     ['submit', 'reject', 'forward', 'sign', 'urge'].includes(c),
                   ) && (
-                    <div style={{ margin: '4px 0 8px' }}>
-                      <Input.TextArea
-                        id="flow-form-opinion"
-                        rows={2}
+                    <div id="flow-form-opinion" style={{ margin: '4px 0 8px' }}>
+                      {/* 审批意见统一用富文本（与系统其余审批入口一致） */}
+                      <RichTextEditor
+                        compact
+                        height={140}
                         value={opinion}
-                        onChange={(e) => setOpinion(e.target.value)}
+                        onChange={setOpinion}
                         placeholder={
                           pkg?.opinionRequired ? '请填写审批意见（必填）' : '审批意见（可选）'
                         }
@@ -404,7 +413,10 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
                                   <Typography.Text strong>
                                     {l.nodeName || l.nodeKey || '-'}
                                   </Typography.Text>
-                                  <Tag>{l.opinion || '—'}</Tag>
+                                  <RichTextView
+                                    html={l.opinion}
+                                    style={{ fontSize: 12, color: '#555', maxWidth: 420 }}
+                                  />
                                   <Typography.Text type="secondary">
                                     {l.operateTime || ''}
                                   </Typography.Text>

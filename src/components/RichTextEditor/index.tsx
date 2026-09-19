@@ -7,13 +7,49 @@ interface RichTextEditorProps {
   onChange?: (value: string) => void;
   placeholder?: string;
   height?: number;
+  /** 紧凑模式：隐藏菜单栏、精简工具栏（审批意见 / 批注等小输入框用） */
+  compact?: boolean;
 }
+
+/** 富文本是否为空：TinyMCE 的「空」是 `<p><br></p>` / `<p>&nbsp;</p>`，不能直接 trim 判断 */
+export const isRichTextEmpty = (html?: string): boolean => {
+  if (!html) return true;
+  return (
+    html
+      .replace(/<br\s*\/?>/gi, '')
+      .replace(/&nbsp;/gi, '')
+      .replace(/<[^>]*>/g, '')
+      .trim().length === 0
+  );
+};
+
+/** 富文本只读展示（审批意见 / 批注回显）：纯 HTML 内容，空值显示占位横线 */
+export const RichTextView: React.FC<{ html?: string; style?: React.CSSProperties }> = ({
+  html,
+  style,
+}) => {
+  if (isRichTextEmpty(html)) {
+    return <span style={{ color: '#bbb' }}>—</span>;
+  }
+  return <div style={style} dangerouslySetInnerHTML={{ __html: html || '' }} />;
+};
+
+/** 把焦点交给指定容器里的富文本编辑器（TinyMCE 渲染成 iframe，需定位到内部编辑区） */
+export const focusRichText = (containerId: string) => {
+  const iframe = document.querySelector<HTMLIFrameElement>(`#${containerId} iframe`);
+  if (iframe?.contentWindow) {
+    iframe.contentWindow.focus();
+    return;
+  }
+  document.getElementById(containerId)?.scrollIntoView({ block: 'center' });
+};
 
 const RichTextEditor: React.FC<RichTextEditorProps> = ({
   value = '',
   onChange,
   placeholder = '请输入内容...',
   height = 400,
+  compact = false,
 }) => {
   const handleImageUpload = (...args: any[]) => {
     const [blobInfo, success, failure] = args;
@@ -73,28 +109,31 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         onEditorChange={(content) => onChange?.(content)}
         init={{
           height: height,
-          menubar: true,
-          plugins: [
-            'advlist',
-            'autolink',
-            'lists',
-            'link',
-            'image',
-            'charmap',
-            'preview',
-            'anchor',
-            'searchreplace',
-            'visualblocks',
-            'code',
-            'fullscreen',
-            'insertdatetime',
-            'media',
-            'table',
-            'help',
-            'wordcount',
-          ],
-          toolbar:
-            'undo redo | formatselect | bold italic backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | removeformat | help',
+          menubar: !compact,
+          plugins: compact
+            ? ['lists', 'link', 'charmap', 'wordcount']
+            : [
+                'advlist',
+                'autolink',
+                'lists',
+                'link',
+                'image',
+                'charmap',
+                'preview',
+                'anchor',
+                'searchreplace',
+                'visualblocks',
+                'code',
+                'fullscreen',
+                'insertdatetime',
+                'media',
+                'table',
+                'help',
+                'wordcount',
+              ],
+          toolbar: compact
+            ? 'undo redo | bold italic underline forecolor | bullist numlist | removeformat'
+            : 'undo redo | formatselect | bold italic backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | removeformat | help',
           placeholder: placeholder,
           content_style: 'body { font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5; }',
           images_upload_url: '/api/blade-mall/admin/upload/image',

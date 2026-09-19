@@ -26,6 +26,7 @@ import { dataApi } from '@/services/formmode';
 import type { FieldDefinition } from '@/services/formmode';
 import FieldRenderer from '@/pages/FormMode/FormView/components/FieldRenderer';
 import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
+import RichTextEditor, { focusRichText, isRichTextEmpty } from '@/components/RichTextEditor';
 
 /**
  * 流程审批界面（运行期，对齐 ecology 单据审批页）。
@@ -141,7 +142,7 @@ const ApprovalPage: React.FC = () => {
     if (!taskId) return;
     const variables = await collectVariables();
     if (Object.keys(variables).length === 0) return; // 校验未通过
-    if (opinionRequired && !opinion.trim()) {
+    if (opinionRequired && isRichTextEmpty(opinion)) {
       message.warning('当前节点要求填写审批意见');
       return;
     }
@@ -174,7 +175,7 @@ const ApprovalPage: React.FC = () => {
     setSubmitting(true);
     try {
       if (modalType === 'reject') {
-        if (opinionRequired && !opinion.trim()) {
+        if (opinionRequired && isRichTextEmpty(opinion)) {
           message.warning('当前节点要求填写审批意见');
           return;
         }
@@ -265,7 +266,7 @@ const ApprovalPage: React.FC = () => {
             );
           case 'opinion':
             return (
-              <Button key="opinion" onClick={() => document.getElementById('approval-opinion')?.focus()}>
+              <Button key="opinion" onClick={() => focusRichText('approval-opinion')}>
                 填写意见
               </Button>
             );
@@ -365,13 +366,16 @@ const ApprovalPage: React.FC = () => {
       {canOperate && (
         <Card size="small" title="审批操作" style={{ marginBottom: 16 }}>
           <Form.Item label="审批意见" required={opinionRequired}>
-            <Input.TextArea
-              id="approval-opinion"
-              rows={3}
-              value={opinion}
-              onChange={(e) => setOpinion(e.target.value)}
-              placeholder={opinionRequired ? '请填写审批意见（必填）' : '请填写审批意见'}
-            />
+            {/* 审批意见统一用富文本（与系统其余审批入口一致） */}
+            <div id="approval-opinion">
+              <RichTextEditor
+                compact
+                height={160}
+                value={opinion}
+                onChange={setOpinion}
+                placeholder={opinionRequired ? '请填写审批意见（必填）' : '请填写审批意见'}
+              />
+            </div>
           </Form.Item>
           <Space wrap>{actionButtons}</Space>
         </Card>
