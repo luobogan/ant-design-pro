@@ -51,6 +51,15 @@ const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
 
   useEffect(() => {
     let alive = true;
+    // 无效实例 ID（-1 / 0 / 空）不发起渲染请求：避免后端因「实例不存在」抛业务异常，
+    // 被框架（BladeRestExceptionTranslator 对 ServiceException 标 BAD_REQUEST）映射为 HTTP 400 噪音。
+    if (instanceId == null || Number(instanceId) <= 0) {
+      setLoading(false);
+      setDone(true);
+      setLayoutData(null);
+      onPackageRef.current?.(null);
+      return;
+    }
     setLoading(true);
     setDone(false);
     renderForm(instanceId, taskId, nodeKey)
