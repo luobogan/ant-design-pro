@@ -514,7 +514,7 @@ export async function getInstanceByBiz(formId: number, dataId: number) {
   return request<ApiResponse<any>>(`${WORKFLOW}/instance/by-biz`, { method: 'GET', params: { formId, dataId } });
 }
 
-export async function getLogs(id: number) {
+export async function getLogs(id: string | number) {
   return request<ApiResponse<any[]>>(`${WORKFLOW}/instance/${id}/logs`, { method: 'GET' });
 }
 
@@ -530,27 +530,27 @@ export async function listDone(assignee?: number) {
   return request<ApiResponse<any[]>>(`${WORKFLOW}/task/done`, { method: 'GET', params: { assignee } });
 }
 
-export async function approveTask(id: number, dto?: any) {
+export async function approveTask(id: string | number, dto?: any) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/task/${id}/approve`, { method: 'POST', data: dto });
 }
 
-export async function rejectTask(id: number, dto?: any) {
+export async function rejectTask(id: string | number, dto?: any) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/task/${id}/reject`, { method: 'POST', data: dto });
 }
 
-export async function forwardTask(id: number, dto: any) {
+export async function forwardTask(id: string | number, dto: any) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/task/${id}/forward`, { method: 'POST', data: dto });
 }
 
-export async function addSignTask(id: number, dto: any) {
+export async function addSignTask(id: string | number, dto: any) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/task/${id}/add-sign`, { method: 'POST', data: dto });
 }
 
-export async function circulateTask(id: number, dto: any) {
+export async function circulateTask(id: string | number, dto: any) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/task/${id}/circulate`, { method: 'POST', data: dto });
 }
 
-export async function urgeTask(id: number, dto?: any) {
+export async function urgeTask(id: string | number, dto?: any) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/task/${id}/urge`, { method: 'POST', data: dto });
 }
 

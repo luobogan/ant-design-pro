@@ -1,0 +1,27 @@
+/**
+ * 流程测试「流程图」页签：只读画布 + 测试结果标记。
+ *
+ * 标记类由 FlowDiagram 通过 canvas.addMarker 加到元素上，这里只负责着色：
+ *   wf-test-pass    走通  → 绿色描边
+ *   wf-test-fail    走不通 → 红色描边
+ *   wf-test-current 当前查看节点 → 蓝色虚线描边
+ */
+.wf-test-diagram .djs-element {
+  cursor: pointer;
+}
+
+.wf-test-diagram .djs-element.wf-test-pass .djs-visual > :nth-child(1) {
+  stroke: #52c41a !important;
+  stroke-width: 3px !important;
+}
+
+.wf-test-diagram .djs-element.wf-test-fail .djs-visual > :nth-child(1) {
+  stroke: #ff4d4f !important;
+  stroke-width: 3px !important;
+}
+
+.wf-test-diagram .djs-element.wf-test-current .djs-visual > :nth-child(1) {
+  stroke: #1677ff !important;
+  stroke-width: 3px !important;
+  stroke-dasharray: 6 4;
+}

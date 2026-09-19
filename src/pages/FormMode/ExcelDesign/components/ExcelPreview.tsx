@@ -1475,6 +1475,12 @@ interface ExcelPreviewProps {
    */
   standalone?: boolean;
   /**
+   * standalone 模式下隐藏自带头部（标题 + 视图模式/提交校验/打印/导出/关闭）。
+   * 用于把表单内容「嵌套」进外层容器（如流程测试页的流程表单面板），
+   * 由外层统一提供节点信息栏与操作按钮，避免出现两个头部。
+   */
+  hideHeader?: boolean;
+  /**
    * 提交校验回调（替代仅弹 message）：前端必填矩阵校验完成后回调，由调用方决策后续行为
    * （如再调服务端 POST /form/validate 复核、提交审批等）。
    *
@@ -1508,6 +1514,7 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
   title = '表单预览',
   readOnly = false,
   standalone = false,
+  hideHeader = false,
   nodePermission,
   onSubmit,
   initialValues,
@@ -1955,6 +1962,11 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
       </Button>
     </Space>
   );
+
+  // 嵌套模式：外层已提供头部/操作区，这里只渲染表单本身（供「流程表单面板」内嵌）
+  if (standalone && hideHeader) {
+    return <>{content}</>;
+  }
 
   // 独立页面模式：不套 Modal，全屏渲染（用于新标签页预览，避免打开空白页签）
   // 默认支持手机端适配：窄屏减少内边距、头部操作区自动换行，配合表格卡片横向滚动。

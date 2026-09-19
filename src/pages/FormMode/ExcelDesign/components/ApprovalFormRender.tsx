@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { App, Result, Spin } from 'antd';
 import ExcelPreview, { NodePermissionResolver } from './ExcelPreview';
 import { renderForm } from '@/services/workflow';
@@ -23,6 +23,10 @@ export interface ApprovalFormRenderProps {
   nodeKey?: string;
   /** 只读（默认 true：测试页仅展示） */
   readOnly?: boolean;
+  /** 隐藏 ExcelPreview 自带头部/操作栏，由外层统一提供节点栏与操作按钮（嵌套到「流程表单面板」时用） */
+  hideHeader?: boolean;
+  /** 渲染包加载完成回调：外层据此渲染「节点表单情况」栏与操作按钮 */
+  onPackage?: (pkg: any) => void;
 }
 
 const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
@@ -30,6 +34,8 @@ const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
   taskId,
   nodeKey,
   readOnly = true,
+  hideHeader = false,
+  onPackage,
 }) => {
   const [layoutData, setLayoutData] = useState<any>(null);
   const [nodePermission, setNodePermission] = useState<NodePermissionResolver | undefined>(undefined);
@@ -38,6 +44,10 @@ const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
   const [loading, setLoading] = useState(true);
   const [done, setDone] = useState(false);
   const { message } = App.useApp();
+
+  // onPackage 放进 ref：父组件常传内联箭头函数，若进 useEffect 依赖会每次重渲染都重拉渲染包
+  const onPackageRef = useRef<ApprovalFormRenderProps['onPackage']>(undefined);
+  onPackageRef.current = onPackage;
 
   useEffect(() => {
     let alive = true;
@@ -49,9 +59,11 @@ const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
         if (!alive) return;
         if (!pkg) {
           setLayoutData(null);
+          onPackageRef.current?.(null);
           return;
         }
         setPkgNodeKey(pkg.nodeKey);
+        onPackageRef.current?.(pkg);
         setValues(pkg.dataJson || {});
         try {
           setLayoutData(pkg.layoutJson ? JSON.parse(pkg.layoutJson) : null);
@@ -116,6 +128,7 @@ const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
       layoutData={layoutData}
       open
       standalone
+      hideHeader={hideHeader}
       readOnly={readOnly}
       nodeId={nodeKey || pkgNodeKey}
       nodePermission={nodePermission}
