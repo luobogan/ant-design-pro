@@ -20,6 +20,7 @@ import RichTextEditor, {
 } from '@/components/RichTextEditor';
 import ApprovalFormRender from '@/pages/FormMode/ExcelDesign/components/ApprovalFormRender';
 import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
+import { loadPersonOrgData } from '@/components/FormMode/personOrg';
 import { MENUS_OPTIONS } from '@/pages/FormMode/WorkflowDesign/wfDict';
 import {
   addSignTask,
@@ -71,6 +72,19 @@ const NODE_TYPE: Record<number, string> = {
 const NEED_EXTRA = ['forward', 'sign'];
 
 const menuLabel = (code: string) => MENUS_OPTIONS.find((o) => o.value === code)?.label || code;
+
+/** 流转动作（wf_approval_log.log_type，对齐 WfApprovalLog 常量）→ 展示文案 */
+const LOG_ACTION: Record<string, string> = {
+  '0': '通过',
+  '2': '提交',
+  '3': '退回',
+  '7': '转发',
+  '9': '批注',
+  'h': '转办',
+  's': '督办',
+  't': '抄送',
+  'y': '批示',
+};
 
 export interface FlowFormPanelProps {
   /** 19 位雪花实例 ID：务必保持字符串，转 number 会丢精度；预览模式（preview=true）下可省略 */
@@ -129,6 +143,15 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
   const [pkg, setPkg] = useState<any>(null);
   const [tab, setTab] = useState<'form' | 'diagram' | 'status'>('form');
   const [logs, setLogs] = useState<any[]>([]);
+  /** 操作人 id → 姓名（复用统一人员字典，模块级缓存，不额外发请求） */
+  const [userMap, setUserMap] = useState<Record<string, string>>({});
+  useEffect(() => {
+    loadPersonOrgData()
+      .then((d: any) =>
+        setUserMap(Object.fromEntries(((d?.users || []) as any[]).map((u) => [u.id, u.name]))),
+      )
+      .catch(() => {});
+  }, []);
   const [taskId, setTaskId] = useState<string | undefined>();
   const [acting, setActing] = useState(false);
   const [opinion, setOpinion] = useState('');
@@ -441,6 +464,60 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
                       />
                     </div>
                   )}
+                  {/* 流转意见：本实例全部节点的审批/流转记录。
+                      切到下一节点（或归档节点）后即能看到上一节点的流转意见（对齐 ecology 处理页）。 */}
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>流转意见</div>
+                    <Timeline
+                      items={
+                        logs.length === 0
+                          ? [
+                              {
+                                children: (
+                                  <Typography.Text type="secondary">暂无流转记录</Typography.Text>
+                                ),
+                              },
+                            ]
+                          : logs.map((l: any) => ({
+                              children: (
+                                <div style={{ fontSize: 12 }}>
+                                  <Space size={6} wrap>
+                                    <Typography.Text strong>
+                                      {String(l.operator) === '0'
+                                        ? '系统'
+                                        : userMap[String(l.operator)] || l.operator || '-'}
+                                    </Typography.Text>
+                                    <Tag
+                                      color={
+                                        l.logType === '2'
+                                          ? 'blue'
+                                          : l.logType === '0'
+                                            ? 'green'
+                                            : 'default'
+                                      }
+                                      style={{ marginInlineEnd: 0 }}
+                                    >
+                                      {LOG_ACTION[String(l.logType)] || l.logType || '-'}
+                                    </Tag>
+                                    <Typography.Text>{l.nodeName || l.nodeKey || '-'}</Typography.Text>
+                                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                      {l.operateTime || ''}
+                                    </Typography.Text>
+                                  </Space>
+                                  {l.opinion ? (
+                                    <div style={{ marginTop: 2 }}>
+                                      <RichTextView
+                                        html={l.opinion}
+                                        style={{ fontSize: 12, color: '#555' }}
+                                      />
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ),
+                            }))
+                      }
+                    />
+                  </div>
                 </div>
               ),
             },

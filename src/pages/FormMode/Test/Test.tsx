@@ -329,7 +329,11 @@ const WorkflowTestPage: React.FC = () => {
         message.error(res?.msg || '流程测试失败');
         return;
       }
-      setResult(res?.data || null);
+      const d: WfTestResult | null = res?.data || null;
+      setResult(d);
+      // 一键测试跑完即到归档：面板切到归档节点，便于查看最终状态与流转意见
+      followRef.current = true;
+      syncViewNode(d);
       loadHistory();
       message.success('测试完成');
     } catch (e: any) {
@@ -435,25 +439,46 @@ const WorkflowTestPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defId, testUserId]);
 
+  /**
+   * 统一按测试结果切换「查看节点」：
+   *  · 运行中 → 切到实例当前（待办）节点；
+   *  · 已归档（后端会把 currentNodeKey 清空）→ 切到归档节点（nodeType=3），
+   *    否则面板会停在最后一个办理节点，看起来「审批完没有跳转归档」；
+   *  · 两者都没有 → 交给 defaultNodeKey 兜底。
+   */
+  const syncViewNode = (d: WfTestResult | null | undefined) => {
+    if (!d) return;
+    if (d.currentNodeKey) {
+      setViewNodeKey(d.currentNodeKey);
+      return;
+    }
+    const archived = (d.nodes || []).find((n: any) => n.nodeType === 3);
+    setViewNodeKey(archived?.nodeKey);
+  };
+
   /** 单步推进（自动循环 与 手动「提交」共用）；失败时抛出便于调用方提示 */
-  const doStep = async (opinion?: string, formData?: Record<string, any>, instIdOverride?: any) => {
+  const doStep = async (
+    opinion?: string,
+    formData?: Record<string, any>,
+    instIdOverride?: any,
+    formNodeKey?: string,
+  ) => {
     const instId = instIdOverride ?? result?.instId;
     if (!instId) {
       message.warning('请先点「开始自动测试」发起并推进测试实例');
       return null;
     }
-    const res: any = await stepWorkflowTest({ instId, opinion, formData });
+    // formNodeKey：本表单值来自哪个节点 → 后端按该节点布局校验必填（避免跨节点校验死锁）
+    const res: any = await stepWorkflowTest({ instId, opinion, formData, formNodeKey });
     if (res?.success === false) {
       throw new Error(res?.msg || '推进失败');
     }
     const data: WfTestResult | null = res?.data || null;
     setResult(data);
-    // 提交成功＝流程已推进：恢复「自动跟随」并切到新的当前节点
-    // （从开始节点提交 → 自动跳到首个待办节点，继续下一个节点测试）
+    // 提交成功＝流程已推进：恢复「自动跟随」并切到「当前节点 / 归档节点」
+    // （从开始节点提交 → 跳到首个待办节点；最后一个节点办结 → 跳到归档节点）
     followRef.current = true;
-    if (data?.currentNodeKey) {
-      setViewNodeKey(data.currentNodeKey);
-    }
+    syncViewNode(data);
     // 每次办理后强制面板重取渲染包/审批记录
     setFormKey((k) => k + 1);
     return data;
@@ -529,7 +554,8 @@ const WorkflowTestPage: React.FC = () => {
   const manualStep = async (payload: { opinion?: string; formData?: Record<string, any> }) => {
     setStepping(true);
     try {
-      const data = await doStep(payload?.opinion, payload?.formData);
+      // 带上「当前查看/填写的节点」：后端按这份布局校验必填（而不是固定按待办节点校验）
+      const data = await doStep(payload?.opinion, payload?.formData, undefined, effectiveNodeKey);
       if (data?.instanceStatus != null && data.instanceStatus !== 0) {
         message.success(`测试结束：${data.summary || ''}`);
         loadHistory();

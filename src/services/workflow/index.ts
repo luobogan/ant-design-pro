@@ -778,7 +778,12 @@ export async function runWorkflowTest(dto: {
   /** 按网关分支反推变量取值、为每个分支额外真跑一次，覆盖到每条出口 */
   coverBranches?: boolean;
 }) {
-  return request<ApiResponse<WfTestResult>>(`${WORKFLOW}/test/run`, { method: 'POST', data: dto });
+  // skipErrorHandler：错误由测试页自身 try-catch 提示（否则请求层与页面会各弹一条，出现重复提示）
+  return request<ApiResponse<WfTestResult>>(`${WORKFLOW}/test/run`, {
+    method: 'POST',
+    data: dto,
+    skipErrorHandler: true,
+  });
 }
 
 /**
@@ -793,7 +798,12 @@ export async function startWorkflowTest(dto: {
   testUserName?: string;
   formData?: Record<string, any>;
 }) {
-  return request<ApiResponse<WfTestResult>>(`${WORKFLOW}/test/start`, { method: 'POST', data: dto });
+  // skipErrorHandler：错误由测试页自身 try-catch 提示（避免请求层与页面各弹一条）
+  return request<ApiResponse<WfTestResult>>(`${WORKFLOW}/test/start`, {
+    method: 'POST',
+    data: dto,
+    skipErrorHandler: true,
+  });
 }
 
 /**
@@ -807,8 +817,18 @@ export async function stepWorkflowTest(dto: {
   instId: any;
   opinion?: string;
   formData?: Record<string, any>;
+  /**
+   * 本次提交表单值所属的节点 Key（＝右侧表单当前所在节点）。
+   * 后端按该节点的布局校验必填，避免「用开始节点表单的值去校验其它节点的必填」造成提交死锁。
+   */
+  formNodeKey?: string;
 }) {
-  return request<ApiResponse<WfTestResult>>(`${WORKFLOW}/test/step`, { method: 'POST', data: dto });
+  // skipErrorHandler：错误由测试页自身 try-catch 提示（避免请求层与页面各弹一条，出现「同一提示弹两次」）
+  return request<ApiResponse<WfTestResult>>(`${WORKFLOW}/test/step`, {
+    method: 'POST',
+    data: dto,
+    skipErrorHandler: true,
+  });
 }
 
 /** 交互式测试-查询状态（当前节点 / 待办 / 节点经过次数 / 出口覆盖 / 逐行日志） */

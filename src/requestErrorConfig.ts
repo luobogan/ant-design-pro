@@ -225,6 +225,26 @@ export const errorConfig: RequestConfig = {
     },
     // 错误接收及处理
     errorHandler: (error: any, opts: any) => {
+      // ① 先把后端业务提示挂到 error 上（供上层 try-catch 读取），与是否弹全局提示无关：
+      //    否则调用方声明了 skipErrorHandler 时，上层只能拿到 axios 的
+      //    「Request failed with status code 400」，看不到真正的业务原因（如必填缺失字段）。
+      if (error?.response) {
+        // error.response 有两种形态：① 真正的 axios 响应（body 在 .data）；② 业务代码抛错时挂的响应体本体
+        const resp: any = error.response;
+        const inner: any = resp?.data;
+        const bizMsg: string | undefined =
+          (inner && typeof inner !== 'string'
+            ? inner.msg || inner.message || inner.errorMessage
+            : undefined) ||
+          resp?.msg ||
+          resp?.message ||
+          resp?.errorMessage;
+        if (bizMsg && !error.msg) {
+          error.msg = bizMsg;
+          error.message = bizMsg;
+        }
+      }
+      // ② 调用方声明「自行处理错误」→ 不弹全局提示（避免与页面内的提示重复弹两条一样的）
       if (opts?.skipErrorHandler) throw error;
       // 我们的 errorThrower 抛出的错误。
       if (error.name === 'BizError') {
@@ -258,25 +278,13 @@ export const errorConfig: RequestConfig = {
           }
         }
       } else if (error.response) {
-        // Axios 的错误：请求已发出且服务器有响应，但状态码超出 2xx（如后端业务异常返回 400/500）。
-        // 优先展示响应 body 里的业务提示（后端 R.fail 的 msg，如「开始节点【X】表单必填未填： 申请单号(field_1)」），
-        // 否则再退化为通用 `Response status:xxx`——避免用户只看到一个 400、不知道到底哪里错了。
-        // error.response 有两种形态：① 真正的 axios 响应（body 在 .data）；② 业务代码抛错时挂的响应体本体
-        const resp: any = error.response;
-        const inner: any = resp?.data;
-        const bizMsg: string | undefined =
-          (inner && typeof inner !== 'string'
-            ? inner.msg || inner.message || inner.errorMessage
-            : undefined) ||
-          resp?.msg ||
-          resp?.message ||
-          resp?.errorMessage;
+        // Axios 错误：业务提示已在 ① 统一提取到 error.msg，这里优先展示它，
+        // 否则退化为通用 `Response status:xxx`（避免用户只看到 400、不知道到底哪里错了）。
+        const bizMsg: string | undefined = error.msg;
         if (bizMsg) {
-          // 把业务提示挂到 error 上，供上层 try-catch 读取（如测试页据此识别「必填」并展示暂停提示条）
-          error.msg = bizMsg;
-          error.message = bizMsg;
           message.error(bizMsg);
         } else {
+          const resp: any = error.response;
           message.error(
             resp?.status ? `Response status:${resp.status}` : error.message || '请求失败，请重试',
           );
