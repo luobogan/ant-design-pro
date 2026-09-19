@@ -211,12 +211,15 @@ export const errorConfig: RequestConfig = {
   errorConfig: {
     // 错误抛出
     errorThrower: (res) => {
-      const { success, data, errorCode, errorMessage, showType } =
-        res as unknown as ResponseStructure;
+      const { success, data, errorCode, errorMessage, errorMsg, msg, showType } = res as any;
       if (!success) {
-        const error: any = new Error(errorMessage);
+        // 后端 R.fail 的提示字段是 `msg`；这里必须兼容读取，否则会抛出 message 为空的
+        // Error → 用户只看到空白/无意义的提示，看不到真正原因（如必填缺失字段）。
+        const text = errorMessage || errorMsg || msg || '请求失败！';
+        const error: any = new Error(text);
         error.name = 'BizError';
-        error.info = { errorCode, errorMessage, showType, data };
+        error.msg = text;
+        error.info = { errorCode, errorMessage: text, showType, data };
         throw error; // 抛出自制的错误
       }
     },
@@ -227,7 +230,10 @@ export const errorConfig: RequestConfig = {
       if (error.name === 'BizError') {
         const errorInfo: ResponseStructure | undefined = error.info;
         if (errorInfo) {
-          const { errorMessage, errorCode } = errorInfo;
+          const { errorCode } = errorInfo;
+          // 兼容后端 R.fail 的 `msg` 字段；再兜底用 error.message，避免弹出空白提示
+          const errorMessage: string =
+            (errorInfo as any).errorMessage || error.message || (error as any).msg || '请求失败';
           switch (errorInfo.showType) {
             case ErrorShowType.SILENT:
               // do nothing
@@ -252,9 +258,29 @@ export const errorConfig: RequestConfig = {
           }
         }
       } else if (error.response) {
-        // Axios 的错误
-        // 请求成功发出且服务器也响应了状态码，但状态代码超出了 2xx 的范围
-        message.error(`Response status:${error.response.status}`);
+        // Axios 的错误：请求已发出且服务器有响应，但状态码超出 2xx（如后端业务异常返回 400/500）。
+        // 优先展示响应 body 里的业务提示（后端 R.fail 的 msg，如「开始节点【X】表单必填未填： 申请单号(field_1)」），
+        // 否则再退化为通用 `Response status:xxx`——避免用户只看到一个 400、不知道到底哪里错了。
+        // error.response 有两种形态：① 真正的 axios 响应（body 在 .data）；② 业务代码抛错时挂的响应体本体
+        const resp: any = error.response;
+        const inner: any = resp?.data;
+        const bizMsg: string | undefined =
+          (inner && typeof inner !== 'string'
+            ? inner.msg || inner.message || inner.errorMessage
+            : undefined) ||
+          resp?.msg ||
+          resp?.message ||
+          resp?.errorMessage;
+        if (bizMsg) {
+          // 把业务提示挂到 error 上，供上层 try-catch 读取（如测试页据此识别「必填」并展示暂停提示条）
+          error.msg = bizMsg;
+          error.message = bizMsg;
+          message.error(bizMsg);
+        } else {
+          message.error(
+            resp?.status ? `Response status:${resp.status}` : error.message || '请求失败，请重试',
+          );
+        }
       } else if (error.request) {
         // 请求已经成功发起，但没有收到响应
         // \`error.request\` 在浏览器中是 XMLHttpRequest 的实例，
@@ -562,7 +588,13 @@ export const errorConfig: RequestConfig = {
     const { response } = error;
     if (response && response.data) {
       const { status, statusText } = response;
-      const errortext = codeMessage[status] || statusText;
+      // 优先展示后端 body 的业务 msg（如必填缺失字段），无则退化为通用状态码文案
+      const respData: any = response.data;
+      const bizMsg: string | undefined =
+        (typeof respData === 'string' ? undefined : respData?.msg) ||
+        respData?.message ||
+        respData?.errorMessage;
+      const errortext = bizMsg || codeMessage[status] || statusText;
       console.error(`请求错误 ${status}: ${errortext}`);
       // 显示错误消息
       message.error(errortext);

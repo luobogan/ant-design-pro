@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { App, Result, Spin } from 'antd';
 import ExcelPreview, { NodePermissionResolver } from './ExcelPreview';
-import { renderForm } from '@/services/workflow';
+import { renderForm, renderFormPreview } from '@/services/workflow';
 
 /**
  * 审批态「真实流程表单」渲染（可内嵌）
@@ -32,6 +32,12 @@ export interface ApprovalFormRenderProps {
    * 用于流程测试页「手动测试」——提交时把用户改过的值作为流程变量下发引擎。
    */
   onValuesChange?: (values: Record<string, any>) => void;
+  /**
+   * 预览模式（无需实例）：传入流程定义ID + 表单ID 即可渲染该节点的流程表单布局，
+   * 不创建测试实例；与 `instanceId` 互斥。用于测试页「选好流程/发起人即打开表单查看」。
+   */
+  previewDefId?: number | string;
+  previewFormId?: number | string;
 }
 
 const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
@@ -42,6 +48,8 @@ const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
   hideHeader = false,
   onPackage,
   onValuesChange,
+  previewDefId,
+  previewFormId,
 }) => {
   const [layoutData, setLayoutData] = useState<any>(null);
   const [nodePermission, setNodePermission] = useState<NodePermissionResolver | undefined>(undefined);
@@ -55,8 +63,69 @@ const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
   const onPackageRef = useRef<ApprovalFormRenderProps['onPackage']>(undefined);
   onPackageRef.current = onPackage;
 
+  const isPreview = previewDefId != null && previewFormId != null;
+
   useEffect(() => {
     let alive = true;
+    // 把渲染包转换成组件状态（render 与 preview 共用同一套解析逻辑）
+    const applyPkg = (res: any) => {
+      const pkg = res?.data;
+      if (!alive) return;
+      if (!pkg) {
+        setLayoutData(null);
+        onPackageRef.current?.(null);
+        return;
+      }
+      setPkgNodeKey(pkg.nodeKey);
+      onPackageRef.current?.(pkg);
+      setValues(pkg.dataJson || {});
+      try {
+        setLayoutData(pkg.layoutJson ? JSON.parse(pkg.layoutJson) : null);
+      } catch {
+        setLayoutData(null);
+      }
+      // 构建节点权限解析器：B5 行级按「scope|field」登记，解析时 dt{idx}_r{row} → dt{idx} → main 回退
+      const permByScopeField = new Map<string, number>();
+      (pkg.fieldPerms || []).forEach((p: any) => {
+        permByScopeField.set(`${p.scope || 'main'}|${p.fieldName}`, p.perm);
+      });
+      const scopeChain = (scope?: string): string[] => {
+        const s = scope || 'main';
+        if (/^dt\d+_r\d+$/.test(s)) return [s, s.replace(/_r\d+$/, ''), 'main'];
+        if (/^dt\d+$/.test(s)) return [s, 'main'];
+        return ['main'];
+      };
+      setNodePermission(() => (fieldName: string, scope?: string) => {
+        for (const sc of scopeChain(scope)) {
+          const perm = permByScopeField.get(`${sc}|${fieldName}`);
+          if (perm != null) {
+            return { readonly: perm === 1, required: perm === 3, hidden: perm === 0 };
+          }
+        }
+        return undefined;
+      });
+    };
+
+    // 预览模式：按 流程定义 + 表单 + 节点 取布局，不创建实例
+    if (isPreview) {
+      setLoading(true);
+      setDone(false);
+      renderFormPreview(previewDefId as any, previewFormId as any, nodeKey)
+        .then(applyPkg)
+        .catch(() => {
+          if (alive) setLayoutData(null);
+        })
+        .finally(() => {
+          if (alive) {
+            setLoading(false);
+            setDone(true);
+          }
+        });
+      return () => {
+        alive = false;
+      };
+    }
+
     // 无效实例 ID（-1 / 0 / 空）不发起渲染请求：避免后端因「实例不存在」抛业务异常，
     // 被框架（BladeRestExceptionTranslator 对 ServiceException 标 BAD_REQUEST）映射为 HTTP 400 噪音。
     if (instanceId == null || Number(instanceId) <= 0) {
@@ -69,43 +138,7 @@ const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
     setLoading(true);
     setDone(false);
     renderForm(instanceId, taskId, nodeKey)
-      .then((res: any) => {
-        const pkg = res?.data;
-        if (!alive) return;
-        if (!pkg) {
-          setLayoutData(null);
-          onPackageRef.current?.(null);
-          return;
-        }
-        setPkgNodeKey(pkg.nodeKey);
-        onPackageRef.current?.(pkg);
-        setValues(pkg.dataJson || {});
-        try {
-          setLayoutData(pkg.layoutJson ? JSON.parse(pkg.layoutJson) : null);
-        } catch {
-          setLayoutData(null);
-        }
-        // 构建节点权限解析器：B5 行级按「scope|field」登记，解析时 dt{idx}_r{row} → dt{idx} → main 回退
-        const permByScopeField = new Map<string, number>();
-        (pkg.fieldPerms || []).forEach((p: any) => {
-          permByScopeField.set(`${p.scope || 'main'}|${p.fieldName}`, p.perm);
-        });
-        const scopeChain = (scope?: string): string[] => {
-          const s = scope || 'main';
-          if (/^dt\d+_r\d+$/.test(s)) return [s, s.replace(/_r\d+$/, ''), 'main'];
-          if (/^dt\d+$/.test(s)) return [s, 'main'];
-          return ['main'];
-        };
-        setNodePermission(() => (fieldName: string, scope?: string) => {
-          for (const sc of scopeChain(scope)) {
-            const perm = permByScopeField.get(`${sc}|${fieldName}`);
-            if (perm != null) {
-              return { readonly: perm === 1, required: perm === 3, hidden: perm === 0 };
-            }
-          }
-          return undefined;
-        });
-      })
+      .then(applyPkg)
       .catch(() => {
         if (alive) setLayoutData(null);
       })
@@ -118,7 +151,7 @@ const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
     return () => {
       alive = false;
     };
-  }, [instanceId, taskId, nodeKey]);
+  }, [instanceId, taskId, nodeKey, isPreview, previewDefId, previewFormId]);
 
   if (loading || !done) {
     return (

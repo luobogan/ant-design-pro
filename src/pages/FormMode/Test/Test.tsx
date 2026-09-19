@@ -20,12 +20,14 @@ import {
   message,
 } from 'antd';
 import FlowFormPanel from '@/pages/FormMode/Test/components/FlowFormPanel';
-import NewTestFlowModal from '@/pages/FormMode/Test/components/NewTestFlowModal';
+import TestFlowPicker from '@/pages/FormMode/Test/components/TestFlowPicker';
 import {
   cleanupWorkflowTest,
   getBpmn,
   getWorkflowTest,
   listDefinitions,
+  listLinks,
+  listNodes,
   listWorkflowTest,
   removeWorkflowTest,
   runWorkflowTest,
@@ -35,7 +37,6 @@ import {
   WfTestLogItem,
   WfTestResult,
 } from '@/services/workflow';
-import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
 import { dataApi } from '@/services/formmode';
 import type { FieldDefinition } from '@/services/formmode';
 import FieldRenderer from '@/pages/FormMode/FormView/components/FieldRenderer';
@@ -97,23 +98,31 @@ const WorkflowTestPage: React.FC = () => {
   /** 路径类型（流程分类）字典：value=类型id，label=类型名称（对齐 ecology path_type） */
   const [wfTypes, setWfTypes] = useState<any[]>([]);
   const [defId, setDefId] = useState<any>(undefined);
-  const [modalOpen, setModalOpen] = useState(false);
   const [testUserId, setTestUserId] = useState<any>(undefined);
   const [coverBranches, setCoverBranches] = useState<boolean>(true);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<WfTestResult | null>(null);
   const [history, setHistory] = useState<WfTestLogItem[]>([]);
   const [logView, setLogView] = useState<{ title: string; content: string } | null>(null);
+  /** 设计态节点/出口（选流程即从 definition 拉取，无需测试实例即可渲染面板） */
+  const [designNodes, setDesignNodes] = useState<any[]>([]);
+  const [designLinks, setDesignLinks] = useState<any[]>([]);
+  /** 运行测试时这两份被 result.nodes/links 覆盖；未跑测试时用设计态数据渲染 */
+  const viewNodes = result?.nodes || designNodes;
+  const viewLinks = result?.links || designLinks;
 
-  // 测试实例会被自动审批到归档，渲染包默认取"当前(结束)节点"→ 看不到开始节点布局。
-  // 这里默认选「开始」节点（类型 0），并提供下拉切换查看各节点布局。
-  const startNodeKey = useMemo(() => {
-    const ns: any[] = result?.nodes || [];
-    const start = ns.find((n) => n.nodeType === 0) || ns[0];
-    return start?.nodeKey;
-  }, [result]);
+  // 默认查看节点＝「开始节点（申请人）」表单：对齐真实「发起流程」——先填申请人表单，再点「提交」推进。
+  // 注意：开始节点在 instanceService.start 时已被引擎自动完成、不生成待办，所以它不是「当前(待办)节点」，
+  // 但它是测试的起点表单；在此填值提交，后端 step() 会以提交值做开始节点必填校验并推进实例。
+  // 用户用「查看节点」下拉手动选过之后（viewNodeKey 非空）不再自动切换。
+  const defaultNodeKey = useMemo(() => {
+    const ns: any[] = viewNodes || [];
+    if (!ns.length) return undefined;
+    return (ns.find((n) => n.nodeType === 0) || ns[0])?.nodeKey;
+  }, [viewNodes]);
   const [viewNodeKey, setViewNodeKey] = useState<string | undefined>();
-  const effectiveNodeKey = viewNodeKey ?? startNodeKey;
+  // 用 ||（而非 ??）：实例归档后 currentNodeKey 会被清成空串，空串也要回退到默认节点
+  const effectiveNodeKey = viewNodeKey || defaultNodeKey;
   // 办理（提交/退回/…）成功后自增，强制流程表单面板重新拉取渲染包/审批记录
   const [formKey, setFormKey] = useState(0);
 
@@ -125,6 +134,12 @@ const WorkflowTestPage: React.FC = () => {
   const [stepping, setStepping] = useState(false);
   /** 右侧面板是否自动跟随「当前节点」（用户手动选过节点后置 false） */
   const followRef = useRef(true);
+  /** 「开始自动测试」因必填被拦截而暂停时的提示（非空即展示暂停提示条） */
+  const [startBlockMsg, setStartBlockMsg] = useState<string | null>(null);
+  /** 因必填暂停：用户手动提交补齐后自动继续自动测试 */
+  const resumeAutoRef = useRef(false);
+  /** 入口确认「流程+发起人」后自动发起实例的防重标记（key = defId|testUserId） */
+  const entryStartRef = useRef<string>('');
 
   const [form] = Form.useForm();
   const [formFields, setFormFields] = useState<FieldDefinition[]>([]);
@@ -248,13 +263,17 @@ const WorkflowTestPage: React.FC = () => {
     loadHistory();
   }, []);
 
-  /** 弹窗里点流程即创建测试：选中 defId 并关闭弹窗（测试配置卡随之绑定该流程） */
-  const pickDef = (id: any) => {
+  /**
+   * 选中流程并确认测试发起人（TestFlowPicker 内点流程后弹出人员选择）：
+   * 两者齐备即进入测试界面，不自动发起任何测试实例。
+   */
+  const pickDef = (id: any, userId?: any) => {
     setDefId(id);
-    setModalOpen(false);
+    if (userId != null && userId !== '') setTestUserId(userId);
     const d = activeDefs.find((x: any) => String(x.id) === String(id));
     message.success(
-      `已选择：${d?.name || d?.procKey}（v${d?.version ?? '-'}），请配置测试发起人后点「开始测试」`,
+      `已选择：${d?.name || d?.procKey}（v${d?.version ?? '-'}）` +
+        (userId ? '，测试发起人已确定，可开始测试' : '，请选择测试发起人后点「开始自动测试」'),
     );
   };
 
@@ -262,15 +281,28 @@ const WorkflowTestPage: React.FC = () => {
     setResult(null);
     form.resetFields();
     setFormFields([]);
+    setViewNodeKey(undefined);
     if (defId) {
       loadFields();
       loadHistory();
       loadBpmn(defId);
+      // 设计态节点/出口：选流程即加载，无需测试实例即可渲染面板与表单预览
+      listNodes(defId as any)
+        .then((r: any) => setDesignNodes(r?.data || []))
+        .catch(() => setDesignNodes([]));
+      listLinks(defId as any)
+        .then((r: any) => setDesignLinks(r?.data || []))
+        .catch(() => setDesignLinks([]));
     } else {
       setBpmnXml(undefined);
+      setDesignNodes([]);
+      setDesignLinks([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defId]);
+
+  // 选好流程与发起人后不再自动发起测试实例（避免「一选测试人就开始跑测试」）。
+  // 面板改为用设计态数据直接渲染：左侧「节点与出口」、右侧「节点审批情况 + 流程表单（预览）」。
 
   /** 运行测试：表单字段值作为流程变量下发引擎，驱动网关按真实条件选分支 */
   const run = async () => {
@@ -313,53 +345,101 @@ const WorkflowTestPage: React.FC = () => {
     setViewNodeKey(k);
   };
 
-  /** 发起交互式测试：真实发起测试态实例但「不自动推进」（对齐 ecology「开始测试」） */
-  const startTest = async () => {
+  /**
+   * 发起交互式测试：真实发起测试态实例但「不自动推进」。
+   * silent=true 供「选好流程+发起人后自动加载面板」使用：不弹错误、不强制顶层表单校验（允许空表单先发起）。
+   */
+  const startTest = async (silent = false): Promise<WfTestResult | null> => {
     if (!defId) {
-      message.warning('请选择流程');
-      return;
+      if (!silent) message.warning('请选择流程');
+      return null;
     }
     if (!testUserId) {
-      message.warning('请选择测试发起人');
-      return;
+      if (!silent) message.warning('请选择测试发起人');
+      return null;
     }
     let formData: Record<string, any> = {};
     if (formId) {
-      try {
-        formData = await form.validateFields();
-      } catch {
-        return;
+      if (silent) {
+        formData = form.getFieldsValue();
+      } else {
+        try {
+          formData = await form.validateFields();
+        } catch {
+          return null;
+        }
       }
     }
     setLoading(true);
     try {
       const res: any = await startWorkflowTest({ defId, testUserId, formData });
       if (res?.success === false) {
+        // 失败一律提示（含入口静默发起）：否则用户只看到请求失败、不知道原因（如开始节点必填缺失）
         message.error(res?.msg || '发起测试失败');
-        return;
+        return null;
       }
       const data: WfTestResult | null = res?.data || null;
       followRef.current = true;
       setResult(data);
-      setViewNodeKey(data?.currentNodeKey);
+      // 发起/重新发起后回到「开始节点（申请人）」表单（defaultNodeKey），不直接跳到当前待办节点：
+      // 对齐真实发起流程——先从申请人表单开始填写，提交后再自动跟随到新的当前节点。
+      setViewNodeKey(undefined);
       loadHistory();
       if (data?.instId) {
-        message.success('测试已发起：可「开始自动测试」，或在右侧表单点「提交」逐节点手动测试');
-      } else {
+        if (!silent) message.success('测试实例已发起，可「开始自动测试」或手动提交');
+      } else if (!silent) {
         message.warning(data?.summary || '预校验未通过，无法发起测试');
       }
+      return data;
     } catch (e: any) {
+      // 同上传：失败必定提示原因（后端 R.fail 的 msg 已由请求层挂到 error.msg）
       message.error(e?.msg || '发起测试失败');
+      return null;
     } finally {
       setLoading(false);
     }
   };
 
+  /**
+   * 「重新发起测试」：按当前「测试表单」的值重新创建一个测试态实例（停在首个待办，不自动推进）。
+   * 用于补填/修改了测试表单值、或想重来一次时，把右侧真实实例表单刷新出来。
+   */
+  const restartTest = async () => {
+    if (!defId || !testUserId) {
+      message.warning('请先选择流程与测试发起人');
+      return;
+    }
+    if (autoRunning) return;
+    const d = await startTest();
+    if (d?.instId) {
+      message.success('已重新发起测试实例（停在首个待办，可手动提交）');
+    }
+  };
+
+  /**
+   * 入口确认「流程 + 发起人」后自动创建一个测试实例（用 ref 防重复）：
+   * 实例创建后停在首个待办、**不自动推进**，右侧面板即以「真实实例表单」打开，可填写/提交/签字意见。
+   */
+  useEffect(() => {
+    if (!defId || !testUserId) return;
+    const key = `${defId}|${testUserId}`;
+    if (entryStartRef.current === key) return;
+    entryStartRef.current = key;
+    startTest(true).then((d) => {
+      if (!d?.instId) {
+        // 失败原因已由 startTest 内的 message.error 提示（含后端 msg）；
+        // 这里只解除防重标记，允许补齐后点「重新发起测试」重试。
+        entryStartRef.current = '';
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defId, testUserId]);
+
   /** 单步推进（自动循环 与 手动「提交」共用）；失败时抛出便于调用方提示 */
-  const doStep = async (opinion?: string, formData?: Record<string, any>) => {
-    const instId = result?.instId;
+  const doStep = async (opinion?: string, formData?: Record<string, any>, instIdOverride?: any) => {
+    const instId = instIdOverride ?? result?.instId;
     if (!instId) {
-      message.warning('请先「开始测试」发起测试实例');
+      message.warning('请先点「开始自动测试」发起并推进测试实例');
       return null;
     }
     const res: any = await stepWorkflowTest({ instId, opinion, formData });
@@ -368,7 +448,10 @@ const WorkflowTestPage: React.FC = () => {
     }
     const data: WfTestResult | null = res?.data || null;
     setResult(data);
-    if (followRef.current && data?.currentNodeKey) {
+    // 提交成功＝流程已推进：恢复「自动跟随」并切到新的当前节点
+    // （从开始节点提交 → 自动跳到首个待办节点，继续下一个节点测试）
+    followRef.current = true;
+    if (data?.currentNodeKey) {
       setViewNodeKey(data.currentNodeKey);
     }
     // 每次办理后强制面板重取渲染包/审批记录
@@ -381,16 +464,26 @@ const WorkflowTestPage: React.FC = () => {
     setAutoRunning(false);
   };
 
-  /** 开始自动测试：逐节点提交直到归档/中断；点「暂停」随时停止 */
+  /** 开始自动测试：一键发起测试实例并自动逐节点提交直到归档/中断；点「暂停」随时停止 */
   const startAuto = async () => {
-    if (!result?.instId) {
-      message.warning('请先「开始测试」发起测试实例');
+    if (!defId || !testUserId) {
+      message.warning('请先选择流程与测试发起人');
       return;
     }
-    if (result?.instanceStatus != null && result.instanceStatus !== 0) {
-      message.info('该测试已结束，无法继续自动测试');
+    if (autoRunning) {
       return;
     }
+    // 尚未发起实例，或上一次测试已结束 → 先发起全新测试态实例，再自动逐节点推进
+    let instId: any = result?.instId;
+    if (!instId || (result?.instanceStatus ?? 0) !== 0) {
+      const started = await startTest();
+      if (!started?.instId) {
+        return;
+      }
+      instId = started.instId;
+    }
+    setStartBlockMsg(null);
+    resumeAutoRef.current = false;
     autoRef.current = true;
     setAutoRunning(true);
     try {
@@ -399,16 +492,28 @@ const WorkflowTestPage: React.FC = () => {
         guard += 1;
         let data: WfTestResult | null = null;
         try {
-          data = await doStep();
+          data = await doStep(undefined, undefined, instId);
         } catch (e: any) {
-          // 必填未填 / 推进失败：停止自动测试并提示（对齐 ecology：提交失败即暂停）
-          message.error(e?.msg || e?.message || '自动测试中断');
+          const msg = e?.msg || e?.message || '自动测试中断';
+          // 开始节点（或权限矩阵）必填未填 → 暂停并提示补填，用户手动提交后自动继续
+          // （对齐 ecology「必填阻塞」：提示补填而不是直接报错中断）
+          if (/必填/.test(msg)) {
+            resumeAutoRef.current = true;
+            setStartBlockMsg(msg);
+            message.warning('存在必填项未填写，测试已暂停：请在右侧表单补齐后点「提交」');
+          } else {
+            message.error(msg);
+          }
           break;
         }
+        setStartBlockMsg(null);
         if (!data?.instId) break;
         if (data.instanceStatus != null && data.instanceStatus !== 0) {
           message.success(`自动测试结束：${data.summary || ''}`);
           break;
+        }
+        if (data.instId) {
+          instId = data.instId;
         }
         if (!data.hasPending) break;
         // 稍作停顿，便于观察逐节点推进
@@ -431,6 +536,12 @@ const WorkflowTestPage: React.FC = () => {
       } else if (data) {
         message.success(`已提交，当前节点：${data.currentNodeName || '-'}`);
       }
+      // 因必填暂停的自动测试：手动补齐并提交成功后，自动继续推进
+      if (resumeAutoRef.current && data?.instanceStatus === 0) {
+        resumeAutoRef.current = false;
+        setStartBlockMsg(null);
+        startAuto();
+      }
     } catch (e: any) {
       message.error(e?.msg || e?.message || '提交失败');
     } finally {
@@ -452,6 +563,7 @@ const WorkflowTestPage: React.FC = () => {
             return;
           }
           message.success(`已清理 ${res?.data ?? 0} 条测试实例`);
+          setResult(null);
         } catch (e: any) {
           message.error(e?.msg || '清理失败');
         }
@@ -494,9 +606,9 @@ const WorkflowTestPage: React.FC = () => {
 
   // 按出口线条顺序对「节点」排序：开始(0) 最前、结束(3) 最后，中间沿 from→to 链路展开
   const sortedNodes = useMemo(() => {
-    const ns: any[] = result?.nodes || [];
+    const ns: any[] = viewNodes || [];
     if (ns.length === 0) return [];
-    const links: any[] = result?.links || [];
+    const links: any[] = viewLinks || [];
     const nodeMap = new Map(ns.map((n) => [n.nodeKey, n]));
     const incoming = new Map<string, number>();
     const outMap = new Map<string, string[]>();
@@ -527,7 +639,7 @@ const WorkflowTestPage: React.FC = () => {
       }
     });
     return order.map((k) => nodeMap.get(k)).filter(Boolean);
-  }, [result]);
+  }, [viewNodes, viewLinks]);
 
   /** 左侧节点列表：全部 / 仅已走过（经过次数>0） */
   const leftNodes = useMemo(
@@ -572,6 +684,15 @@ const WorkflowTestPage: React.FC = () => {
     { title: '覆盖', dataIndex: 'status', render: (v: number) => linkStatusTag(v) },
   ];
 
+  // 面板标签：有测试实例时显示「已走/总数」；仅设计态时显示节点/出口总数
+  const nodeTabLabel = result
+    ? `节点 (${result.nodePassed ?? 0}/${result.nodeTotal ?? 0})`
+    : `节点 (${viewNodes.length})`;
+  const linkTabLabel = result
+    ? `出口 (${result.linkPassed ?? 0}/${result.linkTotal ?? 0})`
+    : `出口 (${viewLinks.length})`;
+  const scenarioTabLabel = result ? `场景 (${result.scenarioCount ?? 1})` : '场景';
+
   // 左侧栏宽度只有 1/3，「测试人/时间」并到流程名下方的灰行，避免整表横向滚动
   const historyColumns = [
     {
@@ -614,59 +735,64 @@ const WorkflowTestPage: React.FC = () => {
     },
   ];
 
+  // 入口：尚未选择流程时，展示「新建测试流程」选择面板。
+  // 交互：点流程卡片 → 弹出「选择测试发起人」→ 确定后携带「流程 + 发起人」进入下方测试界面。
+  if (!defId) {
+    return (
+      <div style={{ padding: 16 }}>
+        <Typography.Title level={4} style={{ marginTop: 0 }}>
+          流程测试 / 调试
+        </Typography.Title>
+        <TestFlowPicker
+          mode="panel"
+          wfTypes={wfTypes}
+          activeDefs={activeDefs}
+          onConfirm={pickDef}
+        />
+      </div>
+    );
+  }
+
   return (
     <div style={{ padding: 16 }}>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         流程测试 / 调试
+        {currentDef
+          ? `：${currentDef.name || currentDef.procKey}（v${currentDef.version ?? '-'}）`
+          : ''}
       </Typography.Title>
       <Alert
         type="info"
         showIcon
         style={{ marginBottom: 12 }}
         message="真实引擎测试"
-        description="临时部署草稿 → 真实发起（实例与待办打 is_test=1 标记）→ 用引擎历史活动统计节点与出口覆盖率。①「开始测试」：真实发起实例但不推进，可在右侧表单「手动提交」逐节点办理，或点「开始自动测试」自动逐节点提交（随时「暂停」）；②「一键测试」：直接自动审批到归档；开启「分支覆盖」会按网关各分支条件反推变量取值、为每个分支再真跑一次，验证到每一条出口。测试完成后点「清理测试数据」一键删除。"
+        description="临时部署草稿 → 真实发起（实例与待办打 is_test=1 标记）→ 用引擎历史活动统计节点与出口覆盖率。入口选定「流程 + 发起人」后会自动创建一个测试实例并**停在首个待办**（不自动推进），右侧即打开**真实实例表单**，可在表单里填写、提交、加签字意见；①「重新发起测试」按当前「测试表单」的值重开一个实例（补填/改值后刷新真实表单用）；②「开始自动测试」在现有实例上逐节点自动提交直到归档（随时可「暂停」）；开始节点表单必填未填时会在首次提交被拦下并自动暂停，在右侧表单补齐后点「提交」即续跑；③「一键测试」直接自动审批到归档，开启「分支覆盖」会按网关各分支条件反推变量取值、为每个分支再真跑一次，验证到每一条出口。测试完成后点「清理测试数据」一键删除。"
       />
 
-      <Card size="small" title="测试配置" style={{ marginBottom: 12 }}>
-        {/* 响应式：窄屏（<1200）自动折成两行，避免标签被压成竖排 */}
+      <Card size="small" title="测试操作" style={{ marginBottom: 12 }}>
+        {/* 流程与测试发起人已在入口「新建测试流程」选定，此处不再重复选择；
+            窄屏（<1200）自动折行，避免标签被压成竖排 */}
         <Row gutter={[12, 8]} align="middle">
-          <Col xs={24} md={12} xl={7}>
-            <Space align="center">
-              <span style={{ whiteSpace: 'nowrap' }}>流程</span>
-              <Button type="primary" ghost onClick={() => setModalOpen(true)}>
-                {currentDef
-                  ? `${currentDef.name || currentDef.procKey}（v${currentDef.version ?? '-'}）`
-                  : '新建测试流程'}
-              </Button>
-            </Space>
-          </Col>
-          <Col xs={24} md={12} xl={8}>
-            <Space align="center">
-              <span style={{ whiteSpace: 'nowrap' }}>测试发起人</span>
-              <PersonOrgField
-                browserType={1}
-                multiple={false}
-                value={testUserId}
-                onChange={(v: any) => setTestUserId(v || undefined)}
-                placeholder="选择人员"
-              />
-            </Space>
-          </Col>
-          <Col xs={24} md={8} xl={3}>
+          <Col xs={24} md={8} xl={6}>
             <Space align="center">
               <span style={{ whiteSpace: 'nowrap' }}>分支覆盖</span>
               <Switch checked={coverBranches} onChange={setCoverBranches} />
             </Space>
           </Col>
-          <Col xs={24} md={16} xl={7}>
+          <Col xs={24} md={16} xl={18}>
             <Space wrap>
-              <Button type="primary" loading={loading} onClick={startTest} disabled={!defId}>
-                开始测试
+              <Button
+                onClick={restartTest}
+                loading={loading}
+                disabled={!defId || !testUserId || autoRunning}
+                title="按当前「测试表单」的值重新发起一个测试实例（停在首个待办，不自动推进）"
+              >
+                重新发起测试
               </Button>
               <Button
                 onClick={startAuto}
                 loading={autoRunning}
-                disabled={!result?.instId || (result?.instanceStatus ?? 0) !== 0}
+                disabled={!defId || !testUserId || autoRunning}
                 title="逐节点自动提交，直到归档；随时可「暂停」"
               >
                 开始自动测试
@@ -712,6 +838,29 @@ const WorkflowTestPage: React.FC = () => {
           />
         )}
       </Card>
+
+      {startBlockMsg && (
+        <Alert
+          type="warning"
+          showIcon
+          closable
+          style={{ marginBottom: 12 }}
+          message="测试已暂停：存在必填项未填写"
+          description={
+            <div>
+              <div>{startBlockMsg}</div>
+              <div style={{ marginTop: 4, fontSize: 12 }}>
+                ① 在右侧「节点审批情况 → 流程表单」里补齐必填项后点「提交」，测试会自动继续；
+                ② 若缺失的是开始节点（申请人）字段，可在上方「测试表单」补齐后点「重新发起测试」重建实例，再点「开始自动测试」。
+              </div>
+            </div>
+          }
+          onClose={() => {
+            setStartBlockMsg(null);
+            resumeAutoRef.current = false;
+          }}
+        />
+      )}
 
       {defId && formId && (
         <Card
@@ -808,7 +957,7 @@ const WorkflowTestPage: React.FC = () => {
       <Row gutter={12} style={{ marginBottom: 12 }}>
         <Col xs={24} lg={10} xl={9}>
           <Card size="small" title="节点与出口" style={{ marginBottom: 12 }}>
-            {result ? (
+            {defId ? (
               <Tabs
                 size="small"
                 activeKey={leftTab}
@@ -829,7 +978,7 @@ const WorkflowTestPage: React.FC = () => {
                 items={[
                   {
                     key: 'nodes',
-                    label: `节点 (${result.nodePassed ?? 0}/${result.nodeTotal ?? 0})`,
+                    label: nodeTabLabel,
                     children: (
                       <Table
                         size="small"
@@ -852,26 +1001,26 @@ const WorkflowTestPage: React.FC = () => {
                   },
                   {
                     key: 'links',
-                    label: `出口 (${result.linkPassed ?? 0}/${result.linkTotal ?? 0})`,
+                    label: linkTabLabel,
                     children: (
                       <Table
                         size="small"
                         rowKey={(r: any) => `${r.fromNodeKey}→${r.toNodeKey}`}
                         pagination={false}
-                        dataSource={result.links || []}
+                        dataSource={viewLinks}
                         columns={linkColumns}
                       />
                     ),
                   },
                   {
                     key: 'scenarios',
-                    label: `场景 (${result.scenarioCount ?? 1})`,
+                    label: scenarioTabLabel,
                     children: (
                       <Table
                         size="small"
                         rowKey="index"
                         pagination={false}
-                        dataSource={result.scenarios || []}
+                        dataSource={result?.scenarios || []}
                         columns={[
                           { title: '#', dataIndex: 'index', width: 40 },
                           { title: '场景', dataIndex: 'label' },
@@ -896,7 +1045,7 @@ const WorkflowTestPage: React.FC = () => {
             ) : (
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="尚未运行测试：配置流程与发起人后点「开始测试」"
+                description="选择流程后，这里自动加载节点与出口"
               />
             )}
           </Card>
@@ -928,9 +1077,15 @@ const WorkflowTestPage: React.FC = () => {
         <Col xs={24} lg={14} xl={15}>
           <Card
             size="small"
-            title={`节点审批情况${result?.instId ? `（测试实例 #${result.instId}）` : ''}`}
+            title={`节点审批情况${
+              result?.instId
+                ? `（测试实例 #${result.instId}）`
+                : defId && formId
+                  ? '（预览）'
+                  : ''
+            }`}
             extra={
-              (result?.nodes || []).length > 0 && (
+              (result?.nodes || viewNodes).length > 0 && (
                 <Space size={4}>
                   <span style={{ fontSize: 12, color: '#888' }}>查看节点</span>
                   <Select
@@ -938,7 +1093,7 @@ const WorkflowTestPage: React.FC = () => {
                     style={{ width: 200 }}
                     value={effectiveNodeKey}
                     onChange={(v: string) => pickViewNode(v)}
-                    options={(result?.nodes || []).map((n: any) => ({
+                    options={(result?.nodes || viewNodes).map((n: any) => ({
                       value: n.nodeKey,
                       label: `${n.nodeName || n.nodeKey}（${NODE_TYPE[n.nodeType] ?? n.nodeType}）`,
                     }))}
@@ -966,20 +1121,20 @@ const WorkflowTestPage: React.FC = () => {
                   loadHistory();
                 }}
               />
-            ) : result ? (
-              <Empty
-                description={
-                  <div>
-                    <div>未取到测试实例ID，无法渲染真实表单</div>
-                    <div style={{ marginTop: 4, fontSize: 12, color: '#999' }}>
-                      流程已走通，但后端 /test/run 未回传 instId —— 请确认已重新编译并重启
-                      blade-workflow 服务后重跑测试
-                    </div>
-                  </div>
-                }
+            ) : defId && formId ? (
+              <FlowFormPanel
+                key={`preview-${defId}-${effectiveNodeKey}`}
+                preview
+                previewDefId={defId}
+                previewFormId={formId}
+                nodeKey={effectiveNodeKey}
+                defName={currentDef?.name}
+                bpmnXml={bpmnXml}
+                nodes={viewNodes.length ? viewNodes : []}
+                onSelectNode={(k) => k && pickViewNode(k)}
               />
             ) : (
-              <Empty description="运行一次测试后，这里展示流程表单 / 流程图 / 流程状态" />
+              <Empty description="选择流程并关联表单后，这里展示流程表单 / 流程图 / 流程状态" />
             )}
           </Card>
         </Col>
@@ -997,13 +1152,6 @@ const WorkflowTestPage: React.FC = () => {
         </pre>
       </Modal>
 
-      <NewTestFlowModal
-        open={modalOpen}
-        wfTypes={wfTypes}
-        activeDefs={activeDefs}
-        onSelect={pickDef}
-        onClose={() => setModalOpen(false)}
-      />
     </div>
   );
 };

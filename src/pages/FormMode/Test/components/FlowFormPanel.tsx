@@ -73,8 +73,8 @@ const NEED_EXTRA = ['forward', 'sign'];
 const menuLabel = (code: string) => MENUS_OPTIONS.find((o) => o.value === code)?.label || code;
 
 export interface FlowFormPanelProps {
-  /** 19 位雪花实例 ID：务必保持字符串，转 number 会丢精度 */
-  instanceId: string;
+  /** 19 位雪花实例 ID：务必保持字符串，转 number 会丢精度；预览模式（preview=true）下可省略 */
+  instanceId?: string;
   nodeKey?: string;
   /** 流程名称（节点徽标用） */
   defName?: string;
@@ -101,6 +101,11 @@ export interface FlowFormPanelProps {
   onStep?: (payload: { opinion?: string; formData?: Record<string, any> }) => void;
   /** 提交进行中（提交按钮 loading） */
   submitting?: boolean;
+  /** 预览模式：不依赖测试实例，仅展示流程表单布局（只读）；用于测试页选好流程/发起人后直接打开表单 */
+  preview?: boolean;
+  /** 预览模式下的流程定义 ID / 表单 ID（传给 ApprovalFormRender 走 /form/preview） */
+  previewDefId?: number | string;
+  previewFormId?: number | string;
 }
 
 const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
@@ -116,6 +121,9 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
   hasPending,
   onStep,
   submitting,
+  preview,
+  previewDefId,
+  previewFormId,
 }) => {
   const { message } = App.useApp();
   const [pkg, setPkg] = useState<any>(null);
@@ -177,6 +185,16 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
     });
     return m;
   }, [nodes]);
+
+  /**
+   * 当前查看的是否「开始节点（申请人，nodeType=0）」。
+   * 它已被引擎在发起时自动完成、不生成待办（taskId 为空），但测试时它才是起点表单：
+   * 在它上面填值点「提交」＝按申请人提交推进实例（后端 step() 用提交值做开始节点必填校验）。
+   */
+  const viewingStartNode = useMemo(
+    () => (nodes || []).some((n: any) => String(n.nodeKey) === String(nodeKey) && n.nodeType === 0),
+    [nodes, nodeKey],
+  );
 
   const afterOperate = (label: string) => {
     message.success(`已${label}`);
@@ -344,29 +362,39 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
             <Typography.Text strong>{nodeName}</Typography.Text>
           </span>
           {statusCfg && <Tag color={statusCfg.color}>{statusCfg.label}</Tag>}
-          {!taskId && menus.length > 0 && (
+          {preview && <Tag color="default">预览</Tag>}
+          {!taskId && menus.length > 0 && !preview && (
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               {testMode
-                ? hasPending
-                  ? '当前节点有待办，可「提交」推进一步'
-                  : '当前节点无待办（可切换节点查看，或点「开始自动测试」）'
+                ? viewingStartNode
+                  ? '开始节点（申请人）表单：填写后点「提交」，即按申请人提交推进到下一节点'
+                  : hasPending
+                    ? '当前查看的节点无待办；「提交」作用于实例当前待办节点（可用「查看节点」切换）'
+                    : '当前节点无待办（可切换节点查看，或点「开始自动测试」）'
                 : '当前节点无待办（实例已归档），按钮不可执行'}
             </Typography.Text>
           )}
-        </Space>
-        <Space size={6} wrap>
-          {inlineMenus.map(menuBtn)}
-          {moreMenus.length > 0 && (
-            <Dropdown
-              menu={{
-                items: moreMenus.map((c) => ({ key: c, label: menuLabel(c) })),
-                onClick: ({ key }) => run(key),
-              }}
-            >
-              <Button size="small" icon={<EllipsisOutlined />} />
-            </Dropdown>
+          {preview && (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              设计态预览（只读，不创建测试实例）
+            </Typography.Text>
           )}
         </Space>
+        {!preview && (
+          <Space size={6} wrap>
+            {inlineMenus.map(menuBtn)}
+            {moreMenus.length > 0 && (
+              <Dropdown
+                menu={{
+                  items: moreMenus.map((c) => ({ key: c, label: menuLabel(c) })),
+                  onClick: ({ key }) => run(key),
+                }}
+              >
+                <Button size="small" icon={<EllipsisOutlined />} />
+              </Dropdown>
+            )}
+          </Space>
+        )}
       </div>
 
       {/* ② 节点徽标 + 流程表单 / 流程图 / 流程状态 */}
@@ -386,15 +414,17 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
               children: (
                 <div>
                   <ApprovalFormRender
-                    instanceId={instanceId}
+                    instanceId={preview ? undefined : instanceId}
+                    previewDefId={preview ? previewDefId : undefined}
+                    previewFormId={preview ? previewFormId : undefined}
                     nodeKey={nodeKey}
                     hideHeader
-                    readOnly={testMode ? !hasPending : true}
+                    readOnly={preview ? true : testMode ? !hasPending : true}
                     onPackage={setPkg}
                     onValuesChange={testMode ? setFormValues : undefined}
                   />
                   {/* 签字意见固定在流程表单最下方（对齐 ecology 流程处理页） */}
-                  {menus.some((c) =>
+                  {!preview && menus.some((c) =>
                     ['submit', 'reject', 'forward', 'sign', 'urge'].includes(c),
                   ) && (
                     <div id="flow-form-opinion" style={{ margin: '12px 0 4px' }}>

@@ -604,6 +604,21 @@ export async function renderForm(
   });
 }
 
+/**
+ * 表单预览（无需实例）：按流程定义/表单/节点返回布局+字段权限+操作菜单，
+ * 用于测试页选好流程与发起人后直接打开流程表单查看，不创建测试实例。
+ */
+export async function renderFormPreview(
+  defId: number | string,
+  formId: number | string,
+  nodeKey?: string,
+) {
+  return request<ApiResponse<FormRenderPackage>>(`${WORKFLOW}/form/preview`, {
+    method: 'GET',
+    params: { defId, formId, nodeKey },
+  });
+}
+
 export async function validateForm(dto: any) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/form/validate`, { method: 'POST', data: dto });
 }
