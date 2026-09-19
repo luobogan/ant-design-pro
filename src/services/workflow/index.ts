@@ -699,7 +699,7 @@ export interface WfTestScenario {
 /** 流程测试结果 */
 export interface WfTestResult {
   logId?: string;
-  testStatus?: number; // 0未通过 1通过 2异常中断
+  testStatus?: number; // 0未通过 1通过 2异常中断 3进行中（交互式测试）
   reachedEnd?: boolean;
   nodeTotal?: number;
   nodePassed?: number;
@@ -713,6 +713,16 @@ export interface WfTestResult {
   log?: string[];
   /** 本次发起的测试态实例ID（wf_instance.id，is_test=1），供渲染真实流程表单界面 */
   instId?: string;
+  /** 实例状态 0运行中 1通过 2不通过 3撤销 4暂停（交互式测试） */
+  instanceStatus?: number;
+  /** 当前停留节点Key（交互式测试） */
+  currentNodeKey?: string;
+  /** 当前停留节点名称（交互式测试） */
+  currentNodeName?: string;
+  /** 当前是否存在待办（交互式测试：有待办即可「提交」推进一步） */
+  hasPending?: boolean;
+  /** 当前节点待办任务ID（交互式测试手动办理/退回用） */
+  currentTaskId?: string;
   /** 出口总数 */
   linkTotal?: number;
   /** 被真实走过的出口数 */
@@ -754,6 +764,52 @@ export async function runWorkflowTest(dto: {
   coverBranches?: boolean;
 }) {
   return request<ApiResponse<WfTestResult>>(`${WORKFLOW}/test/run`, { method: 'POST', data: dto });
+}
+
+/**
+ * 发起一次「交互式测试」：临时部署草稿流程并真实发起测试态实例，但**不自动推进**。
+ *
+ * 对齐 ecology 流程测试页的「开始测试」：发起后停留创建节点等待办理，
+ * 前端可「开始自动测试」逐节点推进（可暂停），或手动填写表单后「提交」单步办理。
+ */
+export async function startWorkflowTest(dto: {
+  defId: any;
+  testUserId: any;
+  testUserName?: string;
+  formData?: Record<string, any>;
+}) {
+  return request<ApiResponse<WfTestResult>>(`${WORKFLOW}/test/start`, { method: 'POST', data: dto });
+}
+
+/**
+ * 交互式测试-单步推进：提交当前节点的待办，推进到下一节点。
+ *
+ * 「自动测试」由前端循环调用（每次提交一个节点，可随时暂停）；
+ * 「手动测试」由用户填写表单后点「提交」调用一次。
+ * formData 非空时会作为流程变量下发引擎，驱动后续排他网关按真实条件选分支。
+ */
+export async function stepWorkflowTest(dto: {
+  instId: any;
+  opinion?: string;
+  formData?: Record<string, any>;
+}) {
+  return request<ApiResponse<WfTestResult>>(`${WORKFLOW}/test/step`, { method: 'POST', data: dto });
+}
+
+/** 交互式测试-查询状态（当前节点 / 待办 / 节点经过次数 / 出口覆盖 / 逐行日志） */
+export async function getWorkflowTestState(instId: any) {
+  return request<ApiResponse<WfTestResult>>(`${WORKFLOW}/test/state`, {
+    method: 'GET',
+    params: { instId },
+  });
+}
+
+/** 交互式测试-待办列表（测试态实例的待办，供手动办理定位 taskId） */
+export async function getWorkflowTestTodo(instId: any) {
+  return request<ApiResponse<any[]>>(`${WORKFLOW}/test/todo`, {
+    method: 'GET',
+    params: { instId },
+  });
 }
 
 /** 测试历史列表（不传 defId 查全部） */

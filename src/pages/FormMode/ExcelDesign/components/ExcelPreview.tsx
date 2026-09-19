@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { Modal, Button, Space, Typography, Form, Input, Select, DatePicker, Checkbox, Radio, InputNumber, message, Table, Segmented } from 'antd';
 import {
   PrinterOutlined,
@@ -1490,6 +1490,12 @@ interface ExcelPreviewProps {
    */
   onSubmit?: (values: Record<string, any>, errors: Record<string, boolean>, valid: boolean) => void;
   /**
+   * 表单值变化回调（可编辑态使用）。审批/测试态需要「读取用户当前填写的值」时挂载它，
+   * 无需点击内部提交按钮即可拿到最新 formValues（主表 + 各明细表全量）。
+   * 用于流程测试页「手动测试」：提交时把用户改过的值作为流程变量下发引擎。
+   */
+  onValuesChange?: (values: Record<string, any>) => void;
+  /**
    * 初始表单值（审批态渲染时注入已提交数据）。
    * key 沿用渲染包 dataJson 的命名约定；挂载与到值变化时并入受控值，供展示与提交校验。
    */
@@ -1517,6 +1523,7 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
   hideHeader = false,
   nodePermission,
   onSubmit,
+  onValuesChange,
   initialValues,
 }) => {
   // 安装全局字段访问器 window.ExcelPreview（供布局级代码块中的 JS 直接按 id / 字段名操作字段）。
@@ -1596,6 +1603,19 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // 受控值变化对外通知（可编辑态：外层据此实时读取用户填写值，无需点内部提交按钮）
+  const onValuesChangeRef = useRef<ExcelPreviewProps['onValuesChange']>(undefined);
+  onValuesChangeRef.current = onValuesChange;
+  const valuesNotifyRef = useRef(false);
+  useEffect(() => {
+    // 跳过首次（initialValues 注入 / 挂载初始值不算用户改动）
+    if (!valuesNotifyRef.current) {
+      valuesNotifyRef.current = true;
+      return;
+    }
+    onValuesChangeRef.current?.(formValues);
+  }, [formValues]);
 
   // 初始值异步到达（渲染包晚于挂载）时并入受控值
   useEffect(() => {

@@ -26,6 +26,7 @@ import {
   approveTask,
   forwardTask,
   getLogs,
+  getWorkflowTestTodo,
   listTodo,
   rejectTask,
   urgeTask,
@@ -85,6 +86,21 @@ export interface FlowFormPanelProps {
   onSelectNode?: (nodeKey?: string) => void;
   /** 办理成功回调（外层可据此刷新测试记录 / 统计） */
   onOperated?: () => void;
+  /**
+   * 交互式测试模式：
+   *  - 待办查询改走 `GET /test/todo`（is_test=1 的待办不在当前用户 /task/todo 里）；
+   *  - 表单按当前节点权限**可编辑**（有待办时），修改值随「提交」下发引擎驱动网关；
+   *  - 「提交」改走 `POST /test/step`（后端做节点必填矩阵校验后推进）。
+   */
+  testMode?: boolean;
+  /** 测试实例状态（0运行中 1通过 2不通过 3撤销 4暂停），渲染包未回来时兜底展示 */
+  instanceStatus?: number;
+  /** 当前节点是否存在待办（有待办即可提交，表单可编辑） */
+  hasPending?: boolean;
+  /** 测试态「提交」：携带签字意见与当前表单值推进一个节点 */
+  onStep?: (payload: { opinion?: string; formData?: Record<string, any> }) => void;
+  /** 提交进行中（提交按钮 loading） */
+  submitting?: boolean;
 }
 
 const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
@@ -95,6 +111,11 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
   nodes,
   onSelectNode,
   onOperated,
+  testMode,
+  instanceStatus,
+  hasPending,
+  onStep,
+  submitting,
 }) => {
   const { message } = App.useApp();
   const [pkg, setPkg] = useState<any>(null);
@@ -103,6 +124,8 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
   const [taskId, setTaskId] = useState<string | undefined>();
   const [acting, setActing] = useState(false);
   const [opinion, setOpinion] = useState('');
+  /** 测试态手动提交：ExcelPreview 回传的当前表单值（作为流程变量下发引擎） */
+  const [formValues, setFormValues] = useState<Record<string, any>>({});
   const [modalType, setModalType] = useState<string | null>(null);
   const [assignee, setAssignee] = useState<any>(undefined);
   const [addSignType, setAddSignType] = useState<number>(0);
@@ -116,7 +139,9 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
         if (alive) setLogs(r?.data || []);
       })
       .catch(() => alive && setLogs([]));
-    listTodo()
+    // 测试态走 /test/todo：is_test=1 的待办指派给节点操作者，不在当前登录用户的 /task/todo 里
+    const todoReq: Promise<any> = testMode ? getWorkflowTestTodo(instanceId) : listTodo();
+    todoReq
       .then((r: any) => {
         const hit = (r?.data || []).find(
           (t: any) =>
@@ -129,7 +154,7 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
     return () => {
       alive = false;
     };
-  }, [instanceId, nodeKey]);
+  }, [instanceId, nodeKey, testMode]);
 
   // 渲染包未回来时先用测试结果里的节点名兜底，避免头部/徽标短暂显示「-」
   const nodeName =
@@ -171,6 +196,20 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
     }
     if (code === 'attach') {
       message.info('附件上传接口待接入');
+      return;
+    }
+    // 测试态「提交」：走 POST /test/step —— 后端按当前节点待办推进，
+    // 并把用户当前表单值作为流程变量下发引擎（驱动后续排他网关按真实条件选分支）
+    if (testMode && code === 'submit') {
+      if (!hasPending) {
+        message.warning('当前节点无待办，无法提交（可切换节点查看，或点「开始自动测试」）');
+        return;
+      }
+      if (pkg?.opinionRequired && isRichTextEmpty(opinion)) {
+        message.warning('当前节点要求填写签字意见，无法提交');
+        return;
+      }
+      onStep?.({ opinion, formData: formValues });
       return;
     }
     if (NEED_EXTRA.includes(code)) {
@@ -247,6 +286,7 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
       size="small"
       type={code === 'submit' ? 'primary' : 'default'}
       danger={code === 'reject'}
+      loading={code === 'submit' && (acting || !!submitting)}
       onClick={runMenu(code)}
     >
       {menuLabel(code)}
@@ -257,7 +297,9 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
   const inlineMenus = menus.slice(0, 3);
   const moreMenus = menus.slice(3);
 
-  const statusCfg = pkg?.instanceStatus != null ? INST_STATUS[pkg.instanceStatus] : undefined;
+  // 渲染包未回来时用测试结果里的实例状态兜底
+  const effectiveInstStatus = pkg?.instanceStatus ?? instanceStatus;
+  const statusCfg = effectiveInstStatus != null ? INST_STATUS[effectiveInstStatus] : undefined;
 
   const statusColumns = [
     {
@@ -304,7 +346,11 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
           {statusCfg && <Tag color={statusCfg.color}>{statusCfg.label}</Tag>}
           {!taskId && menus.length > 0 && (
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              当前节点无待办（实例已归档），按钮不可执行
+              {testMode
+                ? hasPending
+                  ? '当前节点有待办，可「提交」推进一步'
+                  : '当前节点无待办（可切换节点查看，或点「开始自动测试」）'
+                : '当前节点无待办（实例已归档），按钮不可执行'}
             </Typography.Text>
           )}
         </Space>
@@ -343,8 +389,9 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
                     instanceId={instanceId}
                     nodeKey={nodeKey}
                     hideHeader
-                    readOnly
+                    readOnly={testMode ? !hasPending : true}
                     onPackage={setPkg}
+                    onValuesChange={testMode ? setFormValues : undefined}
                   />
                   {/* 签字意见固定在流程表单最下方（对齐 ecology 流程处理页） */}
                   {menus.some((c) =>

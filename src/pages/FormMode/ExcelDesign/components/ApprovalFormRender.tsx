@@ -27,6 +27,11 @@ export interface ApprovalFormRenderProps {
   hideHeader?: boolean;
   /** 渲染包加载完成回调：外层据此渲染「节点表单情况」栏与操作按钮 */
   onPackage?: (pkg: any) => void;
+  /**
+   * 表单值变化回调（可编辑态使用）：外层据此实时读取用户填写的值。
+   * 用于流程测试页「手动测试」——提交时把用户改过的值作为流程变量下发引擎。
+   */
+  onValuesChange?: (values: Record<string, any>) => void;
 }
 
 const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
@@ -36,6 +41,7 @@ const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
   readOnly = true,
   hideHeader = false,
   onPackage,
+  onValuesChange,
 }) => {
   const [layoutData, setLayoutData] = useState<any>(null);
   const [nodePermission, setNodePermission] = useState<NodePermissionResolver | undefined>(undefined);
@@ -143,6 +149,7 @@ const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
       nodePermission={nodePermission}
       initialValues={values}
       title="流程表单"
+      onValuesChange={onValuesChange}
       onSubmit={async (_values, _errors, valid) => {
         if (!valid) {
           message.warning('必填项未填写完整');
