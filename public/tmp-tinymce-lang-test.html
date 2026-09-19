@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>tinymce 语言包验证（临时文件，验证后删除）</title>
+</head>
+<body>
+  <p>临时验证页：确认 TinyMCE 8 + zh-CN 语言包自托管加载正常。</p>
+  <textarea id="t">hello</textarea>
+  <script src="https://cdn.tiny.cloud/1/7u3oicom9m74gc15p90ipnp1ibke4a84yxigrsejqyxe052y/tinymce/8/tinymce.min.js" referrerpolicy="origin"></script>
+  <script>
+    tinymce.init({
+      selector: '#t',
+      height: 200,
+      language: 'zh-CN',
+      language_url: '/tinymce/langs/zh_CN.js',
+      plugins: 'lists link charmap wordcount',
+      toolbar: 'undo redo | bold italic underline forecolor | bullist numlist | removeformat',
+      placeholder: '审批意见（可选）'
+    });
+  </script>
+</body>
+</html>

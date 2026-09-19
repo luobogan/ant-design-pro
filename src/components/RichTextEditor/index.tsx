@@ -109,6 +109,10 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         onEditorChange={(content) => onChange?.(content)}
         init={{
           height: height,
+          // 界面中文化：TinyMCE 8 官方简体中文包，自托管在 public/tinymce/langs/zh_CN.js。
+          // 注意代码必须是 'zh-CN'（连字符）：包里注册的就是 zh-CN，zh_CN 写法在 TinyMCE 8 已废弃。
+          language: 'zh-CN',
+          language_url: '/tinymce/langs/zh_CN.js',
           menubar: !compact,
           plugins: compact
             ? ['lists', 'link', 'charmap', 'wordcount']

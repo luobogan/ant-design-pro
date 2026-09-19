@@ -339,22 +339,6 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
               label: '流程表单',
               children: (
                 <div>
-                  {menus.some((c) =>
-                    ['submit', 'reject', 'forward', 'sign', 'urge'].includes(c),
-                  ) && (
-                    <div id="flow-form-opinion" style={{ margin: '4px 0 8px' }}>
-                      {/* 审批意见统一用富文本（与系统其余审批入口一致） */}
-                      <RichTextEditor
-                        compact
-                        height={140}
-                        value={opinion}
-                        onChange={setOpinion}
-                        placeholder={
-                          pkg?.opinionRequired ? '请填写审批意见（必填）' : '审批意见（可选）'
-                        }
-                      />
-                    </div>
-                  )}
                   <ApprovalFormRender
                     instanceId={instanceId}
                     nodeKey={nodeKey}
@@ -362,6 +346,24 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
                     readOnly
                     onPackage={setPkg}
                   />
+                  {/* 签字意见固定在流程表单最下方（对齐 ecology 流程处理页） */}
+                  {menus.some((c) =>
+                    ['submit', 'reject', 'forward', 'sign', 'urge'].includes(c),
+                  ) && (
+                    <div id="flow-form-opinion" style={{ margin: '12px 0 4px' }}>
+                      <div style={{ fontSize: 13, marginBottom: 4 }}>签字意见</div>
+                      {/* 签字意见统一用富文本（与系统其余审批入口一致） */}
+                      <RichTextEditor
+                        compact
+                        height={140}
+                        value={opinion}
+                        onChange={setOpinion}
+                        placeholder={
+                          pkg?.opinionRequired ? '请填写签字意见（必填）' : '签字意见（可选）'
+                        }
+                      />
+                    </div>
+                  )}
                 </div>
               ),
             },

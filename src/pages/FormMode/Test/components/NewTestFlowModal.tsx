@@ -42,13 +42,16 @@ const NewTestFlowModal: React.FC<Props> = ({ open, wfTypes, activeDefs, onSelect
   }, [activeDefs]);
 
   const treeData = useMemo(() => {
-    const nodes: any[] = [
-      { title: `全部流程（${activeDefs.length}）`, key: 'all' },
-      ...(wfTypes || []).map((t: any) => ({
-        title: `${t.label}（${countByType.get(String(t.value)) || 0}）`,
-        key: String(t.value),
-      })),
-    ];
+    const nodes: any[] = [{ title: `全部流程（${activeDefs.length}）`, key: 'all' }];
+    // 只显示「有流程」的分类（count>0）；空分类不展示
+    (wfTypes || [])
+      .filter((t: any) => (countByType.get(String(t.value)) || 0) > 0)
+      .forEach((t: any) => {
+        nodes.push({
+          title: `${t.label}（${countByType.get(String(t.value))}）`,
+          key: String(t.value),
+        });
+      });
     const none = countByType.get('__none__') || 0;
     if (none > 0) nodes.push({ title: `未分类（${none}）`, key: '__none__' });
     return nodes;
