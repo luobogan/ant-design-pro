@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Modal, Button, Space, Typography, Form, Input, Select, DatePicker, Checkbox, Radio, InputNumber, message, Table, Segmented } from 'antd';
 import {
   PrinterOutlined,
@@ -1513,7 +1513,13 @@ interface ExcelPreviewProps {
  *   - required（fieldAttr=3）字段显示红色 * 并在提交时校验非空
  *   - editable（fieldAttr=2）字段正常可输入
  */
-const ExcelPreview: React.FC<ExcelPreviewProps> = ({
+/** 命令式句柄：外层（如发起流程页）用自己的按钮触发表单必填校验，结果经 onSubmit 回调返回 */
+export interface ExcelPreviewHandle {
+  /** 等价点击头部「提交校验」：校验必填矩阵，并把 values / errors / valid 传给 onSubmit */
+  submit: () => void;
+}
+
+const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
   layoutData,
   open,
   onClose,
@@ -1525,10 +1531,14 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
   onSubmit,
   onValuesChange,
   initialValues,
-}) => {
+}, ref) => {
   // 安装全局字段访问器 window.ExcelPreview（供布局级代码块中的 JS 直接按 id / 字段名操作字段）。
   // 挂载时安装、卸载时清理；布局级脚本在提交后才执行（见下方注入 effect），因此使用前必然已就绪。
   useEffect(() => installFieldDomApi(), []);
+
+  // 命令式提交：handleSubmit 定义在下方，用 ref 间接引用（保证 hooks 顺序稳定、不受提前 return 影响）
+  const handleSubmitRef = useRef<() => void>(() => {});
+  useImperativeHandle(ref, () => ({ submit: () => handleSubmitRef.current() }), []);
 
   // 解析出所有 sheet 列表
   const sheets = useMemo(() => {
@@ -1806,6 +1816,8 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
     }
     onSubmit?.(formValues, newErrors, cnt === 0);
   };
+  // 供命令式句柄（ref.submit）调用：外层自绘「提交」按钮时走同一套必填校验
+  handleSubmitRef.current = handleSubmit;
 
   // 导出布局 JSON
   const handleDownload = () => {
@@ -2047,6 +2059,8 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({
       {content}
     </Modal>
   );
-};
+});
+
+ExcelPreview.displayName = 'ExcelPreview';
 
 export default ExcelPreview;

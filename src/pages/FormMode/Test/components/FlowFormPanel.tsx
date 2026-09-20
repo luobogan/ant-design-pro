@@ -19,6 +19,7 @@ import RichTextEditor, {
   isRichTextEmpty,
 } from '@/components/RichTextEditor';
 import ApprovalFormRender from '@/pages/FormMode/ExcelDesign/components/ApprovalFormRender';
+import { collectFieldValues } from '@/pages/FormMode/ExcelDesign/utils/collectFieldValues';
 import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
 import { loadPersonOrgData } from '@/components/FormMode/personOrg';
 import { MENUS_OPTIONS } from '@/pages/FormMode/WorkflowDesign/wfDict';
@@ -291,7 +292,15 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
         message.warning('当前节点要求填写签字意见，无法提交');
         return;
       }
-      onStep?.({ opinion, formData: formValues });
+      // 与「发起页 / 办理页」同口径：坐标键（Excel 布局回显用）+ 字段名键
+      // （出口条件 UEL ${字段名} 用）一并下发，避免手动测试填了值却走不到对应分支。
+      let layout: any = null;
+      try {
+        layout = pkg?.layoutJson ? JSON.parse(pkg.layoutJson) : null;
+      } catch {
+        layout = null;
+      }
+      onStep?.({ opinion, formData: { ...formValues, ...collectFieldValues(layout, formValues) } });
       return;
     }
     if (NEED_EXTRA.includes(code)) {

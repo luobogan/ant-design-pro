@@ -293,7 +293,7 @@ function utf8ToBase64(str: string): string {
   return btoa(binary);
 }
 
-export async function getBpmn(id: number) {
+export async function getBpmn(id: number | string) {
   return request<ApiResponse<string>>(`${WORKFLOW}/definition/${id}/bpmn`, { method: 'GET' });
 }
 
@@ -394,7 +394,7 @@ export async function removeDefinition(id: number) {
   });
 }
 
-export async function listNodes(id: number) {
+export async function listNodes(id: number | string) {
   return request<ApiResponse<WfProcessNode[]>>(`${WORKFLOW}/definition/${id}/nodes`, { method: 'GET' });
 }
 

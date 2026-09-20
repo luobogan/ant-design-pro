@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { App, Result, Spin } from 'antd';
 import ExcelPreview, { NodePermissionResolver } from './ExcelPreview';
+import { collectFieldValues, expandInitialValues } from '../utils/collectFieldValues';
 import { renderForm, renderFormPreview } from '@/services/workflow';
 
 /**
@@ -38,9 +39,23 @@ export interface ApprovalFormRenderProps {
    */
   previewDefId?: number | string;
   previewFormId?: number | string;
+  /**
+   * 布局级必填校验**通过后**的回调。
+   * 由外层自绘「提交」按钮时经 ref.submit() 触发；校验不通过不会回调。
+   *
+   * @param values      原始表单值（key = 单元格坐标 `{sheetId}__{row}__{col}`）
+   * @param fieldValues 同一份值的「字段名 → 值」（供流程变量/出口条件 UEL 使用）
+   */
+  onSubmit?: (values: Record<string, any>, fieldValues: Record<string, any>) => void;
 }
 
-const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
+/** 命令式句柄：外层用自绘按钮触发与内置按钮同样的必填校验 */
+export interface ApprovalFormHandle {
+  /** 跑布局级必填校验；通过则回调 onSubmit(values) */
+  submit: () => void;
+}
+
+const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalFormRenderProps>(({
   instanceId,
   taskId,
   nodeKey,
@@ -48,9 +63,13 @@ const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
   hideHeader = false,
   onPackage,
   onValuesChange,
+  onSubmit,
   previewDefId,
   previewFormId,
-}) => {
+}, ref) => {
+  /** 内层 ExcelPreview 的命令式句柄（ref.submit → 必填校验 → onSubmit 回调） */
+  const previewRef = useRef<any>(null);
+  useImperativeHandle(ref, () => ({ submit: () => previewRef.current?.submit?.() }), []);
   const [layoutData, setLayoutData] = useState<any>(null);
   const [nodePermission, setNodePermission] = useState<NodePermissionResolver | undefined>(undefined);
   const [values, setValues] = useState<Record<string, any>>({});
@@ -173,6 +192,7 @@ const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
 
   return (
     <ExcelPreview
+      ref={previewRef}
       layoutData={layoutData}
       open
       standalone
@@ -180,22 +200,30 @@ const ApprovalFormRenderContent: React.FC<ApprovalFormRenderProps> = ({
       readOnly={readOnly}
       nodeId={nodeKey || pkgNodeKey}
       nodePermission={nodePermission}
-      initialValues={values}
+      // 快照可能是坐标键（Excel 路径）或字段名键（旧 FieldRenderer/测试页场景表单），
+      // 后者补成坐标键才能回显
+      initialValues={expandInitialValues(layoutData, values)}
       title="流程表单"
       onValuesChange={onValuesChange}
-      onSubmit={async (_values, _errors, valid) => {
+      onSubmit={async (vals, _errors, valid) => {
         if (!valid) {
           message.warning('必填项未填写完整');
+          return;
         }
+        // 校验通过：交给外层决定后续（发起 / 提交审批）。
+        // 同时给出「字段名 → 值」，让出口条件 UEL（如 ${amount > 1000}）拿得到变量。
+        onSubmit?.(vals, collectFieldValues(layoutData, vals));
       }}
     />
   );
-};
+});
 
-const ApprovalFormRender: React.FC<ApprovalFormRenderProps> = (props) => (
-  <App>
-    <ApprovalFormRenderContent {...props} />
-  </App>
+const ApprovalFormRender = React.forwardRef<ApprovalFormHandle, ApprovalFormRenderProps>(
+  (props, ref) => (
+    <App>
+      <ApprovalFormRenderContent ref={ref} {...props} />
+    </App>
+  ),
 );
 
 export default ApprovalFormRender;

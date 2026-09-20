@@ -21,11 +21,12 @@ import {
   addSignTask,
   markTaskViewed,
   urgeTask,
+  validateForm,
 } from '@/services/workflow';
 import { MENUS_OPTIONS } from '@/pages/FormMode/WorkflowDesign/wfDict';
-import { dataApi } from '@/services/formmode';
-import type { FieldDefinition } from '@/services/formmode';
-import FieldRenderer from '@/pages/FormMode/FormView/components/FieldRenderer';
+import ApprovalFormRender, {
+  ApprovalFormHandle,
+} from '@/pages/FormMode/ExcelDesign/components/ApprovalFormRender';
 import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
 import RichTextEditor, { focusRichText, isRichTextEmpty } from '@/components/RichTextEditor';
 
@@ -35,7 +36,8 @@ import RichTextEditor, { focusRichText, isRichTextEmpty } from '@/components/Ric
  * <p>功能：</p>
  * <ul>
  *   <li>渲染真实表单：从审批态渲染包（{@code renderForm}）取布局/数据快照/字段权限，
- *       复用与「测试流程」一致的 {@link FieldRenderer} 画标准 FormMode 表单。</li>
+ *       复用与「发起页 / 测试流程」**完全相同**的 {@link ApprovalFormRender}（Excel 布局
+ *       layoutJson + 节点字段权限），保证同一流程在测试态与正式办理态版式一致。</li>
  *   <li>E9 风格操作按钮栏：按钮由当前节点的「操作菜单」({@code allowMenus}) 决定，
  *       与 ecology 节点操作菜单配置完全对应（提交/退回/转办/加签/填写意见/附件/打印/催办）。</li>
  *   <li>字段值驱动网关：点「提交」时把当前表单字段值作为流程变量下发引擎，
@@ -50,11 +52,10 @@ const ApprovalPage: React.FC = () => {
   const instanceId = params.instanceId;
   const taskId = params.taskId;
 
-  const [form] = Form.useForm();
+  /** 表单渲染句柄：自绘「提交」按钮经它触发与内置一致的布局级必填校验 */
+  const formRef = useRef<ApprovalFormHandle>(null);
   const [loading, setLoading] = useState(true);
-  const [fields, setFields] = useState<FieldDefinition[]>([]);
   const [pkg, setPkg] = useState<any>(null);
-  const [dataJson, setDataJson] = useState<Record<string, any>>({});
   const [readonly, setReadonly] = useState(false);
   const [allowMenus, setAllowMenus] = useState<string[]>([]);
   const [opinionRequired, setOpinionRequired] = useState(false);
@@ -69,18 +70,8 @@ const ApprovalPage: React.FC = () => {
   const [fileList, setFileList] = useState<any[]>([]);
 
   const dataJsonRef = useRef<Record<string, any>>({});
-
-  // 字段权限查询：perm 0=隐藏 1=只读 2=可编辑 3=必填
-  const permMap = useMemo(() => {
-    const m = new Map<string, number>();
-    (pkg?.fieldPerms || []).forEach((p: any) => m.set(p.fieldName, p.perm));
-    return m;
-  }, [pkg]);
-
-  const normalizeField = (f: FieldDefinition): any => ({
-    ...f,
-    options: (f.options || []).map((o: any) => ({ value: o.optionValue, label: o.optionLabel })),
-  });
+  /** Excel 布局表单的当前值（key = sheetId__row__col，明细表带 dt{idx}__r{n}__ 前缀） */
+  const formValuesRef = useRef<Record<string, any>>({});
 
   useEffect(() => {
     if (!instanceId) {
@@ -102,19 +93,10 @@ const ApprovalPage: React.FC = () => {
         setAllowMenus(p.allowMenus || []);
         setOpinionRequired(!!p.opinionRequired);
         const dj = p.dataJson || {};
-        setDataJson(dj);
         dataJsonRef.current = dj;
-        // 拉字段定义，复用与测试流程一致的 FieldRenderer
-        if (p.formId) {
-          try {
-            const fs = await dataApi.getFieldDefinitions(String(p.formId));
-            setFields(fs || []);
-          } catch {
-            setFields([]);
-          }
-        }
-        // 注入初始值（快照数据）
-        form.setFieldsValue(dj);
+        // 表单初始值 = 数据快照；后续由 Excel 布局表单（ApprovalFormRender）的
+        // onValuesChange 持续回填最新值，提交时连同快照一起作为流程变量下发
+        formValuesRef.current = dj;
       })
       .catch((e: any) => {
         message.error(`获取审批渲染包失败：${e?.msg || e?.message || ''}`);
@@ -138,29 +120,27 @@ const ApprovalPage: React.FC = () => {
   // 当前用户不是处理人（只读）时，仅可查看，隐藏操作区
   const canOperate = !readonly;
 
-  /** 收集表单值（合并快照，确保所有字段都作为变量下发，避免网关变量缺失） */
-  const collectVariables = async (): Promise<Record<string, any>> => {
-    let values: Record<string, any> = {};
-    try {
-      values = await form.validateFields();
-    } catch {
-      // 校验失败（必填未填）由 antd 标红，这里返回空，上层据此拦截
-      return {};
-    }
-    return { ...dataJsonRef.current, ...values };
-  };
-
-  /** 提交 / 同意：字段值作为流程变量驱动网关 */
-  const handleSubmit = async () => {
+  /**
+   * 提交 / 同意：字段值作为流程变量驱动网关。
+   *
+   * <p>由 Excel 布局表单校验通过后回调（{@code formRef.current.submit()} →
+   * 布局级必填校验 → 本函数），values 为该布局的表单值；
+   * 与数据快照合并，确保所有字段都作为变量下发，避免网关变量缺失。</p>
+   */
+  const handleSubmit = async (values: Record<string, any>, fieldValues: Record<string, any>) => {
     if (!taskId) return;
-    const variables = await collectVariables();
-    if (Object.keys(variables).length === 0) return; // 校验未通过
+    // 三类键都下发：快照（可能含历史坐标键）+ 本次坐标键（供 Excel 布局回显）
+    // + 字段名键（供出口条件 UEL / 必填矩阵，与测试流程一致）
+    const variables = { ...dataJsonRef.current, ...(values || {}), ...(fieldValues || {}) };
     if (opinionRequired && isRichTextEmpty(opinion)) {
       message.warning('当前节点要求填写审批意见');
       return;
     }
     setSubmitting(true);
     try {
+      // 服务端复核（节点字段权限必填矩阵 + 明细表必须新增）：与「测试页 /test/step」同口径；
+      // defId/formId 不传，后端按 instanceId 反查（nodeKey 传本渲染节点，避免与实例当前节点不一致）
+      await validateForm({ instanceId, nodeKey: pkg?.nodeKey, formData: variables });
       const res: any = await approveTask(Number(taskId), { opinion, variables });
       if (res?.success === false) {
         message.error(res?.msg || '提交失败');
@@ -255,7 +235,13 @@ const ApprovalPage: React.FC = () => {
         switch (code) {
           case 'submit':
             return (
-              <Button key="submit" type="primary" loading={submitting} onClick={handleSubmit}>
+              <Button
+                key="submit"
+                type="primary"
+                loading={submitting}
+                // 与发起页同一套：先跑布局级必填校验，通过后回调 handleSubmit(values)
+                onClick={() => formRef.current?.submit()}
+              >
                 提交
               </Button>
             );
@@ -352,28 +338,21 @@ const ApprovalPage: React.FC = () => {
           readonly ? <Tag color="orange">只读（非当前处理人）</Tag> : <Tag color="green">可审批</Tag>
         }
       >
-        {fields.length === 0 ? (
-          <div style={{ color: '#999', fontSize: 12 }}>该表单暂无字段</div>
-        ) : (
-          <Form form={form} layout="vertical">
-            {fields.map((f) => {
-              const perm = permMap.get(f.fieldName);
-              if (perm === 0) return null; // 隐藏
-              const disabled = readonly || perm === 1;
-              const required = perm === 3;
-              return (
-                <Form.Item
-                  key={f.id}
-                  name={f.fieldName}
-                  label={f.fieldLabel}
-                  rules={required ? [{ required: true, message: `请输入${f.fieldLabel}` }] : []}
-                >
-                  <FieldRenderer field={normalizeField(f)} disabled={disabled} />
-                </Form.Item>
-              );
-            })}
-          </Form>
-        )}
+        {/* 表单：与「发起页 / 流程测试页」共用 ApprovalFormRender（Excel 布局 layoutJson
+            + 节点字段权限 fieldPerms，按节点渲染，只读态由 readonly 控制）。
+            注：该组件内部会自行拉一次 /form/render 取布局，与本页上方那次各取所需（本页拿
+            操作菜单/只读态，组件拿布局），互不依赖，渲染包未回来时组件内部有自己的 loading。 */}
+        <ApprovalFormRender
+          ref={formRef}
+          instanceId={instanceId}
+          taskId={taskId ? Number(taskId) : undefined}
+          readOnly={readonly}
+          hideHeader
+          onValuesChange={(v: Record<string, any>) => {
+            formValuesRef.current = v;
+          }}
+          onSubmit={handleSubmit}
+        />
       </Card>
 
       {canOperate && (
