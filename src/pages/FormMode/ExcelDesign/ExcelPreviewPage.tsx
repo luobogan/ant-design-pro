@@ -49,7 +49,7 @@ const ExcelPreviewPageContent: React.FC = () => {
       setLoading(true);
       // 19 位雪花 ID 保持字符串：Number() 会丢精度导致查不到实例
       const instanceId = params.instanceId;
-      const taskId = params.taskId ? Number(params.taskId) : undefined;
+      const taskId = params.taskId || undefined;
       renderForm(instanceId, taskId)
         .then((res: any) => {
           const pkg = res?.data;
@@ -163,7 +163,8 @@ const ExcelPreviewPageContent: React.FC = () => {
         try {
           // 前端校验通过后再由服务端按节点必填矩阵复核（前端校验不可信）
           await validateForm({
-            instanceId: renderPkg?.instanceId ?? Number(params.instanceId),
+            // 同为雪花ID，按字符串下发（renderPkg.instanceId 已是字符串）
+            instanceId: renderPkg?.instanceId ?? params.instanceId,
             nodeKey: renderPkg?.nodeKey ?? params.nodeId ?? undefined,
             // 审批态数据来自渲染包 dataJson，叠加用户本次编辑值
             formData: { ...(renderPkg?.dataJson || {}), ...values },

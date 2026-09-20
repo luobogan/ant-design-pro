@@ -254,8 +254,9 @@ const StartFlow: React.FC = () => {
         return;
       }
       // 发起后回读实例，取 L3 运行时自检标志（业务行 / request_id / 引擎部署）
-      const instId = Number(res?.data);
-      if (instId && Number.isFinite(instId)) {
+      // 后端返回的是字符串形式的实例ID（19 位雪花 ID），原样使用，切勿 Number()
+      const instId = res?.data;
+      if (instId) {
         try {
           const inst: any = pickPayload(await getInstance(instId)) || {};
           setSelfChecks(collectSelfCheckWarnings(inst));

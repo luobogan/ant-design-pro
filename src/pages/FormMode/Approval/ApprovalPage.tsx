@@ -79,8 +79,8 @@ const ApprovalPage: React.FC = () => {
       return;
     }
     setLoading(true);
-    const tid = taskId ? Number(taskId) : undefined;
-    // 19 位雪花 ID 保持字符串：Number() 会丢精度导致查不到实例
+    // 19 位雪花 ID 必须保持字符串：Number() 会丢精度（...538 → ...500）导致查不到实例/任务
+    const tid = taskId || undefined;
     renderForm(instanceId, tid)
       .then(async (res: any) => {
         const p = res?.data;
@@ -141,7 +141,7 @@ const ApprovalPage: React.FC = () => {
       // 服务端复核（节点字段权限必填矩阵 + 明细表必须新增）：与「测试页 /test/step」同口径；
       // defId/formId 不传，后端按 instanceId 反查（nodeKey 传本渲染节点，避免与实例当前节点不一致）
       await validateForm({ instanceId, nodeKey: pkg?.nodeKey, formData: variables });
-      const res: any = await approveTask(Number(taskId), { opinion, variables });
+      const res: any = await approveTask(taskId, { opinion, variables });
       if (res?.success === false) {
         message.error(res?.msg || '提交失败');
         return;
@@ -172,22 +172,24 @@ const ApprovalPage: React.FC = () => {
           message.warning('当前节点要求填写审批意见');
           return;
         }
-        const res: any = await rejectTask(Number(taskId), { opinion });
+        const res: any = await rejectTask(taskId, { opinion });
         if (res?.success === false) return message.error(res?.msg || '退回失败');
         message.success('已退回');
       } else if (modalType === 'forward') {
         if (!modalAssignee) return message.warning('请选择转办人');
-        const res: any = await forwardTask(Number(taskId), {
+        // 转办目标人同为雪花ID，按字符串下发
+        const res: any = await forwardTask(taskId, {
           opinion,
-          assignee: Number(modalAssignee),
+          assignee: modalAssignee,
         });
         if (res?.success === false) return message.error(res?.msg || '转办失败');
         message.success('已转办');
       } else if (modalType === 'sign') {
         if (!modalAssignee) return message.warning('请选择加签人');
-        const res: any = await addSignTask(Number(taskId), {
+        // 加签人同为雪花ID，按字符串下发
+        const res: any = await addSignTask(taskId, {
           opinion,
-          assignee: Number(modalAssignee),
+          assignee: modalAssignee,
           addSignType: modalAddSignType,
         });
         if (res?.success === false) return message.error(res?.msg || '加签失败');
@@ -209,7 +211,7 @@ const ApprovalPage: React.FC = () => {
     if (!taskId) return;
     setSubmitting(true);
     try {
-      const res: any = await urgeTask(Number(taskId), { opinion });
+      const res: any = await urgeTask(taskId, { opinion });
       if (res?.success === false) return message.error(res?.msg || '催办失败');
       message.success('已催办');
     } catch (e: any) {
@@ -345,7 +347,7 @@ const ApprovalPage: React.FC = () => {
         <ApprovalFormRender
           ref={formRef}
           instanceId={instanceId}
-          taskId={taskId ? Number(taskId) : undefined}
+          taskId={taskId || undefined}
           readOnly={readonly}
           hideHeader
           onValuesChange={(v: Record<string, any>) => {

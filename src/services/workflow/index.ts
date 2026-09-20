@@ -557,8 +557,13 @@ export async function saveDetailPerm(id: number, nodeKey: string, perms: DetailP
 }
 
 // ───────────── 实例 / 任务 ─────────────
+/**
+ * 发起流程。
+ * ⚠️ 返回的实例ID是**字符串**：19 位雪花 ID 超出 JS 安全整数，后端已改为 String 返回，
+ * 前端务必原样透传，不要 Number()（会丢精度，后续查实例报「流程实例不存在」）。
+ */
 export async function startInstance(dto: any) {
-  return request<ApiResponse<number>>(`${WORKFLOW}/instance/start`, { method: 'POST', data: dto });
+  return request<ApiResponse<string>>(`${WORKFLOW}/instance/start`, { method: 'POST', data: dto });
 }
 
 export async function getInstance(id: number) {
@@ -645,19 +650,24 @@ export async function urgeTask(id: string | number, dto?: any) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/task/${id}/urge`, { method: 'POST', data: dto });
 }
 
-export async function withdrawInstance(id: number, opinion?: string) {
+/**
+ * 实例级动作。
+ * ⚠️ id 一律按「字符串」传入：19 位雪花 ID 超出 JS 安全整数（2^53），
+ * 经 Number() 会丢精度（如 ...538 → ...500），后端查不到实例（报「流程实例不存在」）。
+ */
+export async function withdrawInstance(id: string | number, opinion?: string) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/instance/${id}/withdraw`, { method: 'POST', params: { opinion } });
 }
 
-export async function stopInstance(id: number) {
+export async function stopInstance(id: string | number) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/instance/${id}/stop`, { method: 'POST' });
 }
 
-export async function resumeInstance(id: number) {
+export async function resumeInstance(id: string | number) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/instance/${id}/resume`, { method: 'POST' });
 }
 
-export async function cancelInstance(id: number, opinion?: string) {
+export async function cancelInstance(id: string | number, opinion?: string) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/instance/${id}/cancel`, { method: 'POST', params: { opinion } });
 }
 

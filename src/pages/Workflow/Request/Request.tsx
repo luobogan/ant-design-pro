@@ -35,7 +35,8 @@ const MyRequestList: React.FC = () => {
 
   const handleWithdraw = async (record: MyRequestItem) => {
     try {
-      await withdrawInstance(Number(record.id), '申请人撤回');
+      // 19 位雪花 ID 必须按字符串传：Number() 会丢精度（...538 → ...500）导致后端查不到实例
+      await withdrawInstance(record.id as string, '申请人撤回');
       message.success('已撤回');
       actionRef.current?.reload();
     } catch (e: any) {
@@ -45,7 +46,8 @@ const MyRequestList: React.FC = () => {
 
   const handleStop = async (record: MyRequestItem) => {
     try {
-      await stopInstance(Number(record.id));
+      // 同上：ID 按字符串传，避免 Number() 丢精度
+      await stopInstance(record.id as string);
       message.success('已终止');
       actionRef.current?.reload();
     } catch (e: any) {
