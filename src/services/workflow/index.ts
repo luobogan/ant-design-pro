@@ -34,6 +34,61 @@ export interface WfProcessDefinition {
   activeVersionId?: string;
 }
 
+// ───────────── 用户侧流程列表项（前端复用 WfTaskVO / InstanceVO 结构） ─────────────
+/** 待办 / 已办任务项（对齐后端 WfTaskVO：标题/节点/发起人/状态等语义信息） */
+export interface WfTaskItem {
+  /** 任务ID（wf_task.id，19 位雪花，字符串承载） */
+  id?: string;
+  /** 流程实例ID */
+  instId?: string;
+  /** 流程标题 */
+  title?: string;
+  /** 流程定义名称 */
+  defName?: string;
+  /** 表单ID */
+  formId?: string;
+  /** 业务数据ID */
+  dataId?: string;
+  /** 节点Key */
+  nodeKey?: string;
+  /** 节点名称 */
+  nodeName?: string;
+  /** 办理人 */
+  assignee?: string;
+  /** 任务状态 0待办 2已办 4办结 6自动提交 7协办 8抄送 11传阅 */
+  status?: number;
+  /** 发起人 */
+  starter?: string;
+  /** 流程发起时间 */
+  startTime?: string;
+  /** 任务接收时间 */
+  receiveTime?: string;
+  /** 任务处理时间 */
+  operateTime?: string;
+  /** 截止时间 */
+  dueTime?: string;
+  /** 紧急程度 0/1/2 */
+  urgency?: number;
+}
+
+/** 我的请求（我发起的流程实例）项 */
+export interface MyRequestItem {
+  /** 实例ID */
+  id?: string;
+  /** 流程标题 */
+  title?: string;
+  /** 流程定义名称 */
+  defName?: string;
+  /** 表单ID */
+  formId?: string;
+  /** 实例状态 0运行中 1通过 2不通过 3撤销 4暂停 */
+  status?: number;
+  /** 当前节点名称 */
+  currentNode?: string;
+  /** 发起时间 */
+  startTime?: string;
+}
+
 // ───────────── Condition 驱动表单描述（后端 /definition/form-condition） ─────────────
 export interface FormFieldOption {
   value: any;
@@ -518,16 +573,48 @@ export async function getLogs(id: string | number) {
   return request<ApiResponse<any[]>>(`${WORKFLOW}/instance/${id}/logs`, { method: 'GET' });
 }
 
+/**
+ * 节点操作者情况（流程图节点悬浮「操作者」面板 + 节点下方「谁批的」）。
+ *
+ * 返回 nodeKey → { handled 已操作 / viewed 已查看 / todo 未操作 }，元素为人员ID，
+ * 姓名由前端人员字典解析。
+ */
+export async function getNodeOperators(id: string | number) {
+  return request<ApiResponse<Record<string, { handled?: any[]; viewed?: any[]; todo?: any[] }>>>(
+    `${WORKFLOW}/instance/${id}/node-operators`,
+    { method: 'GET' },
+  );
+}
+
+/** 标记待办已查看（办理人打开办理页时调用，只记首次；流程图「已查看」判定） */
+export async function markTaskViewed(taskId: string | number) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/task/${taskId}/view`, { method: 'POST' });
+}
+
 export async function getSnapshot(id: number, nodeKey: string) {
   return request<ApiResponse<string>>(`${WORKFLOW}/instance/${id}/snapshot/${nodeKey}`, { method: 'GET' });
 }
 
-export async function listTodo(assignee?: number) {
-  return request<ApiResponse<any[]>>(`${WORKFLOW}/task/todo`, { method: 'GET', params: { assignee } });
+export async function listTodo(assignee?: number | string) {
+  return request<ApiResponse<WfTaskItem[]>>(`${WORKFLOW}/task/todo`, { method: 'GET', params: { assignee } });
 }
 
-export async function listDone(assignee?: number) {
-  return request<ApiResponse<any[]>>(`${WORKFLOW}/task/done`, { method: 'GET', params: { assignee } });
+export async function listDone(assignee?: number | string) {
+  return request<ApiResponse<WfTaskItem[]>>(`${WORKFLOW}/task/done`, { method: 'GET', params: { assignee } });
+}
+
+/**
+ * 我的请求：我发起的流程实例列表。
+ * ⚠️ 后端缺口：当前 blade-workflow 尚未提供 GET /instance/mine。
+ * 调用方需对 404 / 未就绪做降级（空态 + Alert 提示），后端就绪后无需改动前端。
+ */
+export async function listMyRequests(params?: { current?: number; pageSize?: number; title?: string }) {
+  return request<ApiResponse<MyRequestItem[]>>(`${WORKFLOW}/instance/mine`, {
+    method: 'GET',
+    params,
+    // 接口未就绪时由页面捕获异常走空态，避免全局错误拦截重复弹窗
+    skipErrorHandler: true,
+  });
 }
 
 export async function approveTask(id: string | number, dto?: any) {

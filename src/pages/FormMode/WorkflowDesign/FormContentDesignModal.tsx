@@ -15,6 +15,7 @@ import {
 } from 'antd';
 import { PlusOutlined, QuestionCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import { updateNode, WfProcessNode } from '@/services/workflow';
+import { getFormLayout, saveFormLayout } from '@/services/formmode/formLayoutApi';
 import { FORM_CONTENT_OPTIONS } from './wfDict';
 
 /**
@@ -212,30 +213,87 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
     }
   };
 
-  /** 同步节点：把本节点的 formContent 覆盖到所选节点 */
-  const syncTo = async (targetKeys: string[], label: string) => {
+  /**
+   * 同步节点。
+   *
+   * @param targetKeys 目标节点
+   * @param label      触发分组（提示文案用）
+   * @param withLayout 是否连同**节点布局本体**一起同步（「显示模板设置」专用）。
+   *
+   * <p>⚠️ 只同步 formContent 是"看不见效果"的：formContent（显示模式/页边距/明细过滤）目前仅持久化配置，
+   * 运行期不消费；要让目标节点真正**用上本节点的布局**，必须把 form_layout 里本节点那一份
+   * 复制成目标节点自己的行（后端 save 按 formId+layoutType+nodeKey upsert）。</p>
+   */
+  const syncTo = async (targetKeys: string[], label: string, withLayout = false) => {
     if (!defId || !targetKeys.length) {
       message.warning('请先选择要同步的节点');
       return;
     }
     setSyncing(true);
     try {
-      let ok = 0;
+      // ① 取本节点的「节点布局」（inherit=false：只认该节点自己的布局，没配过则为空）
+      let layout: any = null;
+      if (withLayout && formId && nodeKey) {
+        try {
+          const lr: any = await getFormLayout(String(formId), undefined, nodeKey, false);
+          layout = lr?.data || null;
+        } catch {
+          layout = null;
+        }
+        if (!layout?.layoutJson) {
+          message.warning('本节点还没有自己的节点布局：请先在「显示模板」里进布局设计器保存，本次仅同步配置');
+        }
+      }
+
+      let layoutOk = 0;
+      let cfgOk = 0;
       for (const key of targetKeys) {
         const target = (nodes || []).find((n) => n.nodeKey === key);
         if (!target) continue;
+
+        // ② 复制布局到目标节点：让目标节点拥有与本节点一致的节点级布局 → 表单渲染/设计器都能取到
+        if (layout?.layoutJson) {
+          try {
+            const sr: any = await saveFormLayout({
+              formId: String(formId),
+              layoutName: `表单${formId}_节点${key}的布局`,
+              layoutJson: layout.layoutJson,
+              layoutConfig: layout.layoutConfig,
+              layoutType: layout.layoutType ?? 0,
+              status: 1,
+              nodeKey: String(key),
+            });
+            // 后端 R.fail 同样返回 HTTP 200，必须判 code
+            const code = sr?.code;
+            if (
+              sr?.success !== false &&
+              (code === undefined || code === null || Number(code) === 200 || Number(code) === 0)
+            ) {
+              layoutOk++;
+            }
+          } catch {
+            /* 单个失败不阻断其余 */
+          }
+        }
+
+        // ③ formContent 配置（显示模式 / 页边距 / 明细过滤等）一并同步
         const settings = readSettings(target);
         // 同步过去时清掉各自的「同步目标」自身，避免互相指向
         const next = { ...fc, syncNodeKeys: undefined, mobile: { ...(fc.mobile || {}), nodeKeys: undefined } };
         const extJson = JSON.stringify({ settings: { ...settings, formContent: next } });
         try {
           const r: any = await updateNode(defId, key, { extJson });
-          if (r?.success !== false) ok++;
+          if (r?.success !== false) cfgOk++;
         } catch {
           /* 单个失败不阻断其余 */
         }
       }
-      message.success(`已同步${label}到 ${ok}/${targetKeys.length} 个节点`);
+
+      if (layout?.layoutJson) {
+        message.success(`已同步${label}（含节点布局）到 ${layoutOk}/${targetKeys.length} 个节点`);
+      } else {
+        message.success(`已同步${label}配置到 ${cfgOk}/${targetKeys.length} 个节点`);
+      }
       onSynced?.();
     } finally {
       setSyncing(false);
@@ -351,11 +409,11 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
               size="small"
               loading={syncing}
               disabled={!(fc.syncNodeKeys || []).length}
-              onClick={() => syncTo(fc.syncNodeKeys || [], '显示模板设置')}
+              onClick={() => syncTo(fc.syncNodeKeys || [], '显示模板设置', true)}
             >
               同步
             </Button>
-            <Tooltip title="把本节点的「显示模式 / 页边距 / 明细过滤」等表单内容设置覆盖到所选节点。">
+            <Tooltip title="把本节点的「节点布局」复制到所选节点（目标节点即使用同一份布局），并一并同步「显示模式 / 页边距 / 明细过滤」设置。">
               <QuestionCircleOutlined style={{ color: '#faad14' }} />
             </Tooltip>
           </Space>

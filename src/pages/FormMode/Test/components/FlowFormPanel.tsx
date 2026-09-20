@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   App,
   Button,
@@ -27,8 +27,10 @@ import {
   approveTask,
   forwardTask,
   getLogs,
+  getNodeOperators,
   getWorkflowTestTodo,
   listTodo,
+  markTaskViewed,
   rejectTask,
   urgeTask,
 } from '@/services/workflow';
@@ -157,6 +159,8 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
   const [pkg, setPkg] = useState<any>(null);
   const [tab, setTab] = useState<'form' | 'diagram' | 'status'>('form');
   const [logs, setLogs] = useState<any[]>([]);
+  /** nodeKey → 操作者分组（流程图节点「谁批的」+ 悬浮「操作者」面板） */
+  const [nodeOps, setNodeOps] = useState<Record<string, any>>({});
   /** 操作人 id → {姓名, 部门/角色}（复用统一人员字典，模块级缓存，不额外发请求） */
   const [userMap, setUserMap] = useState<Record<string, { name: string; desc?: string }>>({});
   useEffect(() => {
@@ -170,6 +174,11 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
       })
       .catch(() => {});
   }, []);
+  /** 人员ID → 姓名（流程图节点下方「谁批的」与悬浮面板复用同一人员字典） */
+  const resolveUserName = useCallback(
+    (id: string | number) => userMap[String(id)]?.name || String(id),
+    [userMap],
+  );
   const [taskId, setTaskId] = useState<string | undefined>();
   const [acting, setActing] = useState(false);
   const [opinion, setOpinion] = useState('');
@@ -189,6 +198,12 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
         if (alive) setLogs([...(r?.data || [])].reverse());
       })
       .catch(() => alive && setLogs([]));
+    // 流程图节点「谁批的」+ 悬浮「操作者」分组（已操作/已查看/未操作）
+    getNodeOperators(instanceId)
+      .then((r: any) => {
+        if (alive) setNodeOps(r?.data || {});
+      })
+      .catch(() => alive && setNodeOps({}));
     // 测试态走 /test/todo：is_test=1 的待办指派给节点操作者，不在当前登录用户的 /task/todo 里
     const todoReq: Promise<any> = testMode ? getWorkflowTestTodo(instanceId) : listTodo();
     todoReq
@@ -199,6 +214,13 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
             (!nodeKey || String(t.nodeKey) === String(nodeKey)),
         );
         if (alive) setTaskId(hit ? String(hit.id) : undefined);
+        // 测试态：打开该节点表单即视为「已查看」（后端只记首次），
+        // 让流程图悬浮「操作者」面板能区分「已查看」与「未操作」
+        if (alive && testMode && hit?.id) {
+          markTaskViewed(String(hit.id)).catch(() => {
+            /* 记录失败不影响查看 */
+          });
+        }
       })
       .catch(() => alive && setTaskId(undefined));
     return () => {
@@ -578,6 +600,8 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
                       bpmnXml={bpmnXml}
                       nodeStatus={nodeStatusMap}
                       currentNodeKey={nodeKey}
+                      nodeOperators={nodeOps}
+                      resolveUserName={resolveUserName}
                       onSelectNode={onSelectNode}
                       height={420}
                     />

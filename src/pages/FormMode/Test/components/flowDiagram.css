@@ -1,11 +1,20 @@
 /**
- * 流程测试「流程图」页签：只读画布 + 测试结果标记。
+ * 流程测试「流程图」页签：只读画布 + 测试结果标记 + 操作者展示。
  *
  * 标记类由 FlowDiagram 通过 canvas.addMarker 加到元素上，这里只负责着色：
  *   wf-test-pass    走通  → 绿色描边
  *   wf-test-fail    走不通 → 红色描边
  *   wf-test-current 当前查看节点 → 蓝色虚线描边
+ *
+ * 人员展示：
+ *   .wf-op-names  节点下方叠加的「已操作」办理人姓名（overlay）
+ *   .wf-op-panel  悬浮节点弹出的「操作者」分组面板（未操作 / 已查看 / 已操作）
  */
+.wf-test-diagram {
+  /* 悬浮面板用绝对定位挂在容器内：antd Modal 的 transform 会让 fixed 定位错位 */
+  position: relative;
+}
+
 .wf-test-diagram .djs-element {
   cursor: pointer;
 }
@@ -24,4 +33,77 @@
   stroke: #1677ff !important;
   stroke-width: 3px !important;
   stroke-dasharray: 6 4;
+}
+
+/* ---- 节点下方叠加的「已操作」办理人姓名（谁批的） ---- */
+.wf-test-diagram .wf-op-names {
+  width: 100%;
+  text-align: center;
+  font-size: 12px;
+  line-height: 16px;
+  color: #1677ff;
+  /* 不拦截鼠标：避免挡住节点点击 / 悬浮事件 */
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- 悬浮「操作者」分组面板（未操作 / 已查看 / 已操作） ---- */
+.wf-op-panel {
+  position: absolute;
+  z-index: 1200;
+  min-width: 108px;
+  max-width: 260px;
+  padding: 0 10px 8px;
+  background: #fff;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.14);
+  font-size: 13px;
+  /* 面板不拦截鼠标，否则移出节点会触发抖动 */
+  pointer-events: none;
+}
+
+.wf-op-panel-title {
+  margin: 0 -10px 6px;
+  padding: 4px 10px;
+  color: #fff;
+  background: #595959;
+  border-radius: 5px 5px 0 0;
+  font-size: 13px;
+}
+
+.wf-op-group {
+  margin-bottom: 5px;
+}
+
+.wf-op-group:last-child {
+  margin-bottom: 0;
+}
+
+.wf-op-group-label {
+  margin-bottom: 2px;
+  font-size: 12px;
+}
+
+.wf-op-label-todo {
+  color: #52c41a;
+}
+
+.wf-op-label-viewed {
+  color: #fa8c16;
+}
+
+.wf-op-label-handled {
+  color: #1677ff;
+}
+
+.wf-op-group-names {
+  color: #333;
+}
+
+.wf-op-group-names span {
+  display: inline-block;
+  margin-right: 8px;
 }

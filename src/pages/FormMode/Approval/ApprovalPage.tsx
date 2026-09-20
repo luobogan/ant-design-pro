@@ -19,6 +19,7 @@ import {
   rejectTask,
   forwardTask,
   addSignTask,
+  markTaskViewed,
   urgeTask,
 } from '@/services/workflow';
 import { MENUS_OPTIONS } from '@/pages/FormMode/WorkflowDesign/wfDict';
@@ -121,6 +122,18 @@ const ApprovalPage: React.FC = () => {
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instanceId, taskId]);
+
+  /**
+   * 办理人打开办理页即视为「已查看」（后端只记首次，不覆盖）。
+   * 流程图节点悬浮「操作者」面板据此把「待办且已打开」的人归到「已查看」（区别于「未操作」）。
+   * 记录失败不影响办理，静默忽略。
+   */
+  useEffect(() => {
+    if (!taskId) return;
+    markTaskViewed(taskId).catch(() => {
+      /* ignore */
+    });
+  }, [taskId]);
 
   // 当前用户不是处理人（只读）时，仅可查看，隐藏操作区
   const canOperate = !readonly;

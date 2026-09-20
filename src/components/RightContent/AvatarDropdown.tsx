@@ -5,9 +5,11 @@ import {
 } from '@ant-design/icons';
 import { history, useModel } from '@umijs/max';
 import type { MenuProps } from 'antd';
-import { Spin } from 'antd';
-import React, { startTransition } from 'react';
+import { Badge, Spin } from 'antd';
+import React, { startTransition, useEffect, useState } from 'react';
 import { outLogin } from '@/services/ant-design-pro/api';
+import { monitorCount } from '@/services/workflow';
+import { pickPayload } from '@/utils/utils';
 import HeaderDropdown from '../HeaderDropdown';
 
 type GlobalHeaderRightProps = {
@@ -86,17 +88,35 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({
     return <Spin size="small" />;
   }
 
+  // 顶栏待办角标：拉当前用户待办计数
+  const [todoCount, setTodoCount] = useState(0);
+  useEffect(() => {
+    if (!currentUser?.userid) return;
+    monitorCount(currentUser.userid)
+      .then((res: any) => {
+        const m = pickPayload(res) || {};
+        const c =
+          typeof m.todo === 'number'
+            ? m.todo
+            : Object.values(m).reduce((a: number, b: any) => a + (Number(b) || 0), 0);
+        setTodoCount(c);
+      })
+      .catch(() => setTodoCount(0));
+  }, [currentUser?.userid]);
+
   return (
-    <HeaderDropdown
-      placement="bottomRight"
-      menu={{
-        selectedKeys: [],
-        onClick: onMenuClick,
-        items: menuItems,
-      }}
-      arrow
-    >
-      {children}
-    </HeaderDropdown>
+    <Badge count={todoCount} size="small" offset={[-2, 2]}>
+      <HeaderDropdown
+        placement="bottomRight"
+        menu={{
+          selectedKeys: [],
+          onClick: onMenuClick,
+          items: menuItems,
+        }}
+        arrow
+      >
+        {children}
+      </HeaderDropdown>
+    </Badge>
   );
 };
