@@ -43,6 +43,8 @@ interface MenuItem {
   children?: MenuItem[];
   category?: number;
   isComponent?: number;
+  /** 打开方式：1=默认；2=「独立页」（按钮型组件页顶层挂载，不套 ProLayout 外壳；侧边栏菜单项则新标签打开） */
+  isOpen?: number;
   path?: string;
   name?: string;
   id?: number | string;
@@ -58,6 +60,9 @@ interface RouteItem {
 }
 
 let extraRoutes: any[] = [];
+// 「独立页」收集（按钮型组件页且 is_open=2）：由 loopMenuItem 收集，patchClientRoutes 挂到「顶层」，
+// 不套 ProLayout/左侧菜单外壳（等价 config/routes.ts 里 layout:false 的静态独立页）。
+let standaloneRoutes: any[] = [];
 
 
 export function patchClientRoutes({ routes }: { routes: any }) {
@@ -74,6 +79,15 @@ export function patchClientRoutes({ routes }: { routes: any }) {
     x.forEach((r: any) => {
       if (!existingPaths.has(r.path)) {
         routes[routerIndex].children.push(r);
+      }
+    });
+    // 独立页：挂到顶层（顶层路由不被布局插件包裹 → 无 ProLayout/左侧菜单）。
+    // 已有同名顶层路由（如静态注册的 ExcelPreviewPage）则跳过，避免把静态独立页顶掉。
+    const topLevelPaths = new Set(routes.map((r: any) => String(r?.path)));
+    standaloneRoutes.forEach((r: any) => {
+      if (!topLevelPaths.has(String(r.path))) {
+        routes.push(r);
+        topLevelPaths.add(String(r.path));
       }
     });
     const mounted: string[] = routes[routerIndex].children.map((r: any) => String(r?.path));
@@ -140,16 +154,18 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
         const relatedButtons = findButtonItems(buttonsData, item.id);
         console.log(`与菜单 ${item.name} (id: ${item.id}) 关联的按钮：`, relatedButtons);
 
-        const componentButtons: any[] = [];
+        // 按钮型组件页：category=2 + is_component=1 + 带 path 才注册路由；
+        // is_open=2 的按「独立页」处理（顶层挂载、不套 ProLayout 外壳）。
+        const componentButtons: Array<{ item: any; standalone: boolean }> = [];
         relatedButtons.forEach((button) => {
           button.children?.forEach((item1: any) => {
             if (item1.category === 2 && item1.isComponent === 1 && item1.path) {
-              componentButtons.push(item1);
+              componentButtons.push({ item: item1, standalone: item1.isOpen === 2 });
             }
           });
         });
 
-        componentButtons.forEach((item1) => {
+        componentButtons.forEach(({ item: item1, standalone }) => {
               const formattedPath1 = Func.formatRoutePath(item1.path);
               const pathParts1 = formattedPath1.split('/').filter(Boolean);
               const lastSegment = pathParts1[pathParts1.length - 1];
@@ -161,27 +177,38 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
               const pageSeg = toPascalCase(pathParts1[1] ?? lastSegment);
               const componentSeg = toPascalCase(lastSegment);
               const importPath = `./pages/${moduleSeg}/${pageSeg}/${componentSeg}.tsx`;
+              // 兼容「旧命名」回退：历史文件名为 {页面}{组件}.tsx
+              //   /mall/product/aae    → 主 ./pages/Mall/Product/Aae.tsx     → 回退 ./pages/Mall/Product/ProductAae.tsx
+              //   /formmode/formmanage/aae → 回退 ./pages/FormMode/FormManage/FormManageAae.tsx
+              // 主路径不存在时自动尝试回退路径，再不行才 404。
+              const importPathAlt = `./pages/${moduleSeg}/${pageSeg}/${pageSeg}${componentSeg}.tsx`;
               //  debugger;
-              console.log(`按钮组件路径：${importPath}`);
+              console.log(`按钮组件路径：${importPath}（回退：${importPathAlt}）`);
 
               const ButtonComponent = React.lazy(
                 () =>
                   new Promise((resolve, _reject) => {
                     import(importPath)
                       .then((mod) => resolve(mod))
-                      .catch((error) => {
-                        console.error('组件导入错误:', importPath, error);
-                        message.error(`按钮组件加载失败：${importPath}（详见控制台）`);
-                        import('./pages/exception/404').then((mod) => resolve(mod));
+                      .catch(() => {
+                        import(importPathAlt)
+                          .then((mod) => resolve(mod))
+                          .catch((error) => {
+                            console.error('组件导入错误:', importPath, importPathAlt, error);
+                            message.error(`按钮组件加载失败：${importPath} / ${importPathAlt}（详见控制台）`);
+                            import('./pages/exception/404').then((mod) => resolve(mod));
+                          });
                       });
                   }),
               );
 
-              buttonRoutes.push({
+              const componentRoute: any = {
                 path: item1.path,
                 name: item1.name,
                 id: item1.id,
                 parentId: item1.parentId,
+                // 独立页：显式 layout:false（顶层挂载时兜底，防被布局插件包裹）
+                ...(standalone ? { layout: false } : {}),
                 element: (
                   <React.Suspense
                     fallback={
@@ -208,7 +235,15 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
                     <ButtonComponent />
                   </React.Suspense>
                 ),
-              });
+              };
+              if (standalone) {
+                // 独立页：交由 patchClientRoutes 挂到顶层（无 ProLayout/左侧菜单）。
+                // 清掉 parentId，避免被路由转换当作某菜单下的子路由处理。
+                delete componentRoute.parentId;
+                standaloneRoutes.push(componentRoute);
+              } else {
+                buttonRoutes.push(componentRoute);
+              }
         });
 
         const pageComponentName = toPascalCase(page);

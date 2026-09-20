@@ -366,7 +366,7 @@ export async function disableDefinition(id: number) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/disable`, { method: 'POST' });
 }
 
-export async function getDefinition(id: number) {
+export async function getDefinition(id: number | string) {
   return request<ApiResponse<WfProcessDefinition>>(`${WORKFLOW}/definition/${id}`, { method: 'GET' });
 }
 
@@ -578,8 +578,12 @@ export async function getLogs(id: string | number) {
  *
  * 返回 nodeKey → { handled 已操作 / viewed 已查看 / todo 未操作 }，元素为人员ID，
  * 姓名由前端人员字典解析。
+ *
+ * 注意：与「定义态」的 getNodeOperators(defId, nodeKey)
+ * （GET /definition/{id}/node/{nodeKey}/operator）区分——本函数是实例态，
+ * 故命名 getInstanceNodeOperators，避免同名导出导致构建失败。
  */
-export async function getNodeOperators(id: string | number) {
+export async function getInstanceNodeOperators(id: string | number) {
   return request<ApiResponse<Record<string, { handled?: any[]; viewed?: any[]; todo?: any[] }>>>(
     `${WORKFLOW}/instance/${id}/node-operators`,
     { method: 'GET' },

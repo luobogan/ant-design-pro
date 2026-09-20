@@ -26,8 +26,8 @@ import {
   addSignTask,
   approveTask,
   forwardTask,
+  getInstanceNodeOperators,
   getLogs,
-  getNodeOperators,
   getWorkflowTestTodo,
   listTodo,
   markTaskViewed,
@@ -199,7 +199,7 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
       })
       .catch(() => alive && setLogs([]));
     // 流程图节点「谁批的」+ 悬浮「操作者」分组（已操作/已查看/未操作）
-    getNodeOperators(instanceId)
+    getInstanceNodeOperators(instanceId)
       .then((r: any) => {
         if (alive) setNodeOps(r?.data || {});
       })

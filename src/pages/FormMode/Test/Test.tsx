@@ -553,6 +553,7 @@ const WorkflowTestPage: React.FC = () => {
   /** 手动测试：右侧表单点「提交」时调用（表单值作为流程变量驱动后续网关） */
   const manualStep = async (payload: { opinion?: string; formData?: Record<string, any> }) => {
     setStepping(true);
+    const prevNodeKey = result?.currentNodeKey;
     try {
       // 带上「当前查看/填写的节点」：后端按这份布局校验必填（而不是固定按待办节点校验）
       const data = await doStep(payload?.opinion, payload?.formData, undefined, effectiveNodeKey);
@@ -560,7 +561,11 @@ const WorkflowTestPage: React.FC = () => {
         message.success(`测试结束：${data.summary || ''}`);
         loadHistory();
       } else if (data) {
-        message.success(`已提交，当前节点：${data.currentNodeName || '-'}`);
+        // 同一节点仍在待提交（会签/并行未走完）→ 提示还需几人各自提交
+        const stayed = data.currentNodeKey === prevNodeKey;
+        const remain = data.currentNodePendingCount;
+        const hint = stayed && remain && remain > 0 ? `（会签：还有 ${remain} 人待提交）` : '';
+        message.success(`已提交，当前节点：${data.currentNodeName || '-'}${hint}`);
       }
       // 因必填暂停的自动测试：手动补齐并提交成功后，自动继续推进
       if (resumeAutoRef.current && data?.instanceStatus === 0) {
