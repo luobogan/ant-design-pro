@@ -62,8 +62,11 @@ const StartFlow: React.FC = () => {
   const userId = initialState?.currentUser?.userid;
   const { buttons } = usePageButtons('workflow_create');
 
-  // defId 为 19 位雪花 ID，全程保持字符串（Number() 会丢精度）
+  // defId / dataId 均为 19 位雪花 ID，全程保持字符串（Number() 会丢精度）
   const defId = new URLSearchParams(window.location.search).get('defId');
+  /** 由「单据」发起时带上的业务数据ID（formtable_main_{formId}.id）；
+   *  「表单直发」不带 → 后端自造唯一占位 dataId（data_id 列 NOT NULL + uk_biz_key 唯一） */
+  const dataId = new URLSearchParams(window.location.search).get('dataId');
 
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string>('');
@@ -214,6 +217,8 @@ const StartFlow: React.FC = () => {
       const res: any = await startInstance({
         defId: def?.id,
         formId: def?.formId,
+        // 有单据则回传业务数据ID，否则由后端生成占位值（两者都满足 data_id NOT NULL / biz_key 唯一）
+        dataId: dataId || undefined,
         title: def?.name,
         starter: userId,
         fieldValues: payload,
