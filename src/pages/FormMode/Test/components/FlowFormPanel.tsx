@@ -86,6 +86,20 @@ const LOG_ACTION: Record<string, string> = {
   'y': '批示',
 };
 
+/** 把后端返回的「下一节点办理人」逗号串（用户ID）按人员字典解析成「姓名、姓名」 */
+const namesOf = (
+  ids: string | undefined,
+  userMap: Record<string, { name: string; desc?: string }>,
+) => {
+  if (!ids) return '';
+  return ids
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .map((id) => userMap[id]?.name || id)
+    .join('、');
+};
+
 export interface FlowFormPanelProps {
   /** 19 位雪花实例 ID：务必保持字符串，转 number 会丢精度；预览模式（preview=true）下可省略 */
   instanceId?: string;
@@ -143,13 +157,17 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
   const [pkg, setPkg] = useState<any>(null);
   const [tab, setTab] = useState<'form' | 'diagram' | 'status'>('form');
   const [logs, setLogs] = useState<any[]>([]);
-  /** 操作人 id → 姓名（复用统一人员字典，模块级缓存，不额外发请求） */
-  const [userMap, setUserMap] = useState<Record<string, string>>({});
+  /** 操作人 id → {姓名, 部门/角色}（复用统一人员字典，模块级缓存，不额外发请求） */
+  const [userMap, setUserMap] = useState<Record<string, { name: string; desc?: string }>>({});
   useEffect(() => {
     loadPersonOrgData()
-      .then((d: any) =>
-        setUserMap(Object.fromEntries(((d?.users || []) as any[]).map((u) => [u.id, u.name]))),
-      )
+      .then((d: any) => {
+        const m: Record<string, { name: string; desc?: string }> = {};
+        ((d?.users || []) as any[]).forEach((u) => {
+          m[String(u.id)] = { name: u.name, desc: u.desc };
+        });
+        setUserMap(m);
+      })
       .catch(() => {});
   }, []);
   const [taskId, setTaskId] = useState<string | undefined>();
@@ -167,7 +185,8 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
     if (!instanceId) return () => {};
     getLogs(instanceId)
       .then((r: any) => {
-        if (alive) setLogs(r?.data || []);
+        // 倒序（最新在前）：与参照系统一致——刚办完的那条排最上面
+        if (alive) setLogs([...(r?.data || [])].reverse());
       })
       .catch(() => alive && setLogs([]));
     // 测试态走 /test/todo：is_test=1 的待办指派给节点操作者，不在当前登录用户的 /task/todo 里
@@ -478,43 +497,71 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
                                 ),
                               },
                             ]
-                          : logs.map((l: any) => ({
-                              children: (
-                                <div style={{ fontSize: 12 }}>
-                                  <Space size={6} wrap>
-                                    <Typography.Text strong>
-                                      {String(l.operator) === '0'
-                                        ? '系统'
-                                        : userMap[String(l.operator)] || l.operator || '-'}
-                                    </Typography.Text>
-                                    <Tag
-                                      color={
-                                        l.logType === '2'
-                                          ? 'blue'
-                                          : l.logType === '0'
-                                            ? 'green'
-                                            : 'default'
-                                      }
-                                      style={{ marginInlineEnd: 0 }}
-                                    >
-                                      {LOG_ACTION[String(l.logType)] || l.logType || '-'}
-                                    </Tag>
-                                    <Typography.Text>{l.nodeName || l.nodeKey || '-'}</Typography.Text>
-                                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                                      {l.operateTime || ''}
-                                    </Typography.Text>
-                                  </Space>
-                                  {l.opinion ? (
-                                    <div style={{ marginTop: 2 }}>
-                                      <RichTextView
-                                        html={l.opinion}
-                                        style={{ fontSize: 12, color: '#555' }}
-                                      />
-                                    </div>
-                                  ) : null}
-                                </div>
-                              ),
-                            }))
+                          : logs.map((l: any) => {
+                              const u = userMap[String(l.operator)];
+                              const who =
+                                String(l.operator) === '0'
+                                  ? '系统'
+                                  : u?.name || String(l.operator || '-');
+                              return {
+                                children: (
+                                  <div style={{ fontSize: 12 }}>
+                                    {/* 第一行：操作人（+ 部门/角色） */}
+                                    <Space size={6} wrap>
+                                      <Typography.Text strong>{who}</Typography.Text>
+                                      {u?.desc ? (
+                                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                          {u.desc}
+                                        </Typography.Text>
+                                      ) : null}
+                                    </Space>
+                                    {/* 第二行：签字意见（高亮块） */}
+                                    {l.opinion ? (
+                                      <div
+                                        style={{
+                                          margin: '4px 0',
+                                          padding: '4px 8px',
+                                          background: '#e6f4ff',
+                                          borderRadius: 4,
+                                          color: '#1677ff',
+                                        }}
+                                      >
+                                        <RichTextView html={l.opinion} style={{ fontSize: 12 }} />
+                                      </div>
+                                    ) : null}
+                                    {/* 第三行：时间 + [节点名 / 动作]（对齐参照系统） */}
+                                    <Space size={6} wrap>
+                                      <Typography.Text
+                                        type="secondary"
+                                        style={{ fontSize: 12 }}
+                                      >
+                                        {l.operateTime || ''}
+                                      </Typography.Text>
+                                      <Tag
+                                        color={
+                                          l.logType === '2'
+                                            ? 'blue'
+                                            : l.logType === '0'
+                                              ? 'green'
+                                              : 'default'
+                                        }
+                                        style={{ marginInlineEnd: 0 }}
+                                      >
+                                        {`${l.nodeName || l.nodeKey || '-'} / ${
+                                          LOG_ACTION[String(l.logType)] || l.logType || '-'
+                                        }`}
+                                      </Tag>
+                                    </Space>
+                                    {/* 第四行：接收人（下一节点办理人，后端按出口解析部门/角色/人员后返回ID） */}
+                                    {l.nextHandlerIds ? (
+                                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>
+                                        接收人：{namesOf(l.nextHandlerIds, userMap) || '—'}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ),
+                              };
+                            })
                       }
                     />
                   </div>
