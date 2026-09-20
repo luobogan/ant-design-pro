@@ -35,9 +35,13 @@
   stroke-dasharray: 6 4;
 }
 
-/* ---- 节点下方叠加的「已操作」办理人姓名（谁批的） ---- */
+/* ---- 节点叠加的「已操作」办理人姓名（谁批的） ----
+   由 FlowDiagram 以行内 width（= 节点宽度）挂到节点标签正下方：
+   审批节点表现为「节点名 + 办理人」两行（对齐 ecology），事件/网关在图形下方。
+   无边框、无底色，只有一行蓝色小字，避免在画布上出现突兀的方块。 */
 .wf-test-diagram .wf-op-names {
-  width: 100%;
+  box-sizing: border-box;
+  padding: 0 4px;
   text-align: center;
   font-size: 12px;
   line-height: 16px;

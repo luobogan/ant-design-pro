@@ -13,7 +13,7 @@ import './flowDiagram.css';
  *   - wf-test-pass    走通（绿）
  *   - wf-test-fail    走不通（红）
  *   - wf-test-current 当前查看节点（蓝虚线）
- *   - 节点下方叠加「已操作」办理人姓名（谁批的）
+ *   - 节点标签正下方叠加「已操作」办理人姓名（谁批的，一格一行，对齐 ecology）
  *   - 悬浮节点弹出「操作者」分组面板：未操作 / 已查看 / 已操作
  * 点击节点回调 onSelectNode，与左侧节点列表 / 表单页签联动。
  */
@@ -133,29 +133,65 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({
   };
 
   /**
-   * 节点下方叠加「已操作」办理人姓名（对齐 ecology：节点名下面一行办理人）。
+   * 节点叠加「已操作」办理人姓名（对齐 ecology：节点名称下面紧跟一行办理人）。
    *
    * 只有「已操作」才显示——未操作/已查看的人不进节点标签（与 ecology 一致，
    * 悬浮面板里才看得到）。用签名对比避免每次渲染重建 overlay 造成闪烁。
+   *
+   * 定位要点：
+   *  - diagram-js 的 overlay 每轴只认一个值，同时给 left+right 时 **right 会覆盖 left**
+   *    （`left = -right + width`），结果会把文字甩到节点右边缘之外。故这里只给 left/top，
+   *    宽度用行内 style 显式指定为节点宽度，配合 CSS text-align:center 居中。
+   *  - top 按节点类型直接算：审批等 activity 取框内中线下方一行（节点名正下方，
+   *    两行排布形如 ecology）；事件取其标签行之后；网关菱形内部放不下，落到菱形下方。
    */
   const overlaySigRef = useRef('');
   const applyOverlays = () => {
     const viewer = viewerRef.current;
     if (!viewer) return;
     let overlays: any;
+    let registry: any;
     try {
       overlays = viewer.get('overlays');
+      registry = viewer.get('elementRegistry');
     } catch {
       return;
     }
     const { nodeOperators: ops, resolveUserName: name } = propsRef.current;
-    const entries: { key: string; text: string }[] = [];
+    const entries: { key: string; text: string; top: number; width: number }[] = [];
     Object.entries(ops || {}).forEach(([key, v]) => {
-      const handled = (v?.handled || [])
+      const names = (v?.handled || [])
         .map((id) => (name ? name(id) : String(id)))
         .filter((n) => !!n);
-      if (!handled.length) return;
-      entries.push({ key, text: handled.join('、') });
+      if (!names.length) return;
+      const el = registry.get(key);
+      if (!el) return;
+      const GAP = 2;
+      const width = isFinite(el.width) ? el.width : 100;
+      const height = isFinite(el.height) ? el.height : 60;
+      const bt = String(el?.businessObject?.$type || '');
+      const isGateway = /Gateway$/.test(bt);
+      // 定位按节点类型直接算，不依赖 bpmn label 元素是否在注册表里：
+      //  - activity（审批等）：节点名在框内居中，办理人紧贴其下一行
+      //  - 事件：节点名在图形下方，办理人排在标签行之后
+      //  - 网关：菱形内部放不下，落到菱形下方
+      const isActivity = /(Task|SubProcess|Transaction|CallActivity)$/.test(bt);
+      const isEvent = /Event$/.test(bt);
+      const lineH = 16;
+      const top = isGateway
+        ? height + GAP
+        : isActivity
+          ? Math.min(height / 2 + lineH / 2 + GAP, height - lineH)
+          : isEvent
+            ? height + lineH + GAP + 4
+            : height + GAP;
+      entries.push({
+        key,
+        // 超过 2 人收敛为「某某 等 N 人」：节点宽度有限，完整名单看悬浮面板
+        text: names.length > 2 ? `${names[0]} 等 ${names.length} 人` : names.join('、'),
+        top: Math.round(top),
+        width: Math.round(width),
+      });
     });
     const sig = JSON.stringify(entries);
     if (sig === overlaySigRef.current) return;
@@ -169,13 +205,12 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({
       }
     });
     overlaysRef.current = [];
-    entries.forEach(({ key, text }) => {
+    entries.forEach(({ key, text, top, width }) => {
       try {
         overlaysRef.current.push(
           overlays.add(key, {
-            // left+right 同时给：overlay 撑满元素宽度，内部 text-align:center 居中对齐在节点正下方
-            position: { bottom: -6, left: 0, right: 0 },
-            html: `<div class="wf-op-names" data-key="${escapeHtml(key)}">${escapeHtml(text)}</div>`,
+            position: { left: 0, top },
+            html: `<div class="wf-op-names" style="width:${width}px">${escapeHtml(text)}</div>`,
           }),
         );
       } catch {
