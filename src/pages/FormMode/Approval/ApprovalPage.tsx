@@ -19,9 +19,11 @@ import {
   rejectTask,
   forwardTask,
   addSignTask,
+  circulateTask,
   markTaskViewed,
   urgeTask,
   validateForm,
+  saveFormData,
 } from '@/services/workflow';
 import { MENUS_OPTIONS } from '@/pages/FormMode/WorkflowDesign/wfDict';
 import ApprovalFormRender, {
@@ -194,6 +196,13 @@ const ApprovalPage: React.FC = () => {
         });
         if (res?.success === false) return message.error(res?.msg || '加签失败');
         message.success('已加签');
+      } else if (modalType === 'circulate') {
+        // 传阅（抄送）：可多选，生成 status=8 的知会任务，不占待办、不影响流转
+        const list = Array.isArray(modalAssignee) ? modalAssignee : modalAssignee ? [modalAssignee] : [];
+        if (list.length === 0) return message.warning('请选择传阅人');
+        const res: any = await circulateTask(taskId, { opinion, assignees: list });
+        if (res?.success === false) return message.error(res?.msg || '传阅失败');
+        message.success('已传阅');
       } else if (modalType === 'attach') {
         // 附件暂仅本地选择，后端持久化接口待接入
         message.info('附件已选择（持久化接口待接入）');
@@ -216,6 +225,33 @@ const ApprovalPage: React.FC = () => {
       message.success('已催办');
     } catch (e: any) {
       message.error(e?.msg || '催办失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  /**
+   * 保存（只存不流转）：把当前表单值写回业务行并同步本节点快照，
+   * 不改任务状态、不推进引擎（对齐 ecology 节点「操作菜单 → 保存」）。
+   */
+  const handleSave = async () => {
+    setSubmitting(true);
+    try {
+      // 渲染包快照 + 用户本次改动，作为保存内容（与提交时的 variables 同口径）
+      const values = { ...(dataJsonRef.current || {}), ...(formValuesRef.current || {}) };
+      const res: any = await saveFormData({
+        instanceId,
+        taskId,
+        nodeKey: pkg?.nodeKey,
+        defId: pkg?.defId,
+        formId: pkg?.formId,
+        dataId: pkg?.dataId,
+        fieldValues: values,
+      });
+      if (res?.success === false) return message.error(res?.msg || '保存失败');
+      message.success('已保存（未提交，流程未推进）');
+    } catch (e: any) {
+      message.error(e?.msg || '保存失败');
     } finally {
       setSubmitting(false);
     }
@@ -247,6 +283,12 @@ const ApprovalPage: React.FC = () => {
                 提交
               </Button>
             );
+          case 'save':
+            return (
+              <Button key="save" loading={submitting} onClick={handleSave}>
+                保存
+              </Button>
+            );
           case 'reject':
             return (
               <Button key="reject" danger onClick={() => setModalType('reject')}>
@@ -263,6 +305,12 @@ const ApprovalPage: React.FC = () => {
             return (
               <Button key="sign" onClick={() => setModalType('sign')}>
                 加签
+              </Button>
+            );
+          case 'circulate':
+            return (
+              <Button key="circulate" onClick={() => setModalType('circulate')}>
+                传阅
               </Button>
             );
           case 'opinion':
@@ -400,6 +448,18 @@ const ApprovalPage: React.FC = () => {
             <PersonOrgField
               browserType={1}
               multiple={false}
+              value={modalAssignee}
+              onChange={(v: any) => setModalAssignee(v || undefined)}
+              placeholder="选择人员"
+            />
+          </div>
+        )}
+        {modalType === 'circulate' && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ marginBottom: 6 }}>传阅人（可多选）</div>
+            <PersonOrgField
+              browserType={1}
+              multiple
               value={modalAssignee}
               onChange={(v: any) => setModalAssignee(v || undefined)}
               placeholder="选择人员"

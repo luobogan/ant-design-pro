@@ -1,5 +1,5 @@
 import { WfProcessNode } from '@/services/workflow';
-import { EXTRA_OPERATE_TYPES, MENUS_OPTIONS, SELECT_NEXT_FLOW_MODES } from './wfDict';
+import { DEFAULT_MENUS, EXTRA_OPERATE_TYPES, MENUS_OPTIONS, SELECT_NEXT_FLOW_MODES } from './wfDict';
 
 /**
  * 节点「设置项」的 schema 定义（单一来源）。
@@ -199,6 +199,16 @@ export const normalizeOperateMenu = (val: any): OperateMenuItem[] => {
     });
     byKey.forEach((b) => out.push(b));
     return out;
+  }
+
+  // 未配置过（没有 items 也没有旧 menus）时：按 DEFAULT_MENUS 预勾选，
+  // 让「新建节点」一进来就有 提交/转发/保存/退回，其余按需再勾。
+  if (!legacy.length) {
+    const picked = DEFAULT_MENUS.map(
+      (k) => base.find((b) => b.key === k)!,
+    ).filter(Boolean);
+    const rest = base.filter((b) => !DEFAULT_MENUS.includes(b.key));
+    return [...picked.map((b) => ({ ...b, enabled: true })), ...rest];
   }
 
   base.forEach((b) => {

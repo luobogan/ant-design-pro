@@ -65,17 +65,34 @@ export const BHXJ: DictItem[] = [
   { value: 3, label: '逐级向上' },
 ];
 
-/** 节点「操作菜单」可选操作（对齐 ecology 节点操作菜单设置） */
+/**
+ * 节点「操作菜单」可选操作（对齐 ecology 节点操作菜单设置）。
+ *
+ * ⚠️ 后端只认 code（字符串），新增操作只需在此登记 + 对应页面实现按钮；
+ * 「保存」= 只把表单存下来、不提交不推进（ecology 新建流程的「保存」语义）。
+ */
 export const MENUS_OPTIONS: DictItem[] = [
   { value: 'submit', label: '提交' },
+  { value: 'forward', label: '转发' },
+  { value: 'save', label: '保存' },
   { value: 'reject', label: '退回' },
-  { value: 'forward', label: '转办' },
   { value: 'sign', label: '加签' },
+  { value: 'circulate', label: '传阅' },
   { value: 'opinion', label: '填写意见' },
   { value: 'attach', label: '附件' },
   { value: 'print', label: '打印' },
   { value: 'urge', label: '催办' },
 ];
+
+/**
+ * 节点「操作菜单」的**默认启用项**（新建节点 / 未配置时的预勾选，以及弹窗「恢复默认」）。
+ *
+ * <p>取值 = 提交 + 转发 + 保存 + 退回：对齐 ecology 新建流程的常规动作集
+ * （可先保存草稿、可转交他人、可退回、最终提交）。其余操作默认不启用，按需在弹窗里勾选。</p>
+ *
+ * ⚠️ 顺序即显示顺序（菜单弹窗里可再拖动调整）。
+ */
+export const DEFAULT_MENUS: string[] = ['submit', 'forward', 'save', 'reject'];
 
 /** 节点「前/后附加操作」类型（对齐 ecology 节点前后附加操作） */
 export const EXTRA_OPERATE_TYPES: DictItem[] = [

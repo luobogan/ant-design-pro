@@ -31,6 +31,7 @@ import {
   getInstance,
   listNodes,
   renderFormPreview,
+  saveFormData,
   startInstance,
   validateForm,
 } from '@/services/workflow';
@@ -105,6 +106,11 @@ const StartFlow: React.FC = () => {
   /** 发起成功后的 L3 自检提示（业务行 / request_id / 引擎部署） */
   const [selfChecks, setSelfChecks] = useState<string[]>([]);
   const previewRef = useRef<any>(null);
+  /** 表单当前值（ExcelPreview 的 onValuesChange 实时回填；保存/提交都用它） */
+  const formValuesRef = useRef<Record<string, any>>({});
+  /** 「保存」后拿到的业务数据ID：再点提交时带上，复用同一条业务行，不重复建行 */
+  const [savedDataId, setSavedDataId] = useState<string>(dataId || '');
+  const [saving, setSaving] = useState<boolean>(false);
 
   useEffect(() => {
     if (!defId) {
@@ -210,6 +216,13 @@ const StartFlow: React.FC = () => {
   /** 提交按钮：节点配置里允许「提交」才显示（未配置 = 不限制） */
   const canSubmit = menuAllowed('submit');
 
+  /**
+   * 新建流程页的「保存」按钮：只要该流程绑定了表单就始终显示。
+   * 「先保存草稿、暂不提交」是新建流程的固有能力，不应被节点操作菜单的开关隐藏
+   * （节点操作菜单的「保存」语义面向办理态，与发起态草稿保存不同）。
+   */
+  const canSave = !!def?.formId;
+
   const runMore = (code: string) => {
     if (code === 'print') {
       window.print();
@@ -240,8 +253,9 @@ const StartFlow: React.FC = () => {
       const res: any = await startInstance({
         defId: def?.id,
         formId: def?.formId,
-        // 有单据则回传业务数据ID，否则由后端生成占位值（两者都满足 data_id NOT NULL / biz_key 唯一）
-        dataId: dataId || undefined,
+        // 有单据/已保存过则回传业务数据ID（复用同一行），否则由后端生成占位值
+        // （两者都满足 data_id NOT NULL / biz_key 唯一）
+        dataId: dataId || savedDataId || undefined,
         title: def?.name,
         starter: userId,
         fieldValues: payload,
@@ -270,6 +284,39 @@ const StartFlow: React.FC = () => {
       message.error(e?.msg || '发起失败');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  /** 保存（只存不流转）：写业务行 → 记住 dataId，供后续提交复用；不做必填校验 */
+  const handleSaveClick = async () => {
+    if (!def?.formId && !def?.id) {
+      message.warning('该流程未绑定表单，无法保存');
+      return;
+    }
+    setSaving(true);
+    try {
+      const values = formValuesRef.current || {};
+      // 与提交同口径：坐标键（供布局回显）+ 字段名键（供出口条件）一并下发
+      const payload = { ...values, ...collectFieldValues(layoutData, values) };
+      const res: any = await saveFormData({
+        defId: def?.id,
+        formId: def?.formId,
+        // 已保存过则更新同一行，否则新建
+        dataId: savedDataId || undefined,
+        fieldValues: payload,
+      });
+      if (res?.success === false) {
+        message.error(res?.msg || '保存失败');
+        return;
+      }
+      if (res?.data) {
+        setSavedDataId(String(res.data));
+      }
+      message.success('已保存（未提交，可继续编辑后再提交）');
+    } catch (e: any) {
+      message.error(e?.msg || '保存失败');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -302,6 +349,16 @@ const StartFlow: React.FC = () => {
         提交
       </Button>
     </PermissionButton>
+  );
+
+  /**
+   * 保存（不提交）：节点「操作菜单」勾了「保存」才显示。
+   * 只把表单值写到业务表并记住 dataId，之后提交时复用同一行；不做必填校验（允许先存草稿）。
+   */
+  const saveButton = (
+    <Button size="small" loading={saving} onClick={handleSaveClick}>
+      保存
+    </Button>
   );
 
   return (
@@ -394,6 +451,8 @@ const StartFlow: React.FC = () => {
                 <Space size={6} style={{ marginTop: 4 }}>
                   {/* 提交：节点操作菜单允许（或未配置）时显示 */}
                   {canSubmit && submitButton}
+                  {/* 保存：只存业务数据、不发起；新建流程页只要绑定了表单就显示 */}
+                  {canSave && saveButton}
                   <Button size="small" onClick={closeTab}>
                     返回
                   </Button>
@@ -431,6 +490,9 @@ const StartFlow: React.FC = () => {
                           initialValues={initialValues}
                           title="流程表单"
                           onClose={closeTab}
+                          onValuesChange={(v: Record<string, any>) => {
+                            formValuesRef.current = v || {};
+                          }}
                           onSubmit={(
                             _values: Record<string, any>,
                             _errors: Record<string, boolean>,

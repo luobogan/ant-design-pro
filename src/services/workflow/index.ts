@@ -724,6 +724,19 @@ export async function validateForm(dto: any) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/form/validate`, { method: 'POST', data: dto });
 }
 
+/**
+ * 保存表单（只存不流转）：对齐 ecology「操作菜单 → 保存」。
+ *
+ * - 发起态（不带 instanceId）：写/更新业务行，返回业务数据ID（**字符串**，19 位雪花ID）；
+ *   之后发起时把该 dataId 回传，流程复用这条业务行，不会新建。
+ * - 办理态（带 instanceId + nodeKey）：写业务行 + 同步节点快照，不改任务状态、不推进。
+ *
+ * 与 validateForm 的区别：保存**不做必填校验**（允许表单不完整，先存后提交）。
+ */
+export async function saveFormData(dto: any) {
+  return request<ApiResponse<string>>(`${WORKFLOW}/form/save`, { method: 'POST', data: dto });
+}
+
 export async function monitorCount(assignee?: number) {
   return request<ApiResponse<Record<string, number>>>(`${WORKFLOW}/monitor/count`, {
     method: 'GET',

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Button, Input, Modal, Radio, Space, Switch, Table, Tag, message } from 'antd';
 import { ArrowDownOutlined, ArrowUpOutlined, HolderOutlined } from '@ant-design/icons';
 import { updateNode, WfProcessNode } from '@/services/workflow';
-import { MENUS_OPTIONS } from './wfDict';
+import { DEFAULT_MENUS, MENUS_OPTIONS } from './wfDict';
 import {
   buildExtJson,
   menusFromItems,
@@ -86,10 +86,19 @@ const NodeOperateMenuModal: React.FC<NodeOperateMenuModalProps> = ({
     });
   };
 
-  /** 全选 / 清空 / 恢复默认（默认 = 提交 + 退回，名称还原字典名） */
+  /** 全选 / 清空 / 恢复默认（默认 = DEFAULT_MENUS：提交 + 转发 + 保存 + 退回，名称还原字典名） */
   const setAll = (enabled: boolean) => setItems((prev) => prev.map((i) => ({ ...i, enabled })));
   const resetDefault = () => {
-    setItems((prev) => prev.map((i) => ({ ...i, name: dictName(i.key), enabled: i.key === 'submit' || i.key === 'reject' })));
+    setItems((prev) => {
+      // 默认项按 DEFAULT_MENUS 的顺序排前，其余按字典顺序跟后，全部恢复字典名
+      const picked = DEFAULT_MENUS.map((k) => prev.find((i) => i.key === k)).filter(Boolean) as OperateMenuItem[];
+      const rest = prev.filter((i) => !DEFAULT_MENUS.includes(i.key));
+      return [...picked, ...rest].map((i) => ({
+        ...i,
+        name: dictName(i.key),
+        enabled: DEFAULT_MENUS.includes(i.key),
+      }));
+    });
     setDefaultKey('submit');
   };
 
