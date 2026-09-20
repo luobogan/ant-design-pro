@@ -1,6 +1,7 @@
 import { PageContainer } from '@ant-design/pro-components';
 import { useModel } from '@umijs/max';
 import {
+  Alert,
   Button,
   Card,
   Dropdown,
@@ -27,6 +28,7 @@ import { MENUS_OPTIONS } from '@/pages/FormMode/WorkflowDesign/wfDict';
 import {
   getBpmn,
   getDefinition,
+  getInstance,
   listNodes,
   renderFormPreview,
   startInstance,
@@ -48,6 +50,25 @@ const NODE_TYPE: Record<number, string> = {
 
 /** 发起页「⋯ 更多」里支持的动作（其余操作菜单项在发起环节不适用） */
 const MORE_MENUS = ['print', 'opinion', 'attach'];
+
+/**
+ * L3 运行时自检（规范 §2-L3）：把后端返回的三个标志翻译成人话。
+ *
+ * 取值：1 正常 / 0 异常 / undefined|null = 未自检（存量实例，不提示，避免误报）。
+ */
+const collectSelfCheckWarnings = (inst: any): string[] => {
+  const warns: string[] = [];
+  if (inst?.businessRowReady === 0) {
+    warns.push('业务数据行未创建成功（本次用了占位 dataId）：业务表里查不到这张单，请检查表单服务。');
+  }
+  if (inst?.requestIdBound === 0) {
+    warns.push('业务行 request_id 未回填：流程与单据的双向反查会断，请检查表单服务。');
+  }
+  if (inst?.engineDeploymentMatched === 0) {
+    warns.push('引擎最新部署与本流程的正式部署不一致（可能被测试部署顶替）：请在流程设计器重新发布一次。');
+  }
+  return warns;
+};
 
 /**
  * 发起流程页（独立页：无 ProLayout 左侧菜单；菜单驱动路由 code=workflow_create_start）。
@@ -81,6 +102,8 @@ const StartFlow: React.FC = () => {
   const [opinion, setOpinion] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [done, setDone] = useState<boolean>(false);
+  /** 发起成功后的 L3 自检提示（业务行 / request_id / 引擎部署） */
+  const [selfChecks, setSelfChecks] = useState<string[]>([]);
   const previewRef = useRef<any>(null);
 
   useEffect(() => {
@@ -230,6 +253,17 @@ const StartFlow: React.FC = () => {
         message.error(res?.msg || '发起失败');
         return;
       }
+      // 发起后回读实例，取 L3 运行时自检标志（业务行 / request_id / 引擎部署）
+      const instId = Number(res?.data);
+      if (instId && Number.isFinite(instId)) {
+        try {
+          const inst: any = pickPayload(await getInstance(instId)) || {};
+          setSelfChecks(collectSelfCheckWarnings(inst));
+        } catch {
+          // 回读失败不影响发起结果（自检只是提示），静默降级
+          setSelfChecks([]);
+        }
+      }
       setDone(true);
     } catch (e: any) {
       message.error(e?.msg || '发起失败');
@@ -295,7 +329,7 @@ const StartFlow: React.FC = () => {
             />
           ) : done ? (
             <Result
-              status="success"
+              status={selfChecks.length ? 'warning' : 'success'}
               title="流程发起成功"
               subTitle={`「${def?.name || ''}」已发起，可在「我的请求」中查看进度。`}
               extra={
@@ -303,7 +337,23 @@ const StartFlow: React.FC = () => {
                   关闭
                 </Button>
               }
-            />
+            >
+              {selfChecks.length > 0 && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ textAlign: 'left', maxWidth: 560, margin: '0 auto' }}
+                  message="发起自检发现以下问题（流程已发起，但建议处理）"
+                  description={
+                    <ul style={{ paddingLeft: 18, marginBottom: 0 }}>
+                      {selfChecks.map((w) => (
+                        <li key={w}>{w}</li>
+                      ))}
+                    </ul>
+                  }
+                />
+              )}
+            </Result>
           ) : (
             <>
               {/* ① 顶部：左 = 三页签（流程表单 / 流程图 / 流程状态）；右 = 提交 / 返回 / ⋯ */}

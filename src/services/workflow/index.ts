@@ -84,7 +84,7 @@ export interface MyRequestItem {
   /** 实例状态 0运行中 1通过 2不通过 3撤销 4暂停 */
   status?: number;
   /** 当前节点名称 */
-  currentNode?: string;
+  currentNodeName?: string;
   /** 发起时间 */
   startTime?: string;
 }
@@ -608,15 +608,15 @@ export async function listDone(assignee?: number | string) {
 }
 
 /**
- * 我的请求：我发起的流程实例列表。
- * ⚠️ 后端缺口：当前 blade-workflow 尚未提供 GET /instance/mine。
- * 调用方需对 404 / 未就绪做降级（空态 + Alert 提示），后端就绪后无需改动前端。
+ * 我的请求：我发起的流程实例分页（发起人在服务端收口为当前登录人）。
+ *
+ * <p>后端返回 MyBatis-Plus 分页对象（records + total），页面按分页消费；
+ * 仍保留异常降级：服务未启动 / 无权限时为空态 + Alert，不重复弹全局错误。</p>
  */
 export async function listMyRequests(params?: { current?: number; pageSize?: number; title?: string }) {
-  return request<ApiResponse<MyRequestItem[]>>(`${WORKFLOW}/instance/mine`, {
+  return request<ApiResponse<{ records?: MyRequestItem[]; total?: number }>>(`${WORKFLOW}/instance/mine`, {
     method: 'GET',
     params,
-    // 接口未就绪时由页面捕获异常走空态，避免全局错误拦截重复弹窗
     skipErrorHandler: true,
   });
 }

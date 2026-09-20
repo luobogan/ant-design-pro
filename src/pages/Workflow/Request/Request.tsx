@@ -56,7 +56,7 @@ const MyRequestList: React.FC = () => {
   const columns: ProColumns<MyRequestItem>[] = [
     { title: '流程标题', dataIndex: 'title', ellipsis: true, render: (_, r) => <a onClick={() => openProgress(r)}>{r.title || '-'}</a> },
     { title: '流程名称', dataIndex: 'defName', ellipsis: true, hideInSearch: true },
-    { title: '当前节点', dataIndex: 'currentNode', hideInSearch: true },
+    { title: '当前节点', dataIndex: 'currentNodeName', hideInSearch: true },
     { title: '发起时间', dataIndex: 'startTime', valueType: 'dateTime', hideInSearch: true },
     {
       title: '状态',
@@ -98,8 +98,8 @@ const MyRequestList: React.FC = () => {
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
-          message="「我的请求」接口尚未提供"
-          description="后端 blade-workflow 暂未实现 GET /api/blade-workflow/instance/mine（返回我发起的流程实例）。前端已就绪，待该接口上线后即可正常展示数据。"
+          message="「我的请求」加载失败"
+          description="请稍后重试；若持续失败，请联系管理员检查 blade-workflow 服务与登录态（GET /api/blade-workflow/instance/mine）。"
         />
       )}
       <ProTable<MyRequestItem>
@@ -116,11 +116,18 @@ const MyRequestList: React.FC = () => {
               pageSize: params.pageSize,
               title: params.title as string | undefined,
             });
-            const list: MyRequestItem[] = pickPayload(res) || [];
+            // 后端返回 MyBatis-Plus 分页对象 { records, total, current, size }；
+            // 兼容「直接返回数组」的形态，避免后端调整载荷时白屏。
+            const page: any = pickPayload(res) || {};
+            const list: MyRequestItem[] = Array.isArray(page) ? page : page.records || [];
             setBackendMissing(false);
-            return { data: list, success: true, total: list.length };
+            return {
+              data: list,
+              success: true,
+              total: Array.isArray(page) ? list.length : page.total ?? list.length,
+            };
           } catch {
-            // 接口未就绪（404 等）：降级空态
+            // 接口异常（服务未启动 / 403 等）：降级空态 + 顶部提示
             setBackendMissing(true);
             return { data: [], success: true, total: 0 };
           }
