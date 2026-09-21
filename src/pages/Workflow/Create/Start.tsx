@@ -34,6 +34,7 @@ import {
   renderFormPreview,
   saveDraft,
   startInstance,
+  startWorkflowTest,
   validateForm,
 } from '@/services/workflow';
 import type { WfProcessDefinition, WfProcessNode } from '@/services/workflow';
@@ -80,13 +81,48 @@ const collectSelfCheckWarnings = (inst: any): string[] => {
  *   ├ 表单：审批态渲染包 `GET /form/preview`（布局 layoutJson + 节点字段权限）→ ExcelPreview 可编辑
  *   └ 底部：签字意见（富文本，随发起写入流转意见第一条）
  */
-const StartFlow: React.FC = () => {
+/**
+ * 发起页支持被「内嵌」复用（方案 §7 统一入口 —— 测试与正式发布共用同一套渲染与提交语义）。
+ *
+ * <p>两种用法：</p>
+ * <ul>
+ *   <li><b>独立路由</b> `/workflow/create/start?defId=xxx`：不传 props，走 URL 参数 + `prod` 模式（行为不变）；</li>
+ *   <li><b>内嵌</b>（如流程测试页的「节点审批情况」）：传 {@link StartFlowProps}，由父组件给定
+ *       `defId` / `nodeKey` / `mode`，**提交落点按 mode 切换** —— `prod` 走 `POST /instance/start`，
+ *       `test` 走测试域（不写业务表、不产生生产待办）。</li>
+ * </ul>
+ */
+export interface StartFlowProps {
+  /** 内嵌模式：由父组件指定流程定义ID（不从 URL 取） */
+  defId?: string;
+  /** 渲染/提交的节点（默认开始节点）；测试页切换「查看节点」时用 */
+  nodeKey?: string;
+  /** prod=正式发起（缺省，保持兼容） / test=测试域 / preview=设计态只读预览 */
+  mode?: 'prod' | 'test' | 'preview';
+  /** mode=test 时的测试发起人（缺省为当前登录用户） */
+  testUserId?: string;
+  /** 内嵌：不渲染外层 PageContainer、不做「发起后自动关闭」 */
+  embedded?: boolean;
+  /** 变化即重新加载渲染包（父组件推进流程后递增） */
+  refreshKey?: number;
+  /** 提交完成回调（父组件据此刷新测试状态 / 历史） */
+  onSubmitted?: (payload: any) => void;
+}
+
+const StartFlow: React.FC<StartFlowProps> = (props) => {
   const { initialState } = useModel('@@initialState');
   const userId = initialState?.currentUser?.userid;
   const { buttons } = usePageButtons('workflow_create');
 
+  const qs = new URLSearchParams(window.location.search);
   // defId / dataId 均为 19 位雪花 ID，全程保持字符串（Number() 会丢精度）
-  const urlDefId = new URLSearchParams(window.location.search).get('defId');
+  const urlDefId = qs.get('defId');
+  /** prod=正式发起 / test=测试域 / preview=设计态只读预览；缺省 prod（现有收藏/菜单链接不失效） */
+  const mode: 'prod' | 'test' | 'preview' = props.mode || (qs.get('mode') as any) || 'prod';
+  /** 内嵌（被父组件套用）：不渲染外层容器、不做自动关闭 */
+  const embedded = !!props.embedded;
+  const isTest = mode === 'test';
+  const isPreview = mode === 'preview';
   /** 由「草稿」续填进入时带上的草稿实例ID（表单直发无） */
   const instanceId = new URLSearchParams(window.location.search).get('instanceId');
   /** 由「单据」发起时带上的业务数据ID（formtable_main_{formId}.id）；
@@ -209,10 +245,13 @@ const StartFlow: React.FC = () => {
           [...ns].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))[0];
         const nodeKey = start?.nodeKey;
         setStartNodeKey(nodeKey);
+        // 内嵌时父组件可指定「查看/提交的节点」（如测试页切换查看节点）→ 渲染包按该节点取；
+        // 缺省仍是开始节点，独立路由行为完全不变
+        const renderKey = props.nodeKey || nodeKey;
 
         // 审批态渲染包（预览：布局 + 节点字段权限 + 操作菜单；不创建实例）
-        if (d.formId && nodeKey) {
-          const p: any = pickPayload(await renderFormPreview(d.id as any, d.formId, nodeKey));
+        if (d.formId && renderKey) {
+          const p: any = pickPayload(await renderFormPreview(d.id as any, d.formId, renderKey));
           if (p) {
             setPkg(p);
             try {
@@ -248,7 +287,9 @@ const StartFlow: React.FC = () => {
         setLoading(false);
       }
     })();
-  }, [defId]);
+    // props.nodeKey / refreshKey：父组件切换查看节点或推进流程后需重取渲染包
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defId, props.nodeKey, props.refreshKey, mode]);
 
   /** 开始节点的类型名（0创建 1审批 …）：页头「流程:{类型名} - {流程名} - {类型名}」用 */
   const startTypeName = useMemo(() => {
@@ -420,6 +461,44 @@ const StartFlow: React.FC = () => {
     }
   };
 
+  /**
+   * 测试域提交（mode=test）：发起一条**测试态实例**（`is_test=1`）。
+   *
+   * <p>与 {@link #doStart} 的唯一分岔是「提交落点」：正式发起写业务表 + 建正式实例 + 产生生产待办；
+   * 测试发起走 `POST /test/start`，**不写业务表**（占位 dataId）、不产生任何生产待办，
+   * 之后即可用「自动测试」逐节点推进或手动逐步提交。</p>
+   *
+   * <p>渲染与校验完全复用正式发起的同一套（同一个渲染包、同一份布局必填、同一套字段权限），
+   * 这正是「测试与正式同源」的意义 —— 预览/测试/正式三态共用同一个组件与同一份节点配置。</p>
+   */
+  const doStartTest = async (values: Record<string, any>) => {
+    setSubmitting(true);
+    try {
+      // 与正式发起同口径：坐标键（Excel 布局回显） + 字段名键（出口条件 UEL ${字段名}）一并下发
+      const payload = { ...values, ...collectFieldValues(layoutData, values) };
+      const res: any = await startWorkflowTest({
+        defId: def?.id,
+        testUserId: props.testUserId || userId,
+        formData: payload,
+      });
+      if (res?.success === false) {
+        message.error(res?.msg || '发起测试失败');
+        return;
+      }
+      const data: any = res?.data || null;
+      if (data?.instId) {
+        message.success('测试实例已发起，可「开始自动测试」或手动提交');
+      } else {
+        message.warning(data?.summary || '预校验未通过，无法发起测试');
+      }
+      props.onSubmitted?.(data);
+    } catch (e: any) {
+      message.error(e?.msg || '发起测试失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   /** 保存（只存不流转）：写业务行 → 建/更新草稿实例与发起人待办 → 记住草稿实例ID，供后续提交复用 */
   const handleSaveClick = async () => {
     if (!def?.formId && !def?.id) {
@@ -483,8 +562,12 @@ const StartFlow: React.FC = () => {
 
   /** 提交：先校验（节点意见必填）→ 触发 ExcelPreview 布局级必填校验 → 校验通过回调 onSubmit 里真发起 */
   const handleSubmitClick = async () => {
-    // 提交前先过门禁：草稿被删或已在别处提交时，本页已过期，不再进入校验/发起链路
-    if (!(await guardDraft())) return;
+    if (isPreview) return; // 设计态预览只读，不提交
+    // 测试域没有「草稿」概念（不写业务表、不建草稿实例），草稿过期门禁仅 prod 生效
+    if (!isTest) {
+      // 提交前先过门禁：草稿被删或已在别处提交时，本页已过期，不再进入校验/发起链路
+      if (!(await guardDraft())) return;
+    }
     if (pkg?.opinionRequired && isRichTextEmpty(opinion)) {
       message.warning('当前节点要求填写签字意见，无法提交');
       return;
@@ -520,6 +603,8 @@ const StartFlow: React.FC = () => {
    * </ol>
    */
   useEffect(() => {
+    // 内嵌模式不自动关闭：父页面还要继续用同一个页签观察测试结果
+    if (embedded) return;
     if (!done || selfChecks.length > 0 || !window.opener) return;
     message.success('流程已发起，本页即将自动关闭');
     const timer = window.setTimeout(() => closeTab(), 1200);
@@ -545,15 +630,9 @@ const StartFlow: React.FC = () => {
     </Button>
   );
 
-  return (
-    <div style={{ minHeight: '100vh', background: '#f0f2f5' }}>
-      <PageContainer
-        header={{
-          // 页头：流程:{开始节点类型} - {流程名} - {开始节点类型}（如「流程:创建 - 测试-918 - 创建」）
-          title: def ? `流程:${startTypeName} - ${def.name} - ${startTypeName}${draftInstId ? '（草稿）' : ''}` : '发起流程',
-        }}
-      >
-        <Card styles={{ body: { padding: 16 } }}>
+  /** 页面主体：三页签 + 表单 + 签字意见 —— 独立路由与「内嵌复用」共用同一份 */
+  const content = (
+    <Card styles={{ body: { padding: 16 } }}>
           {loading ? (
             <div style={{ padding: 48, textAlign: 'center' }}>
               <Spin />
@@ -652,13 +731,16 @@ const StartFlow: React.FC = () => {
                   />
                 </Space>
                 <Space size={6} style={{ marginTop: 4 }}>
-                  {/* 提交：节点操作菜单允许（或未配置）时显示 */}
-                  {canSubmit && submitButton}
-                  {/* 保存：只存业务数据、不发起；新建流程页只要绑定了表单就显示 */}
-                  {canSave && saveButton}
-                  <Button size="small" onClick={closeTab}>
-                    返回
-                  </Button>
+                  {/* 提交：节点操作菜单允许（或未配置）时显示；preview 只读不提交 */}
+                  {!isPreview && canSubmit && submitButton}
+                  {/* 保存草稿：仅 prod —— 测试态不写业务表、不建草稿实例，预览态只读 */}
+                  {!isPreview && !isTest && canSave && saveButton}
+                  {/* 内嵌由父页面统一提供「返回/关闭」，这里不重复渲染 */}
+                  {!embedded && (
+                    <Button size="small" onClick={closeTab}>
+                      返回
+                    </Button>
+                  )}
                   {moreMenus.length > 0 && (
                     <Dropdown
                       menu={{
@@ -687,8 +769,9 @@ const StartFlow: React.FC = () => {
                           open
                           standalone
                           hideHeader
-                          readOnly={false}
-                          nodeId={startNodeKey}
+                          // preview=设计态只读；其余可编辑（与正式发起同口径）
+                          readOnly={isPreview}
+                          nodeId={props.nodeKey || startNodeKey}
                           nodePermission={nodePermission}
                           initialValues={initialValues}
                           title="流程表单"
@@ -702,7 +785,11 @@ const StartFlow: React.FC = () => {
                             valid: boolean,
                           ) => {
                             if (!valid) return;
-                            doStart(_values);
+                            if (isTest) {
+                              doStartTest(_values);
+                            } else {
+                              doStart(_values);
+                            }
                           }}
                         />
                       ) : (
@@ -765,7 +852,23 @@ const StartFlow: React.FC = () => {
               </div>
             </>
           )}
-        </Card>
+    </Card>
+  );
+
+  // 内嵌模式：不套 PageContainer / 外层背景，由父页面统一布局（如流程测试页的「节点审批情况」）
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#f0f2f5' }}>
+      <PageContainer
+        header={{
+          // 页头：流程:{开始节点类型} - {流程名} - {开始节点类型}（如「流程:创建 - 测试-918 - 创建」）
+          title: def ? `流程:${startTypeName} - ${def.name} - ${startTypeName}${draftInstId ? '（草稿）' : ''}` : '发起流程',
+        }}
+      >
+        {content}
       </PageContainer>
     </div>
   );

@@ -74,6 +74,17 @@ const NODE_TYPE: Record<number, string> = {
 /** 需要填写/选择额外信息的操作 */
 const NEED_EXTRA = ['forward', 'sign'];
 
+/**
+ * 测试态禁用的操作（方案 §6.4 **C6** / V7）。
+ *
+ * 共同点是「会给真实用户产生东西」：转办/加签给真人新建待办、传阅给真人建已办条目、
+ * 催办在真人名下写留痕、退回会触发节点后附加操作（可能写业务表/调外部接口）。
+ *
+ * 后端 C16 已对这些动作一律拒绝（绕不过），这里前置禁用只是**不让用户点了才收到报错**；
+ * 测试态保留「提交」（走 `/test/step`）即可完成逐节点推进。
+ */
+const TEST_BLOCKED_MENUS = ['reject', 'forward', 'sign', 'circulate', 'urge'];
+
 const menuLabel = (code: string) => MENUS_OPTIONS.find((o) => o.value === code)?.label || code;
 
 /** 流转动作（wf_approval_log.log_type，对齐 WfApprovalLog 常量）→ 展示文案 */
@@ -238,9 +249,12 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
   // 操作菜单：null/未配置 = 不限制（按 MENUS_OPTIONS 全量）；空数组 = 一个都不给
   const menus = useMemo(() => {
     const all = MENUS_OPTIONS.map((o) => String(o.value));
-    if (pkg?.allowMenus == null) return all;
-    return all.filter((c) => (pkg.allowMenus || []).map(String).includes(c));
-  }, [pkg]);
+    const allowed =
+      pkg?.allowMenus == null ? all : all.filter((c) => (pkg.allowMenus || []).map(String).includes(c));
+    // 测试态：剔除会给真实用户产生任务/留痕的动作（C6 / V7）—— 直接不渲染，
+    // 比置灰更明确（这些动作在测试域本来就没有意义）
+    return testMode ? allowed.filter((c) => !TEST_BLOCKED_MENUS.includes(c)) : allowed;
+  }, [pkg, testMode]);
 
   /** 流程图标记：nodeKey -> 状态（1走通 2走不通） */
   const nodeStatusMap = useMemo(() => {
@@ -279,6 +293,11 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
     }
     if (code === 'attach') {
       message.info('附件上传接口待接入');
+      return;
+    }
+    // 测试态兜底拦截（菜单已不渲染这些按钮，这里是防御：避免任何路径绕过 UI 触发）
+    if (testMode && TEST_BLOCKED_MENUS.includes(code)) {
+      message.info(`流程测试不支持「${menuLabel(code)}」：该操作会给真实用户产生任务或留痕`);
       return;
     }
     // 测试态「提交」：走 POST /test/step —— 后端按当前节点待办推进，
@@ -342,6 +361,11 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
 
   const handleModalOk = async () => {
     if (!taskId) return;
+    // 测试态防御：弹窗路径同样拦截（正常不会打开，因按钮已不渲染）
+    if (testMode && modalType && TEST_BLOCKED_MENUS.includes(modalType)) {
+      message.info('流程测试不支持该操作：会给真实用户产生任务或留痕');
+      return;
+    }
     if (!assignee) {
       message.warning('请选择人员');
       return;

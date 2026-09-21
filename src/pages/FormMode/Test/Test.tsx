@@ -21,6 +21,7 @@ import {
 } from 'antd';
 import FlowFormPanel from '@/pages/FormMode/Test/components/FlowFormPanel';
 import TestFlowPicker from '@/pages/FormMode/Test/components/TestFlowPicker';
+import StartFlow from '@/pages/Workflow/Create/Start';
 import {
   cleanupWorkflowTest,
   getBpmn,
@@ -1153,16 +1154,35 @@ const WorkflowTestPage: React.FC = () => {
                 }}
               />
             ) : defId && formId ? (
-              <FlowFormPanel
-                key={`preview-${defId}-${effectiveNodeKey}`}
-                preview
-                previewDefId={defId}
-                previewFormId={formId}
+              /**
+               * 「节点审批情况（预览）」= **正式发起页本身**（方案 §7 统一入口）。
+               *
+               * 这里不再自己实现一套预览渲染，而是直接内嵌 `/workflow/create/start` 的发起页组件：
+               *   · 未选测试发起人 → `mode=preview`：设计态只读预览（不建实例）；
+               *   · 已选测试发起人 → `mode=test`：同一套表单、**同一份节点配置与必填校验**，
+               *     点「提交」即发起一条 `is_test=1` 的测试实例（不写业务表、不产生生产待办）。
+               *
+               * 收益：预览 / 测试 / 正式三态共用同一个组件与同一份渲染包，
+               * 直接消除「测试绿灯 ≠ 正式能跑」的前端侧分叉。
+               */
+              <StartFlow
+                key={`preview-${defId}-${effectiveNodeKey}-${testUserId || 'none'}`}
+                defId={String(defId)}
                 nodeKey={effectiveNodeKey}
-                defName={currentDef?.name}
-                bpmnXml={bpmnXml}
-                nodes={viewNodes.length ? viewNodes : []}
-                onSelectNode={(k) => k && pickViewNode(k)}
+                mode={testUserId ? 'test' : 'preview'}
+                testUserId={testUserId ? String(testUserId) : undefined}
+                embedded
+                refreshKey={formKey}
+                onSubmitted={(data: any) => {
+                  // 发起测试实例后交给测试页接管：切到「测试实例」分支，
+                  // 之后即可「开始自动测试」逐节点推进，或手动逐步提交
+                  if (data?.instId) {
+                    setResult(data);
+                    followRef.current = true;
+                    syncViewNode(data);
+                    loadHistory();
+                  }
+                }}
               />
             ) : (
               <Empty description="选择流程并关联表单后，这里展示流程表单 / 流程图 / 流程状态" />
