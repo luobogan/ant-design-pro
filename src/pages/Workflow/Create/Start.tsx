@@ -96,6 +96,15 @@ const StartFlow: React.FC = () => {
   const [defId, setDefId] = useState<string | undefined>(urlDefId || undefined);
   /** 当前草稿实例ID（保存草稿后回填；提交时作为 draftInstId 原地提升） */
   const [draftInstId, setDraftInstId] = useState<string>('');
+  /** 由 URL 带入的草稿实例已被删除（待办/其他列表删过）：置 true 后禁止保存/提交，避免「删了又复活」 */
+  const [instanceGone, setInstanceGone] = useState<boolean>(false);
+  /**
+   * 本页已过期（界面状态与实例状态不一致）。
+   *
+   * <p>与「草稿已删除」并列的另一类不一致：草稿已在别处被<b>提交</b>（实例状态不再是草稿），
+   * 而本页仍按草稿在编辑。非空即禁止保存/提交并提示用户改从「待办 / 我的请求」继续处理。</p>
+   */
+  const [staleReason, setStaleReason] = useState<string>('');
 
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string>('');
@@ -127,13 +136,23 @@ const StartFlow: React.FC = () => {
     (async () => {
       try {
         const inst: any = pickPayload(await getInstance(instanceId));
-        if (inst) {
+        if (inst && inst.id) {
+          // 实例已不再是草稿态（别处提交过 / 已归档 / 已终止）→ 本页按草稿编辑的状态已过期
+          if (Number(inst.status) !== 5) {
+            setStaleReason(
+              '该流程已发起（当前状态已不是草稿），本页的保存/提交已失效，请在「待办」或「我的请求」中继续处理',
+            );
+          }
           if (!defId && inst.defId) setDefId(String(inst.defId));
           if (inst.dataId) setSavedDataId(String(inst.dataId));
           setDraftInstId(String(inst.id));
+        } else {
+          // 草稿已被删除（待办/我的请求/其他列表删过它）：标记后禁止保存/提交
+          setInstanceGone(true);
         }
       } catch {
-        // 详情读取失败不阻断（加载错误由主流程 effect 兜底）
+        // 详情读取失败（含 404 / 实例已删除）→ 同样视为草稿不存在
+        setInstanceGone(true);
       }
     })();
   }, [instanceId]);
@@ -284,7 +303,70 @@ const StartFlow: React.FC = () => {
     message.info('该操作在发起页暂未接入');
   };
 
+  /**
+   * 动作前复检（「界面未刷新」场景的草稿页落点）。
+   *
+   * <p>覆盖「页面打开之后，草稿在待办/我的请求/其他标签页被删除或被提交」：
+   * 此时本页显示的仍是原草稿内容 —— 继续保存会让已删除的草稿「复活」成一条新流程，
+   * 继续提交则会把已发起的流程当草稿再走一次提升。</p>
+   *
+   * @return 空串=仍可保存/提交；非空=过期原因（调用方据此中断并提示）
+   */
+  const recheckDraft = async (): Promise<string> => {
+    if (!instanceId) return '';
+    try {
+      const inst: any = pickPayload(await getInstance(instanceId));
+      if (!inst || !inst.id) {
+        return '该草稿已不存在（可能已在待办或其他列表删除），无法保存';
+      }
+      if (Number(inst.status) !== 5) {
+        return '该流程已发起（不再是草稿），本页已过期，请在「待办」或「我的请求」中继续处理';
+      }
+      return '';
+    } catch (e: any) {
+      const msg = e?.msg || e?.message || '';
+      if (msg.includes('不存在')) {
+        return '该草稿已不存在（可能已在待办或其他列表删除），无法保存';
+      }
+      // 网络抖动等无法判定：不拦，由后端 saveDraft 的存在性/状态校验兜底
+      return '';
+    }
+  };
+
+  /** 保存/提交前的统一门禁：过期则中断，并把本页置为过期态（按钮同时停用） */
+  const guardDraft = async (): Promise<boolean> => {
+    if (instanceGone) {
+      message.error('该草稿已不存在（可能已在待办或其他列表删除），无法保存');
+      return false;
+    }
+    if (staleReason) {
+      message.error(staleReason);
+      return false;
+    }
+    const reason = await recheckDraft();
+    if (reason) {
+      setStaleReason(reason);
+      message.error(reason);
+      return false;
+    }
+    return true;
+  };
+
+  /**
+   * 后端拒绝时的统一提示：识别「草稿已不存在 / 已发起」类拒绝并同步把本页置为过期态，
+   * 让按钮与横幅一起进入过期状态，避免用户反复点击（后端已是不可能绕过的权威守卫）。
+   */
+  const notifyDraftFail = (msg: string | undefined, fallback: string) => {
+    const text = msg || fallback;
+    if (text.includes('草稿已不存在') || text.includes('已发起')) {
+      setStaleReason(text);
+    }
+    message.error(text);
+  };
+
   const doStart = async (values: Record<string, any>) => {
+    // 写操作门禁：草稿可能已被删除或在别处提交（界面未刷新），过期则绝不发起
+    if (!(await guardDraft())) return;
     setSubmitting(true);
     try {
       // 坐标键（{sheetId}__row__col，供 Excel 布局回显）与字段名键（供出口条件 UEL ${字段名}）
@@ -320,7 +402,7 @@ const StartFlow: React.FC = () => {
       }
       // 发起后回读实例，取 L3 运行时自检标志（业务行 / request_id / 引擎部署）
       // 后端返回的是字符串形式的实例ID（19 位雪花 ID），原样使用，切勿 Number()
-      const instId = res?.data;
+      const instId = pickPayload(res);
       if (instId) {
         try {
           const inst: any = pickPayload(await getInstance(instId)) || {};
@@ -332,7 +414,7 @@ const StartFlow: React.FC = () => {
       }
       setDone(true);
     } catch (e: any) {
-      message.error(e?.msg || '发起失败');
+      notifyDraftFail(e?.msg, '发起失败');
     } finally {
       setSubmitting(false);
     }
@@ -344,6 +426,9 @@ const StartFlow: React.FC = () => {
       message.warning('该流程未绑定表单，无法保存');
       return;
     }
+    // 过期/已删除门禁：动作前复检草稿是否仍存在且仍是草稿态
+    // （避免「删了又复活」新建一条，或在已发起的实例上继续按草稿保存）
+    if (!(await guardDraft())) return;
     setSaving(true);
     try {
       const values = formValuesRef.current || {};
@@ -352,35 +437,54 @@ const StartFlow: React.FC = () => {
       const res: any = await saveDraft({
         defId: def?.id,
         formId: def?.formId,
-        // 已保存过（草稿实例存在）则更新同一行/实例，否则新建
+        // 已保存过（草稿实例存在）则更新同一行/实例，否则新建。
+        // ⚠️ 优先用 URL 的 instanceId：即便内存里 draftInstId 因加载失败被清空，
+        //    也能把原始 instanceId 交给后端做存在性校验，删除后点保存会被后端拒绝。
         dataId: savedDataId || undefined,
-        instanceId: draftInstId || undefined,
+        instanceId: instanceId || draftInstId || undefined,
         fieldValues: payload,
       });
+      // 统一用 pickPayload 取响应载荷：request() 返回可能是「载荷本身 / {data:载荷} /
+      // {data:{data:载荷}}」三种形态之一，直接取 res.data 在「载荷本身」形态下会拿到 undefined，
+      // 导致 draftInstId 永远设不上、每次保存都新建实例（多点几次生成多条草稿）。
+      const savedInstId = pickPayload(res);
       if (res?.success === false) {
-        message.error(res?.msg || '保存失败');
+        notifyDraftFail(res?.msg, '保存失败');
         return;
       }
-      if (res?.data) {
-        setDraftInstId(String(res.data));
+      if (savedInstId) {
+        setDraftInstId(String(savedInstId));
         // 取回该草稿实例的 dataId（保存草稿时已确保业务行存在），供后续提交复用
+        let nextDataId = savedDataId;
         try {
-          const inst: any = pickPayload(await getInstance(res.data));
-          if (inst?.dataId) setSavedDataId(String(inst.dataId));
+          const inst: any = pickPayload(await getInstance(savedInstId));
+          if (inst?.dataId) {
+            setSavedDataId(String(inst.dataId));
+            nextDataId = String(inst.dataId);
+          }
         } catch {
           // 取 dataId 失败不阻断（savedDataId 已足够）
         }
+        // 把草稿实例ID / 业务数据ID 回写到当前页 URL（对齐泛微 requestid 回写机制）：
+        // 刷新或重开本页时，URL 带 instanceId → 顶部 effect 自动按「草稿续填」回填，复用同一条草稿，
+        // 不会因内存里的 draftInstId 丢失而又新建一条草稿（避免重复流程）。
+        const url = new URL(window.location.href);
+        url.searchParams.set('instanceId', String(savedInstId));
+        if (nextDataId) url.searchParams.set('dataId', nextDataId);
+        window.history.replaceState({}, '', url.toString());
       }
       message.success('已保存草稿（未提交，可继续编辑后再提交）');
     } catch (e: any) {
-      message.error(e?.msg || '保存失败');
+      notifyDraftFail(e?.msg, '保存失败');
     } finally {
       setSaving(false);
     }
   };
 
   /** 提交：先校验（节点意见必填）→ 触发 ExcelPreview 布局级必填校验 → 校验通过回调 onSubmit 里真发起 */
-  const handleSubmitClick = () => {
+  const handleSubmitClick = async () => {
+    // 提交前先过门禁：草稿被删或已在别处提交时，本页已过期，不再进入校验/发起链路
+    if (!(await guardDraft())) return;
     if (pkg?.opinionRequired && isRichTextEmpty(opinion)) {
       message.warning('当前节点要求填写签字意见，无法提交');
       return;
@@ -404,7 +508,7 @@ const StartFlow: React.FC = () => {
 
   const submitButton = (
     <PermissionButton hasPermission={buttons.some((b: any) => b.code === 'workflow_create_submit')}>
-      <Button type="primary" size="small" loading={submitting} onClick={handleSubmitClick}>
+      <Button type="primary" size="small" loading={submitting} disabled={instanceGone || !!staleReason} onClick={handleSubmitClick}>
         提交
       </Button>
     </PermissionButton>
@@ -415,7 +519,7 @@ const StartFlow: React.FC = () => {
    * 只把表单值写到业务表并记住 dataId，之后提交时复用同一行；不做必填校验（允许先存草稿）。
    */
   const saveButton = (
-    <Button size="small" loading={saving} onClick={handleSaveClick}>
+    <Button size="small" loading={saving} disabled={instanceGone || !!staleReason} onClick={handleSaveClick}>
       保存
     </Button>
   );
@@ -473,6 +577,25 @@ const StartFlow: React.FC = () => {
             </Result>
           ) : (
             <>
+              {/* ⓪ 状态不一致横幅：草稿已删除 / 已被提交（界面未刷新）时置顶告警并停用保存提交 */}
+              {(instanceGone || staleReason) && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  message={instanceGone ? '该草稿已不存在' : '本页已过期：流程状态已变更'}
+                  description={
+                    instanceGone
+                      ? '此草稿可能已在待办、我的请求或其他列表中删除，无法继续保存或提交。如需新建，请关闭本页后重新进入发起页。'
+                      : `${staleReason}。为避免把过期数据写回，本页的保存/提交已停用，请关闭本页后在「待办」或「我的请求」中打开最新状态。`
+                  }
+                  action={
+                    <Button size="small" onClick={() => window.location.reload()}>
+                      刷新页面
+                    </Button>
+                  }
+                />
+              )}
               {/* ① 顶部：左 = 三页签（流程表单 / 流程图 / 流程状态）；右 = 提交 / 返回 / ⋯ */}
               <div
                 style={{

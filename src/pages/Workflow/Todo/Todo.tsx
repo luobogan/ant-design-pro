@@ -1,12 +1,12 @@
 import { useModel } from '@umijs/max';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Badge, Modal, Space, Tag, message } from 'antd';
+import { Badge, Modal, Popconfirm, Space, Tag, message } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import { PermissionButton } from '@/components/PermissionButton';
 import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
-import { listTodo, forwardTask, addSignTask, urgeTask } from '@/services/workflow';
+import { listTodo, forwardTask, addSignTask, urgeTask, deleteDraft } from '@/services/workflow';
 import type { WfTaskItem } from '@/services/workflow';
 import { pickPayload } from '@/utils/utils';
 
@@ -52,6 +52,17 @@ const TodoList: React.FC = () => {
     }
     const url = `/formmode/approval/ApprovalPage?instanceId=${record.instId}&taskId=${record.id}`;
     window.open(url, '_blank');
+  };
+
+  const handleDeleteDraft = async (record: WfTaskItem) => {
+    try {
+      // 19 位雪花 ID 必须按字符串传，避免 Number() 丢精度导致后端查不到实例
+      await deleteDraft(String(record.instId));
+      message.success('草稿已删除');
+      actionRef.current?.reload();
+    } catch (e: any) {
+      message.error(e?.msg || '删除失败');
+    }
   };
 
   const handleUrge = async (record: WfTaskItem) => {
@@ -124,6 +135,11 @@ const TodoList: React.FC = () => {
         <a key="handle" onClick={() => openApproval(record)}>
           {record.instStatus === 5 ? '继续填写' : '办理'}
         </a>,
+        record.instStatus === 5 && (
+          <Popconfirm key="del" title="确认删除该草稿？" onConfirm={() => handleDeleteDraft(record)}>
+            <a style={{ color: '#ff4d4f' }}>删除</a>
+          </Popconfirm>
+        ),
         record.instStatus !== 5 && (
           <PermissionButton
             key="forward"

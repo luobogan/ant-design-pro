@@ -651,6 +651,47 @@ export async function getInstance(id: string | number) {
   return request<ApiResponse<any>>(`${WORKFLOW}/instance/${id}`, { method: 'GET' });
 }
 
+/** 「界面新鲜度」复检结果：判定已打开的页面是否已过期（流程已回退/流转/结束） */
+export interface InstanceFreshResult {
+  instanceId?: string;
+  /** 实例是否存在（false=已被删除） */
+  exists?: boolean;
+  instanceStatus?: number;
+  /** 实例当前节点Key */
+  currentNodeKey?: string;
+  currentNodeName?: string;
+  /** 界面所在节点Key（本次比对的对象） */
+  nodeKey?: string;
+  nodeName?: string;
+  /** 界面所在节点是否仍是活动节点（并行分支安全口径） */
+  nodeActive?: boolean;
+  /** true=界面已过期，必须拦截保存/提交等写操作 */
+  stale?: boolean;
+  /** 过期原因（后端已成人话，可直接展示） */
+  staleReason?: string;
+}
+
+/**
+ * 界面新鲜度复检：解决「流程已回退 / 节点被他人流转 / 实例已归档撤回，
+ * 而浏览器里的页面仍显示原节点」造成的状态不一致。
+ *
+ * 调用时机：页面打开后、每次保存/提交等写操作前、以及定时与切回标签页时。
+ * stale=true 时必须拦截写操作并按 staleReason 提示用户刷新页面。
+ *
+ * 注意：实例已被删除时后端抛「流程实例不存在」，故 skipErrorHandler 由调用方兜底处理。
+ */
+export async function freshInstance(
+  id: string | number,
+  nodeKey?: string,
+  taskId?: string | number,
+) {
+  return request<ApiResponse<InstanceFreshResult>>(`${WORKFLOW}/instance/${id}/fresh`, {
+    method: 'GET',
+    params: { nodeKey, taskId },
+    skipErrorHandler: true,
+  });
+}
+
 export async function getInstanceByBiz(formId: number, dataId: number) {
   return request<ApiResponse<any>>(`${WORKFLOW}/instance/by-biz`, { method: 'GET', params: { formId, dataId } });
 }
@@ -856,6 +897,14 @@ export async function saveFormData(dto: any) {
  */
 export async function saveDraft(dto: any) {
   return request<ApiResponse<string>>(`${WORKFLOW}/instance/save-draft`, { method: 'POST', data: dto });
+}
+
+/**
+ * 删除草稿（只删草稿态实例）：删除草稿实例、合成待办、快照与其独占业务数据行。
+ * 仅发起人本人或流程管理员可操作；ID 按字符串传，避免 19 位雪花 ID 经 Number() 丢精度。
+ */
+export async function deleteDraft(id: string) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/instance/${id}/draft`, { method: 'DELETE' });
 }
 
 export async function monitorCount(assignee?: number) {

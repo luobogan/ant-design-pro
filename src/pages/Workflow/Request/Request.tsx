@@ -4,17 +4,18 @@ import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { Alert, Badge, Button, Popconfirm, message } from 'antd';
 import { useRef, useState } from 'react';
 import { usePageButtons } from '@/hooks/usePageButtons';
-import { listMyRequests, withdrawInstance, stopInstance } from '@/services/workflow';
+import { listMyRequests, withdrawInstance, stopInstance, deleteDraft } from '@/services/workflow';
 import type { MyRequestItem } from '@/services/workflow';
 import { pickPayload } from '@/utils/utils';
 
-/** 实例状态：0运行中 1通过 2不通过 3撤销 4暂停 */
+/** 实例状态：0运行中 1通过 2不通过 3撤销 4暂停 5草稿 */
 const INSTANCE_STATUS: Record<number, { text: string; color: string }> = {
   0: { text: '运行中', color: 'processing' },
   1: { text: '通过', color: 'success' },
   2: { text: '不通过', color: 'error' },
   3: { text: '撤销', color: 'default' },
   4: { text: '暂停', color: 'warning' },
+  5: { text: '草稿', color: 'warning' },
 };
 
 /**
@@ -31,6 +32,24 @@ const MyRequestList: React.FC = () => {
 
   const openProgress = (record: MyRequestItem) => {
     window.open(`/formmode/approval/ApprovalPage?instanceId=${record.id}`, '_blank');
+  };
+
+  /** 草稿续填：打开发起页，带上草稿实例ID 与业务数据ID（与待办页草稿入口一致） */
+  const openDraft = (record: MyRequestItem) => {
+    window.open(`/workflow/create/start?defId=${record.defId}&instanceId=${record.id}&dataId=${record.dataId}`, '_blank');
+  };
+
+  const isDraft = (record: MyRequestItem) => record.status === 5;
+
+  const handleDeleteDraft = async (record: MyRequestItem) => {
+    try {
+      // 19 位雪花 ID 必须按字符串传，避免 Number() 丢精度导致后端查不到实例
+      await deleteDraft(record.id as string);
+      message.success('草稿已删除');
+      actionRef.current?.reload();
+    } catch (e: any) {
+      message.error(e?.msg || '删除失败');
+    }
   };
 
   const handleWithdraw = async (record: MyRequestItem) => {
@@ -75,6 +94,15 @@ const MyRequestList: React.FC = () => {
       valueType: 'option',
       fixed: 'right',
       render: (_, record) => {
+        // 草稿态：仅提供「继续填写」与「删除」（不提供撤回/终止/进度，草稿尚未进入流程）
+        if (isDraft(record)) {
+          return [
+            <a key="edit" onClick={() => openDraft(record)}>继续填写</a>,
+            <Popconfirm key="del" title="确认删除该草稿？" onConfirm={() => handleDeleteDraft(record)}>
+              <a style={{ color: '#ff4d4f' }}>删除</a>
+            </Popconfirm>,
+          ];
+        }
         const running = record.status === 0 || record.status === 4;
         return [
           <a key="progress" onClick={() => openProgress(record)}>进度</a>,

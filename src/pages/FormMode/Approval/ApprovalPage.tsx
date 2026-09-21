@@ -30,6 +30,7 @@ import {
   saveFormData,
   getBpmn,
   getInstance,
+  freshInstance,
   getInstanceNodeOperators,
   getLogs,
   listNodes,
@@ -48,6 +49,7 @@ import RichTextEditor, {
   focusRichText,
   isRichTextEmpty,
 } from '@/components/RichTextEditor';
+import { pickPayload } from '@/utils/utils';
 
 /** 节点类型 0创建 1审批 2提交 3归档 5等待 6自动处理 7网关 */
 const NODE_TYPE: Record<number, string> = {
@@ -120,6 +122,86 @@ const ApprovalPage: React.FC = () => {
   /** Excel 布局表单的当前值（key = sheetId__row__col，明细表带 dt{idx}__r{n}__ 前缀） */
   const formValuesRef = useRef<Record<string, any>>({});
 
+  /**
+   * 「界面状态与实例状态不一致」识别结果（页面过期）。
+   *
+   * <p>场景：流程被退回、被他人流转、被撤回或归档之后，浏览器里已经打开的页面
+   * 仍显示<b>原节点</b>（界面未刷新）。此时继续保存/提交会把过期数据写回，
+   * 或在已失效的节点上完成办理。识别到后本页禁止一切写操作，并引导刷新。</p>
+   */
+  const [stale, setStale] = useState<{ reason: string } | null>(null);
+  /** pkg 的最新值快照：复检发生在异步回调/定时器里，直接读 state 会拿到闭包旧值 */
+  const pkgRef = useRef<any>(null);
+  /** 过期标记的同步副本：同一 tick 内多次门禁调用也要立即生效 */
+  const staleRef = useRef(false);
+
+  /** 标记本页已过期（幂等：保留第一次的原因，避免被后续复检结果覆盖） */
+  const markStale = useCallback((reason: string) => {
+    staleRef.current = true;
+    setStale((prev) => prev || { reason });
+  }, []);
+
+  /** 后端返回的过期提示统一措辞（见 WfTaskServiceImpl#staleTaskReason / WfFormRenderServiceImpl#save） */
+  const isStaleMsg = (msg?: string) => !!msg && msg.includes('本页已过期');
+
+  /**
+   * 界面新鲜度复检（本规则的办理页落点）。
+   *
+   * <p>识别三类过期：① 实例已删除；② 实例已归档/不通过/撤回；③ 界面所在节点已不是活动节点
+   * ——③ 即「流程已不在当前节点但界面仍显示原节点」，典型为退回或被他人流转。</p>
+   *
+   * <p>判定交给后端 {@code GET /instance/{id}/fresh}（单一权威实现，并行网关分支安全，
+   * 不会把并行分支上的合法办理误判为过期），前端只负责拦截与提示。</p>
+   *
+   * @return true=页面仍有效可继续操作；false=已过期，必须中断本次写操作
+   */
+  const checkFresh = useCallback(async (): Promise<boolean> => {
+    if (!instanceId) return true;
+    if (staleRef.current) return false; // 已判定过期 → 一律拦截
+    let res: any = null;
+    try {
+      res = await freshInstance(instanceId, pkgRef.current?.nodeKey, taskId || undefined);
+    } catch (e: any) {
+      const msg = e?.msg || e?.message || '';
+      if (msg.includes('不存在')) {
+        // 实例已被删除（后端抛「流程实例不存在」）
+        markStale('该流程已不存在（可能已被删除），请关闭本页');
+        return false;
+      }
+      // 网络抖动等无法判定：不拦截，写操作由后端权威守卫兜底，避免误伤正常办理
+      return true;
+    }
+    const p: any = pickPayload(res);
+    if (p && p.stale) {
+      markStale(p.staleReason || '流程状态已变更，本页已过期');
+      return false;
+    }
+    return true;
+  }, [instanceId, taskId, markStale]);
+
+  /**
+   * 写操作前的统一门禁：保存 / 提交 / 退回 / 转办 / 加签 / 传阅 / 催办 一律先过这里。
+   * 页面已过期则中断操作并提示刷新，绝不向后端发起可能写坏数据的请求。
+   */
+  const guardFresh = async (): Promise<boolean> => {
+    if (staleRef.current) {
+      message.error('本页已过期：流程状态已变更，请刷新页面后重新操作');
+      return false;
+    }
+    const ok = await checkFresh();
+    if (!ok) {
+      message.error('本页已过期：流程状态已变更（可能已回退或被他人流转），请刷新页面后重新操作');
+    }
+    return ok;
+  };
+
+  /** 统一失败提示：识别后端「本页已过期」并同步把本页降级为过期态（阻止继续点击） */
+  const notifyFail = (msg: string | undefined, fallback: string) => {
+    const text = msg || fallback;
+    if (isStaleMsg(text)) markStale(text);
+    message.error(text);
+  };
+
   useEffect(() => {
     if (!instanceId) {
       setLoading(false);
@@ -135,6 +217,7 @@ const ApprovalPage: React.FC = () => {
           message.error('获取审批渲染包失败');
           return;
         }
+        pkgRef.current = p;
         setPkg(p);
         setReadonly(!!p.readonly);
         setAllowMenus(p.allowMenus || []);
@@ -162,6 +245,40 @@ const ApprovalPage: React.FC = () => {
       /* ignore */
     });
   }, [taskId]);
+
+  /**
+   * 打开页面即复检一次：覆盖「用历史任务/旧链接打开」的过期页面
+   * （此时渲染包与任务都还查得到，但流程早已不在该节点）。
+   */
+  useEffect(() => {
+    if (!pkg || !instanceId || done) return;
+    checkFresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pkg, instanceId, done]);
+
+  /**
+   * 主动识别过期（界面未刷新的核心场景）：定时轮询 + 切回标签页/窗口聚焦时复检。
+   *
+   * <p>覆盖「用户停在本页期间，流程被他人退回或流转」——此时界面不会自己更新，
+   * 只有主动复检才能及时发现并把页面降级为只读。</p>
+   */
+  useEffect(() => {
+    if (!instanceId || done) return;
+    const timer = window.setInterval(() => {
+      checkFresh();
+    }, 20000);
+    const onWake = () => {
+      if (document.visibilityState === 'visible') checkFresh();
+    };
+    window.addEventListener('focus', onWake);
+    document.addEventListener('visibilitychange', onWake);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onWake);
+      document.removeEventListener('visibilitychange', onWake);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instanceId, done]);
 
   // 自定义操作：allowMenus 含 'custom' 时拉取本节点启用的按钮
   useEffect(() => {
@@ -277,6 +394,8 @@ const ApprovalPage: React.FC = () => {
 
   const handleSubmit = async (values: Record<string, any>, fieldValues: Record<string, any>) => {
     if (!taskId) return;
+    // 写操作门禁：流程可能已被退回/流转/归档而界面未刷新，过期则绝不发起提交
+    if (!(await guardFresh())) return;
     // 三类键都下发：快照（可能含历史坐标键）+ 本次坐标键（供 Excel 布局回显）
     // + 字段名键（供出口条件 UEL / 必填矩阵，与测试流程一致）
     const variables = { ...dataJsonRef.current, ...(values || {}), ...(fieldValues || {}) };
@@ -291,6 +410,8 @@ const ApprovalPage: React.FC = () => {
       await validateForm({ instanceId, nodeKey: pkg?.nodeKey, formData: variables });
       const res: any = await approveTask(taskId, { opinion, variables });
       if (res?.success === false) {
+        // 后端权威判定为「页面过期」（回退/流转）→ 同步把本页降级为过期态
+        if (isStaleMsg(res?.msg)) markStale(res.msg);
         message.error(res?.msg || '提交失败');
         return;
       }
@@ -298,7 +419,9 @@ const ApprovalPage: React.FC = () => {
       // 办理完成自动关闭页面（独立标签有 opener → window.close；否则回退上一页）
       setTimeout(() => closeTab(), 800);
     } catch (e: any) {
-      message.error(e?.msg || '提交失败');
+      const msg = e?.msg || '提交失败';
+      if (isStaleMsg(msg)) markStale(msg);
+      message.error(msg);
     } finally {
       setSubmitting(false);
     }
@@ -316,10 +439,12 @@ const ApprovalPage: React.FC = () => {
   /** 点击「退回」：先查可退回节点，决定直接退还是弹窗选节点 */
   const openReject = async () => {
     if (!taskId) return;
+    // 弹窗只是查询，但退回目标依赖「当前节点」，过期节点上算出来的候选已不成立
+    if (!(await guardFresh())) return;
     try {
       const res: any = await rejectNodes(taskId);
       if (res?.success === false) {
-        message.error(res?.msg || '查询退回节点失败');
+        notifyFail(res?.msg, '查询退回节点失败');
         return;
       }
       const data = res?.data || {};
@@ -336,6 +461,8 @@ const ApprovalPage: React.FC = () => {
   /** 通用弹窗确认（退回/转办/加签） */
   const handleModalOk = async () => {
     if (!taskId) return;
+    // 写操作门禁：弹窗期间流程可能已被退回/流转，过期则中止本次操作
+    if (!(await guardFresh())) return;
     setSubmitting(true);
     try {
       if (modalType === 'reject') {
@@ -353,7 +480,7 @@ const ApprovalPage: React.FC = () => {
           return;
         }
         const res: any = await rejectTask(taskId, { opinion, targetNodeKey: target });
-        if (res?.success === false) return message.error(res?.msg || '退回失败');
+        if (res?.success === false) return notifyFail(res?.msg, '退回失败');
         message.success('已退回');
       } else if (modalType === 'forward') {
         if (!modalAssignee) return message.warning('请选择转办人');
@@ -362,7 +489,7 @@ const ApprovalPage: React.FC = () => {
           opinion,
           assignee: modalAssignee,
         });
-        if (res?.success === false) return message.error(res?.msg || '转办失败');
+        if (res?.success === false) return notifyFail(res?.msg, '转办失败');
         message.success('已转办');
       } else if (modalType === 'sign') {
         if (!modalAssignee) return message.warning('请选择加签人');
@@ -372,14 +499,14 @@ const ApprovalPage: React.FC = () => {
           assignee: modalAssignee,
           addSignType: modalAddSignType,
         });
-        if (res?.success === false) return message.error(res?.msg || '加签失败');
+        if (res?.success === false) return notifyFail(res?.msg, '加签失败');
         message.success('已加签');
       } else if (modalType === 'circulate') {
         // 传阅（抄送）：可多选，生成 status=8 的知会任务，不占待办、不影响流转
         const list = Array.isArray(modalAssignee) ? modalAssignee : modalAssignee ? [modalAssignee] : [];
         if (list.length === 0) return message.warning('请选择传阅人');
         const res: any = await circulateTask(taskId, { opinion, assignees: list });
-        if (res?.success === false) return message.error(res?.msg || '传阅失败');
+        if (res?.success === false) return notifyFail(res?.msg, '传阅失败');
         message.success('已传阅');
       } else if (modalType === 'attach') {
         // 附件暂仅本地选择，后端持久化接口待接入
@@ -388,7 +515,7 @@ const ApprovalPage: React.FC = () => {
       closeModal();
       setDone(true);
     } catch (e: any) {
-      message.error(e?.msg || '操作失败');
+      notifyFail(e?.msg, '操作失败');
     } finally {
       setSubmitting(false);
     }
@@ -396,13 +523,14 @@ const ApprovalPage: React.FC = () => {
 
   const handleUrge = async () => {
     if (!taskId) return;
+    if (!(await guardFresh())) return;
     setSubmitting(true);
     try {
       const res: any = await urgeTask(taskId, { opinion });
-      if (res?.success === false) return message.error(res?.msg || '催办失败');
+      if (res?.success === false) return notifyFail(res?.msg, '催办失败');
       message.success('已催办');
     } catch (e: any) {
-      message.error(e?.msg || '催办失败');
+      notifyFail(e?.msg, '催办失败');
     } finally {
       setSubmitting(false);
     }
@@ -413,6 +541,9 @@ const ApprovalPage: React.FC = () => {
    * 不改任务状态、不推进引擎（对齐 ecology 节点「操作菜单 → 保存」）。
    */
   const handleSave = async () => {
+    // 写操作门禁：保存会把当前表单值写回业务行与「本节点」快照，
+    // 若流程已回退/流转（界面未刷新），必须拦下，避免污染数据
+    if (!(await guardFresh())) return;
     setSubmitting(true);
     try {
       // 渲染包快照 + 用户本次改动，作为保存内容（与提交时的 variables 同口径）
@@ -426,10 +557,10 @@ const ApprovalPage: React.FC = () => {
         dataId: pkg?.dataId,
         fieldValues: values,
       });
-      if (res?.success === false) return message.error(res?.msg || '保存失败');
+      if (res?.success === false) return notifyFail(res?.msg, '保存失败');
       message.success('已保存（未提交，流程未推进）');
     } catch (e: any) {
-      message.error(e?.msg || '保存失败');
+      notifyFail(e?.msg, '保存失败');
     } finally {
       setSubmitting(false);
     }
@@ -629,12 +760,14 @@ const ApprovalPage: React.FC = () => {
       <Button
         key={`custom-${op.id}`}
         onClick={async () => {
+          // 自定义操作同样会写数据，先过新鲜度门禁
+          if (!(await guardFresh())) return;
           try {
             const res: any = await executeCustomOperation(Number(op.id), Number(instanceId));
-            if (res?.success === false) return message.error(res.msg || '执行失败');
+            if (res?.success === false) return notifyFail(res.msg, '执行失败');
             message.success('自定义操作已执行');
           } catch (e: any) {
-            message.error(e?.msg || '执行失败');
+            notifyFail(e?.msg, '执行失败');
           }
         }}
       >
@@ -688,6 +821,21 @@ const ApprovalPage: React.FC = () => {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f0f2f5', padding: 16 }}>
+      {/* ⓪ 页面过期横幅：「流程已回退/节点已变更但界面未刷新」时置顶告警并引导刷新 */}
+      {stale && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="流程状态已变更，本页已过期"
+          description={`${stale.reason}。为避免把过期数据写回，本页的保存/提交/退回等操作已停用，请刷新页面后按最新节点重新办理。`}
+          action={
+            <Button size="small" type="primary" onClick={() => window.location.reload()}>
+              刷新页面
+            </Button>
+          }
+        />
+      )}
       {/* 页首：流程标题 + 当前节点 + 下个节点操作者（对齐参照图页头） */}
       <div style={{ fontSize: 15, fontWeight: 600, color: '#1f1f1f', marginBottom: 10 }}>
         流程：处理 - {procTitle || '未命名流程'}
@@ -732,8 +880,17 @@ const ApprovalPage: React.FC = () => {
           />
         </Space>
         <Space size={6} style={{ marginTop: 4 }} wrap>
-          {canOperate ? actionButtons : <Tag color="orange">只读（非当前处理人）</Tag>}
-          {canOperate ? customButtons : null}
+          {/* 过期页面：操作按钮整体停用，只保留「刷新页面」（与顶部横幅同一处理） */}
+          {stale ? (
+            <Button size="small" type="primary" onClick={() => window.location.reload()}>
+              刷新页面
+            </Button>
+          ) : canOperate ? (
+            actionButtons
+          ) : (
+            <Tag color="orange">只读（非当前处理人）</Tag>
+          )}
+          {!stale && canOperate ? customButtons : null}
           <Button size="small" onClick={closeTab}>
             返回
           </Button>
@@ -755,11 +912,12 @@ const ApprovalPage: React.FC = () => {
                 + 节点字段权限 fieldPerms，按节点渲染，只读态由 readonly 控制）。
                 注：该组件内部会自行拉一次 /form/render 取布局，与本页上方那次各取所需（本页拿
                 操作菜单/只读态，组件拿布局），互不依赖，渲染包未回来时组件内部有自己的 loading。 */}
+            {/* 页面已过期时强制只读：表单按「原节点」渲染的字段权限已不适用于当前节点 */}
             <ApprovalFormRender
               ref={formRef}
               instanceId={instanceId}
               taskId={taskId || undefined}
-              readOnly={readonly}
+              readOnly={readonly || !!stale}
               hideHeader
               onValuesChange={(v: Record<string, any>) => {
                 formValuesRef.current = v;
@@ -769,7 +927,7 @@ const ApprovalPage: React.FC = () => {
 
             {/* 签字意见：固定在表单最下方（对齐参照图/流程处理页），仅当前处理人可填。
                 受节点「签字意见设置」约束：hideArea=整块不显示；hideInput=仅隐藏输入框（历史意见仍可见）。 */}
-            {canOperate && !pkg?.opinionHideArea && (
+            {canOperate && !stale && !pkg?.opinionHideArea && (
               <div id="approval-opinion" style={{ margin: '14px 0 4px' }}>
                 <div style={{ fontSize: 13, marginBottom: 4 }}>
                   签字意见{isOpinionRequired('submit') ? '（必填）' : ''}
