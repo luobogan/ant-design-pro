@@ -68,6 +68,17 @@ const NodeOperateMenuModal: React.FC<NodeOperateMenuModalProps> = ({
     });
   };
 
+  /** 置顶：把某项移到最前（菜单「置顶」语义，对齐 ecology 操作菜单排序） */
+  const pinToTop = (index: number) => {
+    if (index <= 0) return;
+    setItems((prev) => {
+      const next = [...prev];
+      const [cur] = next.splice(index, 1);
+      next.unshift(cur);
+      return next;
+    });
+  };
+
   /** 鼠标拖拽排序：正在拖动的项 key / 当前悬停落点项 key */
   const [dragKey, setDragKey] = useState<string | undefined>();
   const [dragOverKey, setDragOverKey] = useState<string | undefined>();
@@ -190,6 +201,15 @@ const NodeOperateMenuModal: React.FC<NodeOperateMenuModalProps> = ({
             disabled={index === items.length - 1}
             onClick={() => move(index, 1)}
           />
+          <Button
+            type="text"
+            size="small"
+            title="置顶"
+            disabled={index === 0}
+            onClick={() => pinToTop(index)}
+          >
+            置顶
+          </Button>
         </Space>
       ),
     },

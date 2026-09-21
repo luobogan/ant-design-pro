@@ -64,10 +64,10 @@ const ExcelPreviewPageContent: React.FC = () => {
             setLayoutData(pkg.layoutJson ? JSON.parse(pkg.layoutJson) : null);
             // 构建节点权限解析器（文档 §3.3-3：以权限函数替代布尔 readOnly）
             // B5 行级：按「scope|field」登记；解析时按 dt{idx}_r{row} → dt{idx} → main 回退
-            const permByScopeField = new Map<string, number>();
+            const permByScopeField = new Map<string, any>();
             (pkg.fieldPerms || []).forEach((p: any) => {
               const sc = p.scope || 'main';
-              permByScopeField.set(`${sc}|${p.fieldName}`, p.perm);
+              permByScopeField.set(`${sc}|${p.fieldName}`, p);
             });
             const scopeChain = (scope?: string): string[] => {
               const s = scope || 'main';

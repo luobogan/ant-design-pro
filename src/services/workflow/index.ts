@@ -45,10 +45,14 @@ export interface WfTaskItem {
   title?: string;
   /** 流程定义名称 */
   defName?: string;
+  /** 流程定义ID */
+  defId?: string;
   /** 表单ID */
   formId?: string;
   /** 业务数据ID */
   dataId?: string;
+  /** 所属实例状态 0运行中 1通过 2不通过 3撤销 4暂停 5草稿 */
+  instStatus?: number;
   /** 节点Key */
   nodeKey?: string;
   /** 节点名称 */
@@ -193,15 +197,43 @@ export interface WfNodeOperator {
   signOrder?: number;
   batchNo?: number;
   conditionJson?: string;
+  // ── 操作组名称与可见性（V2026.09.21_009 新增列，兼容旧数据走 conditionJson.name） ──
+  groupName?: string;
+  canView?: number; // 1可见 0不可见（表单填写人是否能看到该操作组），缺省 1
+  // ── 协办 / 征询意见人（V2026.09.21_009 新增列） ──
+  isCoadjutant?: number; // 1=协办/征询意见人 0=否
+  signType?: number; // 协办签字类型
+  isSysCoadjutant?: number; // 是否系统协办
+  isSubmitDesc?: number; // 提交时是否填写协办描述
+  isPending?: number; // 协办是否生成待办
+  isModify?: number; // 协办是否可修改表单
+  coadjutants?: string; // 协办/征询意见人（人员id串，逗号分隔）
 }
 
 // 字段权限：0隐藏 1只读 2可编辑 3必填
 export type FieldPerm = 0 | 1 | 2 | 3;
 
+/**
+ * 字段权限项。
+ *
+ * **三维度为权威值**（对齐 ecology workflow_nodeform 的 isview / iseditable / ismandatory 三列）；
+ * `perm` 是后端下发的**兼容派生列**（0隐藏/1只读/2可编辑/3必填），
+ * 由三维度推导（`!visible→0；required→3；editable→2；否则 1`）。
+ *
+ * 读取时三列均存在则直接用；仅当它们缺省（老数据/老后端）才回退到 `perm`。
+ * 提交时可只传三维度，后端会自行派生 `perm` 双写。
+ */
 export interface FieldPermItem {
   scope: string; // main | dt{idx} | dt{idx}_r{row}（行级，匹配回退：行级 → dt级 → main级）
   fieldName: string;
-  perm: FieldPerm;
+  /** 字段是否显示 */
+  visible?: boolean;
+  /** 字段是否可编辑 */
+  editable?: boolean;
+  /** 字段是否必填 */
+  required?: boolean;
+  /** 兼容派生列；提交时可省略 */
+  perm?: FieldPerm;
 }
 
 // 出口（连线）
@@ -237,6 +269,28 @@ export interface DetailPermItem {
   hideEmpty?: number;
   defaultRows?: number;
   required?: number;
+  /** 打印序号 1=打印行号 0=不打印 */
+  printSerial?: number;
+  /** 打印允许滚动 1=允许 0=不允许 */
+  allowScroll?: number;
+  /** 打印开启分页 1=分页 0=不分页 */
+  openPaging?: number;
+}
+
+/**
+ * 明细表字段筛选项（对齐 ecology「明细表数据根据操作者筛选显示」）。
+ * 多条规则按「且」关系过滤明细行；modeType 区分显示(1)/打印(2)。
+ */
+export interface DetailFilterItem {
+  dtIndex: number;
+  /** 比较字段（明细列 fieldName） */
+  fieldName: string;
+  /** 比较方式 1等于 2不等于 3包含 4不包含 */
+  compareType: number;
+  /** 比较值（多值逗号分隔） */
+  compareValue?: string;
+  /** 过滤后要求至少一条 1=是 0=否 */
+  isRequired?: number;
 }
 
 /**
@@ -414,6 +468,14 @@ export async function getNodeOperators(id: number, nodeKey: string) {
   });
 }
 
+/** 同步本节点操作者到其它节点（整体覆盖写入目标节点集合） */
+export async function syncOperatorToNodes(id: number, nodeKey: string, targetNodeKeys: string[]) {
+  return request<ApiResponse<boolean>>(
+    `${WORKFLOW}/definition/${id}/node/${nodeKey}/operator/sync`,
+    { method: 'POST', data: targetNodeKeys },
+  );
+}
+
 /** 出口（连线）列表 */
 export async function listLinks(id: number) {
   return request<ApiResponse<WfNodeLink[]>>(`${WORKFLOW}/definition/${id}/links`, { method: 'GET' });
@@ -556,6 +618,25 @@ export async function saveDetailPerm(id: number, nodeKey: string, perms: DetailP
   });
 }
 
+export async function getDetailFilter(id: number, nodeKey: string, modeType?: number) {
+  return request<ApiResponse<DetailFilterItem[]>>(
+    `${WORKFLOW}/definition/${id}/node/${nodeKey}/detail-filter`,
+    { method: 'GET', params: modeType == null ? {} : { modeType } },
+  );
+}
+
+export async function saveDetailFilter(
+  id: number,
+  nodeKey: string,
+  modeType: number,
+  rules: DetailFilterItem[],
+) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/node/${nodeKey}/detail-filter`, {
+    method: 'PUT',
+    data: { nodeKey, modeType, rules },
+  });
+}
+
 // ───────────── 实例 / 任务 ─────────────
 /**
  * 发起流程。
@@ -566,7 +647,7 @@ export async function startInstance(dto: any) {
   return request<ApiResponse<string>>(`${WORKFLOW}/instance/start`, { method: 'POST', data: dto });
 }
 
-export async function getInstance(id: number) {
+export async function getInstance(id: string | number) {
   return request<ApiResponse<any>>(`${WORKFLOW}/instance/${id}`, { method: 'GET' });
 }
 
@@ -600,7 +681,7 @@ export async function markTaskViewed(taskId: string | number) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/task/${taskId}/view`, { method: 'POST' });
 }
 
-export async function getSnapshot(id: number, nodeKey: string) {
+export async function getSnapshot(id: string | number, nodeKey: string) {
   return request<ApiResponse<string>>(`${WORKFLOW}/instance/${id}/snapshot/${nodeKey}`, { method: 'GET' });
 }
 
@@ -632,6 +713,10 @@ export async function approveTask(id: string | number, dto?: any) {
 
 export async function rejectTask(id: string | number, dto?: any) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/task/${id}/reject`, { method: 'POST', data: dto });
+}
+
+export async function rejectNodes(id: string | number) {
+  return request<ApiResponse<any>>(`${WORKFLOW}/task/${id}/reject-nodes`, { method: 'GET' });
 }
 
 export async function forwardTask(id: string | number, dto: any) {
@@ -685,11 +770,39 @@ export interface FormRenderPackage {
   dataJson?: Record<string, any>;
   fieldPerms?: FieldPermItem[];
   detailPerms?: DetailPermItem[];
+  /** 节点明细表「显示时」字段筛选规则（渲染态据此隐藏不匹配的明细行） */
+  detailFilters?: DetailFilterItem[];
   readonly?: boolean;
   /** 当前节点「操作菜单」允许的操作码（submit/reject/forward/sign/opinion/attach/print/urge），驱动审批界面按钮栏 */
   allowMenus?: string[];
   /** 当前节点是否要求填写审批意见 */
   opinionRequired?: boolean;
+  /** 节点「打印内容设置」（来自节点信息 → 表单内容 → 打印模板 → 打印内容设置） */
+  printSet?: {
+    /** 打印流转意见：0 始终不打印 / 1 放入模板时不打印 / 2 始终打印 */
+    flowComment?: number;
+    /** 打印意见显示方式：0 只显示最后一次 / 1 显示全部 */
+    showType?: number;
+    /** 打印意见分栏列数：1 / 2 / 3 */
+    remarkColumn?: number;
+    /** 打印时不显示空意见 */
+    stNull?: boolean;
+    /** 打印显示类型：['oldvalue']=沿用显示模板；否则为意见类型键列表 */
+    viewTypes?: string[];
+  };
+  /** 节点「签字意见显示设置」（屏显口径）：显示全部/仅末次、分栏、不显空意见、类型白名单 */
+  opinionDisplay?: {
+    /** 显示全部意见 1=显示全部 0=仅最后一次 */
+    viewTypeAll?: number;
+    /** 显示方式 0=倒序 1=正序 */
+    showType?: number;
+    /** 意见分栏列数 1/2/3 */
+    remarkColumn?: number;
+    /** 不显示空意见 1=开启 */
+    stNull?: number;
+    /** 意见类型显示白名单（approve/reject/submit/forward/circulate/sign）；空=全部 */
+    viewTypes?: string[];
+  };
 }
 
 /** 注意：instanceId 是 19 位雪花 ID，后端以字符串下发；前端务必保持字符串，
@@ -735,6 +848,14 @@ export async function validateForm(dto: any) {
  */
 export async function saveFormData(dto: any) {
   return request<ApiResponse<string>>(`${WORKFLOW}/form/save`, { method: 'POST', data: dto });
+}
+
+/**
+ * 保存草稿（只存不流转）：创建/更新草稿实例 + 发起人待办，返回草稿实例ID（字符串）。
+ * 再次保存同一草稿时回传 instanceId 复用实例与业务行。
+ */
+export async function saveDraft(dto: any) {
+  return request<ApiResponse<string>>(`${WORKFLOW}/instance/save-draft`, { method: 'POST', data: dto });
 }
 
 export async function monitorCount(assignee?: number) {
@@ -985,5 +1106,144 @@ export async function cleanupWorkflowTest(defId?: any) {
   return request<ApiResponse<number>>(`${WORKFLOW}/test/cleanup`, {
     method: 'POST',
     params: { defId },
+  });
+}
+
+// ───────────── 节点超时规则（多条，对齐泛微节点信息「超时设置」） ─────────────
+export interface WfNodeTimeout {
+  id?: number;
+  defId?: number;
+  nodeKey?: string;
+  /** 排序（升序执行） */
+  seq?: number;
+  /** 是否启用 1=是 0=否 */
+  enabled?: number;
+  /** 起算方式 1=节点到达(收到待办) 2=表单时间字段 */
+  startType?: number;
+  /** 起算=表单时间字段时的字段名 */
+  startField?: string;
+  /** 截止=相对时长时的分钟数 */
+  durationMin?: number;
+  /** 截止方式 1=相对 2=固定时刻(HH:mm) 3=表单时间字段 */
+  endType?: number;
+  /** 截止=固定时刻时的 HH:mm */
+  endFixedTime?: string;
+  /** 截止=表单时间字段时的字段名 */
+  endField?: string;
+  /** 超时动作 autoApprove/forward/assign/remind */
+  actionWay?: string;
+  /** 动作=forward 时的目标节点（扩展位） */
+  targetNodeKey?: string;
+  /** 动作=assign 时的指定操作者（人力资源 ID 逗号分隔） */
+  operatorIds?: string;
+  /** 动作意见 */
+  opinion?: string;
+  /** 提醒方式 sys=流程提醒 ml=短信 sm=邮件（逗号分隔） */
+  remindTypes?: string;
+  /** 提醒对象：节点当前处理人 1=是 0=否 */
+  remindBeforeOperator?: number;
+  /** 提醒对象：指定人员（人力资源 ID 逗号分隔） */
+  remindPersons?: string;
+}
+
+/** 节点超时规则列表（按 defId + nodeKey） */
+export async function listNodeTimeouts(defId: number, nodeKey: string) {
+  return request<ApiResponse<WfNodeTimeout[]>>(`${WORKFLOW}/node-timeout/list`, {
+    method: 'GET',
+    params: { defId, nodeKey },
+  });
+}
+
+/** 保存节点超时规则（覆盖保存该节点的全部规则，空数组即清空） */
+export async function saveNodeTimeouts(defId: number, nodeKey: string, rules: WfNodeTimeout[]) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/node-timeout/save`, {
+    method: 'POST',
+    params: { defId, nodeKey },
+    data: rules,
+  });
+}
+
+// ───────────── 节点自定义操作（按钮 + 动作明细 + 权限矩阵） ─────────────
+export interface WfCustomOperationAction {
+  id?: number;
+  opId?: number;
+  url?: string;
+  httpMethod?: string;
+  flowOperation?: string;
+  interfaceName?: string;
+  paramExpr?: string;
+  opinion?: string;
+}
+export interface WfCustomOperationRight {
+  id?: number;
+  opId?: number;
+  rightType?: string;
+  rightValue?: string;
+}
+export interface WfCustomOperationFull {
+  op?: {
+    id?: number;
+    defId?: number;
+    nodeKey?: string;
+    btnName?: string;
+    btnOrder?: number;
+    enabled?: number;
+    actionType?: number;
+  };
+  action?: WfCustomOperationAction;
+  rights?: WfCustomOperationRight[];
+}
+
+/** 运行时可见按钮（启用） */
+export async function listCustomOperations(defId: number, nodeKey: string) {
+  return request<ApiResponse<any[]>>(`${WORKFLOW}/custom-operation/list`, {
+    method: 'GET',
+    params: { defId, nodeKey },
+  });
+}
+/** 配置用：节点全部按钮（含动作与权限） */
+export async function fullCustomOperations(defId: number, nodeKey: string) {
+  return request<ApiResponse<WfCustomOperationFull[]>>(`${WORKFLOW}/custom-operation/full`, {
+    method: 'GET',
+    params: { defId, nodeKey },
+  });
+}
+/** 保存节点自定义操作（覆盖式） */
+export async function saveCustomOperations(defId: number, nodeKey: string, payload: WfCustomOperationFull[]) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/custom-operation/save`, {
+    method: 'POST',
+    params: { defId, nodeKey },
+    data: payload,
+  });
+}
+/** 运行时执行自定义操作 */
+export async function executeCustomOperation(opId: number, instId: number, operator?: number) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/custom-operation/execute`, {
+    method: 'POST',
+    params: { opId, instId, operator },
+  });
+}
+
+// ───────────── 按操作类型默认签字意见 ─────────────
+export interface WfNodeDefaultSign {
+  id?: number;
+  defId?: number;
+  nodeKey?: string;
+  menuType?: string;
+  defaultOpinion?: string;
+}
+/** 取默认签字意见 */
+export async function getDefaultSign(defId: number, nodeKey: string, menuType: string) {
+  return request<ApiResponse<string>>(`${WORKFLOW}/custom-operation/default-sign`, {
+    method: 'GET',
+    params: { defId, nodeKey, menuType },
+  });
+}
+/** 保存默认签字意见（覆盖式） */
+export async function saveDefaultSigns(defId: number, nodeKey: string, signs: WfNodeDefaultSign[]) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/custom-operation/default-sign/save`, {
+    method: 'POST',
+    params: { defId, nodeKey },
+    data: signs,
   });
 }

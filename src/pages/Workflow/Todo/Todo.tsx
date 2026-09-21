@@ -44,6 +44,12 @@ const TodoList: React.FC = () => {
 
   /** 打开审批承载页（独立 layout，靠 URL 参数定位实例与任务） */
   const openApproval = (record: WfTaskItem) => {
+    // 草稿任务（实例 status=5）：点击进入发起页续填，而非办理页
+    if (record.instStatus === 5) {
+      const url = `/workflow/create/start?defId=${record.defId}&instanceId=${record.instId}&dataId=${record.dataId}`;
+      window.open(url, '_blank');
+      return;
+    }
     const url = `/formmode/approval/ApprovalPage?instanceId=${record.instId}&taskId=${record.id}`;
     window.open(url, '_blank');
   };
@@ -103,6 +109,9 @@ const TodoList: React.FC = () => {
         Object.entries(TASK_STATUS).map(([k, v]) => [k, { text: v.text }]),
       ),
       render: (_, r) => {
+        if (r.instStatus === 5) {
+          return <Badge status="warning" text="草稿" />;
+        }
         const s = TASK_STATUS[r.status || 0] || { text: '未知', color: 'default' };
         return <Badge status={s.color as any} text={s.text} />;
       },
@@ -113,24 +122,30 @@ const TodoList: React.FC = () => {
       fixed: 'right',
       render: (_, record) => [
         <a key="handle" onClick={() => openApproval(record)}>
-          办理
+          {record.instStatus === 5 ? '继续填写' : '办理'}
         </a>,
-        <PermissionButton
-          key="forward"
-          hasPermission={buttons.some((b: any) => b.code === 'workflow_todo_forward')}
-        >
-          <a onClick={() => setModal({ type: 'forward', record })}>转办</a>
-        </PermissionButton>,
-        <PermissionButton
-          key="sign"
-          hasPermission={buttons.some((b: any) => b.code === 'workflow_todo_sign')}
-        >
-          <a onClick={() => setModal({ type: 'sign', record })}>加签</a>
-        </PermissionButton>,
-        <a key="urge" onClick={() => handleUrge(record)}>
-          催办
-        </a>,
-      ],
+        record.instStatus !== 5 && (
+          <PermissionButton
+            key="forward"
+            hasPermission={buttons.some((b: any) => b.code === 'workflow_todo_forward')}
+          >
+            <a onClick={() => setModal({ type: 'forward', record })}>转办</a>
+          </PermissionButton>
+        ),
+        record.instStatus !== 5 && (
+          <PermissionButton
+            key="sign"
+            hasPermission={buttons.some((b: any) => b.code === 'workflow_todo_sign')}
+          >
+            <a onClick={() => setModal({ type: 'sign', record })}>加签</a>
+          </PermissionButton>
+        ),
+        record.instStatus !== 5 && (
+          <a key="urge" onClick={() => handleUrge(record)}>
+            催办
+          </a>
+        ),
+      ].filter(Boolean),
     },
   ];
 

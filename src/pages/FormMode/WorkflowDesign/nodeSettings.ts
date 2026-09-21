@@ -1,5 +1,12 @@
 import { WfProcessNode } from '@/services/workflow';
-import { DEFAULT_MENUS, EXTRA_OPERATE_TYPES, MENUS_OPTIONS, SELECT_NEXT_FLOW_MODES } from './wfDict';
+import {
+  DEFAULT_MENUS,
+  EXCEPTION_FALLBACK_WAYS,
+  EXTRA_OPERATE_TYPES,
+  FAIL_MODES,
+  MENUS_OPTIONS,
+  SELECT_NEXT_FLOW_MODES,
+} from './wfDict';
 
 /**
  * 节点「设置项」的 schema 定义（单一来源）。
@@ -25,7 +32,9 @@ export type SettingFieldType =
   | 'select'
   | 'radio'
   | 'multiSelect'
-  | 'nodeMultiSelect';
+  | 'nodeMultiSelect'
+  | 'nodeSelect'
+  | 'targets';
 
 export interface SettingField {
   name: string;
@@ -63,7 +72,38 @@ export const SETTING_DEFS: SettingDef[] = [
     key: 'signOpinion',
     label: '签字意见设置',
     fields: [
-      { name: 'required', label: '意见必填', type: 'switch' },
+      {
+        name: 'mustInput',
+        label: '意见必填',
+        type: 'select',
+        options: [
+          { value: 'never', label: '从不要求' },
+          { value: 'all', label: '所有操作必填' },
+          { value: 'byOperation', label: '仅指定操作必填' },
+        ],
+      },
+      {
+        name: 'mustInputOperations',
+        label: '必填操作类型',
+        type: 'multiSelect',
+        options: MENUS_OPTIONS,
+      },
+      { name: 'hideInput', label: '输入框不显示', type: 'switch' },
+      { name: 'hideArea', label: '意见区域不显示', type: 'switch' },
+      {
+        name: 'viewNodeMode',
+        label: '意见显示范围',
+        type: 'select',
+        options: [
+          { value: 'all', label: '全部可见' },
+          { value: 'none', label: '全不可见' },
+          { value: 'list', label: '仅指定节点可见' },
+        ],
+      },
+      { name: 'viewNodeKeys', label: '可见节点集合', type: 'nodeMultiSelect' },
+      { name: 'notSeeEachOther', label: '同节点互不可见', type: 'switch' },
+      { name: 'feedback', label: '意见反馈', type: 'switch' },
+      { name: 'nullNotFeedback', label: '意见为空不反馈', type: 'switch' },
       { name: 'template', label: '默认意见模板', type: 'textarea', placeholder: '如：同意' },
     ],
   },
@@ -88,35 +128,87 @@ export const SETTING_DEFS: SettingDef[] = [
           { label: '归档后', value: 'afterArchive' },
         ],
       },
+      {
+        name: 'allEndBeforeSubmit',
+        label: '全部归档才能提交（阻塞主流程归档）',
+        type: 'switch',
+      },
+      {
+        name: 'dataSummary',
+        label: '归档后汇总数据到主流程',
+        type: 'switch',
+      },
+      {
+        name: 'autoForward',
+        label: '全部归档后自动流转主流程',
+        type: 'switch',
+      },
+      {
+        name: 'remindEnabled',
+        label: '全部归档后提醒',
+        type: 'switch',
+      },
+      {
+        name: 'remindTypes',
+        label: '提醒方式',
+        type: 'checkboxGroup',
+        options: [
+          { label: '流程提醒', value: 'sys' },
+          { label: '短信', value: 'ml' },
+          { label: '邮件', value: 'sm' },
+        ],
+      },
+      {
+        name: 'remindBeforeOperator',
+        label: '提醒对象：节点操作者本人',
+        type: 'switch',
+      },
+      { name: 'remindPersons', label: '提醒对象：指定人员ID（逗号分隔）', type: 'text' },
     ],
   },
   {
-    // 对齐 ecology：可见节点 ID 集合（workflow_flownode.viewnodeids）。
-    // 旧值形如 { scope: 'all'|'node'|'self' } 由后端 WfNodeSettingsUtil 降级兼容，前端不再写入。
+    // 表单日志查看范围（与签字意见显示范围 signOpinion.viewNodeMode 是「两个独立 key」，互不影响）。
+    // 三态语义（与签字意见显示范围统一）：all=全部可见 / none=全不可见 / list=仅指定节点。
+    // ⚠️ 边界：未配置（或 scope=all）= 全部可见；显式 none = 全不可见；二者不可混淆。
+    // 旧值 { scope: 'node' } 降级兼容为「仅当前节点」；{ scope: 'all'|'self' } 降级为不限制。
     key: 'formLogScope',
     label: '表单日志查看范围',
     fields: [
       {
+        name: 'scope',
+        label: '可见范围',
+        type: 'radio',
+        options: [
+          { value: 'all', label: '全部可见' },
+          { value: 'list', label: '仅指定节点' },
+          { value: 'none', label: '全部不可见' },
+        ],
+      },
+      {
         name: 'nodeKeys',
         label: '可见节点',
         type: 'nodeMultiSelect',
-        placeholder: '不选则按旧规则（全部可见）',
+        placeholder: '范围为「仅指定节点」时选择可见节点',
       },
     ],
   },
   {
+    // 对齐 ecology 流转异常处理：useExceptionHandle（开关）/ exceptionHandleWay（兜底方式）/ flowToAssignNode（目标节点）。
+    // ⚠️ 与同对象内的 mode（附加操作失败策略）语义不同、可同时配置，互不干扰：
+    //    enabled/way/targetNodeKey =「下一节点解析不到操作者怎么办」（后端 WfNodeSettingsUtil.exceptionFallbackWay 消费）；
+    //    mode                      =「节点附加操作 / 子流程执行失败时继续还是中断」（后端 NodeActionExecutor 消费）。
     key: 'exceptionHandle',
     label: '流程异常处理',
     fields: [
+      { name: 'enabled', label: '启用流转异常处理', type: 'switch' },
+      { name: 'way', label: '处理方式', type: 'radio', options: EXCEPTION_FALLBACK_WAYS },
       {
-        name: 'mode',
-        label: '异常处理',
-        type: 'radio',
-        options: [
-          { label: '继续', value: 'continue' },
-          { label: '中断', value: 'stop' },
-        ],
+        name: 'targetNodeKey',
+        label: '目标节点',
+        type: 'nodeSelect',
+        placeholder: '处理方式为「提交至指定节点」时必填',
       },
+      { name: 'mode', label: '附加操作失败时', type: 'radio', options: FAIL_MODES },
     ],
   },
   {
@@ -125,16 +217,13 @@ export const SETTING_DEFS: SettingDef[] = [
     label: '指定流转',
     fields: [
       { name: 'mode', label: '模式', type: 'select', options: SELECT_NEXT_FLOW_MODES },
-      { name: 'target', label: '目标节点Key', type: 'text' },
-    ],
-  },
-  {
-    key: 'timeout',
-    label: '超时设置',
-    fields: [
-      { name: 'hours', label: '超时(小时)', type: 'number' },
-      { name: 'remind', label: '到期提醒', type: 'switch' },
-      { name: 'autoApprove', label: '超时自动通过', type: 'switch' },
+      { name: 'target', label: '目标节点Key', type: 'text', placeholder: '模式1/2：用户提交时手选或填写的目标节点（可留空）' },
+      {
+        name: 'targets',
+        label: '多目标（模式3）',
+        type: 'targets',
+        placeholder: '模式3：提交时并行扇出到以下节点（仅提交时生效，退回不适用）',
+      },
     ],
   },
   {
@@ -154,6 +243,37 @@ export const SETTING_DEFS: SettingDef[] = [
         type: 'textarea',
         placeholder: '每行一条：字段:required / 字段:regex=^\\d+$ / 字段:min=1 / 字段:max=10',
       },
+    ],
+  },
+  {
+    // 对齐 ecology 退回机制：isselectrejectnode（退回方式）/ rejectableNodes（白名单）/
+    // isrejectremind（提醒已走过节点）/ ischangrejectnode（允许变更退回节点）
+    key: 'reject',
+    label: '退回设置',
+    fields: [
+      {
+        name: 'type',
+        label: '退回方式',
+        type: 'radio',
+        options: [
+          { label: '直接退回（退默认/上一节点）', value: 1 },
+          { label: '选择退回节点（弹窗选）', value: 2 },
+        ],
+      },
+      {
+        name: 'defaultNodeKey',
+        label: '默认退回节点',
+        type: 'nodeSelect',
+        placeholder: '不填则退回上一节点',
+      },
+      {
+        name: 'nodeKeys',
+        label: '可退回节点白名单',
+        type: 'nodeMultiSelect',
+        placeholder: '不填=全部上游历史节点',
+      },
+      { name: 'remind', label: '提醒已走过节点', type: 'switch' },
+      { name: 'changeNode', label: '允许变更退回节点', type: 'switch' },
     ],
   },
 ];
@@ -473,6 +593,7 @@ export const configuredBadges = (node?: WfProcessNode | null): string[] => {
   if (s.subflow?.flowKey) out.push('子流程');
   if (s.appointFlow?.mode) out.push('指定流转');
   if (Array.isArray(s.operateMenu?.menus) && s.operateMenu.menus.length) out.push('操作菜单');
+  if (s.exceptionHandle?.way) out.push('异常处理');
   if (s.secondAuth?.required) out.push('二次认证');
   if (s.fieldCheck?.script) out.push('字段校验');
   return out;

@@ -5,6 +5,95 @@ import { collectFieldValues, expandInitialValues } from '../utils/collectFieldVa
 import { renderForm, renderFormPreview } from '@/services/workflow';
 
 /**
+ * 明细表字段筛选：按节点「显示时」规则（detailFilters）隐藏不匹配的明细行。
+ * 对齐 ecology「明细表数据根据操作者筛选显示」。纯数据变换，永不抛异常：
+ * 当布局缺该明细表或规则字段不在布局内时，安全跳过该规则/明细表，不误删数据。
+ *
+ * 数据键形如 `dt{idx}__r{n}__{sheetId}__{row}__{col}`；规则按 (dt, fieldName) 命中单元格坐标。
+ */
+const applyDetailFilter = (
+  dataJson: Record<string, any> | undefined,
+  filters: any[] | undefined,
+  layout: any,
+): Record<string, any> => {
+  if (!dataJson || !filters || !filters.length || !layout) return dataJson || {};
+
+  // 1) 明细表 fieldName → 单元格坐标（取首个命中字段格）
+  const fieldMap = new Map<number, Map<string, { sid: string; r: string; c: string }>>();
+  const detailTables = layout?.detailTables || {};
+  Object.keys(detailTables).forEach((dk) => {
+    const idx = Number(dk);
+    const sub = detailTables[dk];
+    const sheets = sub?.sheets;
+    if (!sheets) return;
+    const m = new Map<string, { sid: string; r: string; c: string }>();
+    (sub.sheetOrder || Object.keys(sheets)).forEach((sid: string) => {
+      const sheet = sheets[sid];
+      const cellData = sheet?.cellData || {};
+      Object.entries(cellData).forEach(([rk, rowData]) => {
+        Object.entries((rowData as any) || {}).forEach(([ck, cell]) => {
+          const meta = (cell as any)?.fieldMeta;
+          if (!meta || !meta.fieldName) return;
+          const t = meta.cellType;
+          if (t != null && t !== '' && t !== 'field') return;
+          if (!m.has(String(meta.fieldName))) {
+            m.set(String(meta.fieldName), { sid: String(sheet.id ?? sid), r: rk, c: ck });
+          }
+        });
+      });
+    });
+    fieldMap.set(idx, m);
+  });
+
+  // 2) 规则按明细表分组
+  const rulesByDt = new Map<number, any[]>();
+  filters.forEach((f) => {
+    const dt = Number(f.dtIndex);
+    if (!rulesByDt.has(dt)) rulesByDt.set(dt, []);
+    rulesByDt.get(dt)!.push(f);
+  });
+
+  const out: Record<string, any> = { ...dataJson };
+  rulesByDt.forEach((rules, dt) => {
+    const fm = fieldMap.get(dt);
+    if (!fm) return; // 布局无该明细表 → 无法判定，安全跳过
+    const rowSet = new Set<number>();
+    Object.keys(out).forEach((k) => {
+      const mm = new RegExp(`^dt${dt}__r(\\d+)__`).exec(k);
+      if (mm) rowSet.add(Number(mm[1]));
+    });
+    rowSet.forEach((n) => {
+      const pass = rules.every((rule) => {
+        const cell = fm.get(String(rule.fieldName));
+        if (!cell) return true; // 规则字段不在布局内：视为不约束该行，避免误删
+        const v = out[`dt${dt}__r${n}__${cell.sid}__${cell.r}__${cell.c}`];
+        const targets = String(rule.compareValue ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!targets.length) return true;
+        const sv = v == null ? '' : String(v);
+        const hit = targets.includes(sv);
+        const contains = targets.some((t) => sv.includes(t));
+        switch (Number(rule.compareType)) {
+          case 1: return hit; // 等于
+          case 2: return !hit; // 不等于
+          case 3: return contains; // 包含
+          case 4: return !contains; // 不包含
+          default: return hit;
+        }
+      });
+      if (!pass) {
+        Object.keys(out).forEach((k) => {
+          if (new RegExp(`^dt${dt}__r${n}__`).test(k)) delete out[k];
+        });
+      }
+    });
+  });
+  return out;
+};
+
+/**
  * 审批态「真实流程表单」渲染（可内嵌）
  *
  * 把 `ExcelPreviewPage` 里的**审批态渲染**分支抽成可复用组件：
@@ -97,16 +186,19 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
       }
       setPkgNodeKey(pkg.nodeKey);
       onPackageRef.current?.(pkg);
-      setValues(pkg.dataJson || {});
+      let layout: any = null;
       try {
-        setLayoutData(pkg.layoutJson ? JSON.parse(pkg.layoutJson) : null);
+        layout = pkg.layoutJson ? JSON.parse(pkg.layoutJson) : null;
       } catch {
-        setLayoutData(null);
+        layout = null;
       }
+      setLayoutData(layout);
+      // 明细表「显示时」字段筛选：隐藏不匹配规则的明细行（不影响原始 dataJson 之外的数据）
+      setValues(applyDetailFilter(pkg.dataJson, pkg.detailFilters, layout));
       // 构建节点权限解析器：B5 行级按「scope|field」登记，解析时 dt{idx}_r{row} → dt{idx} → main 回退
-      const permByScopeField = new Map<string, number>();
+      const permByScopeField = new Map<string, any>();
       (pkg.fieldPerms || []).forEach((p: any) => {
-        permByScopeField.set(`${p.scope || 'main'}|${p.fieldName}`, p.perm);
+        permByScopeField.set(`${p.scope || 'main'}|${p.fieldName}`, p);
       });
       const scopeChain = (scope?: string): string[] => {
         const s = scope || 'main';
@@ -116,9 +208,14 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
       };
       setNodePermission(() => (fieldName: string, scope?: string) => {
         for (const sc of scopeChain(scope)) {
-          const perm = permByScopeField.get(`${sc}|${fieldName}`);
-          if (perm != null) {
-            return { readonly: perm === 1, required: perm === 3, hidden: perm === 0 };
+          const p = permByScopeField.get(`${sc}|${fieldName}`);
+          if (p) {
+            // 三维度（visible/editable/required）为权威值；三者全缺省视为老数据，回退到 perm 兼容列
+            const legacy = p.visible == null && p.editable == null && p.required == null;
+            const visible = legacy ? p.perm !== 0 : !!p.visible;
+            const editable = legacy ? p.perm === 2 || p.perm === 3 : !!p.editable;
+            const required = legacy ? p.perm === 3 : !!p.required;
+            return { readonly: !editable, required, hidden: !visible };
           }
         }
         return undefined;

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Button,
-  Empty,
   Input,
   InputNumber,
   Modal,
@@ -14,9 +13,16 @@ import {
   message,
 } from 'antd';
 import { PlusOutlined, QuestionCircleOutlined, SearchOutlined } from '@ant-design/icons';
-import { updateNode, WfProcessNode } from '@/services/workflow';
+import { updateNode, WfProcessNode, DetailFilterItem } from '@/services/workflow';
 import { getFormLayout, saveFormLayout } from '@/services/formmode/formLayoutApi';
-import { FORM_CONTENT_OPTIONS } from './wfDict';
+import {
+  FORM_CONTENT_OPTIONS,
+  OPINION_TYPE_OPTIONS,
+  PRINT_FLOW_COMMENTS,
+  PRINT_REMARK_COLUMNS,
+  PRINT_SHOW_TYPES,
+  PRINT_VIEW_TYPE_OLD,
+} from './wfDict';
 
 /**
  * 「表单内容 → 设计」弹框
@@ -33,14 +39,21 @@ import { FORM_CONTENT_OPTIONS } from './wfDict';
  *     mode,                       // normal(已屏蔽) | custom 节点布局
  *     margin:  { custom, type, top, bottom, left, right },   // 表单页边距自定义设置
  *     mobile:  { templateName, nodeKeys },                   // 移动模板 + 其同步节点
- *     detailFilter: { enabled },                             // 明细表根据操作者筛选
- *     print:   { templateName, nodeKeys },                   // 打印模板 + 其同步节点
+ *     detailFilter: { enabled, rules? },                     // 明细表根据操作者筛选
+ *     printSet: {                                           // ★打印内容设置（运行期已消费，见 FormRenderVO.printSet）
+ *       flowComment,      // 0 始终不打印 / 1 放入模板时不打印(默认) / 2 始终打印
+ *       showType,         // 0 只显示最后一次(默认) / 1 显示全部
+ *       remarkColumn,     // 打印意见分栏 1(默认)/2/3
+ *       stNull,           // 打印不显示空意见
+ *       viewTypes,        // ['oldvalue']=沿用显示模板；或意见类型键列表（approve/reject/...）
+ *     },
  *     syncNodeKeys,                                          // 显示模板的「同步节点」目标
  *   }
  * }
  *
- * ⚠️ 说明：页边距 / 移动模板 / 打印模板 / 明细过滤目前是**持久化配置**（可在本弹框编辑保存），
- *    运行期渲染与引擎消费尚未接入 —— 即"存得住、改得了"，但暂不影响表单实际渲染。
+ * ⚠️ 说明：「打印内容设置」(printSet) 已接入运行期——由 `WFNodeSettingsUtil.printSet()` 读取，
+ *    随 `GET /form/render` 与 `GET /form/preview` 的渲染包下发（FormRenderVO.printSet）。
+ *    页边距 / 移动模板 / 明细过滤仍为**持久化配置**（存得住、改得了），渲染端接入见后续批次。
  */
 export interface FormContentDesignModalProps {
   open: boolean;
@@ -138,6 +151,86 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title
   </div>
 );
 
+const DETAIL_COMPARE_TYPES = [
+  { value: 1, label: '等于' },
+  { value: 2, label: '不等于' },
+  { value: 3, label: '包含' },
+  { value: 4, label: '不包含' },
+];
+
+/** 明细表字段筛选规则编辑器（对齐 ecology「明细表数据根据操作者筛选显示」） */
+const DetailFilterEditor: React.FC<{
+  title: string;
+  value: DetailFilterItem[];
+  onChange: (v: DetailFilterItem[]) => void;
+}> = ({ title, value, onChange }) => {
+  const update = (i: number, patch: Partial<DetailFilterItem>) =>
+    onChange(value.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const add = () =>
+    onChange([
+      ...value,
+      { dtIndex: 0, fieldName: '', compareType: 1, compareValue: '', isRequired: 0 },
+    ]);
+  const remove = (i: number) => onChange(value.filter((_, idx) => idx !== i));
+  return (
+    <Section title={title}>
+      <div style={{ marginBottom: 8, color: '#888', fontSize: 12 }}>
+        多条规则间为「且」关系：仅当明细行满足全部规则时才对该操作者显示 / 打印出来。
+      </div>
+      {value.map((r, i) => (
+        <div
+          key={i}
+          style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '6px 0', flexWrap: 'wrap' }}
+        >
+          <span style={{ color: '#666' }}>明细表 dt</span>
+          <InputNumber
+            size="small"
+            min={0}
+            style={{ width: 70 }}
+            value={r.dtIndex}
+            onChange={(v) => update(i, { dtIndex: v ?? 0 })}
+          />
+          <span style={{ color: '#666' }}>字段</span>
+          <Input
+            size="small"
+            style={{ width: 150 }}
+            placeholder="字段名 fieldName"
+            value={r.fieldName}
+            onChange={(e) => update(i, { fieldName: e.target.value })}
+          />
+          <Select
+            size="small"
+            style={{ width: 90 }}
+            value={r.compareType}
+            options={DETAIL_COMPARE_TYPES}
+            onChange={(v) => update(i, { compareType: v })}
+          />
+          <Input
+            size="small"
+            style={{ width: 170 }}
+            placeholder="比较值（多值逗号分隔）"
+            value={r.compareValue}
+            onChange={(e) => update(i, { compareValue: e.target.value })}
+          />
+          <Tooltip title="过滤后要求该明细表至少保留一条">
+            <Switch
+              size="small"
+              checked={!!r.isRequired}
+              onChange={(v) => update(i, { isRequired: v ? 1 : 0 })}
+            />
+          </Tooltip>
+          <Button size="small" danger onClick={() => remove(i)}>
+            删除
+          </Button>
+        </div>
+      ))}
+      <Button size="small" icon={<PlusOutlined />} onClick={add}>
+        添加筛选规则
+      </Button>
+    </Section>
+  );
+};
+
 const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
   open,
   defId,
@@ -184,8 +277,13 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
 
   const margin = fc.margin || {};
   const mobile = fc.mobile || {};
-  const print = fc.print || {};
-  const detailFilter = fc.detailFilter || {};
+  // 打印内容设置（对齐 ecology printflowcomment / printviewtype / printremarkcolumn / printstnull / printshowtype）
+  const pSet = fc.printSet || {};
+  // 明细表字段筛选：按口径拆成「显示」与「打印」两套
+  const detailFilterShow: DetailFilterItem[] = Array.isArray(fc.detailFilterShow) ? fc.detailFilterShow : [];
+  const detailFilterPrint: DetailFilterItem[] = Array.isArray(fc.detailFilterPrint) ? fc.detailFilterPrint : [];
+  // 签字意见显示设置（屏显口径）
+  const od = fc.opinionDisplay || {};
 
   const design = () => {
     if (canLayout) onEditLayout?.(nodeKey!);
@@ -461,20 +559,11 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
         </Row>
       </Section>
 
-      <Section title="明细表">
-        <Row label="明细表数据根据操作者筛选显示">
-          <Space size={8}>
-            <Switch
-              size="small"
-              checked={!!detailFilter.enabled}
-              onChange={(v) => patch({ detailFilter: { ...detailFilter, enabled: v } })}
-            />
-            <Tooltip title={NOT_YET}>
-              <QuestionCircleOutlined style={{ color: '#faad14' }} />
-            </Tooltip>
-          </Space>
-        </Row>
-      </Section>
+      <DetailFilterEditor
+        title="明细表数据根据操作者筛选显示"
+        value={detailFilterShow}
+        onChange={(v) => patch({ detailFilterShow: v })}
+      />
 
       <Section title="节点意见">
         <Row label="签字意见设置">
@@ -490,6 +579,43 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
             </a>
           </Space>
         </Row>
+        <Row label="显示全部意见">
+          <Switch
+            size="small"
+            checked={!!od.viewTypeAll}
+            onChange={(v) => patch({ opinionDisplay: { ...od, viewTypeAll: v ? 1 : 0 } })}
+          />
+          <span style={{ marginLeft: 8, color: '#999', fontSize: 12 }}>
+            关闭则仅显示最后一次签字意见
+          </span>
+        </Row>
+        <Row label="意见分栏">
+          <Select
+            style={{ width: 200 }}
+            value={od.remarkColumn ?? 1}
+            options={PRINT_REMARK_COLUMNS}
+            onChange={(v) => patch({ opinionDisplay: { ...od, remarkColumn: v } })}
+          />
+        </Row>
+        <Row label="不显示空意见">
+          <Switch
+            size="small"
+            checked={!!od.stNull}
+            onChange={(v) => patch({ opinionDisplay: { ...od, stNull: v ? 1 : 0 } })}
+          />
+        </Row>
+        <Row label="意见类型显示">
+          <Select
+            mode="multiple"
+            allowClear
+            style={{ width: 460 }}
+            placeholder="不选 = 全部类型均显示"
+            value={Array.isArray(od.viewTypes) ? od.viewTypes : []}
+            options={OPINION_TYPE_OPTIONS}
+            optionFilterProp="label"
+            onChange={(v) => patch({ opinionDisplay: { ...od, viewTypes: v } })}
+          />
+        </Row>
       </Section>
 
       {!formId && (
@@ -503,50 +629,89 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
 
   const printTemplate = (
     <>
-      <Section title="打印模板设置">
+      <Section title="打印模板">
         <Row label="打印模板">
-          <Space size={8} wrap>
-            <BrowserBox
-              value={print.templateName}
-              placeholder="未设置"
-              onClick={() => patch({ print: { ...print, templateName: modeLabel(fc.mode) } })}
-              onAdd={() => patch({ print: { ...print, templateName: modeLabel(fc.mode) } })}
-              addTooltip="按当前显示模板初始化打印模板（打印渲染尚未接入）"
+          <span style={{ color: '#999', fontSize: 12 }}>
+            打印模板设计器未纳入本次范围：打印输出沿用本节点的显示模板（节点布局）。
+            如需更换打印版式，请在「显示模板」页签调整节点布局。
+          </span>
+        </Row>
+      </Section>
+
+      <Section title="打印内容设置">
+        <Row label="打印流转意见">
+          <Select
+            style={{ width: 300 }}
+            value={pSet.flowComment ?? 1}
+            options={PRINT_FLOW_COMMENTS}
+            onChange={(v) => patch({ printSet: { ...pSet, flowComment: v } })}
+          />
+        </Row>
+        <Row label="打印意见显示方式">
+          <Select
+            style={{ width: 300 }}
+            value={pSet.showType ?? 0}
+            options={PRINT_SHOW_TYPES}
+            onChange={(v) => patch({ printSet: { ...pSet, showType: v } })}
+          />
+        </Row>
+        <Row label="打印意见分栏">
+          <Space size={8}>
+            <Select
+              style={{ width: 300 }}
+              value={pSet.remarkColumn ?? 1}
+              options={PRINT_REMARK_COLUMNS}
+              onChange={(v) => patch({ printSet: { ...pSet, remarkColumn: v } })}
             />
-            <a
-              onClick={() => patch({ print: { ...print, templateName: modeLabel(fc.mode) } })}
-              style={{ color: '#1677ff' }}
-            >
-              初始化
-            </a>
-            <Tooltip title={NOT_YET}>
-              <a style={{ color: '#bfbfbf' }}>预览</a>
+            <Tooltip title="打印时签字意见区分栏展示的列数（对齐 ecology PRINTREMARKCOLUMN）。">
+              <QuestionCircleOutlined style={{ color: '#faad14' }} />
             </Tooltip>
           </Space>
         </Row>
-        <Row label="同步节点">
+        <Row label="打印不显示空意见">
+          <Space size={8}>
+            <Switch
+              size="small"
+              checked={!!pSet.stNull}
+              onChange={(v) => patch({ printSet: { ...pSet, stNull: v } })}
+            />
+            <Tooltip title="开启后，没有签字意见的节点不会出现在打印结果里。">
+              <QuestionCircleOutlined style={{ color: '#faad14' }} />
+            </Tooltip>
+          </Space>
+        </Row>
+        <Row label="打印显示类型">
           <Space size={8} wrap>
             <Select
               mode="multiple"
               allowClear
-              style={{ width: 320 }}
-              placeholder="选择要同步到的节点"
-              value={print.nodeKeys || []}
-              options={nodeOptions}
-              onChange={(v) => patch({ print: { ...print, nodeKeys: v } })}
+              style={{ width: 460 }}
+              placeholder="不选 = 沿用显示模板的显示类型"
+              value={Array.isArray(pSet.viewTypes) ? pSet.viewTypes : []}
+              options={[
+                { value: PRINT_VIEW_TYPE_OLD, label: '沿用显示模板（oldvalue）' },
+                ...OPINION_TYPE_OPTIONS,
+              ]}
+              optionFilterProp="label"
+              onChange={(v) => patch({ printSet: { ...pSet, viewTypes: v } })}
             />
-            <Button
-              size="small"
-              loading={syncing}
-              disabled={!(print.nodeKeys || []).length}
-              onClick={() => syncTo(print.nodeKeys || [], '打印模板设置')}
-            >
-              同步
-            </Button>
+            <Tooltip title="对齐 ecology printviewtype：可整体「沿用显示模板」，或按意见类型逐项勾选（提交 / 退回 / 抄送 / 转办 …）决定打印哪些意见。">
+              <QuestionCircleOutlined style={{ color: '#faad14' }} />
+            </Tooltip>
           </Space>
         </Row>
+        <Row label="同步到其它节点">
+          <span style={{ color: '#888', fontSize: 12 }}>
+            打印内容随「显示模板」页签的「同步节点」一并同步（同属本节点表单内容）。
+          </span>
+        </Row>
       </Section>
-      {!print.templateName && <Empty description="尚未设置打印模板" />}
+
+      <DetailFilterEditor
+        title="明细表打印筛选"
+        value={detailFilterPrint}
+        onChange={(v) => patch({ detailFilterPrint: v })}
+      />
     </>
   );
 

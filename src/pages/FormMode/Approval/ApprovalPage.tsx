@@ -1,15 +1,18 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
-  Card,
-  Form,
-  Input,
+  Divider,
+  Empty,
   Modal,
   Radio,
   Space,
   Spin,
+  Table,
+  Tabs,
   Tag,
+  Timeline,
+  Typography,
   Upload,
   message,
 } from 'antd';
@@ -17,6 +20,7 @@ import {
   renderForm,
   approveTask,
   rejectTask,
+  rejectNodes,
   forwardTask,
   addSignTask,
   circulateTask,
@@ -24,13 +28,50 @@ import {
   urgeTask,
   validateForm,
   saveFormData,
+  getBpmn,
+  getInstance,
+  getInstanceNodeOperators,
+  getLogs,
+  listNodes,
+  listCustomOperations,
+  executeCustomOperation,
 } from '@/services/workflow';
 import { MENUS_OPTIONS } from '@/pages/FormMode/WorkflowDesign/wfDict';
 import ApprovalFormRender, {
   ApprovalFormHandle,
 } from '@/pages/FormMode/ExcelDesign/components/ApprovalFormRender';
+import FlowDiagram from '@/pages/FormMode/Test/components/FlowDiagram';
 import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
-import RichTextEditor, { focusRichText, isRichTextEmpty } from '@/components/RichTextEditor';
+import { loadPersonOrgData } from '@/components/FormMode/personOrg';
+import RichTextEditor, {
+  RichTextView,
+  focusRichText,
+  isRichTextEmpty,
+} from '@/components/RichTextEditor';
+
+/** 节点类型 0创建 1审批 2提交 3归档 5等待 6自动处理 7网关 */
+const NODE_TYPE: Record<number, string> = {
+  0: '创建',
+  1: '审批',
+  2: '提交',
+  3: '归档',
+  5: '等待',
+  6: '自动处理',
+  7: '网关',
+};
+
+/** 流转动作（wf_approval_log.log_type，对齐 WfApprovalLog 常量）→ 展示文案 */
+const LOG_ACTION: Record<string, string> = {
+  '0': '通过',
+  '2': '提交',
+  '3': '退回',
+  '7': '转发',
+  '9': '批注',
+  h: '转办',
+  s: '督办',
+  t: '抄送',
+  y: '批示',
+};
 
 /**
  * 流程审批界面（运行期，对齐 ecology 单据审批页）。
@@ -60,7 +101,6 @@ const ApprovalPage: React.FC = () => {
   const [pkg, setPkg] = useState<any>(null);
   const [readonly, setReadonly] = useState(false);
   const [allowMenus, setAllowMenus] = useState<string[]>([]);
-  const [opinionRequired, setOpinionRequired] = useState(false);
   const [opinion, setOpinion] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
@@ -70,6 +110,11 @@ const ApprovalPage: React.FC = () => {
   const [modalAssignee, setModalAssignee] = useState<any>(undefined);
   const [modalAddSignType, setModalAddSignType] = useState<number>(0);
   const [fileList, setFileList] = useState<any[]>([]);
+  // 退回：可退回节点候选（来自 /task/{id}/reject-nodes）+ 选中的目标节点
+  const [rejectCandidates, setRejectCandidates] = useState<any>(null);
+  const [rejectTargetKey, setRejectTargetKey] = useState<string | undefined>(undefined);
+  /** 运行时自定义操作按钮（allowMenus 含 'custom' 时从 wf_custom_operation 拉取） */
+  const [customOps, setCustomOps] = useState<any[]>([]);
 
   const dataJsonRef = useRef<Record<string, any>>({});
   /** Excel 布局表单的当前值（key = sheetId__row__col，明细表带 dt{idx}__r{n}__ 前缀） */
@@ -93,7 +138,6 @@ const ApprovalPage: React.FC = () => {
         setPkg(p);
         setReadonly(!!p.readonly);
         setAllowMenus(p.allowMenus || []);
-        setOpinionRequired(!!p.opinionRequired);
         const dj = p.dataJson || {};
         dataJsonRef.current = dj;
         // 表单初始值 = 数据快照；后续由 Excel 布局表单（ApprovalFormRender）的
@@ -119,6 +163,98 @@ const ApprovalPage: React.FC = () => {
     });
   }, [taskId]);
 
+  // 自定义操作：allowMenus 含 'custom' 时拉取本节点启用的按钮
+  useEffect(() => {
+    if (pkg?.defId && pkg?.nodeKey && (allowMenus || []).includes('custom')) {
+      listCustomOperations(Number(pkg.defId), pkg.nodeKey)
+        .then((r: any) => setCustomOps(Array.isArray(r?.data) ? r.data : []))
+        .catch(() => setCustomOps([]));
+    } else {
+      setCustomOps([]);
+    }
+  }, [pkg?.defId, pkg?.nodeKey, allowMenus]);
+
+  // ── 布局状态：页签 / 审批记录 / 流程图 / 节点操作者（对齐「发起页 / 流程测试页」）──
+  const [tab, setTab] = useState<'form' | 'diagram' | 'status'>('form');
+  /** 本实例流转记录（倒序：最新在前） */
+  const [logs, setLogs] = useState<any[]>([]);
+  /** 流程定义 BPMN XML（「流程图」页签） */
+  const [bpmnXml, setBpmnXml] = useState<string>('');
+  /** 节点清单（「流程状态」页签） */
+  const [nodes, setNodes] = useState<any[]>([]);
+  /** 节点操作者分组（流程图节点「谁批的」+ 悬浮面板） */
+  const [nodeOps, setNodeOps] = useState<Record<string, any>>({});
+  /** 操作人 id → {姓名, 部门/角色}（复用统一人员字典，模块级缓存） */
+  const [userMap, setUserMap] = useState<Record<string, { name: string; desc?: string }>>({});
+  /** 流程定义 ID（渲染包 FormRenderVO 不带，需从实例取） */
+  const [defId, setDefId] = useState<string>('');
+  /** 流程标题/名称（实例 defName 优先，兜底 title，页首展示用） */
+  const [procTitle, setProcTitle] = useState<string>('');
+  /** 当前节点 Key（实例态兜底，节点操作者分组取数用） */
+  const [curNodeKey, setCurNodeKey] = useState<string>('');
+
+  useEffect(() => {
+    loadPersonOrgData()
+      .then((d: any) => {
+        const m: Record<string, { name: string; desc?: string }> = {};
+        ((d?.users || []) as any[]).forEach((u) => {
+          m[String(u.id)] = { name: u.name, desc: u.desc };
+        });
+        setUserMap(m);
+      })
+      .catch(() => {});
+  }, []);
+
+  /** 人员ID → 姓名（流程图节点下方「谁批的」与悬浮面板复用同一字典） */
+  const resolveUserName = useCallback(
+    (id: string | number) => userMap[String(id)]?.name || String(id),
+    [userMap],
+  );
+
+  // 审批记录 + 节点操作者（打开即拉，流程图「谁批的」悬浮面板据此分组）
+  useEffect(() => {
+    if (!instanceId) return () => {};
+    let alive = true;
+    getLogs(instanceId)
+      .then((r: any) => {
+        if (alive) setLogs([...(r?.data || [])].reverse());
+      })
+      .catch(() => alive && setLogs([]));
+    getInstanceNodeOperators(instanceId)
+      .then((r: any) => {
+        if (alive) setNodeOps(r?.data || {});
+      })
+      .catch(() => alive && setNodeOps({}));
+    return () => {
+      alive = false;
+    };
+  }, [instanceId]);
+
+  // 实例信息（defId + 名称 + 当前节点）：渲染包 FormRenderVO 不带 defId，需单独取
+  useEffect(() => {
+    if (!instanceId) return;
+    getInstance(instanceId)
+      .then((r: any) => {
+        const inst = r?.data;
+        if (!inst) return;
+        setDefId(inst.defId != null ? String(inst.defId) : '');
+        setProcTitle(inst.defName || inst.title || '');
+        setCurNodeKey(inst.currentNodeKey || '');
+      })
+      .catch(() => {});
+  }, [instanceId]);
+
+  // 流程定义相关：BPMN（流程图页签）+ 节点清单（流程状态页签），按实例拿到的 defId 拉取
+  useEffect(() => {
+    if (!defId) return;
+    getBpmn(defId)
+      .then((r: any) => setBpmnXml(r?.data || ''))
+      .catch(() => setBpmnXml(''));
+    listNodes(defId)
+      .then((r: any) => setNodes(r?.data || []))
+      .catch(() => setNodes([]));
+  }, [defId]);
+
   // 当前用户不是处理人（只读）时，仅可查看，隐藏操作区
   const canOperate = !readonly;
 
@@ -129,12 +265,22 @@ const ApprovalPage: React.FC = () => {
    * 布局级必填校验 → 本函数），values 为该布局的表单值；
    * 与数据快照合并，确保所有字段都作为变量下发，避免网关变量缺失。</p>
    */
+  /** 按操作类型判定意见是否必填（来自渲染包 signOpinion 设置） */
+  const isOpinionRequired = (op: string): boolean => {
+    const mode = pkg?.opinionMustInput;
+    if (mode === 'all') return true;
+    if (mode === 'byOperation') {
+      return (pkg?.opinionMustInputOperations || []).includes(op);
+    }
+    return !!pkg?.opinionRequired; // 旧口径：opinionRequired=true 视为必填
+  };
+
   const handleSubmit = async (values: Record<string, any>, fieldValues: Record<string, any>) => {
     if (!taskId) return;
     // 三类键都下发：快照（可能含历史坐标键）+ 本次坐标键（供 Excel 布局回显）
     // + 字段名键（供出口条件 UEL / 必填矩阵，与测试流程一致）
     const variables = { ...dataJsonRef.current, ...(values || {}), ...(fieldValues || {}) };
-    if (opinionRequired && isRichTextEmpty(opinion)) {
+    if (isOpinionRequired('submit') && isRichTextEmpty(opinion)) {
       message.warning('当前节点要求填写审批意见');
       return;
     }
@@ -148,8 +294,9 @@ const ApprovalPage: React.FC = () => {
         message.error(res?.msg || '提交失败');
         return;
       }
-      message.success('已提交');
-      setDone(true);
+      message.success('已提交，即将关闭');
+      // 办理完成自动关闭页面（独立标签有 opener → window.close；否则回退上一页）
+      setTimeout(() => closeTab(), 800);
     } catch (e: any) {
       message.error(e?.msg || '提交失败');
     } finally {
@@ -162,6 +309,28 @@ const ApprovalPage: React.FC = () => {
     setModalAssignee(undefined);
     setModalAddSignType(0);
     setFileList([]);
+    setRejectCandidates(null);
+    setRejectTargetKey(undefined);
+  };
+
+  /** 点击「退回」：先查可退回节点，决定直接退还是弹窗选节点 */
+  const openReject = async () => {
+    if (!taskId) return;
+    try {
+      const res: any = await rejectNodes(taskId);
+      if (res?.success === false) {
+        message.error(res?.msg || '查询退回节点失败');
+        return;
+      }
+      const data = res?.data || {};
+      setRejectCandidates(data);
+      // 选择退回且候选 > 1：默认选中默认节点或第一个；否则直接退（不带 targetNodeKey）
+      const defaultKey = data.defaultNodeKey || (data.nodes && data.nodes[0]?.nodeKey);
+      setRejectTargetKey(data.type === 2 && data.nodes?.length > 1 ? defaultKey : undefined);
+      setModalType('reject');
+    } catch {
+      message.error('查询退回节点失败');
+    }
   };
 
   /** 通用弹窗确认（退回/转办/加签） */
@@ -170,11 +339,20 @@ const ApprovalPage: React.FC = () => {
     setSubmitting(true);
     try {
       if (modalType === 'reject') {
-        if (opinionRequired && isRichTextEmpty(opinion)) {
+        if (isOpinionRequired('reject') && isRichTextEmpty(opinion)) {
           message.warning('当前节点要求填写审批意见');
           return;
         }
-        const res: any = await rejectTask(taskId, { opinion });
+        // 选择退回（type=2）且候选 > 1 时必须指定目标节点
+        const target =
+          rejectCandidates?.type === 2 && rejectCandidates?.nodes?.length > 1
+            ? rejectTargetKey
+            : undefined;
+        if (rejectCandidates?.type === 2 && !target) {
+          message.warning('请选择退回节点');
+          return;
+        }
+        const res: any = await rejectTask(taskId, { opinion, targetNodeKey: target });
         if (res?.success === false) return message.error(res?.msg || '退回失败');
         message.success('已退回');
       } else if (modalType === 'forward') {
@@ -243,7 +421,7 @@ const ApprovalPage: React.FC = () => {
         instanceId,
         taskId,
         nodeKey: pkg?.nodeKey,
-        defId: pkg?.defId,
+        defId: defId || pkg?.defId,
         formId: pkg?.formId,
         dataId: pkg?.dataId,
         fieldValues: values,
@@ -258,6 +436,106 @@ const ApprovalPage: React.FC = () => {
   };
 
   const handlePrint = () => window.print();
+
+  /** 关闭当前标签页（非新标签打开时回退为返回上一页） */
+  const closeTab = () => {
+    if (window.opener) window.close();
+    else if (window.history.length > 1) window.history.back();
+  };
+
+  /** 流转记录时间线（对齐参照系统：操作人/部门 → 签字意见高亮块 → 时间 + [节点/动作] + 接收人） */
+  // 意见显示设置（屏显口径）：从渲染包取，约束意见块的展示
+  const od = pkg?.opinionDisplay;
+  const odViewTypes = od?.viewTypes && od.viewTypes.length ? od.viewTypes : null;
+  const odStNull = !!od?.stNull;
+  const odShowAll = !!od?.viewTypeAll; // false=仅显示最后一次意见
+  // 流转动作 → 意见类型键（用于 viewTypes 白名单过滤；未登记的动作为 null=不约束）
+  const LOG_TYPE_KEY: Record<string, string> = {
+    '0': 'approve',
+    '2': 'submit',
+    '3': 'reject',
+    '7': 'forward',
+    '8': 'circulate',
+  };
+  const richEmpty = (html?: string) => {
+    if (!html) return true;
+    const text = html
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .trim();
+    return text.length === 0;
+  };
+  // 该条流转记录的意见块是否可见（叠加「签字意见设置」的显示范围约束）
+  const showOpinion = (l: any, idx: number): boolean => {
+    if (!l.opinion || (odStNull && richEmpty(l.opinion))) return false;
+    if (!odShowAll && idx !== 0) return false; // 仅显示最新一次意见
+    if (odViewTypes) {
+      const key = LOG_TYPE_KEY[String(l.logType)];
+      if (key && !odViewTypes.includes(key)) return false;
+    }
+    // 意见显示范围（signOpinion.viewNodeMode）：none=全不可见；list=仅指定节点可见
+    const vm = pkg?.opinionViewMode;
+    if (vm === 'none') return false;
+    if (vm === 'list') {
+      const keys: string[] = pkg?.opinionViewNodeKeys || [];
+      if (!keys.includes(l.nodeKey)) return false;
+    }
+    return true;
+  };
+  const logItems =
+    logs.length === 0
+      ? [{ children: <Typography.Text type="secondary">暂无流转记录</Typography.Text> }]
+      : logs.map((l: any, i: number) => {
+          const u = userMap[String(l.operator)];
+          const who =
+            String(l.operator) === '0' ? '系统' : u?.name || String(l.operator || '-');
+          return {
+            children: (
+              <div style={{ fontSize: 12 }}>
+                <Space size={6} wrap>
+                  <Typography.Text strong>{who}</Typography.Text>
+                  {u?.desc ? (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      {u.desc}
+                    </Typography.Text>
+                  ) : null}
+                </Space>
+                {showOpinion(l, i) ? (
+                  <div
+                    style={{
+                      margin: '4px 0',
+                      padding: '4px 8px',
+                      background: '#e6f4ff',
+                      borderRadius: 4,
+                      color: '#1677ff',
+                    }}
+                  >
+                    <RichTextView html={l.opinion} style={{ fontSize: 12 }} />
+                  </div>
+                ) : null}
+                <Space size={6} wrap>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {l.operateTime || ''}
+                  </Typography.Text>
+                  <Tag
+                    color={
+                      l.logType === '2'
+                        ? 'blue'
+                        : l.logType === '0'
+                          ? 'green'
+                          : 'default'
+                    }
+                    style={{ marginInlineEnd: 0 }}
+                  >
+                    {`${l.nodeName || l.nodeKey || '-'} / ${
+                      LOG_ACTION[String(l.logType)] || l.logType || '-'
+                    }`}
+                  </Tag>
+                </Space>
+              </div>
+            ),
+          };
+        });
 
   const menuLabel = (code: string) =>
     MENUS_OPTIONS.find((o) => o.value === code)?.label || code;
@@ -291,7 +569,7 @@ const ApprovalPage: React.FC = () => {
             );
           case 'reject':
             return (
-              <Button key="reject" danger onClick={() => setModalType('reject')}>
+              <Button key="reject" danger onClick={openReject}>
                 退回
               </Button>
             );
@@ -344,6 +622,27 @@ const ApprovalPage: React.FC = () => {
       .filter(Boolean);
   }, [allowMenus, submitting, opinion]);
 
+  // 自定义操作按钮（'custom' 菜单项启用时渲染，点击触发后端 execute）
+  const customButtons = useMemo(() => {
+    if (!customOps || customOps.length === 0) return null;
+    return customOps.map((op: any) => (
+      <Button
+        key={`custom-${op.id}`}
+        onClick={async () => {
+          try {
+            const res: any = await executeCustomOperation(Number(op.id), Number(instanceId));
+            if (res?.success === false) return message.error(res.msg || '执行失败');
+            message.success('自定义操作已执行');
+          } catch (e: any) {
+            message.error(e?.msg || '执行失败');
+          }
+        }}
+      >
+        {op.btnName}
+      </Button>
+    ));
+  }, [customOps, instanceId]);
+
   if (loading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -378,58 +677,175 @@ const ApprovalPage: React.FC = () => {
     );
   }
 
+  // 当前节点的下一操作者（实例态节点操作者分组：未操作/已操作的办理人）
+  const curOpsKey = pkg?.nodeKey || curNodeKey;
+  const curOps = curOpsKey ? nodeOps[curOpsKey] : undefined;
+  const nextOpNames = Array.from(
+    new Set([...(curOps?.todo || []), ...(curOps?.handled || [])].map(String)),
+  )
+    .map((id) => userMap[id]?.name || id)
+    .join('、');
+
   return (
-    <div style={{ padding: 24, maxWidth: 960, margin: '0 auto' }}>
-      <Card
-        size="small"
-        title={`审批表单${pkg?.nodeName ? `（${pkg.nodeName}）` : ''}`}
-        style={{ marginBottom: 16 }}
-        extra={
-          readonly ? <Tag color="orange">只读（非当前处理人）</Tag> : <Tag color="green">可审批</Tag>
-        }
+    <div style={{ minHeight: '100vh', background: '#f0f2f5', padding: 16 }}>
+      {/* 页首：流程标题 + 当前节点 + 下个节点操作者（对齐参照图页头） */}
+      <div style={{ fontSize: 15, fontWeight: 600, color: '#1f1f1f', marginBottom: 10 }}>
+        流程：处理 - {procTitle || '未命名流程'}
+        {pkg?.nodeName ? ` - ${pkg.nodeName}` : ''}
+        <span style={{ fontWeight: 400, marginLeft: 12, color: '#666' }}>
+          下个节点操作者：{nextOpNames || '—'}
+        </span>
+      </div>
+      {/* ① 顶部：左 = 三页签（流程表单 / 流程图 / 流程状态）；右 = 操作按钮 + 返回
+          （对齐「发起页 / 流程测试页」的统一布局与参照图的紧凑操作区） */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 8,
+          flexWrap: 'wrap',
+          marginBottom: 8,
+        }}
       >
-        {/* 表单：与「发起页 / 流程测试页」共用 ApprovalFormRender（Excel 布局 layoutJson
-            + 节点字段权限 fieldPerms，按节点渲染，只读态由 readonly 控制）。
-            注：该组件内部会自行拉一次 /form/render 取布局，与本页上方那次各取所需（本页拿
-            操作菜单/只读态，组件拿布局），互不依赖，渲染包未回来时组件内部有自己的 loading。 */}
-        <ApprovalFormRender
-          ref={formRef}
-          instanceId={instanceId}
-          taskId={taskId || undefined}
-          readOnly={readonly}
-          hideHeader
-          onValuesChange={(v: Record<string, any>) => {
-            formValuesRef.current = v;
+        <Space
+          size={4}
+          wrap
+          align="center"
+          style={{
+            background: '#e6f4ff',
+            border: '1px solid #91caff',
+            borderRadius: 6,
+            padding: '0 12px',
           }}
-          onSubmit={handleSubmit}
-        />
-      </Card>
+        >
+          <Tabs
+            size="small"
+            activeKey={tab}
+            onChange={(v) => setTab(v as 'form' | 'diagram' | 'status')}
+            style={{ marginBottom: 0 }}
+            items={[
+              { key: 'form', label: '流程表单' },
+              { key: 'diagram', label: '流程图' },
+              { key: 'status', label: '流程状态' },
+            ]}
+          />
+        </Space>
+        <Space size={6} style={{ marginTop: 4 }} wrap>
+          {canOperate ? actionButtons : <Tag color="orange">只读（非当前处理人）</Tag>}
+          {canOperate ? customButtons : null}
+          <Button size="small" onClick={closeTab}>
+            返回
+          </Button>
+        </Space>
+      </div>
 
-      {canOperate && (
-        <Card size="small" title="审批操作" style={{ marginBottom: 16 }}>
-          <Form.Item label="审批意见" required={opinionRequired}>
-            {/* 审批意见统一用富文本（与系统其余审批入口一致） */}
-            <div id="approval-opinion">
-              <RichTextEditor
-                compact
-                height={160}
-                value={opinion}
-                onChange={setOpinion}
-                placeholder={opinionRequired ? '请填写审批意见（必填）' : '请填写审批意见'}
+      {/* ② 表单 / 流程图 / 流程状态 */}
+      <div
+        style={{
+          background: '#fff',
+          border: '1px solid #f0f0f0',
+          borderRadius: 6,
+          padding: 16,
+        }}
+      >
+        {tab === 'form' && (
+          <>
+            {/* 表单：与「发起页 / 流程测试页」共用 ApprovalFormRender（Excel 布局 layoutJson
+                + 节点字段权限 fieldPerms，按节点渲染，只读态由 readonly 控制）。
+                注：该组件内部会自行拉一次 /form/render 取布局，与本页上方那次各取所需（本页拿
+                操作菜单/只读态，组件拿布局），互不依赖，渲染包未回来时组件内部有自己的 loading。 */}
+            <ApprovalFormRender
+              ref={formRef}
+              instanceId={instanceId}
+              taskId={taskId || undefined}
+              readOnly={readonly}
+              hideHeader
+              onValuesChange={(v: Record<string, any>) => {
+                formValuesRef.current = v;
+              }}
+              onSubmit={handleSubmit}
+            />
+
+            {/* 签字意见：固定在表单最下方（对齐参照图/流程处理页），仅当前处理人可填。
+                受节点「签字意见设置」约束：hideArea=整块不显示；hideInput=仅隐藏输入框（历史意见仍可见）。 */}
+            {canOperate && !pkg?.opinionHideArea && (
+              <div id="approval-opinion" style={{ margin: '14px 0 4px' }}>
+                <div style={{ fontSize: 13, marginBottom: 4 }}>
+                  签字意见{isOpinionRequired('submit') ? '（必填）' : ''}
+                </div>
+                {!pkg?.opinionHideInput && (
+                  <RichTextEditor
+                    compact
+                    height={160}
+                    value={opinion}
+                    onChange={setOpinion}
+                    placeholder={isOpinionRequired('submit') ? '请填写审批意见（必填）' : '请填写审批意见'}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* 流程信息：本实例全部节点的审批/流转记录（时间线，对齐参照图底部「流程信息」）*/}
+            <Divider style={{ margin: '14px 0 10px' }} />
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>流程信息</div>
+            <Timeline items={logItems} />
+
+            {!canOperate && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginTop: 12 }}
+                message="您不是当前节点的处理人，表单仅可查看，不可进行审批操作。"
               />
-            </div>
-          </Form.Item>
-          <Space wrap>{actionButtons}</Space>
-        </Card>
-      )}
+            )}
+          </>
+        )}
 
-      {!canOperate && (
-        <Alert
-          type="info"
-          showIcon
-          message="您不是当前节点的处理人，表单仅可查看，不可进行审批操作。"
-        />
-      )}
+        {tab === 'diagram' && (
+          <div style={{ padding: '4px 0' }}>
+            {bpmnXml ? (
+              <FlowDiagram
+                bpmnXml={bpmnXml}
+                currentNodeKey={pkg?.nodeKey}
+                nodeOperators={nodeOps}
+                resolveUserName={resolveUserName}
+                height={480}
+              />
+            ) : (
+              <Empty description="暂无流程图（该流程未保存 BPMN）" />
+            )}
+          </div>
+        )}
+
+        {tab === 'status' && (
+          <div style={{ padding: '4px 0' }}>
+            <Table
+              size="small"
+              rowKey={(r: any) => String(r.nodeKey)}
+              pagination={false}
+              dataSource={nodes}
+              columns={[
+                {
+                  title: '节点名称',
+                  dataIndex: 'nodeName',
+                  render: (v: string, r: any) => v || r.nodeKey,
+                },
+                {
+                  title: '类型',
+                  dataIndex: 'nodeType',
+                  width: 110,
+                  render: (v: number) => <Tag>{NODE_TYPE[v] ?? v}</Tag>,
+                },
+                { title: '节点Key', dataIndex: 'nodeKey', width: 240 },
+              ]}
+            />
+            <div style={{ marginTop: 14 }}>
+              <Timeline items={logItems} />
+            </div>
+          </div>
+        )}
+      </div>
 
       <Modal
         title={modalType ? menuLabel(modalType) : ''}
@@ -440,7 +856,28 @@ const ApprovalPage: React.FC = () => {
         destroyOnClose
       >
         {modalType === 'reject' && (
-          <p>确认退回？退回后将终止当前流程（内核阶段）。如需退回指定节点，请在流程建模时配置退回线。</p>
+          rejectCandidates?.type === 2 && rejectCandidates?.nodes?.length > 1 ? (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ marginBottom: 6 }}>请选择退回节点</div>
+              <Radio.Group
+                value={rejectTargetKey}
+                onChange={(e) => setRejectTargetKey(e.target.value)}
+              >
+                <Space direction="vertical">
+                  {(rejectCandidates.nodes || []).map((n: any) => (
+                    <Radio key={n.nodeKey} value={n.nodeKey}>
+                      {n.nodeName || n.nodeKey}
+                      <span style={{ color: '#999', marginLeft: 6 }}>
+                        {NODE_TYPE[n.nodeType as number] || ''}
+                      </span>
+                    </Radio>
+                  ))}
+                </Space>
+              </Radio.Group>
+            </div>
+          ) : (
+            <p>确认退回？流程将回退到上一节点（或节点配置的默认退回节点），并保持流程继续运行。</p>
+          )
         )}
         {modalType === 'forward' && (
           <div style={{ marginBottom: 12 }}>

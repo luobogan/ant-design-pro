@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react';
-import { Button, Card, Descriptions, Space, Tag } from 'antd';
-import { WfNodeLink, WfProcessNode } from '@/services/workflow';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Button, Card, Descriptions, Divider, Input, message, Space, Tag } from 'antd';
+import { updateLink, WfNodeLink, WfProcessNode } from '@/services/workflow';
 import { FormFieldBrief, LinkChange } from './LinkInfoPanel';
 import { useLinkActions } from './useLinkActions';
 
@@ -64,7 +64,32 @@ const LinkDetail: React.FC<LinkDetailProps> = ({
     [links, selectedLink],
   );
 
+  const [extra, setExtra] = useState(currentLink?.extraOperations || '');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setExtra(currentLink?.extraOperations || '');
+  }, [currentLink]);
+
   if (!currentLink) return null;
+
+  /** 保存出口级附加操作脚本 */
+  const saveExtra = async () => {
+    if (currentLink.id == null) return;
+    setSaving(true);
+    try {
+      const r: any = await updateLink(defId, currentLink.id, { extraOperations: extra });
+      if (r?.success === false) {
+        message.error('保存失败');
+        return;
+      }
+      onPatch?.(currentLink.id, { extraOperations: extra });
+      message.success('出口级附加操作已保存');
+    } catch {
+      message.error('保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <>
@@ -105,6 +130,25 @@ const LinkDetail: React.FC<LinkDetailProps> = ({
             )}
           </Descriptions.Item>
         </Descriptions>
+
+        <Divider orientation="left" style={{ margin: '10px 0 6px' }}>出口级附加操作</Divider>
+        <div style={{ color: '#999', fontSize: 12, marginBottom: 4 }}>
+          离开该出口时执行（多行脚本，前缀分派：http/https、sql:、field:、action:）。字段赋值右侧支持
+          {' '}<code>{"${字段名}"}</code>、<code>{"${sys.*}"}</code>、四则运算与 <code>addDays(x,n)</code> /{' '}
+          <code>addDaysSkipWeekend(x,n)</code>。
+        </div>
+        <Input.TextArea
+          rows={4}
+          value={extra}
+          disabled={locked}
+          placeholder={'field:total=${amount}+${tax}\nfield:dueDate=addDaysSkipWeekend(${startDate}, 5)'}
+          onChange={(e) => setExtra(e.target.value)}
+        />
+        <div style={{ textAlign: 'right', marginTop: 6 }}>
+          <Button size="small" type="primary" loading={saving} disabled={locked} onClick={saveExtra}>
+            保存附加操作
+          </Button>
+        </div>
       </Card>
 
       {modal}

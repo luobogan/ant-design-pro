@@ -29,9 +29,10 @@ import {
   getBpmn,
   getDefinition,
   getInstance,
+  getSnapshot,
   listNodes,
   renderFormPreview,
-  saveFormData,
+  saveDraft,
   startInstance,
   validateForm,
 } from '@/services/workflow';
@@ -85,10 +86,16 @@ const StartFlow: React.FC = () => {
   const { buttons } = usePageButtons('workflow_create');
 
   // defId / dataId 均为 19 位雪花 ID，全程保持字符串（Number() 会丢精度）
-  const defId = new URLSearchParams(window.location.search).get('defId');
+  const urlDefId = new URLSearchParams(window.location.search).get('defId');
+  /** 由「草稿」续填进入时带上的草稿实例ID（表单直发无） */
+  const instanceId = new URLSearchParams(window.location.search).get('instanceId');
   /** 由「单据」发起时带上的业务数据ID（formtable_main_{formId}.id）；
    *  「表单直发」不带 → 后端自造唯一占位 dataId（data_id 列 NOT NULL + uk_biz_key 唯一） */
   const dataId = new URLSearchParams(window.location.search).get('dataId');
+  // defId 为 state：草稿续填时由实例详情回填（URL 可能不带 defId）
+  const [defId, setDefId] = useState<string | undefined>(urlDefId || undefined);
+  /** 当前草稿实例ID（保存草稿后回填；提交时作为 draftInstId 原地提升） */
+  const [draftInstId, setDraftInstId] = useState<string>('');
 
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string>('');
@@ -110,7 +117,45 @@ const StartFlow: React.FC = () => {
   const formValuesRef = useRef<Record<string, any>>({});
   /** 「保存」后拿到的业务数据ID：再点提交时带上，复用同一条业务行，不重复建行 */
   const [savedDataId, setSavedDataId] = useState<string>(dataId || '');
+  /** 草稿续填时由快照回填的表单值（合并到初始值之上） */
+  const [snapshotValues, setSnapshotValues] = useState<Record<string, any> | null>(null);
   const [saving, setSaving] = useState<boolean>(false);
+
+  /** 草稿续填：从实例详情回填 defId / dataId / 草稿实例ID（URL 可能只带 instanceId） */
+  useEffect(() => {
+    if (!instanceId) return;
+    (async () => {
+      try {
+        const inst: any = pickPayload(await getInstance(instanceId));
+        if (inst) {
+          if (!defId && inst.defId) setDefId(String(inst.defId));
+          if (inst.dataId) setSavedDataId(String(inst.dataId));
+          setDraftInstId(String(inst.id));
+        }
+      } catch {
+        // 详情读取失败不阻断（加载错误由主流程 effect 兜底）
+      }
+    })();
+  }, [instanceId]);
+
+  /** 草稿续填：拉取草稿表单快照回填到表单初始值 */
+  useEffect(() => {
+    if (!draftInstId || !startNodeKey) return;
+    (async () => {
+      try {
+        const s: any = pickPayload(await getSnapshot(draftInstId, startNodeKey));
+        if (s) {
+          try {
+            setSnapshotValues(JSON.parse(s));
+          } catch {
+            // 非 JSON（如空串）忽略
+          }
+        }
+      } catch {
+        // 快照读取失败忽略，表单以渲染默认值呈现
+      }
+    })();
+  }, [draftInstId, startNodeKey]);
 
   useEffect(() => {
     if (!defId) {
@@ -192,7 +237,11 @@ const StartFlow: React.FC = () => {
     return NODE_TYPE[n?.nodeType ?? 0] || '创建';
   }, [nodes, startNodeKey]);
 
-  const initialValues = useMemo<Record<string, any>>(() => pkg?.dataJson || {}, [pkg]);
+  const initialValues = useMemo<Record<string, any>>(() => {
+    const base = pkg?.dataJson || {};
+    // 草稿续填：快照值覆盖渲染默认值（与正式提交同一来源，保证回填一致）
+    return snapshotValues ? { ...base, ...snapshotValues } : base;
+  }, [pkg, snapshotValues]);
 
   /**
    * 节点操作菜单（allowMenus）口径与「办理页」ApprovalPage 完全一致：
@@ -256,6 +305,8 @@ const StartFlow: React.FC = () => {
         // 有单据/已保存过则回传业务数据ID（复用同一行），否则由后端生成占位值
         // （两者都满足 data_id NOT NULL / biz_key 唯一）
         dataId: dataId || savedDataId || undefined,
+        // 草稿续填提交：把草稿实例原地提升为正式运行实例（复用同一行，避免唯一键冲突）
+        draftInstId: draftInstId || undefined,
         title: def?.name,
         starter: userId,
         fieldValues: payload,
@@ -287,7 +338,7 @@ const StartFlow: React.FC = () => {
     }
   };
 
-  /** 保存（只存不流转）：写业务行 → 记住 dataId，供后续提交复用；不做必填校验 */
+  /** 保存（只存不流转）：写业务行 → 建/更新草稿实例与发起人待办 → 记住草稿实例ID，供后续提交复用 */
   const handleSaveClick = async () => {
     if (!def?.formId && !def?.id) {
       message.warning('该流程未绑定表单，无法保存');
@@ -298,11 +349,12 @@ const StartFlow: React.FC = () => {
       const values = formValuesRef.current || {};
       // 与提交同口径：坐标键（供布局回显）+ 字段名键（供出口条件）一并下发
       const payload = { ...values, ...collectFieldValues(layoutData, values) };
-      const res: any = await saveFormData({
+      const res: any = await saveDraft({
         defId: def?.id,
         formId: def?.formId,
-        // 已保存过则更新同一行，否则新建
+        // 已保存过（草稿实例存在）则更新同一行/实例，否则新建
         dataId: savedDataId || undefined,
+        instanceId: draftInstId || undefined,
         fieldValues: payload,
       });
       if (res?.success === false) {
@@ -310,9 +362,16 @@ const StartFlow: React.FC = () => {
         return;
       }
       if (res?.data) {
-        setSavedDataId(String(res.data));
+        setDraftInstId(String(res.data));
+        // 取回该草稿实例的 dataId（保存草稿时已确保业务行存在），供后续提交复用
+        try {
+          const inst: any = pickPayload(await getInstance(res.data));
+          if (inst?.dataId) setSavedDataId(String(inst.dataId));
+        } catch {
+          // 取 dataId 失败不阻断（savedDataId 已足够）
+        }
       }
-      message.success('已保存（未提交，可继续编辑后再提交）');
+      message.success('已保存草稿（未提交，可继续编辑后再提交）');
     } catch (e: any) {
       message.error(e?.msg || '保存失败');
     } finally {
@@ -366,7 +425,7 @@ const StartFlow: React.FC = () => {
       <PageContainer
         header={{
           // 页头：流程:{开始节点类型} - {流程名} - {开始节点类型}（如「流程:创建 - 测试-918 - 创建」）
-          title: def ? `流程:${startTypeName} - ${def.name} - ${startTypeName}` : '发起流程',
+          title: def ? `流程:${startTypeName} - ${def.name} - ${startTypeName}${draftInstId ? '（草稿）' : ''}` : '发起流程',
         }}
       >
         <Card styles={{ body: { padding: 16 } }}>

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Button,
+  Checkbox,
   Form,
   Input,
   InputNumber,
@@ -33,11 +34,31 @@ import {
   MERGE_TYPES,
   NODE_TYPES,
   OP_TYPES,
-  PERM_OPTIONS,
   FORM_CONTENT_OPTIONS,
   SIGN_ORDERS,
   scopeLabel,
 } from './wfDict';
+
+/**
+ * 字段权限三维度（对齐 ecology workflow_nodeform 的 isview / iseditable / ismandatory）。
+ *
+ * 三维度是**权威值**；后端同时下发 `perm` 兼容派生列（0隐藏/1只读/2可编辑/3必填）。
+ */
+interface PermTriple {
+  visible: boolean;
+  editable: boolean;
+  required: boolean;
+}
+
+/** perm 兼容列 → 三维度（仅用于老数据/老后端回退） */
+const permToTriple = (p?: number): PermTriple => {
+  const v = p == null ? 2 : p;
+  return { visible: v >= 1, editable: v >= 2, required: v === 3 };
+};
+
+/** 三维度 → perm 兼容列（提交时一并发，保证老消费方继续可用） */
+const tripleToPerm = (t: PermTriple): 0 | 1 | 2 | 3 =>
+  !t.visible ? 0 : t.required ? 3 : t.editable ? 2 : 1;
 
 // E9 风格「节点设置」项的 schema 已抽到 `nodeSettings.ts`（与「节点信息」可编辑列表共用），
 // 这里只负责纵向面板形态的渲染；统一存到 wf_process_node.ext_json.settings。
@@ -98,7 +119,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
   const [savingBase, setSavingBase] = useState(false);
   const [operators, setOperators] = useState<WfNodeOperator[]>([]);
   const [savingOp, setSavingOp] = useState(false);
-  const [permMap, setPermMap] = useState<Record<string, number>>({});
+  const [permMap, setPermMap] = useState<Record<string, PermTriple>>({});
   const [savingPerm, setSavingPerm] = useState(false);
   /** 节点扩展属性（原样保存，只改其中的 sign / settings） */
   const [ext, setExt] = useState<Record<string, any>>({});
@@ -146,13 +167,18 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
       .catch(() => setOperators([]));
     getFieldPerm(defId, nodeKey)
       .then((r: any) => {
-        const map: Record<string, number> = {};
+        const map: Record<string, PermTriple> = {};
         (r?.data || []).forEach((p: FieldPermItem) => {
-          map[`${p.scope || 'main'}|${p.fieldName}`] = p.perm;
+          // 三维度为权威值；仅当三维度全部缺省（老数据）才回退到 perm 兼容列
+          map[`${p.scope || 'main'}|${p.fieldName}`] =
+            p.visible == null && p.editable == null && p.required == null
+              ? permToTriple(p.perm)
+              : { visible: !!p.visible, editable: !!p.editable, required: !!p.required };
         });
+        // 未配置过的字段默认「显示 + 可编辑」，与升级前 perm=2 的行为保持一致
         formFields.forEach((f) => {
           const k = `${f.scope}|${f.fieldName}`;
-          if (map[k] == null) map[k] = 2;
+          if (map[k] == null) map[k] = permToTriple(2);
         });
         setPermMap(map);
       })
@@ -243,11 +269,18 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
     if (!nodeKey) return;
     setSavingPerm(true);
     try {
-      const perms: FieldPermItem[] = formFields.map((f) => ({
-        scope: f.scope,
-        fieldName: f.fieldName,
-        perm: (permMap[`${f.scope}|${f.fieldName}`] ?? 2) as 0 | 1 | 2 | 3,
-      }));
+      const perms: FieldPermItem[] = formFields.map((f) => {
+        const t = permMap[`${f.scope}|${f.fieldName}`] || permToTriple(2);
+        return {
+          scope: f.scope,
+          fieldName: f.fieldName,
+          visible: t.visible,
+          editable: t.editable,
+          required: t.required,
+          // perm 一并下发（后端会按三维度再派生一次），便于与老消费方口径对比排查
+          perm: tripleToPerm(t),
+        };
+      });
       const r: any = await saveFieldPerm(defId, nodeKey, perms);
       if (r?.success === false) {
         message.error('保存失败');
@@ -296,6 +329,18 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
         return (
           <Select
             mode="multiple"
+            options={nodeOptions}
+            allowClear
+            style={{ width: '100%' }}
+            placeholder={f.placeholder}
+            optionFilterProp="label"
+            showSearch
+          />
+        );
+      case 'nodeSelect':
+        // 单选节点（如「流程异常处理 → 提交至指定节点」的目标节点）
+        return (
+          <Select
             options={nodeOptions}
             allowClear
             style={{ width: '100%' }}
@@ -478,17 +523,61 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
           { title: '字段名', dataIndex: 'fieldName' },
           { title: '字段标签', dataIndex: 'fieldLabel' },
           {
-            title: '权限',
-            width: 120,
-            render: (_, r: FormFieldBrief) => (
-              <Select
-                size="small"
-                style={{ width: 100 }}
-                value={permMap[`${r.scope}|${r.fieldName}`] ?? 2}
-                options={PERM_OPTIONS}
-                onChange={(v) => setPermMap((m) => ({ ...m, [`${r.scope}|${r.fieldName}`]: v }))}
-              />
-            ),
+            title: '显示',
+            width: 70,
+            align: 'center' as const,
+            render: (_, r: FormFieldBrief) => {
+              const t = permMap[`${r.scope}|${r.fieldName}`] || permToTriple(2);
+              return (
+                <Checkbox
+                  checked={t.visible}
+                  onChange={(e) =>
+                    setPermMap((m) => ({
+                      ...m,
+                      [`${r.scope}|${r.fieldName}`]: { ...t, visible: e.target.checked },
+                    }))
+                  }
+                />
+              );
+            },
+          },
+          {
+            title: '可编辑',
+            width: 70,
+            align: 'center' as const,
+            render: (_, r: FormFieldBrief) => {
+              const t = permMap[`${r.scope}|${r.fieldName}`] || permToTriple(2);
+              return (
+                <Checkbox
+                  checked={t.editable}
+                  onChange={(e) =>
+                    setPermMap((m) => ({
+                      ...m,
+                      [`${r.scope}|${r.fieldName}`]: { ...t, editable: e.target.checked },
+                    }))
+                  }
+                />
+              );
+            },
+          },
+          {
+            title: '必填',
+            width: 70,
+            align: 'center' as const,
+            render: (_, r: FormFieldBrief) => {
+              const t = permMap[`${r.scope}|${r.fieldName}`] || permToTriple(2);
+              return (
+                <Checkbox
+                  checked={t.required}
+                  onChange={(e) =>
+                    setPermMap((m) => ({
+                      ...m,
+                      [`${r.scope}|${r.fieldName}`]: { ...t, required: e.target.checked },
+                    }))
+                  }
+                />
+              );
+            },
           },
         ]}
       />

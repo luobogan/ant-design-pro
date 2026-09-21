@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Form, Input, InputNumber, Modal, Radio, Select, Switch, message } from 'antd';
+import { Button, Checkbox, Form, Input, InputNumber, Modal, Radio, Select, Space, Switch, message } from 'antd';
 import { updateNode, WfProcessNode } from '@/services/workflow';
 import { buildExtJson, nodeSettings, SETTING_DEFS, SettingField } from './nodeSettings';
 
@@ -62,10 +62,23 @@ const NodeSettingModal: React.FC<NodeSettingModalProps> = ({
         return <Select options={f.options} allowClear style={{ width: '100%' }} />;
       case 'multiSelect':
         return <Select mode="multiple" options={f.options} allowClear style={{ width: '100%' }} />;
+      case 'checkboxGroup':
+        return <Checkbox.Group options={f.options} />;
       case 'nodeMultiSelect':
         return (
           <Select
             mode="multiple"
+            options={nodeOptions}
+            allowClear
+            style={{ width: '100%' }}
+            placeholder={f.placeholder}
+            optionFilterProp="label"
+            showSearch
+          />
+        );
+      case 'nodeSelect':
+        return (
+          <Select
             options={nodeOptions}
             allowClear
             style={{ width: '100%' }}
@@ -84,9 +97,68 @@ const NodeSettingModal: React.FC<NodeSettingModalProps> = ({
             ))}
           </Radio.Group>
         );
+      case 'targets':
+        return <TargetsEditor nodes={nodes} />;
       default:
         return <Input placeholder={f.placeholder} />;
     }
+  };
+
+  /**
+   * 指定流转·多目标编辑器：数组中每个目标 = { nodeKey, operatorIds(逗号串), signType }。
+   * 由 Form.Item 注入 value/onChange（数组整体读写）。
+   */
+  const TargetsEditor: React.FC<{ value?: any[]; onChange?: (v: any[]) => void; nodes?: WfProcessNode[] }> = ({
+    value,
+    onChange,
+    nodes,
+  }) => {
+    const list = value || [];
+    const opts = (nodes || [])
+      .filter((n) => n.nodeKey)
+      .map((n) => ({ value: n.nodeKey as string, label: n.nodeName || (n.nodeKey as string) }));
+    const emit = (next: any[]) => onChange?.(next);
+    const update = (i: number, patch: any) => {
+      const c = list.map((it, idx) => (idx === i ? { ...it, ...patch } : it));
+      emit(c);
+    };
+    const add = () => emit([...list, { nodeKey: '', operatorIds: '', signType: 0 }]);
+    const remove = (i: number) => emit(list.filter((_, idx) => idx !== i));
+    return (
+      <div>
+        {list.map((it, i) => (
+          <Space key={i} style={{ display: 'flex', marginBottom: 6 }} align="baseline">
+            <Select
+              value={it.nodeKey || undefined}
+              options={opts}
+              placeholder="目标节点"
+              style={{ width: 140 }}
+              showSearch
+              optionFilterProp="label"
+              onChange={(v) => update(i, { nodeKey: v })}
+            />
+            <Input
+              value={it.operatorIds || ''}
+              placeholder="操作者ID逗号分隔"
+              style={{ width: 170 }}
+              onChange={(e) => update(i, { operatorIds: e.target.value })}
+            />
+            <Select
+              value={it.signType ?? 0}
+              style={{ width: 90 }}
+              onChange={(v) => update(i, { signType: v })}
+              options={[
+                { value: 0, label: '默认' },
+                { value: 1, label: '或签' },
+                { value: 2, label: '会签' },
+              ]}
+            />
+            <Button size="small" danger onClick={() => remove(i)}>删</Button>
+          </Space>
+        ))}
+        <Button size="small" type="dashed" onClick={add}>+ 添加目标</Button>
+      </div>
+    );
   };
 
   const handleOk = async () => {

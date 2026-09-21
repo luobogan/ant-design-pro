@@ -6,6 +6,8 @@ import NodeOperatorModal from './NodeOperatorModal';
 import NodeSettingModal from './NodeSettingModal';
 import NodeOperateMenuModal from './NodeOperateMenuModal';
 import NodeExtraOperateModal from './NodeExtraOperateModal';
+import NodeTimeoutModal from './NodeTimeoutModal';
+import CustomOperationModal from './CustomOperationModal';
 import {
   buildExtJson,
   extraOperateSummary,
@@ -74,7 +76,7 @@ const SETTING_COLUMN_KEYS = [
   'exceptionHandle',
   'formLogScope',
   'appointFlow',
-  'timeout',
+  'reject',
 ];
 
 const emptyExtJson = () => JSON.stringify({ settings: {} });
@@ -135,6 +137,10 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
   const [dragOverKey, setDragOverKey] = useState<string | undefined>();
   /** 正在编辑的设置项 key */
   const [settingDefKey, setSettingDefKey] = useState<string | undefined>();
+  /** 正在编辑「超时规则」的节点（独立弹窗承载 wf_node_timeout） */
+  const [timeoutNode, setTimeoutNode] = useState<WfProcessNode | null>(null);
+  /** 正在编辑「自定义操作」的节点（独立弹窗承载 wf_custom_operation*） */
+  const [customNode, setCustomNode] = useState<WfProcessNode | null>(null);
   /**
    * 表尾新增草稿行（**支持多行**：连续点「+ 新增节点」可一次加多行，再统一保存）。
    * 用数组而不是单个对象，避免「一次只能加一行」。
@@ -670,6 +676,30 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
       },
     })),
     {
+      title: '超时设置',
+      width: 110,
+      render: (_: any, r: WfProcessNode) =>
+        isDraft(r) ? (
+          <span style={{ color: '#bbb', fontSize: 12 }}>草稿</span>
+        ) : (
+          <Button type="link" size="small" onClick={() => setTimeoutNode(r)}>
+            超时规则
+          </Button>
+        ),
+    },
+    {
+      title: '自定义操作',
+      width: 110,
+      render: (_: any, r: WfProcessNode) =>
+        isDraft(r) ? (
+          <span style={{ color: '#bbb', fontSize: 12 }}>草稿</span>
+        ) : (
+          <Button type="link" size="small" onClick={() => setCustomNode(r)}>
+            自定义操作
+          </Button>
+        ),
+    },
+    {
       title: '操作',
       width: 130,
       __draftAware: true,
@@ -847,6 +877,20 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
           setSettingDraftIndex(undefined);
           setSettingDefKey(undefined);
         }}
+      />
+
+      <NodeTimeoutModal
+        open={!!timeoutNode}
+        defId={defId}
+        node={timeoutNode}
+        onClose={() => setTimeoutNode(null)}
+      />
+
+      <CustomOperationModal
+        open={!!customNode}
+        defId={defId}
+        node={customNode}
+        onClose={() => setCustomNode(null)}
       />
 
       {/* 操作菜单：独立弹窗（E9 形态），格子内点「设置」打开 */}
