@@ -481,7 +481,7 @@ const ApprovalPage: React.FC = () => {
         }
         const res: any = await rejectTask(taskId, { opinion, targetNodeKey: target });
         if (res?.success === false) return notifyFail(res?.msg, '退回失败');
-        message.success('已退回');
+        message.success('已退回，即将关闭页签');
       } else if (modalType === 'forward') {
         if (!modalAssignee) return message.warning('请选择转办人');
         // 转办目标人同为雪花ID，按字符串下发
@@ -490,7 +490,7 @@ const ApprovalPage: React.FC = () => {
           assignee: modalAssignee,
         });
         if (res?.success === false) return notifyFail(res?.msg, '转办失败');
-        message.success('已转办');
+        message.success('已转办，即将关闭页签');
       } else if (modalType === 'sign') {
         if (!modalAssignee) return message.warning('请选择加签人');
         // 加签人同为雪花ID，按字符串下发
@@ -514,6 +514,14 @@ const ApprovalPage: React.FC = () => {
       }
       closeModal();
       setDone(true);
+      // 办理完成后自动关闭页签（与「提交」同口径）：限于「本人对这条任务的处理已结束」的操作
+      //   退回：本人这条待办已办结，流程已回到目标节点；
+      //   转办：任务已转出给他人（本人这条已办结），继续停留只会在下次点击时撞上「本页已过期」。
+      // ⚠️ 加签 / 传阅 只是给别人加任务，本人这条待办仍在 —— 关闭会打断仍在进行的填写；
+      //    催办 / 附件 不改变任务状态 —— 这几种一律不关闭。
+      if (modalType === 'reject' || modalType === 'forward') {
+        window.setTimeout(() => closeTab(), 800);
+      }
     } catch (e: any) {
       notifyFail(e?.msg, '操作失败');
     } finally {
@@ -596,10 +604,15 @@ const ApprovalPage: React.FC = () => {
       .trim();
     return text.length === 0;
   };
+  // 「仅显示最后一次」时的判定对象：最后一条**有内容**的意见。
+  // ⚠️ 不能只认 idx===0：最新那条日志若没填意见，会导致整条时间线一条意见都显示不出来。
+  const lastOpinionIdx = logs.findIndex((l: any) =>
+    l.opinion ? (odStNull ? !richEmpty(l.opinion) : true) : false,
+  );
   // 该条流转记录的意见块是否可见（叠加「签字意见设置」的显示范围约束）
   const showOpinion = (l: any, idx: number): boolean => {
     if (!l.opinion || (odStNull && richEmpty(l.opinion))) return false;
-    if (!odShowAll && idx !== 0) return false; // 仅显示最新一次意见
+    if (!odShowAll && idx !== lastOpinionIdx) return false; // 仅显示最后一次「有内容」的意见
     if (odViewTypes) {
       const key = LOG_TYPE_KEY[String(l.logType)];
       if (key && !odViewTypes.includes(key)) return false;
@@ -821,14 +834,16 @@ const ApprovalPage: React.FC = () => {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f0f2f5', padding: 16 }}>
-      {/* ⓪ 页面过期横幅：「流程已回退/节点已变更但界面未刷新」时置顶告警并引导刷新 */}
+      {/* ⓪ 页面过期横幅：「流程已回退 / 节点已变更 / 任务已办结」但界面未刷新时置顶告警。
+          description 只说明「操作已停用」，具体指引由后端 staleReason 按场景给出
+          （节点变更 → 刷新重办；任务已办结 → 去待办开最新任务），不再叠加一刀切建议。 */}
       {stale && (
         <Alert
           type="warning"
           showIcon
           style={{ marginBottom: 12 }}
           message="流程状态已变更，本页已过期"
-          description={`${stale.reason}。为避免把过期数据写回，本页的保存/提交/退回等操作已停用，请刷新页面后按最新节点重新办理。`}
+          description={`${stale.reason}。为避免把过期数据写回，本页的保存/提交/退回等操作已停用。`}
           action={
             <Button size="small" type="primary" onClick={() => window.location.reload()}>
               刷新页面
@@ -1025,6 +1040,8 @@ const ApprovalPage: React.FC = () => {
                   {(rejectCandidates.nodes || []).map((n: any) => (
                     <Radio key={n.nodeKey} value={n.nodeKey}>
                       {n.nodeName || n.nodeKey}
+                      {/* 创建节点在引擎里是 startEvent（停不住），后端走「退回发起人」专用路径 */}
+                      {n.nodeType === 0 ? '（退回发起人）' : ''}
                       <span style={{ color: '#999', marginLeft: 6 }}>
                         {NODE_TYPE[n.nodeType as number] || ''}
                       </span>
@@ -1033,6 +1050,14 @@ const ApprovalPage: React.FC = () => {
                 </Space>
               </Radio.Group>
             </div>
+          ) : (rejectCandidates?.nodes || []).find(
+              (n: any) => n.nodeKey === rejectCandidates?.defaultNodeKey,
+            )?.nodeType === 0 ? (
+            // 默认退回目标 = 创建节点：语义是「退回发起人」（创建节点在引擎里是 startEvent，停不住）
+            <p>
+              确认退回？流程将退回给<b>发起人</b>（开始节点），发起人修改表单后重新提交，
+              流程将从第一个审批节点重新开始。
+            </p>
           ) : (
             <p>确认退回？流程将回退到上一节点（或节点配置的默认退回节点），并保持流程继续运行。</p>
           )

@@ -580,9 +580,10 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
           </Space>
         </Row>
         <Row label="显示全部意见">
+          {/* 未配置 = 显示全部（与后端默认一致）；只有显式关过才是「仅显示最后一次」 */}
           <Switch
             size="small"
-            checked={!!od.viewTypeAll}
+            checked={od.viewTypeAll === undefined || od.viewTypeAll === null ? true : !!od.viewTypeAll}
             onChange={(v) => patch({ opinionDisplay: { ...od, viewTypeAll: v ? 1 : 0 } })}
           />
           <span style={{ marginLeft: 8, color: '#999', fontSize: 12 }}>

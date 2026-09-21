@@ -506,6 +506,27 @@ const StartFlow: React.FC = () => {
     }
   };
 
+  /**
+   * 提交成功后自动关闭本页（对齐办理页「已提交，即将关闭」的体感）。
+   *
+   * <p>两个前提，缺一不关：</p>
+   * <ol>
+   *   <li><b>本页是脚本打开的新标签</b>（{@code window.opener} 存在）——
+   *       从待办 / 我的请求 / 菜单点进来的标签页由 {@code window.open} 打开，可直接 close；
+   *       直接输入网址或在当前标签内路由过来的页面，浏览器不允许脚本关闭，
+   *       此时保留成功页交给用户手动关闭（强行走 history.back 会跳到 about:blank 之类的意外页）。</li>
+   *   <li><b>没有 L3 自检提示</b>——自检存在的意义就是让人看到（业务行 / request_id / 引擎部署
+   *       是否就绪），自动关闭会把提示一起藏掉；有提示时页面保持打开。</li>
+   * </ol>
+   */
+  useEffect(() => {
+    if (!done || selfChecks.length > 0 || !window.opener) return;
+    message.success('流程已发起，本页即将自动关闭');
+    const timer = window.setTimeout(() => closeTab(), 1200);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [done, selfChecks]);
+
   const submitButton = (
     <PermissionButton hasPermission={buttons.some((b: any) => b.code === 'workflow_create_submit')}>
       <Button type="primary" size="small" loading={submitting} disabled={instanceGone || !!staleReason} onClick={handleSubmitClick}>
