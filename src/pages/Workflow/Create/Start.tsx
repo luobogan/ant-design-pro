@@ -116,6 +116,15 @@ export interface StartFlowProps {
   bpmnXml?: string;
   /** 实例态展示：测试结果节点清单（带 status/passTimes），用于「流程状态」页签 */
   resultNodes?: any[];
+  /** 实例态展示：流程出口清单（result.links / designLinks），用于推导「下个节点」及其操作者 */
+  links?: any[];
+  /**
+   * 实例「当前所在节点」Key（流程此刻流转到的节点）。透传给 InstanceFlow 决定头部与流程图高亮，
+   * 与「查看节点」解耦：测试页传 `result.currentNodeKey`，正式办理页传当前任务节点（即 `nodeKey`）。
+   */
+  currentNodeKey?: string;
+  /** 实例「当前所在节点」名称（不传则 InstanceFlow 自行按节点清单/渲染包解析） */
+  currentNodeName?: string;
   /** 实例态：点流程图节点切换查看节点 */
   onSelectNode?: (nodeKey?: string) => void;
   /** 实例态：办理成功回调 */
@@ -130,6 +139,8 @@ export interface StartFlowProps {
   submitting?: boolean;
   /** 实例态：单步提交（带签字意见与表单值推进一个节点） */
   onStep?: (payload: { opinion?: string; formData?: Record<string, any> }) => void;
+  /** 实例态：表单值变化回传（测试页「继续测试」带最新值提交用） */
+  onValuesChange?: (values: Record<string, any>) => void;
 }
 
 const StartFlow: React.FC<StartFlowProps> = (props) => {
@@ -253,10 +264,19 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
           return;
         }
         setDef(d);
-        // 仅已发布（启用）的流程可发起（实例态跳过该门禁：实例已存在，无需校验发布状态）
-        if (!isInstance && d.status !== 1) {
-          setLoadError('该流程未发布或已停用，无法发起');
-          return;
+        // 实例态跳过该门禁（实例已存在，无需校验发布状态）。
+        // 正式态（prod）仅已发布（status=1）可发起；
+        // 测试态（test）/预览态（preview）放行「测试(status=3)」与草稿，仅拦截「停用(status=2)」。
+        if (!isInstance) {
+          if (isTest || isPreview) {
+            if (d.status === 2) {
+              setLoadError('该流程已停用，无法测试/预览');
+              return;
+            }
+          } else if (d.status !== 1) {
+            setLoadError('该流程未发布或已停用，无法发起');
+            return;
+          }
         }
 
         // 流程图（「流程图」页签）
@@ -673,6 +693,9 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
           defName={props.defName}
           bpmnXml={props.bpmnXml ?? bpmnXml}
           nodes={props.resultNodes}
+          links={props.links}
+          currentNodeKey={props.currentNodeKey ?? (props.nodeKey ?? (urlNodeKey || undefined))}
+          currentNodeName={props.currentNodeName}
           onSelectNode={props.onSelectNode}
           onOperated={props.onOperated}
           testMode={props.testMode}
@@ -680,6 +703,8 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
           hasPending={props.hasPending}
           submitting={props.submitting}
           onStep={props.onStep}
+          onValuesChange={props.onValuesChange}
+          embedded={embedded}
         />
       ) : loading ? (
             <div style={{ padding: 48, textAlign: 'center' }}>
@@ -903,21 +928,35 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
     </Card>
   );
 
-  // 内嵌模式：不套 PageContainer / 外层背景，由父页面统一布局（如流程测试页的「节点审批情况」）
+  /**
+   * 页头路径：正式页与内嵌（流程测试页）**共用同一份**表达式。
+   *
+   * <p>以前只在「非内嵌」时作为 PageContainer 标题渲染，内嵌（测试页）拿不到，
+   * 父页只能自己再拼一套 —— 两处格式一改就漂移。现在单一来源：
+   * 正式页作 PageContainer 标题，内嵌作面板顶部一行。</p>
+   */
+  const flowTitle = def
+    ? `流程:${startTypeName} - ${def.name} - ${startTypeName}${draftInstId ? '（草稿）' : ''}`
+    : '';
+
+  // 内嵌模式：不套 PageContainer / 外层背景，由父页面统一布局（如流程测试页的「节点审批情况」）；
+  // 但页头路径仍由本组件渲染（与正式页同一份 flowTitle），不再让父页各自实现。
   if (embedded) {
-    return content;
+    return (
+      <>
+        {flowTitle && (
+          <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 600, color: '#262626' }}>
+            {flowTitle}
+          </div>
+        )}
+        {content}
+      </>
+    );
   }
 
   return (
     <div style={{ minHeight: '100vh', background: '#f0f2f5' }}>
-      <PageContainer
-        header={{
-          // 页头：流程:{开始节点类型} - {流程名} - {开始节点类型}（如「流程:创建 - 测试-918 - 创建」）
-          title: def ? `流程:${startTypeName} - ${def.name} - ${startTypeName}${draftInstId ? '（草稿）' : ''}` : '发起流程',
-        }}
-      >
-        {content}
-      </PageContainer>
+      <PageContainer header={{ title: flowTitle || '发起流程' }}>{content}</PageContainer>
     </div>
   );
 };

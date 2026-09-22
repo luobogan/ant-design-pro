@@ -11,7 +11,8 @@ const { Search } = Input;
  * 新建流程：按「路径类型」分组展示**可发起**流程，点击卡片在新标签页打开发起页。
  *
  * 展示口径：仅「已发布（status=1）且为当前激活版本」的流程；
- * 草稿/停用/历史版本不展示，已删除的由后端逻辑删除（@TableLogic）自动过滤。
+ * 草稿/停用/测试态(status=3)/历史版本不展示，已删除的由后端逻辑删除（@TableLogic）自动过滤。
+ * 测试态流程只在 /formmode/test 可选，不在此正式发起页出现。
  *
  * 发起页为菜单驱动的组件路由（blade_menu: workflow_create_start，
  * category=2 + is_component=1 + path=/workflow/create/start → ./pages/Workflow/Create/Start.tsx）。

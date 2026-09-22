@@ -540,12 +540,24 @@ export function buildInitialValues(
   fields.forEach((f) => {
     if (f.control === 'formSelect' && f.emits) {
       init[f.key] = {
-        type: source[f.emits.typeKey] ?? f.options?.[0]?.value ?? 0,
+        // 类型选项 value 后端经 OptionVO ToStringSerializer 统一序列化为字符串，
+        // 数字 0 与 "0" 不匹配会导致 Select 显示原始值而非标签，故同样字符串化
+        type:
+          source[f.emits.typeKey] != null
+            ? String(source[f.emits.typeKey])
+            : f.options?.[0]?.value ?? '0',
         id: source[f.emits.idKey] != null ? String(source[f.emits.idKey]) : undefined,
       };
     } else if (f.control === 'switch') {
       const raw = source[f.key] ?? f.defaultValue;
       init[f.key] = raw === 1 || raw === true || raw === '1';
+    } else if (f.control === 'select') {
+      // 同上：选项 value 是字符串（OptionVO ToStringSerializer），回显值必须同样
+      // 字符串化，否则数字 1 匹配不上 "1"，Select 显示原始数字而非「已发布」等标签
+      const dv = f.defaultValue;
+      const safeDv = dv !== null && typeof dv === 'object' ? undefined : dv;
+      const raw = source[f.key] ?? safeDv;
+      init[f.key] = raw == null ? raw : String(raw);
     } else {
       // 防御：defaultValue 若为对象/数组（异常下发），忽略之，避免输入框渲染成 [object Object]
       const dv = f.defaultValue;

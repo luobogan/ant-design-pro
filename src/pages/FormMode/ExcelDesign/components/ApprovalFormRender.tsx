@@ -1,5 +1,5 @@
 import React, { useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { App, Result, Spin } from 'antd';
+import { Result, Spin } from 'antd';
 import ExcelPreview, { NodePermissionResolver } from './ExcelPreview';
 import { collectFieldValues, expandInitialValues } from '../utils/collectFieldValues';
 import { renderForm, renderFormPreview } from '@/services/workflow';
@@ -172,7 +172,6 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
   const [pkgNodeKey, setPkgNodeKey] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
   const [done, setDone] = useState(false);
-  const { message } = App.useApp();
 
   // onPackage 放进 ref：父组件常传内联箭头函数，若进 useEffect 依赖会每次重渲染都重拉渲染包
   const onPackageRef = useRef<ApprovalFormRenderProps['onPackage']>(undefined);
@@ -312,7 +311,7 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
       onValuesChange={onValuesChange}
       onSubmit={async (vals, _errors, valid) => {
         if (!valid) {
-          message.warning('必填项未填写完整');
+          // 具体缺失哪些字段已由 ExcelPreview 的校验提示（带字段名）给出，这里不再重复弹一次
           return;
         }
         // 校验通过：交给外层决定后续（发起 / 提交审批）。

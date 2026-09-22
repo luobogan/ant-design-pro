@@ -68,8 +68,8 @@ const NODE_TYPE: Record<number, string> = {
   7: '网关',
 };
 
-/** 流程定义状态：0草稿 1已发布 2停用 */
-const DEF_STATUS: Record<number, string> = { 0: '草稿', 1: '已发布', 2: '停用' };
+/** 流程定义状态：0草稿 1已发布 2停用 3测试 */
+const DEF_STATUS: Record<number, string> = { 0: '草稿', 1: '已发布', 2: '停用', 3: '测试' };
 
 const statusTag = (s?: number) => {
   switch (s) {
@@ -97,6 +97,32 @@ const testStatusTag = (s?: number) => {
 
 const linkStatusTag = (s?: number) =>
   s === 1 ? <Tag color="green">已走过</Tag> : <Tag color="default">未走过</Tag>;
+
+/**
+ * 从后端必填提示里抽出「缺失字段名」，用于提示条主文案：
+ * 「节点【申请人】以下字段为必填： 采购事由、金额」→ ['采购事由','金额']
+ * 「开始节点【申请人】表单必填未填： 采购事由」→ ['采购事由']
+ * 字段名可能带「标签(字段名)」后缀，展示时去掉括号部分。
+ */
+const pickMissingFields = (msg?: string | null): string[] => {
+  if (!msg) return [];
+  const m = /必填[^：:]*[：:]\s*(.+)$/.exec(msg.replace(/\s+/g, ' '));
+  if (!m) return [];
+  return m[1]
+    .split(/[、,，]/)
+    .map((s) => s.trim().replace(/\([^)]*\)$/, '').trim())
+    .filter(Boolean);
+};
+
+/**
+ * 必填阻塞提示文案：与 ExcelPreview 的「有 N 个必填项未填写，请检查标红字段」同口径，
+ * 并尽量带上具体字段名（取自后端消息里的缺失字段），让用户知道「到底是哪个字段必填」。
+ */
+const requiredTip = (msg?: string | null): string => {
+  const fs = pickMissingFields(msg);
+  if (fs.length) return `有 ${fs.length} 个必填项未填写（${fs.join('、')}），请检查标红字段`;
+  return '有必填项未填写，请检查标红字段';
+};
 
 const WorkflowTestPage: React.FC = () => {
   const [defs, setDefs] = useState<any[]>([]);
@@ -136,6 +162,8 @@ const WorkflowTestPage: React.FC = () => {
   const [viewNodeKey, setViewNodeKey] = useState<string | undefined>();
   // 用 ||（而非 ??）：实例归档后 currentNodeKey 会被清成空串，空串也要回退到默认节点
   const effectiveNodeKey = viewNodeKey || defaultNodeKey;
+  // 当前查看节点的操作者不再在此解析：头部「节点审批情况」改为跟随实例当前节点（result.currentNodeKey），
+  // 操作者取实例真实待办人（InstanceFlow 内由 nodeOps[currentNodeKey].todo 解析），见 InstanceFlow。
   // 办理（提交/退回/…）成功后自增，强制流程表单面板重新拉取渲染包/审批记录
   const [formKey, setFormKey] = useState(0);
   /**
@@ -145,6 +173,12 @@ const WorkflowTestPage: React.FC = () => {
   const validInstId =
     result?.instId != null && Number(result.instId) > 0 ? result.instId : undefined;
 
+  /** 「开始自动测试」因必填被拦截而暂停时的提示（非空即展示暂停提示条） */
+  const [startBlockMsg, setStartBlockMsg] = useState<string | null>(null);
+
+  /** 必填阻塞提示文案（带具体字段名，与 ExcelPreview 同口径） */
+  const blockTip = useMemo(() => requiredTip(startBlockMsg), [startBlockMsg]);
+
   // ── 交互式测试（对齐 ecology 流程测试页：开始测试 → 自动测试 / 暂停，或手动提交）──
   /** 自动测试循环是否在跑（点「暂停」置 false 后循环自然退出） */
   const [autoRunning, setAutoRunning] = useState(false);
@@ -153,12 +187,12 @@ const WorkflowTestPage: React.FC = () => {
   const [stepping, setStepping] = useState(false);
   /** 右侧面板是否自动跟随「当前节点」（用户手动选过节点后置 false） */
   const followRef = useRef(true);
-  /** 「开始自动测试」因必填被拦截而暂停时的提示（非空即展示暂停提示条） */
-  const [startBlockMsg, setStartBlockMsg] = useState<string | null>(null);
   /** 因必填暂停：用户手动提交补齐后自动继续自动测试 */
   const resumeAutoRef = useRef(false);
   /** 入口确认「流程+发起人」后自动发起实例的防重标记（key = defId|testUserId） */
   const entryStartRef = useRef<string>('');
+  /** 右侧实例表单的最新值（「继续测试」时带上它提交，避免必填仍为空） */
+  const latestFormValuesRef = useRef<Record<string, any>>({});
 
   const [form] = Form.useForm();
   const [formFields, setFormFields] = useState<FieldDefinition[]>([]);
@@ -200,6 +234,13 @@ const WorkflowTestPage: React.FC = () => {
     });
     return out;
   }, [defs]);
+
+  // 仅「测试」状态（status=3）的流程进入「新建测试流程」选择器：
+  // 与正式发起页 /workflow/create（只列已发布）互补，实现"测试态流程只在测试页可选"。
+  const testDefs = useMemo(
+    () => activeDefs.filter((d: any) => d.status === 3),
+    [activeDefs],
+  );
 
   // 分类 id → 分类名称
   const typeNameMap = useMemo(() => {
@@ -550,7 +591,7 @@ const WorkflowTestPage: React.FC = () => {
           if (/必填/.test(msg)) {
             resumeAutoRef.current = true;
             setStartBlockMsg(msg);
-            message.warning('存在必填项未填写，测试已暂停：请在右侧表单补齐后点「提交」');
+            message.warning(`测试已暂停：${requiredTip(msg)}`);
           } else {
             message.error(msg);
           }
@@ -601,6 +642,8 @@ const WorkflowTestPage: React.FC = () => {
         effectiveNodeKey,
         realMode,
       );
+      // 提交成功＝必填阻塞已解除：收起提示条
+      setStartBlockMsg(null);
       if (data?.instanceStatus != null && data.instanceStatus !== 0) {
         message.success(`测试结束：${data.summary || ''}`);
         loadHistory();
@@ -618,7 +661,14 @@ const WorkflowTestPage: React.FC = () => {
         startAuto();
       }
     } catch (e: any) {
-      message.error(e?.msg || e?.message || '提交失败');
+      const msg = e?.msg || e?.message || '提交失败';
+      // 必填未填：阻止提交并亮出补填提示条（与自动测试暂停共用同一处提示）
+      if (/必填/.test(msg)) {
+        setStartBlockMsg(msg);
+        message.warning(requiredTip(msg));
+      } else {
+        message.error(msg);
+      }
     } finally {
       setStepping(false);
     }
@@ -755,6 +805,7 @@ const WorkflowTestPage: React.FC = () => {
     {
       title: '节点名称',
       dataIndex: 'nodeName',
+      width: 160,
       render: (v: string, r: any) => v || r.nodeKey,
       ellipsis: true,
     },
@@ -777,6 +828,7 @@ const WorkflowTestPage: React.FC = () => {
     {
       title: '出口条件',
       dataIndex: 'conditionCn',
+      width: 140,
       render: (v: string, r: any) =>
         v || r.conditionExpr || <span style={{ color: '#bbb' }}>无条件</span>,
       ellipsis: true,
@@ -844,10 +896,19 @@ const WorkflowTestPage: React.FC = () => {
         <Typography.Title level={4} style={{ marginTop: 0 }}>
           流程测试 / 调试
         </Typography.Title>
+        {testDefs.length === 0 && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="暂无「测试」状态的流程"
+            description="在流程设计页把「流程状态」设为「测试」后，该流程会出现在此处供测试；测试态流程不会出现在正式「新建流程」页（/workflow/create）。"
+          />
+        )}
         <TestFlowPicker
           mode="panel"
           wfTypes={wfTypes}
-          activeDefs={activeDefs}
+          activeDefs={testDefs}
           onConfirm={pickDef}
         />
       </div>
@@ -928,7 +989,9 @@ const WorkflowTestPage: React.FC = () => {
             <Tag style={{ marginLeft: 8 }}>{currentCategory}</Tag>
             <Tag color="blue">使用激活版本 v{currentDef.version ?? '-'}</Tag>
             {currentDef.status !== 1 && (
-              <Tag color="orange">当前版本未发布（{DEF_STATUS[currentDef.status] ?? '-'}）</Tag>
+              <Tag color={currentDef.status === 3 ? 'blue' : 'orange'}>
+                {currentDef.status === 3 ? '测试态流程' : `当前版本未发布（${DEF_STATUS[currentDef.status] ?? '-'}）`}
+              </Tag>
             )}
           </div>
         )}
@@ -942,29 +1005,6 @@ const WorkflowTestPage: React.FC = () => {
           />
         )}
       </Card>
-
-      {startBlockMsg && (
-        <Alert
-          type="warning"
-          showIcon
-          closable
-          style={{ marginBottom: 12 }}
-          message="测试已暂停：存在必填项未填写"
-          description={
-            <div>
-              <div>{startBlockMsg}</div>
-              <div style={{ marginTop: 4, fontSize: 12 }}>
-                ① 在右侧「节点审批情况 → 流程表单」里补齐必填项后点「提交」，测试会自动继续；
-                ② 若缺失的是开始节点（申请人）字段，可在上方「测试表单」补齐后点「重新发起测试」重建实例，再点「开始自动测试」。
-              </div>
-            </div>
-          }
-          onClose={() => {
-            setStartBlockMsg(null);
-            resumeAutoRef.current = false;
-          }}
-        />
-      )}
 
       {defId && formId && (
         <Card
@@ -1137,6 +1177,7 @@ const WorkflowTestPage: React.FC = () => {
                           {
                             title: '经过节点',
                             dataIndex: 'path',
+                            width: 200,
                             render: (v: string[]) => (v || []).join(' → ') || '-',
                             ellipsis: true,
                           },
@@ -1179,17 +1220,52 @@ const WorkflowTestPage: React.FC = () => {
           </Card>
         </Col>
         <Col xs={24} lg={14} xl={15}>
+          {/* 必填阻塞提示：自动测试暂停 / 手动提交被拦时展示；点「继续测试」带当前表单值续跑 */}
+          {startBlockMsg && (
+            <Alert
+              type="warning"
+              showIcon
+              closable
+              style={{ marginBottom: 12 }}
+              message={
+                <span>
+                  提示：{blockTip}，填好后{' '}
+                  <a
+                    onClick={() => {
+                      if (stepping || autoRunning) return;
+                      manualStep({ formData: latestFormValuesRef.current });
+                    }}
+                  >
+                    点击这里 继续测试
+                  </a>
+                </span>
+              }
+              description={<span style={{ fontSize: 12 }}>{startBlockMsg}</span>}
+              onClose={() => {
+                setStartBlockMsg(null);
+                resumeAutoRef.current = false;
+              }}
+            />
+          )}
+          {/*
+            实例态：头部（节点审批情况 / 当前操作者 / 状态 / 操作按钮）由 InstanceFlow
+            这一个共享组件渲染 —— 与正式办理页同一处实现，本卡片不再重复一份。
+            预览/测试态没有实例面板，才由本卡片标题承担该头部。
+          */}
           <Card
             size="small"
-            title={`节点审批情况${
-              validInstId
-                ? `（测试实例 #${validInstId}）`
-                : defId && formId
-                  ? '（预览）'
-                  : ''
-            }`}
+            title={
+              validInstId ? undefined : (
+                <span>
+                  节点审批情况：{nodeNameOf(effectiveNodeKey) || '—'}
+                  <span style={{ fontSize: 12, color: '#8c8c8c', marginLeft: 8 }}>（预览）</span>
+                </span>
+              )
+            }
             extra={null}
           >
+            {/* 页头路径（流程:开始类型 - 流程名 - 开始类型，如「流程:创建 - 测试-918 - 创建」）
+                不在此拼装：由 StartFlow 内嵌渲染，与正式页共用同一份 flowTitle，保证两处完全一致 */}
             {validInstId ? (
               <StartFlow
                 key={`instance-${result.instId}-${formKey}`}
@@ -1201,12 +1277,18 @@ const WorkflowTestPage: React.FC = () => {
                 defName={currentDef?.name}
                 bpmnXml={bpmnXml}
                 resultNodes={sortedNodes.length ? sortedNodes : result.nodes || []}
+                links={designLinks}
+                currentNodeKey={result?.currentNodeKey}
+                currentNodeName={result?.currentNodeName}
                 onSelectNode={(k) => k && pickViewNode(k)}
                 testMode
                 instanceStatus={result.instanceStatus}
                 hasPending={result.hasPending}
                 submitting={stepping}
                 onStep={manualStep}
+                onValuesChange={(v) => {
+                  latestFormValuesRef.current = v || {};
+                }}
                 onOperated={() => {
                   setFormKey((k) => k + 1);
                   loadHistory();

@@ -3,8 +3,8 @@ import { Card, Empty, Input, Modal, Tabs, Tag } from 'antd';
 import { PlusCircleFilled, UserOutlined } from '@ant-design/icons';
 import { PersonOrgPicker } from '@/components/FormMode/PersonOrgPicker';
 
-/** 流程定义状态：0草稿 1已发布 2停用 */
-const DEF_STATUS: Record<number, string> = { 0: '草稿', 1: '已发布', 2: '停用' };
+/** 流程定义状态：0草稿 1已发布 2停用 3测试 */
+const DEF_STATUS: Record<number, string> = { 0: '草稿', 1: '已发布', 2: '停用', 3: '测试' };
 
 export interface TestFlowPickerProps {
   /** panel：作为进入页的内嵌面板（未选流程时的入口）；modal：测试页内「更换流程」弹窗 */
@@ -154,7 +154,7 @@ const TestFlowPicker: React.FC<TestFlowPickerProps> = ({
                     · key：{d.procKey}
                   </div>
                 </div>
-                <Tag color={d.status === 1 ? 'green' : 'default'} style={{ marginRight: 0 }}>
+                <Tag color={d.status === 1 ? 'green' : d.status === 3 ? 'blue' : 'default'} style={{ marginRight: 0 }}>
                   {DEF_STATUS[d.status] ?? '-'}
                 </Tag>
               </div>

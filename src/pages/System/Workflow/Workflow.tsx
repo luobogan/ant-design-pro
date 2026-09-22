@@ -20,7 +20,7 @@ interface WorkflowDef {
   formId?: number | string;
   name?: string;
   version?: number;
-  status?: number; // 0草稿 1已发布 2停用
+  status?: number; // 0草稿 1已发布 2停用 3测试
   isFree?: number;
   type?: string;
   formType?: number;
@@ -35,6 +35,8 @@ const STATUS_TAG = (s?: number) => {
       return <Tag color="green">已发布</Tag>;
     case 2:
       return <Tag color="red">停用</Tag>;
+    case 3:
+      return <Tag color="blue">测试</Tag>;
     default:
       return <Tag>草稿</Tag>;
   }

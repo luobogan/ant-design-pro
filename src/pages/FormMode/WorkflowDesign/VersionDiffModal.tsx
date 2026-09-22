@@ -196,7 +196,7 @@ const VersionDiffModal: React.FC<VersionDiffModalProps> = ({
               loading={loading}
               options={others.map((v) => ({
                 value: v.id,
-                label: `v${v.version ?? '-'}${v.status === 1 ? '（已发布）' : v.status === 2 ? '（停用）' : '（草稿）'}`,
+                label: `v${v.version ?? '-'}${v.status === 1 ? '（已发布）' : v.status === 2 ? '（停用）' : v.status === 3 ? '（测试）' : '（草稿）'}`,
               }))}
             />
           </Descriptions.Item>

@@ -1,0 +1,626 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" id="Definitions_2102344953721012225" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:error id="ErrBusiness" name="业务错误" />
+  <bpmn:message id="MsgApproval" name="审批消息" />
+  <bpmn:signal id="SigNotify" name="通知信号" />
+  <bpmn:process id="Process_2102344953721012225" name="综合测试流程" isExecutable="true">
+    <!-- ===================== 开始 / 循环任务 ===================== -->
+    <bpmn:startEvent id="StartEvent_1" name="开始">
+      <bpmn:outgoing>Flow_1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="UserTask_Loop" name="填报(可重试)" camunda:assignee="${applyUser}">
+      <bpmn:incoming>Flow_1</bpmn:incoming>
+      <bpmn:outgoing>Flow_2</bpmn:outgoing>
+      <bpmn:standardLoopCharacteristics loopMaximum="3" />
+    </bpmn:userTask>
+    <!-- ===================== 排他网关(分支+默认流) ===================== -->
+    <bpmn:exclusiveGateway id="ExclusiveGateway_1" name="审批路由" default="Flow_4">
+      <bpmn:incoming>Flow_2</bpmn:incoming>
+      <bpmn:outgoing>Flow_3</bpmn:outgoing>
+      <bpmn:outgoing>Flow_4</bpmn:outgoing>
+      <bpmn:outgoing>Flow_5</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="ServiceTask_Validate" name="资格校验" camunda:class="com.demo.ValidateDelegate">
+      <bpmn:incoming>Flow_3</bpmn:incoming>
+      <bpmn:incoming>Flow_6</bpmn:incoming>
+      <bpmn:outgoing>Flow_8</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="UserTask_Supplement" name="补充材料" camunda:assignee="${applyUser}">
+      <bpmn:incoming>Flow_4</bpmn:incoming>
+      <bpmn:outgoing>Flow_6</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="UserTask_Reject" name="驳回处理" camunda:assignee="${applyUser}">
+      <bpmn:incoming>Flow_5</bpmn:incoming>
+      <bpmn:outgoing>Flow_7</bpmn:outgoing>
+    </bpmn:userTask>
+    <!-- ===================== 并行网关(分叉+合并) ===================== -->
+    <bpmn:parallelGateway id="ParallelGateway_Fork" name="并行开始">
+      <bpmn:incoming>Flow_8</bpmn:incoming>
+      <bpmn:outgoing>Flow_9</bpmn:outgoing>
+      <bpmn:outgoing>Flow_10</bpmn:outgoing>
+      <bpmn:outgoing>Flow_11</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:scriptTask id="ScriptTask_Score" name="计算评分" scriptFormat="groovy">
+      <bpmn:incoming>Flow_9</bpmn:incoming>
+      <bpmn:outgoing>Flow_12</bpmn:outgoing>
+    </bpmn:scriptTask>
+    <bpmn:serviceTask id="ServiceTask_Risk" name="风控服务" camunda:class="com.demo.RiskDelegate">
+      <bpmn:incoming>Flow_10</bpmn:incoming>
+      <bpmn:outgoing>Flow_13</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:parallelGateway id="ParallelGateway_Join" name="并行合并">
+      <bpmn:incoming>Flow_12</bpmn:incoming>
+      <bpmn:incoming>Flow_13</bpmn:incoming>
+      <bpmn:incoming>Flow_14</bpmn:incoming>
+      <bpmn:outgoing>Flow_15</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <!-- ===================== 包含网关(分叉+合并) ===================== -->
+    <bpmn:inclusiveGateway id="InclusiveGateway_Fork" name="包含判断" default="Flow_18">
+      <bpmn:incoming>Flow_15</bpmn:incoming>
+      <bpmn:outgoing>Flow_16</bpmn:outgoing>
+      <bpmn:outgoing>Flow_17</bpmn:outgoing>
+      <bpmn:outgoing>Flow_18</bpmn:outgoing>
+    </bpmn:inclusiveGateway>
+    <bpmn:businessRuleTask id="BusinessRuleTask_Rule" name="规则评估" camunda:class="com.demo.RuleDelegate">
+      <bpmn:incoming>Flow_16</bpmn:incoming>
+      <bpmn:outgoing>Flow_19</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+    <bpmn:sendTask id="SendTask_Notify" name="发送通知" camunda:class="com.demo.NotifyDelegate">
+      <bpmn:incoming>Flow_17</bpmn:incoming>
+      <bpmn:outgoing>Flow_20</bpmn:outgoing>
+    </bpmn:sendTask>
+    <bpmn:inclusiveGateway id="InclusiveGateway_Join" name="包含合并">
+      <bpmn:incoming>Flow_18</bpmn:incoming>
+      <bpmn:incoming>Flow_19</bpmn:incoming>
+      <bpmn:incoming>Flow_20</bpmn:incoming>
+      <bpmn:outgoing>Flow_21</bpmn:outgoing>
+    </bpmn:inclusiveGateway>
+    <!-- ===================== 事件网关 ===================== -->
+    <bpmn:eventBasedGateway id="EventBasedGateway_1" name="事件网关">
+      <bpmn:incoming>Flow_21</bpmn:incoming>
+      <bpmn:outgoing>Flow_22</bpmn:outgoing>
+      <bpmn:outgoing>Flow_23</bpmn:outgoing>
+    </bpmn:eventBasedGateway>
+    <bpmn:intermediateCatchEvent id="IntermediateCatchEvent_Msg" name="等待消息">
+      <bpmn:incoming>Flow_22</bpmn:incoming>
+      <bpmn:outgoing>Flow_24</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="MsgApproval" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:intermediateCatchEvent id="IntermediateCatchEvent_Timer" name="等待定时">
+      <bpmn:incoming>Flow_23</bpmn:incoming>
+      <bpmn:outgoing>Flow_25</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration>PT1H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <!-- ===================== 人工审批 + 边界事件(异常/超时) ===================== -->
+    <bpmn:userTask id="UserTask_Approve" name="人工审批" camunda:assignee="${approver}">
+      <bpmn:incoming>Flow_24</bpmn:incoming>
+      <bpmn:incoming>Flow_25</bpmn:incoming>
+      <bpmn:outgoing>Flow_26</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="BoundaryEvent_Timer" name="超时" attachedToRef="UserTask_Approve">
+      <bpmn:outgoing>Flow_34</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration>PT2H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <!-- ===================== 中间抛出事件 ===================== -->
+    <bpmn:intermediateThrowEvent id="IntermediateThrowEvent_Signal" name="发出信号">
+      <bpmn:incoming>Flow_26</bpmn:incoming>
+      <bpmn:outgoing>Flow_27</bpmn:outgoing>
+      <bpmn:signalEventDefinition signalRef="SigNotify" />
+    </bpmn:intermediateThrowEvent>
+    <bpmn:manualTask id="ManualTask_Topo" name="人工操作">
+      <bpmn:incoming>Flow_27</bpmn:incoming>
+      <bpmn:outgoing>Flow_28</bpmn:outgoing>
+    </bpmn:manualTask>
+    <bpmn:receiveTask id="ReceiveTask_Topo" name="接收消息">
+      <bpmn:incoming>Flow_28</bpmn:incoming>
+      <bpmn:outgoing>Flow_29</bpmn:outgoing>
+    </bpmn:receiveTask>
+    <bpmn:intermediateThrowEvent id="IntermediateThrowEvent_Comp" name="发起补偿">
+      <bpmn:incoming>Flow_29</bpmn:incoming>
+      <bpmn:outgoing>Flow_30</bpmn:outgoing>
+      <bpmn:compensateEventDefinition />
+    </bpmn:intermediateThrowEvent>
+    <!-- ===================== 子流程(内嵌) ===================== -->
+    <bpmn:subProcess id="SubProcess_Finance" name="财务处理">
+      <bpmn:incoming>Flow_30</bpmn:incoming>
+      <bpmn:outgoing>Flow_31</bpmn:outgoing>
+      <bpmn:startEvent id="StartEvent_Sub" name="子开始">
+        <bpmn:outgoing>Flow_S1</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:manualTask id="ManualTask_Book" name="人工记账">
+        <bpmn:incoming>Flow_S1</bpmn:incoming>
+        <bpmn:outgoing>Flow_S2</bpmn:outgoing>
+      </bpmn:manualTask>
+      <bpmn:receiveTask id="ReceiveTask_Receipt" name="接收回执">
+        <bpmn:incoming>Flow_S2</bpmn:incoming>
+        <bpmn:outgoing>Flow_S3</bpmn:outgoing>
+      </bpmn:receiveTask>
+      <bpmn:endEvent id="EndEvent_Sub" name="子结束">
+        <bpmn:incoming>Flow_S3</bpmn:incoming>
+      </bpmn:endEvent>
+    </bpmn:subProcess>
+    <bpmn:boundaryEvent id="BoundaryEvent_Error" name="异常" attachedToRef="SubProcess_Finance">
+      <bpmn:outgoing>Flow_36</bpmn:outgoing>
+      <bpmn:errorEventDefinition errorRef="ErrBusiness" />
+    </bpmn:boundaryEvent>
+    <!-- ===================== 调用活动 + 多实例任务 ===================== -->
+    <bpmn:callActivity id="CallActivity_Audit" name="调用外部稽核" calledElement="externalAuditProcess">
+      <bpmn:incoming>Flow_31</bpmn:incoming>
+      <bpmn:outgoing>Flow_32</bpmn:outgoing>
+    </bpmn:callActivity>
+    <bpmn:userTask id="UserTask_Sign" name="多人会签" camunda:assignee="${signers}">
+      <bpmn:incoming>Flow_32</bpmn:incoming>
+      <bpmn:outgoing>Flow_33</bpmn:outgoing>
+      <bpmn:multiInstanceLoopCharacteristics isSequential="false">
+        <bpmn:loopCardinality>3</bpmn:loopCardinality>
+      </bpmn:multiInstanceLoopCharacteristics>
+    </bpmn:userTask>
+    <bpmn:endEvent id="EndEvent_Normal" name="正常结束">
+      <bpmn:incoming>Flow_33</bpmn:incoming>
+    </bpmn:endEvent>
+    <!-- ===================== 异常路径 -> 错误结束事件 ===================== -->
+    <bpmn:userTask id="UserTask_Exception" name="异常处理" camunda:assignee="${admin}">
+      <bpmn:incoming>Flow_36</bpmn:incoming>
+      <bpmn:outgoing>Flow_37</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="ErrorEndEvent" name="错误结束">
+      <bpmn:incoming>Flow_7</bpmn:incoming>
+      <bpmn:incoming>Flow_37</bpmn:incoming>
+      <bpmn:errorEventDefinition errorRef="ErrBusiness" />
+    </bpmn:endEvent>
+    <!-- ===================== 超时路径 -> 终止结束事件 ===================== -->
+    <bpmn:userTask id="UserTask_Timeout" name="超时处理" camunda:assignee="${admin}">
+      <bpmn:incoming>Flow_34</bpmn:incoming>
+      <bpmn:outgoing>Flow_35</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="TerminateEndEvent" name="终止结束">
+      <bpmn:incoming>Flow_35</bpmn:incoming>
+      <bpmn:terminateEventDefinition />
+    </bpmn:endEvent>
+    <!-- ===================== 事务子流程(含取消结束事件) ===================== -->
+    <bpmn:subProcess id="TransactionSub" name="事务-预订" isTransaction="true">
+      <bpmn:incoming>Flow_11</bpmn:incoming>
+      <bpmn:outgoing>Flow_14</bpmn:outgoing>
+      <bpmn:startEvent id="StartEvent_Tx" name="事务开始">
+        <bpmn:outgoing>Flow_T1</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:serviceTask id="ServiceTask_Book" name="预订服务" camunda:class="com.demo.BookDelegate">
+        <bpmn:incoming>Flow_T1</bpmn:incoming>
+        <bpmn:outgoing>Flow_T2</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="ExclusiveGateway_Tx" name="预订结果">
+        <bpmn:incoming>Flow_T2</bpmn:incoming>
+        <bpmn:outgoing>Flow_T3</bpmn:outgoing>
+        <bpmn:outgoing>Flow_T4</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:endEvent id="EndEvent_TxNormal" name="预订成功">
+        <bpmn:incoming>Flow_T3</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:endEvent id="CancelEndEvent" name="取消结束">
+        <bpmn:incoming>Flow_T4</bpmn:incoming>
+        <bpmn:cancelEventDefinition />
+      </bpmn:endEvent>
+    </bpmn:subProcess>
+    <bpmn:boundaryEvent id="BoundaryEvent_CancelTx" name="事务取消" attachedToRef="TransactionSub">
+      <bpmn:outgoing>Flow_38</bpmn:outgoing>
+      <bpmn:cancelEventDefinition />
+    </bpmn:boundaryEvent>
+    <!-- ===================== 补偿事件子流程(含补偿结束事件) ===================== -->
+    <bpmn:subProcess id="CompSub" name="补偿处理" triggeredByEvent="true">
+      <bpmn:startEvent id="StartEvent_Comp" name="补偿触发">
+        <bpmn:outgoing>Flow_C1</bpmn:outgoing>
+        <bpmn:compensateEventDefinition />
+      </bpmn:startEvent>
+      <bpmn:manualTask id="ManualTask_Comp" name="执行补偿">
+        <bpmn:incoming>Flow_C1</bpmn:incoming>
+        <bpmn:outgoing>Flow_C2</bpmn:outgoing>
+      </bpmn:manualTask>
+      <bpmn:endEvent id="EndEvent_Comp" name="补偿结束">
+        <bpmn:incoming>Flow_C2</bpmn:incoming>
+        <bpmn:compensateEventDefinition />
+      </bpmn:endEvent>
+    </bpmn:subProcess>
+
+    <!-- ===================== 连线 ===================== -->
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="UserTask_Loop" />
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="UserTask_Loop" targetRef="ExclusiveGateway_1" />
+    <bpmn:sequenceFlow id="Flow_3" name="通过" sourceRef="ExclusiveGateway_1" targetRef="ServiceTask_Validate">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${approved == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_4" name="需补充" sourceRef="ExclusiveGateway_1" targetRef="UserTask_Supplement" />
+    <bpmn:sequenceFlow id="Flow_5" name="驳回" sourceRef="ExclusiveGateway_1" targetRef="UserTask_Reject">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${rejected == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_6" sourceRef="UserTask_Supplement" targetRef="ServiceTask_Validate" />
+    <bpmn:sequenceFlow id="Flow_7" sourceRef="UserTask_Reject" targetRef="ErrorEndEvent" />
+    <bpmn:sequenceFlow id="Flow_8" sourceRef="ServiceTask_Validate" targetRef="ParallelGateway_Fork" />
+    <bpmn:sequenceFlow id="Flow_9" sourceRef="ParallelGateway_Fork" targetRef="ScriptTask_Score" />
+    <bpmn:sequenceFlow id="Flow_10" sourceRef="ParallelGateway_Fork" targetRef="ServiceTask_Risk" />
+    <bpmn:sequenceFlow id="Flow_11" sourceRef="ParallelGateway_Fork" targetRef="TransactionSub" />
+    <bpmn:sequenceFlow id="Flow_12" sourceRef="ScriptTask_Score" targetRef="ParallelGateway_Join" />
+    <bpmn:sequenceFlow id="Flow_13" sourceRef="ServiceTask_Risk" targetRef="ParallelGateway_Join" />
+    <bpmn:sequenceFlow id="Flow_14" sourceRef="EndEvent_TxNormal" targetRef="ParallelGateway_Join" />
+    <bpmn:sequenceFlow id="Flow_15" sourceRef="ParallelGateway_Join" targetRef="InclusiveGateway_Fork" />
+    <bpmn:sequenceFlow id="Flow_16" name="命中规则" sourceRef="InclusiveGateway_Fork" targetRef="BusinessRuleTask_Rule">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${needRule == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_17" name="需通知" sourceRef="InclusiveGateway_Fork" targetRef="SendTask_Notify">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${needNotify == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_18" name="默认" sourceRef="InclusiveGateway_Fork" targetRef="InclusiveGateway_Join" />
+    <bpmn:sequenceFlow id="Flow_19" sourceRef="BusinessRuleTask_Rule" targetRef="InclusiveGateway_Join" />
+    <bpmn:sequenceFlow id="Flow_20" sourceRef="SendTask_Notify" targetRef="InclusiveGateway_Join" />
+    <bpmn:sequenceFlow id="Flow_21" sourceRef="InclusiveGateway_Join" targetRef="EventBasedGateway_1" />
+    <bpmn:sequenceFlow id="Flow_22" sourceRef="EventBasedGateway_1" targetRef="IntermediateCatchEvent_Msg" />
+    <bpmn:sequenceFlow id="Flow_23" sourceRef="EventBasedGateway_1" targetRef="IntermediateCatchEvent_Timer" />
+    <bpmn:sequenceFlow id="Flow_24" sourceRef="IntermediateCatchEvent_Msg" targetRef="UserTask_Approve" />
+    <bpmn:sequenceFlow id="Flow_25" sourceRef="IntermediateCatchEvent_Timer" targetRef="UserTask_Approve" />
+    <bpmn:sequenceFlow id="Flow_26" sourceRef="UserTask_Approve" targetRef="IntermediateThrowEvent_Signal" />
+    <bpmn:sequenceFlow id="Flow_27" sourceRef="IntermediateThrowEvent_Signal" targetRef="ManualTask_Topo" />
+    <bpmn:sequenceFlow id="Flow_28" sourceRef="ManualTask_Topo" targetRef="ReceiveTask_Topo" />
+    <bpmn:sequenceFlow id="Flow_29" sourceRef="ReceiveTask_Topo" targetRef="IntermediateThrowEvent_Comp" />
+    <bpmn:sequenceFlow id="Flow_30" sourceRef="IntermediateThrowEvent_Comp" targetRef="SubProcess_Finance" />
+    <bpmn:sequenceFlow id="Flow_31" sourceRef="EndEvent_Sub" targetRef="CallActivity_Audit" />
+    <bpmn:sequenceFlow id="Flow_32" sourceRef="CallActivity_Audit" targetRef="UserTask_Sign" />
+    <bpmn:sequenceFlow id="Flow_33" sourceRef="UserTask_Sign" targetRef="EndEvent_Normal" />
+    <bpmn:sequenceFlow id="Flow_34" sourceRef="BoundaryEvent_Timer" targetRef="UserTask_Timeout" />
+    <bpmn:sequenceFlow id="Flow_35" sourceRef="UserTask_Timeout" targetRef="TerminateEndEvent" />
+    <bpmn:sequenceFlow id="Flow_36" sourceRef="BoundaryEvent_Error" targetRef="UserTask_Exception" />
+    <bpmn:sequenceFlow id="Flow_37" sourceRef="UserTask_Exception" targetRef="ErrorEndEvent" />
+    <bpmn:sequenceFlow id="Flow_38" sourceRef="BoundaryEvent_CancelTx" targetRef="UserTask_Exception" />
+    <!-- 子流程内部连线 -->
+    <bpmn:sequenceFlow id="Flow_S1" sourceRef="StartEvent_Sub" targetRef="ManualTask_Book" />
+    <bpmn:sequenceFlow id="Flow_S2" sourceRef="ManualTask_Book" targetRef="ReceiveTask_Receipt" />
+    <bpmn:sequenceFlow id="Flow_S3" sourceRef="ReceiveTask_Receipt" targetRef="EndEvent_Sub" />
+    <!-- 事务子流程内部连线 -->
+    <bpmn:sequenceFlow id="Flow_T1" sourceRef="StartEvent_Tx" targetRef="ServiceTask_Book" />
+    <bpmn:sequenceFlow id="Flow_T2" sourceRef="ServiceTask_Book" targetRef="ExclusiveGateway_Tx" />
+    <bpmn:sequenceFlow id="Flow_T3" name="成功" sourceRef="ExclusiveGateway_Tx" targetRef="EndEvent_TxNormal">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${bookOk == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_T4" name="失败" sourceRef="ExclusiveGateway_Tx" targetRef="CancelEndEvent">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${bookOk == false}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <!-- 补偿事件子流程内部连线 -->
+    <bpmn:sequenceFlow id="Flow_C1" sourceRef="StartEvent_Comp" targetRef="ManualTask_Comp" />
+    <bpmn:sequenceFlow id="Flow_C2" sourceRef="ManualTask_Comp" targetRef="EndEvent_Comp" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_2102344953721012225">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="160" y="40" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UserTask_Loop_di" bpmnElement="UserTask_Loop">
+        <dc:Bounds x="140" y="120" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ExclusiveGateway_1_di" bpmnElement="ExclusiveGateway_1">
+        <dc:Bounds x="170" y="260" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ServiceTask_Validate_di" bpmnElement="ServiceTask_Validate">
+        <dc:Bounds x="140" y="400" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UserTask_Supplement_di" bpmnElement="UserTask_Supplement">
+        <dc:Bounds x="380" y="260" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UserTask_Reject_di" bpmnElement="UserTask_Reject">
+        <dc:Bounds x="20" y="540" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ParallelGateway_Fork_di" bpmnElement="ParallelGateway_Fork">
+        <dc:Bounds x="170" y="560" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ScriptTask_Score_di" bpmnElement="ScriptTask_Score">
+        <dc:Bounds x="20" y="680" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ServiceTask_Risk_di" bpmnElement="ServiceTask_Risk">
+        <dc:Bounds x="380" y="680" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ParallelGateway_Join_di" bpmnElement="ParallelGateway_Join">
+        <dc:Bounds x="170" y="820" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="InclusiveGateway_Fork_di" bpmnElement="InclusiveGateway_Fork">
+        <dc:Bounds x="170" y="920" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BusinessRuleTask_Rule_di" bpmnElement="BusinessRuleTask_Rule">
+        <dc:Bounds x="20" y="1040" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SendTask_Notify_di" bpmnElement="SendTask_Notify">
+        <dc:Bounds x="380" y="1040" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="InclusiveGateway_Join_di" bpmnElement="InclusiveGateway_Join">
+        <dc:Bounds x="170" y="1160" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EventBasedGateway_1_di" bpmnElement="EventBasedGateway_1">
+        <dc:Bounds x="170" y="1260" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="IntermediateCatchEvent_Msg_di" bpmnElement="IntermediateCatchEvent_Msg">
+        <dc:Bounds x="20" y="1380" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="IntermediateCatchEvent_Timer_di" bpmnElement="IntermediateCatchEvent_Timer">
+        <dc:Bounds x="380" y="1380" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UserTask_Approve_di" bpmnElement="UserTask_Approve">
+        <dc:Bounds x="140" y="1480" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BoundaryEvent_Timer_di" bpmnElement="BoundaryEvent_Timer">
+        <dc:Bounds x="250" y="1500" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="IntermediateThrowEvent_Signal_di" bpmnElement="IntermediateThrowEvent_Signal">
+        <dc:Bounds x="160" y="1600" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ManualTask_Topo_di" bpmnElement="ManualTask_Topo">
+        <dc:Bounds x="140" y="1700" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ReceiveTask_Topo_di" bpmnElement="ReceiveTask_Topo">
+        <dc:Bounds x="140" y="1820" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="IntermediateThrowEvent_Comp_di" bpmnElement="IntermediateThrowEvent_Comp">
+        <dc:Bounds x="160" y="1940" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SubProcess_Finance_di" bpmnElement="SubProcess_Finance">
+        <dc:Bounds x="120" y="2040" width="380" height="440" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_Sub_di" bpmnElement="StartEvent_Sub">
+        <dc:Bounds x="150" y="2120" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ManualTask_Book_di" bpmnElement="ManualTask_Book">
+        <dc:Bounds x="140" y="2210" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ReceiveTask_Receipt_di" bpmnElement="ReceiveTask_Receipt">
+        <dc:Bounds x="140" y="2330" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_Sub_di" bpmnElement="EndEvent_Sub">
+        <dc:Bounds x="170" y="2440" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BoundaryEvent_Error_di" bpmnElement="BoundaryEvent_Error">
+        <dc:Bounds x="120" y="2024" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="CallActivity_Audit_di" bpmnElement="CallActivity_Audit">
+        <dc:Bounds x="140" y="2520" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UserTask_Sign_di" bpmnElement="UserTask_Sign">
+        <dc:Bounds x="140" y="2640" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_Normal_di" bpmnElement="EndEvent_Normal">
+        <dc:Bounds x="160" y="2760" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UserTask_Exception_di" bpmnElement="UserTask_Exception">
+        <dc:Bounds x="20" y="1900" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ErrorEndEvent_di" bpmnElement="ErrorEndEvent">
+        <dc:Bounds x="20" y="2080" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UserTask_Timeout_di" bpmnElement="UserTask_Timeout">
+        <dc:Bounds x="320" y="1600" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TerminateEndEvent_di" bpmnElement="TerminateEndEvent">
+        <dc:Bounds x="340" y="1740" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TransactionSub_di" bpmnElement="TransactionSub">
+        <dc:Bounds x="620" y="560" width="320" height="520" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_Tx_di" bpmnElement="StartEvent_Tx">
+        <dc:Bounds x="650" y="640" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ServiceTask_Book_di" bpmnElement="ServiceTask_Book">
+        <dc:Bounds x="640" y="730" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ExclusiveGateway_Tx_di" bpmnElement="ExclusiveGateway_Tx">
+        <dc:Bounds x="665" y="860" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_TxNormal_di" bpmnElement="EndEvent_TxNormal">
+        <dc:Bounds x="640" y="980" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="CancelEndEvent_di" bpmnElement="CancelEndEvent">
+        <dc:Bounds x="820" y="980" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BoundaryEvent_CancelTx_di" bpmnElement="BoundaryEvent_CancelTx">
+        <dc:Bounds x="620" y="544" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="CompSub_di" bpmnElement="CompSub">
+        <dc:Bounds x="620" y="1120" width="320" height="300" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="StartEvent_Comp_di" bpmnElement="StartEvent_Comp">
+        <dc:Bounds x="650" y="1200" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ManualTask_Comp_di" bpmnElement="ManualTask_Comp">
+        <dc:Bounds x="640" y="1290" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_Comp_di" bpmnElement="EndEvent_Comp">
+        <dc:Bounds x="880" y="1290" width="36" height="36" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
+        <di:waypoint x="178" y="76" />
+        <di:waypoint x="195" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_2_di" bpmnElement="Flow_2">
+        <di:waypoint x="195" y="200" />
+        <di:waypoint x="195" y="260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_3_di" bpmnElement="Flow_3">
+        <di:waypoint x="195" y="310" />
+        <di:waypoint x="195" y="400" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_4_di" bpmnElement="Flow_4">
+        <di:waypoint x="220" y="285" />
+        <di:waypoint x="380" y="300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_5_di" bpmnElement="Flow_5">
+        <di:waypoint x="170" y="285" />
+        <di:waypoint x="130" y="580" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_6_di" bpmnElement="Flow_6">
+        <di:waypoint x="435" y="340" />
+        <di:waypoint x="250" y="440" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_7_di" bpmnElement="Flow_7">
+        <di:waypoint x="75" y="620" />
+        <di:waypoint x="38" y="2080" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_8_di" bpmnElement="Flow_8">
+        <di:waypoint x="195" y="480" />
+        <di:waypoint x="195" y="560" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_9_di" bpmnElement="Flow_9">
+        <di:waypoint x="170" y="585" />
+        <di:waypoint x="130" y="720" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_10_di" bpmnElement="Flow_10">
+        <di:waypoint x="220" y="585" />
+        <di:waypoint x="380" y="720" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_11_di" bpmnElement="Flow_11">
+        <di:waypoint x="220" y="585" />
+        <di:waypoint x="620" y="820" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_12_di" bpmnElement="Flow_12">
+        <di:waypoint x="75" y="760" />
+        <di:waypoint x="170" y="845" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_13_di" bpmnElement="Flow_13">
+        <di:waypoint x="435" y="760" />
+        <di:waypoint x="220" y="845" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_14_di" bpmnElement="Flow_14">
+        <di:waypoint x="658" y="1016" />
+        <di:waypoint x="170" y="845" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_15_di" bpmnElement="Flow_15">
+        <di:waypoint x="195" y="870" />
+        <di:waypoint x="195" y="920" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_16_di" bpmnElement="Flow_16">
+        <di:waypoint x="170" y="945" />
+        <di:waypoint x="130" y="1080" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_17_di" bpmnElement="Flow_17">
+        <di:waypoint x="220" y="945" />
+        <di:waypoint x="380" y="1080" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_18_di" bpmnElement="Flow_18">
+        <di:waypoint x="195" y="970" />
+        <di:waypoint x="195" y="1160" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_19_di" bpmnElement="Flow_19">
+        <di:waypoint x="75" y="1120" />
+        <di:waypoint x="170" y="1185" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_20_di" bpmnElement="Flow_20">
+        <di:waypoint x="435" y="1120" />
+        <di:waypoint x="220" y="1185" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_21_di" bpmnElement="Flow_21">
+        <di:waypoint x="195" y="1210" />
+        <di:waypoint x="195" y="1260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_22_di" bpmnElement="Flow_22">
+        <di:waypoint x="170" y="1285" />
+        <di:waypoint x="56" y="1398" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_23_di" bpmnElement="Flow_23">
+        <di:waypoint x="220" y="1285" />
+        <di:waypoint x="380" y="1398" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_24_di" bpmnElement="Flow_24">
+        <di:waypoint x="38" y="1416" />
+        <di:waypoint x="140" y="1520" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_25_di" bpmnElement="Flow_25">
+        <di:waypoint x="398" y="1416" />
+        <di:waypoint x="250" y="1520" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_26_di" bpmnElement="Flow_26">
+        <di:waypoint x="195" y="1560" />
+        <di:waypoint x="178" y="1600" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_27_di" bpmnElement="Flow_27">
+        <di:waypoint x="178" y="1636" />
+        <di:waypoint x="195" y="1700" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_28_di" bpmnElement="Flow_28">
+        <di:waypoint x="195" y="1780" />
+        <di:waypoint x="195" y="1820" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_29_di" bpmnElement="Flow_29">
+        <di:waypoint x="195" y="1900" />
+        <di:waypoint x="178" y="1940" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_30_di" bpmnElement="Flow_30">
+        <di:waypoint x="178" y="1976" />
+        <di:waypoint x="310" y="2040" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_31_di" bpmnElement="Flow_31">
+        <di:waypoint x="188" y="2476" />
+        <di:waypoint x="195" y="2520" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_32_di" bpmnElement="Flow_32">
+        <di:waypoint x="195" y="2600" />
+        <di:waypoint x="195" y="2640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_33_di" bpmnElement="Flow_33">
+        <di:waypoint x="195" y="2720" />
+        <di:waypoint x="178" y="2760" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_34_di" bpmnElement="Flow_34">
+        <di:waypoint x="286" y="1518" />
+        <di:waypoint x="320" y="1640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_35_di" bpmnElement="Flow_35">
+        <di:waypoint x="375" y="1680" />
+        <di:waypoint x="358" y="1740" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_36_di" bpmnElement="Flow_36">
+        <di:waypoint x="138" y="1802" />
+        <di:waypoint x="75" y="1900" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_37_di" bpmnElement="Flow_37">
+        <di:waypoint x="75" y="1980" />
+        <di:waypoint x="38" y="2080" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_38_di" bpmnElement="Flow_38">
+        <di:waypoint x="638" y="580" />
+        <di:waypoint x="130" y="1940" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S1_di" bpmnElement="Flow_S1">
+        <di:waypoint x="168" y="2156" />
+        <di:waypoint x="195" y="2210" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S2_di" bpmnElement="Flow_S2">
+        <di:waypoint x="195" y="2290" />
+        <di:waypoint x="195" y="2330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_S3_di" bpmnElement="Flow_S3">
+        <di:waypoint x="195" y="2410" />
+        <di:waypoint x="188" y="2440" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_T1_di" bpmnElement="Flow_T1">
+        <di:waypoint x="668" y="676" />
+        <di:waypoint x="695" y="730" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_T2_di" bpmnElement="Flow_T2">
+        <di:waypoint x="695" y="810" />
+        <di:waypoint x="690" y="860" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_T3_di" bpmnElement="Flow_T3">
+        <di:waypoint x="690" y="910" />
+        <di:waypoint x="658" y="980" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_T4_di" bpmnElement="Flow_T4">
+        <di:waypoint x="715" y="885" />
+        <di:waypoint x="838" y="980" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C1_di" bpmnElement="Flow_C1">
+        <di:waypoint x="668" y="1236" />
+        <di:waypoint x="695" y="1290" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_C2_di" bpmnElement="Flow_C2">
+        <di:waypoint x="695" y="1370" />
+        <di:waypoint x="880" y="1308" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

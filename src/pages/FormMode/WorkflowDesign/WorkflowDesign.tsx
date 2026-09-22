@@ -52,6 +52,8 @@ const STATUS_TAG = (s?: number) => {
       return <Tag color="green">已发布</Tag>;
     case 2:
       return <Tag color="red">停用</Tag>;
+    case 3:
+      return <Tag color="blue">测试</Tag>;
     default:
       return <Tag>未知</Tag>;
   }
@@ -786,6 +788,8 @@ const WorkflowDesignPage: React.FC = () => {
         <Tag color="green">已发布</Tag>
       ) : s === 2 ? (
         <Tag color="default">停用</Tag>
+      ) : s === 3 ? (
+        <Tag color="blue">测试</Tag>
       ) : (
         <Tag color="blue">草稿</Tag>
       );

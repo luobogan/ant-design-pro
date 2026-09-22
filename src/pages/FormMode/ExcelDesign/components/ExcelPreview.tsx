@@ -1777,6 +1777,8 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
   // 提交校验：遍历所有必填字段（含各明细表子画布），未填写则标记错误
   const handleSubmit = () => {
     const newErrors: Record<string, boolean> = {};
+    /** 缺失的必填字段名（去重；明细表同一字段多行只报一次，避免 toast 被刷屏） */
+    const missingLabels = new Set<string>();
     // 主表 + 各明细表统一遍历，明细字段 key 带各自 keyPrefix 命名空间
     const blocks: { sheets: SheetLayoutData[]; prefix: string }[] = [
       { sheets, prefix: '' },
@@ -1801,6 +1803,7 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
             const v = formValues[key];
             if (isEmptyValue(meta.fieldType, v)) {
               newErrors[key] = true;
+              missingLabels.add(String(meta.fieldLabel || meta.fieldName || key));
             }
           });
         });
@@ -1810,7 +1813,16 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
     setErrors(newErrors);
     const cnt = Object.keys(newErrors).length;
     if (cnt > 0) {
-      message.error(`有 ${cnt} 个必填项未填写，请检查标红字段`);
+      // 带上具体字段名：只说「请检查标红字段」时，长表单/明细表里用户常常找不到是哪一个。
+      // 最多列 5 个，超出只报数量，避免 toast 被撑爆。
+      const labels = Array.from(missingLabels);
+      const shown = labels.slice(0, 5).join('、');
+      const tail = labels.length > 5 ? ` 等 ${labels.length} 个字段` : '';
+      message.error(
+        labels.length
+          ? `有 ${cnt} 个必填项未填写（${shown}${tail}），请检查标红字段`
+          : `有 ${cnt} 个必填项未填写，请检查标红字段`,
+      );
     } else {
       message.success('校验通过，所有必填项均已填写');
     }

@@ -10,7 +10,7 @@ import {
   Tabs,
   Tag,
   Timeline,
-  Typography,
+  Tooltip,
 } from 'antd';
 import { DeploymentUnitOutlined, EllipsisOutlined } from '@ant-design/icons';
 import RichTextEditor, {
@@ -78,23 +78,23 @@ const NODE_TYPE: Record<number, string> = {
 const NEED_EXTRA = ['forward', 'sign'];
 
 /**
- * 测试态禁用的操作（方案 §6.4 **C6** / V7）。
+ * 测试态**置灰**的动作（方案 §6.4 **C6** / V7）。
  *
- * 共同点是「会给真实用户产生东西」：转办/加签给真人新建待办、传阅给真人建已办条目、
+ * 共同点是「会给真实用户产生东西」：转办/转交给真人新建待办、传阅给真人建已办条目、
  * 催办在真人名下写留痕、退回会触发节点后附加操作（可能写业务表/调外部接口）。
  *
- * 后端 C16 已对这些动作一律拒绝（绕不过），这里前置禁用只是**不让用户点了才收到报错**；
- * 测试态保留「提交」（走 `/test/step`）即可完成逐节点推进。
+ * 测试态**保留按钮位置但禁用**（+ 悬浮说明），使「测试 ↔ 正式」的按钮布局完全一致，
+ * 差异只在可用性；后端 C16 亦一律拒绝（绕不过）。
  */
-const TEST_BLOCKED_MENUS = ['reject', 'forward', 'sign', 'circulate', 'urge'];
+const TEST_BLOCKED_MENUS = [
+  'reject', 'forward', 'forwardRetract', 'transfer', 'deliver', 'sign',
+  'circulate', 'circulateFb', 'circulateNoFb',
+  'consult', 'consultFb', 'consultNoFb', 'consultReply', 'consultRetract', 'consultTransfer',
+  'urge', 'timeoutSet', 'flowSet', 'withdraw', 'submitToReject',
+];
 
-/**
- * 测试态**白名单**：只保留"不产生真实用户待办/留痕"的动作。
- *
- * <p>推进测试实例靠「提交」（走 `/test/step`）即可；其余办理动作（转办/转交/传阅/意见征询/
- * 保存/超时设置…）在测试域要么无意义、要么会给真人产生数据，一律不渲染。</p>
- */
-const TEST_MENUS = ['submit', 'print', 'opinion'];
+/** 测试态置灰按钮的悬浮说明 */
+const TEST_BLOCKED_TIP = '测试域不支持：该操作会给真实用户产生待办/留痕，或触发节点后附加操作';
 
 const menuLabel = (code: string) => MENUS_OPTIONS.find((o) => o.value === code)?.label || code;
 
@@ -135,6 +135,18 @@ export interface InstanceFlowProps {
   bpmnXml?: string;
   /** 流程节点清单（测试结果 result.nodes），用于「流程状态」页签 */
   nodes?: any[];
+  /** 流程出口清单（result.links / designLinks）：用于推导「当前节点的下一个节点」及其操作者 */
+  links?: any[];
+  /**
+   * 实例「当前所在节点」Key（流程此刻流转到的节点），与「查看节点」`nodeKey` 解耦。
+   *
+   * <p>头部「节点审批情况」与流程图高亮都跟随它，不随用户点开查看历史节点而变：
+   * 例如流程已走到「业务领导」审批，即便你点开查看更早的「部门经理」表单，
+   * 头部仍显示「业务领导（当前操作者：…）」——即「流程流转到哪个操作者」的真实口径。</p>
+   */
+  currentNodeKey?: string;
+  /** 实例「当前所在节点」名称（不传则由 `nodes` 按 `currentNodeKey` 兜底解析；正式态再用渲染包兜底） */
+  currentNodeName?: string;
   /** 点流程图节点 → 切换当前查看节点 */
   onSelectNode?: (nodeKey?: string) => void;
   /** 办理成功回调（外层可据此刷新测试记录 / 统计） */
@@ -152,6 +164,8 @@ export interface InstanceFlowProps {
   hasPending?: boolean;
   /** 测试态「提交」：携带签字意见与当前表单值推进一个节点 */
   onStep?: (payload: { opinion?: string; formData?: Record<string, any> }) => void;
+  /** 表单值变化回传（外层据此在「继续测试」时带最新值提交） */
+  onValuesChange?: (values: Record<string, any>) => void;
   /** 提交进行中（提交按钮 loading） */
   submitting?: boolean;
   /** 预览模式：不依赖测试实例，仅展示流程表单布局（只读）；用于测试页选好流程/发起人后直接打开表单 */
@@ -159,6 +173,8 @@ export interface InstanceFlowProps {
   /** 预览模式下的流程定义 ID / 表单 ID（传给 ApprovalFormRender 走 /form/preview） */
   previewDefId?: number | string;
   previewFormId?: number | string;
+  /** 内嵌（父页提供外壳与返回）：不再渲染「返回」按钮（与发起页 `!embedded` 口径一致） */
+  embedded?: boolean;
 }
 
 const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
@@ -167,16 +183,21 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   defName,
   bpmnXml,
   nodes,
+  links,
+  currentNodeKey,
+  currentNodeName,
   onSelectNode,
   onOperated,
   testMode,
   instanceStatus,
   hasPending,
   onStep,
+  onValuesChange,
   submitting,
   preview,
   previewDefId,
   previewFormId,
+  embedded,
 }) => {
   const { message } = App.useApp();
   const [pkg, setPkg] = useState<any>(null);
@@ -258,18 +279,74 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     (nodes || []).find((n: any) => String(n.nodeKey) === String(nodeKey))?.nodeName ||
     '-';
 
+  // 实例「当前所在节点」（流程此刻流转到哪）：与查看节点 nodeKey 解耦，头部与流程图高亮跟随它
+  const currentNodeNameResolved =
+    currentNodeName ||
+    (nodes || []).find((n: any) => String(n.nodeKey) === String(currentNodeKey))?.nodeName ||
+    (currentNodeKey != null && String(currentNodeKey) === String(nodeKey)
+      ? pkg?.nodeName
+      : undefined) ||
+    (currentNodeKey != null ? '-' : nodeName);
+  /**
+   * 当前节点的「实际待办人」（流程流转到谁在办理）：取实例态 `nodeOps[currentNodeKey].todo`，
+   * 这是引擎真正下发的待办办理人，而非节点设计态/测试结果里的候选人；
+   * 语义即「流程流转到哪个操作者」，且不受「点开查看其它历史节点」影响。
+   */
+  const currentNodeOperators = useMemo(() => {
+    if (currentNodeKey == null) return [] as string[];
+    const grp = nodeOps[String(currentNodeKey)] || {};
+    return (grp.todo || []).map((id: any) => resolveUserName(id)).filter(Boolean);
+  }, [currentNodeKey, nodeOps, resolveUserName]);
+
+  /**
+   * 当前节点的「下一个节点」及其操作者：沿出口（links）找 `fromNodeKey === 当前节点` 的下游节点，
+   * 再据节点清单取目标节点的名称与操作者（设计态/测试结果里已解析的候选人）。
+   * 用于头部「下个节点：…」，让用户提前看到流程下一步会流转到谁（网关多出口时并列展示）。
+   */
+  const nextNodes = useMemo(() => {
+    if (currentNodeKey == null || !links || !links.length) return [] as any[];
+    return (links as any[])
+      .filter((l: any) => String(l.fromNodeKey) === String(currentNodeKey) && l.isReject !== 1)
+      .map((l: any) => {
+        const tk = l.toNodeKey;
+        const tn = (nodes || []).find((n: any) => String(n.nodeKey) === String(tk));
+        return {
+          key: tk,
+          name: tn?.nodeName || l.toNodeName || tk,
+          ops: (tn?.operators || []).map((o: any) => o.userName).filter(Boolean),
+        };
+      })
+      .filter((n: any) => n.key != null);
+  }, [currentNodeKey, links, nodes]);
+
+  /**
+   * 表单是否可编辑（同时决定表单读写与「保存」是否可用）：
+   *  - 预览（设计态）→ 只读；
+   *  - 测试态 → 有测试待办才可编辑（`!hasPending`）；开始节点无待办但需补填，故不能用 `!taskId`；
+   *  - 正式态 → **本人在当前节点有待办即可编辑**（`!taskId`）；已办/我的请求查看态无待办 → 只读。
+   */
+  const formEditable = !preview && (testMode ? !!hasPending : !!taskId);
+
   // 操作菜单：与发起页 `Start.tsx#menuAllowed` 同口径，避免"同一流程两边按钮不一样"：
   //   - 渲染包未回来（pkg 为空）→ 一个都不给（否则会退化成"未配置=全量"，闪出一堆按钮）；
   //   - allowMenus 为 null/未配置 → 不限制（按 MENUS_OPTIONS 全量）；
   //   - 配置过 → 只给集合内的动作（空数组 = 全部禁用）。
-  // 测试态再收成白名单 TEST_MENUS：只保留不产生真实用户数据的动作。
+  // 测试态**不再过滤菜单**（改为置灰）：集合与正式完全一致，隔离动作在渲染时禁用并给悬浮说明。
+  // 「保存」是固有能力（与发起页 `canSave = !!def.formId` 口径一致，不看节点「操作菜单」开关）：
+  // 只要当前可编辑就补上，否则节点菜单没勾「保存」时办理/测试页会缺「保存」按钮。
   const menus = useMemo(() => {
     if (!pkg) return [];
     const all = MENUS_OPTIONS.map((o) => String(o.value));
     const allowed =
       pkg.allowMenus == null ? all : all.filter((c) => (pkg.allowMenus || []).map(String).includes(c));
-    return testMode ? allowed.filter((c) => TEST_MENUS.includes(c)) : allowed;
-  }, [pkg, testMode]);
+    if (formEditable && !allowed.includes('save')) {
+      const i = allowed.indexOf('submit');
+      return i >= 0
+        ? [...allowed.slice(0, i + 1), 'save', ...allowed.slice(i + 1)]
+        : ['save', ...allowed];
+    }
+    return allowed;
+  }, [pkg, formEditable]);
 
   /** 流程图标记：nodeKey -> 状态（1走通 2走不通） */
   const nodeStatusMap = useMemo(() => {
@@ -294,6 +371,15 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     message.success(`已${label}`);
     setTaskId(undefined);
     onOperated?.();
+  };
+
+  /** 关闭当前标签页（非新标签打开时回退为返回上一页）——与发起页 `closeTab` 同口径 */
+  const closeTab = () => {
+    if (window.opener) {
+      window.close();
+    } else if (window.history.length > 1) {
+      window.history.back();
+    }
   };
 
   /** 点击操作按钮：有待办则真实办理，否则提示 */
@@ -434,12 +520,15 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     }
     setActing(true);
     try {
+      // ⚠️ assignee 是 19 位雪花 ID **字符串**（PersonOrgField 回传 id 串）：
+      //   绝不能 Number() 转换 —— JS Number 只有 16 位有效精度，会指派到另一个人。
+      //   后端 DTO 是 Long，Jackson 能把数字字符串正确反序列化为 Long，故按字符串下发。
       const res: any =
         modalType === 'forward'
-          ? await forwardTask(taskId, { opinion, assignee: Number(assignee) })
+          ? await forwardTask(taskId, { opinion, assignee: String(assignee) })
           : await addSignTask(taskId, {
               opinion,
-              assignee: Number(assignee),
+              assignee: String(assignee),
               addSignType,
             });
       if (res?.success === false) {
@@ -457,18 +546,31 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
 
   const runMenu = (code: string) => () => run(code);
 
-  const menuBtn = (code: string) => (
-    <Button
-      key={code}
-      size="small"
-      type={code === 'submit' ? 'primary' : 'default'}
-      danger={code === 'reject'}
-      loading={code === 'submit' && (acting || !!submitting)}
-      onClick={runMenu(code)}
-    >
-      {menuLabel(code)}
-    </Button>
-  );
+  const menuBtn = (code: string) => {
+    // 测试态：保留按钮位置但置灰（隔离动作），并给悬浮说明 —— 使「测试 ↔ 正式」按钮布局一致
+    const blocked = testMode && TEST_BLOCKED_MENUS.includes(code);
+    const btn = (
+      <Button
+        key={code}
+        size="small"
+        type={code === 'submit' ? 'primary' : 'default'}
+        danger={code === 'reject'}
+        disabled={blocked}
+        loading={code === 'submit' && (acting || !!submitting)}
+        onClick={runMenu(code)}
+      >
+        {menuLabel(code)}
+      </Button>
+    );
+    // 禁用按钮自身不派发鼠标事件，用 span 包裹让 Tooltip 生效
+    return blocked ? (
+      <Tooltip key={code} title={TEST_BLOCKED_TIP}>
+        <span style={{ display: 'inline-block', cursor: 'not-allowed' }}>{btn}</span>
+      </Tooltip>
+    ) : (
+      btn
+    );
+  };
 
   // 前 3 个外露，其余收进「⋯」更多菜单（对齐 ecology 表单右上角的紧凑按钮栏）
   const inlineMenus = menus.slice(0, 3);
@@ -482,6 +584,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     {
       title: '节点名称',
       dataIndex: 'nodeName',
+      width: 160,
       render: (v: string, r: any) => v || r.nodeKey,
       ellipsis: true,
     },
@@ -518,12 +621,36 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
         <Space size={8} wrap>
           <span style={{ fontSize: 13 }}>
             节点审批情况：
-            <Typography.Text strong>{nodeName}</Typography.Text>
+            <span style={{ fontWeight: 600 }}>{currentNodeNameResolved}</span>
+            {currentNodeOperators.length > 0 ? (
+              <span style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)', marginLeft: 8 }}>
+                （当前操作者：{currentNodeOperators.join('、')}）
+              </span>
+            ) : testMode && instanceId ? (
+              // 当前节点未解析出待办人时的兜底（仅测试域实例）：让测试页仍能对上具体实例
+              <span style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)', marginLeft: 8 }}>
+                （测试实例 #{instanceId}）
+              </span>
+            ) : null}
+            {nextNodes.length > 0 && (
+              <span style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)', marginLeft: 12 }}>
+                下个节点：
+                {nextNodes.map((n: any, i: number) => (
+                  <span key={String(n.key)}>
+                    {i > 0 ? '；' : ''}
+                    <span style={{ fontWeight: 600 }}>{n.name}</span>
+                    {n.ops.length > 0
+                      ? `（操作者：${n.ops.join('、')}）`
+                      : '（未配置操作者）'}
+                  </span>
+                ))}
+              </span>
+            )}
           </span>
           {statusCfg && <Tag color={statusCfg.color}>{statusCfg.label}</Tag>}
           {preview && <Tag color="default">预览</Tag>}
           {!taskId && menus.length > 0 && !preview && (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            <span style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)' }}>
               {testMode
                 ? viewingStartNode
                   ? '开始节点（申请人）表单：填写后点「提交」，即按申请人提交推进到下一节点'
@@ -531,12 +658,12 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                     ? '当前查看的节点无待办；「提交」作用于实例当前待办节点（可用「查看节点」切换）'
                     : '当前节点无待办（可切换节点查看，或点「开始自动测试」）'
                 : '当前节点无待办（实例已归档），按钮不可执行'}
-            </Typography.Text>
+            </span>
           )}
           {preview && (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            <span style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)' }}>
               设计态预览（只读，不创建测试实例）
-            </Typography.Text>
+            </span>
           )}
         </Space>
         {!preview && (
@@ -545,12 +672,25 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
             {moreMenus.length > 0 && (
               <Dropdown
                 menu={{
-                  items: moreMenus.map((c) => ({ key: c, label: menuLabel(c) })),
+                  items: moreMenus.map((c) => {
+                    const blocked = testMode && TEST_BLOCKED_MENUS.includes(c);
+                    return {
+                      key: c,
+                      label: blocked ? `${menuLabel(c)}（测试域不支持）` : menuLabel(c),
+                      disabled: blocked,
+                    };
+                  }),
                   onClick: ({ key }) => run(key),
                 }}
               >
                 <Button size="small" icon={<EllipsisOutlined />} />
               </Dropdown>
+            )}
+            {/* 返回：非内嵌时显示（内嵌由父页统一提供）——与发起页 `!embedded` 口径一致 */}
+            {!embedded && (
+              <Button size="small" onClick={closeTab}>
+                返回
+              </Button>
             )}
           </Space>
         )}
@@ -579,16 +719,14 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                     previewFormId={preview ? previewFormId : undefined}
                     nodeKey={nodeKey}
                     hideHeader
-                    /*
-                     * 可编辑性：
-                     *  - 预览（设计态）→ 只读；
-                     *  - 测试态 → 有测试待办才可编辑（`!hasPending`）；开始节点无待办但需补填，故不能用 `!taskId`；
-                     *  - 正式态 → **本人在当前节点有待办即可编辑**（`!taskId`）；已办/我的请求查看态无待办 → 只读。
-                     */
-                    readOnly={preview ? true : testMode ? !hasPending : !taskId}
+                    /* 可编辑性见上方 `formEditable` 的三条口径 */
+                    readOnly={!formEditable}
                     onPackage={setPkg}
                     // 始终回传当前值：测试态手动提交、办理态「保存」都要用它（原先仅测试态接线，导致办理态保存拿不到值）
-                    onValuesChange={setFormValues}
+                    onValuesChange={(v) => {
+                      setFormValues(v || {});
+                      onValuesChange?.(v || {});
+                    }}
                   />
                   {/* 签字意见固定在流程表单最下方（对齐 ecology 流程处理页） */}
                   {!preview && menus.some((c) =>
@@ -618,7 +756,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                           ? [
                               {
                                 children: (
-                                  <Typography.Text type="secondary">暂无流转记录</Typography.Text>
+                                  <span style={{ color: 'rgba(0,0,0,0.45)' }}>暂无流转记录</span>
                                 ),
                               },
                             ]
@@ -633,11 +771,11 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                                   <div style={{ fontSize: 12 }}>
                                     {/* 第一行：操作人（+ 部门/角色） */}
                                     <Space size={6} wrap>
-                                      <Typography.Text strong>{who}</Typography.Text>
+                                      <span style={{ fontWeight: 600 }}>{who}</span>
                                       {u?.desc ? (
-                                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                        <span style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)' }}>
                                           {u.desc}
-                                        </Typography.Text>
+                                        </span>
                                       ) : null}
                                     </Space>
                                     {/* 第二行：签字意见（高亮块） */}
@@ -656,12 +794,9 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                                     ) : null}
                                     {/* 第三行：时间 + [节点名 / 动作]（对齐参照系统） */}
                                     <Space size={6} wrap>
-                                      <Typography.Text
-                                        type="secondary"
-                                        style={{ fontSize: 12 }}
-                                      >
+                                      <span style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)' }}>
                                         {l.operateTime || ''}
-                                      </Typography.Text>
+                                      </span>
                                       <Tag
                                         color={
                                           l.logType === '2'
@@ -702,14 +837,14 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                     <FlowDiagram
                       bpmnXml={bpmnXml}
                       nodeStatus={nodeStatusMap}
-                      currentNodeKey={nodeKey}
+                      currentNodeKey={currentNodeKey ?? nodeKey}
                       nodeOperators={nodeOps}
                       resolveUserName={resolveUserName}
                       onSelectNode={onSelectNode}
                       height={420}
                     />
                   ) : (
-                    <Typography.Text type="secondary">暂无流程图（该流程未保存 BPMN）</Typography.Text>
+                    <span style={{ color: 'rgba(0,0,0,0.45)' }}>暂无流程图（该流程未保存 BPMN）</span>
                   )}
                 </div>
               ),
@@ -733,23 +868,23 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                           ? [
                               {
                                 children: (
-                                  <Typography.Text type="secondary">暂无审批记录</Typography.Text>
+                                  <span style={{ color: 'rgba(0,0,0,0.45)' }}>暂无审批记录</span>
                                 ),
                               },
                             ]
                           : logs.map((l: any) => ({
                               children: (
                                 <Space size={6} wrap>
-                                  <Typography.Text strong>
+                                  <span style={{ fontWeight: 600 }}>
                                     {l.nodeName || l.nodeKey || '-'}
-                                  </Typography.Text>
+                                  </span>
                                   <RichTextView
                                     html={l.opinion}
                                     style={{ fontSize: 12, color: '#555', maxWidth: 420 }}
                                   />
-                                  <Typography.Text type="secondary">
+                                  <span style={{ color: 'rgba(0,0,0,0.45)' }}>
                                     {l.operateTime || ''}
-                                  </Typography.Text>
+                                  </span>
                                 </Space>
                               ),
                             }))

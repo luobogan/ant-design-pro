@@ -18,7 +18,7 @@ export interface WfProcessDefinition {
   formId?: number | string;
   name?: string;
   version?: number;
-  status?: number; // 0草稿 1已发布 2停用
+  status?: number; // 0草稿 1已发布 2停用 3测试
   isFree?: number;
   /** 路径类型（对齐 ecology path_type 字典 code） */
   type?: string;
