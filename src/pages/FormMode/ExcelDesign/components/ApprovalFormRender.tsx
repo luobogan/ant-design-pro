@@ -129,6 +129,12 @@ export interface ApprovalFormRenderProps {
   previewDefId?: number | string;
   previewFormId?: number | string;
   /**
+   * 是否来自「测试入口」（方案 §6.4 C8 + C12）。
+   * 测试面板 / 真人模式必须传 true —— 否则后端对 is_test=1 的实例拒绝渲染；
+   * 生产办理页与发起页**不传**。
+   */
+  testMode?: boolean;
+  /**
    * 布局级必填校验**通过后**的回调。
    * 由外层自绘「提交」按钮时经 ref.submit() 触发；校验不通过不会回调。
    *
@@ -155,6 +161,7 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
   onSubmit,
   previewDefId,
   previewFormId,
+  testMode,
 }, ref) => {
   /** 内层 ExcelPreview 的命令式句柄（ref.submit → 必填校验 → onSubmit 回调） */
   const previewRef = useRef<any>(null);
@@ -253,7 +260,8 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
     }
     setLoading(true);
     setDone(false);
-    renderForm(instanceId, taskId, nodeKey)
+    // testMode 透传：测试面板 / 真人模式要渲染 is_test=1 的实例；生产办理页不传 → 后端拒绝渲染测试单
+    renderForm(instanceId, taskId, nodeKey, testMode)
       .then(applyPkg)
       .catch(() => {
         if (alive) setLayoutData(null);
@@ -267,7 +275,7 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
     return () => {
       alive = false;
     };
-  }, [instanceId, taskId, nodeKey, isPreview, previewDefId, previewFormId]);
+  }, [instanceId, taskId, nodeKey, isPreview, previewDefId, previewFormId, testMode]);
 
   if (loading || !done) {
     return (

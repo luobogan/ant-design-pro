@@ -852,10 +852,16 @@ export async function renderForm(
   instanceId: string | number,
   taskId?: number,
   nodeKey?: string,
+  /**
+   * 是否来自测试入口（方案 §6.4 C8 + C12）。
+   * 测试面板 / 真人模式必须传 true —— 否则后端对 is_test=1 的实例拒绝渲染；
+   * 生产办理页**不传**（否则测试单会回到生产办理链路里）。
+   */
+  testMode?: boolean,
 ) {
   return request<ApiResponse<FormRenderPackage>>(`${WORKFLOW}/form/render`, {
     method: 'GET',
-    params: { instanceId, taskId, nodeKey },
+    params: { instanceId, taskId, nodeKey, testMode },
   });
 }
 
@@ -1131,6 +1137,37 @@ export async function getWorkflowTestTodo(instId: any) {
   });
 }
 
+/**
+ * 「我的测试待办」（真人模式，方案 §6.4 C12）：当前登录人在测试实例上的待办。
+ *
+ * <p>与 {@link getWorkflowTestTodo} 的区别：那个是「某测试实例的全部待办」（管理面代跑用），
+ * 这个按当前登录人过滤 —— 供节点操作者本人从测试入口看到属于自己的测试单。
+ */
+export async function getMyWorkflowTestTodo() {
+  return request<ApiResponse<any[]>>(`${WORKFLOW}/test/my-todo`, {
+    method: 'GET',
+    // 真人模式是可选路径：失败（如无权限/无待办）不应弹全局错误
+    skipErrorHandler: true,
+  });
+}
+
+/**
+ * 真人办理测试待办（方案 §6.4 C12）：与 {@link stepWorkflowTest} 同语义，
+ * 额外要求「当前用户是该待办的执行人」（非管理员时），失败由调用方提示。
+ */
+export async function approveWorkflowTest(dto: {
+  instId: any;
+  opinion?: string;
+  formData?: Record<string, any>;
+  formNodeKey?: string;
+}) {
+  return request<ApiResponse<WfTestResult>>(`${WORKFLOW}/test/approve`, {
+    method: 'POST',
+    data: dto,
+    skipErrorHandler: true,
+  });
+}
+
 /** 测试历史列表（不传 defId 查全部） */
 export async function listWorkflowTest(defId?: any) {
   return request<ApiResponse<WfTestLogItem[]>>(`${WORKFLOW}/test/list`, {
@@ -1155,6 +1192,45 @@ export async function cleanupWorkflowTest(defId?: any) {
   return request<ApiResponse<number>>(`${WORKFLOW}/test/cleanup`, {
     method: 'POST',
     params: { defId },
+  });
+}
+
+export interface ShadowSummary {
+  testStatus?: number;
+  reachedEnd?: boolean;
+  nodeTotal?: number;
+  nodePassed?: number;
+  /** 流转路径的节点Key序列（首段源节点 + 每段目标节点） */
+  path?: string[];
+  summary?: string;
+}
+
+export interface ShadowDiff {
+  /** 基准版本（旧）流程定义ID */
+  baseDefId?: string | number;
+  baseVersion?: number;
+  /** 目标版本（新）流程定义ID */
+  targetDefId?: string | number;
+  targetVersion?: number;
+  /** 基准版本走查摘要 */
+  base?: ShadowSummary;
+  /** 目标版本走查摘要 */
+  target?: ShadowSummary;
+  /** 逐项差异文案（为空即等价） */
+  diffs?: string[];
+  /** 两版本是否等价 */
+  identical?: boolean;
+}
+
+export async function shadowWorkflowTest(dto: {
+  defId: any;
+  baseDefId?: any;
+  testUserId?: any;
+}) {
+  return request<ApiResponse<ShadowDiff>>(`${WORKFLOW}/test/shadow`, {
+    method: 'POST',
+    params: { defId: dto.defId, baseDefId: dto.baseDefId, testUserId: dto.testUserId },
+    skipErrorHandler: true,
   });
 }
 

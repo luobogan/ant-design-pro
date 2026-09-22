@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Col,
+  Descriptions,
   Empty,
   Form,
   Modal,
@@ -23,8 +24,10 @@ import FlowFormPanel from '@/pages/FormMode/Test/components/FlowFormPanel';
 import TestFlowPicker from '@/pages/FormMode/Test/components/TestFlowPicker';
 import StartFlow from '@/pages/Workflow/Create/Start';
 import {
+  approveWorkflowTest,
   cleanupWorkflowTest,
   getBpmn,
+  getMyWorkflowTestTodo,
   getWorkflowTest,
   listDefinitions,
   listLinks,
@@ -32,6 +35,7 @@ import {
   listWorkflowTest,
   removeWorkflowTest,
   runWorkflowTest,
+  shadowWorkflowTest,
   startWorkflowTest,
   stepWorkflowTest,
   workflowBrowserApi,
@@ -105,6 +109,14 @@ const WorkflowTestPage: React.FC = () => {
   const [result, setResult] = useState<WfTestResult | null>(null);
   const [history, setHistory] = useState<WfTestLogItem[]>([]);
   const [logView, setLogView] = useState<{ title: string; content: string } | null>(null);
+
+  const [shadowOpen, setShadowOpen] = useState(false);
+  const [shadowData, setShadowData] = useState<any>(null);
+  const [shadowLoading, setShadowLoading] = useState(false);
+
+  /** 节点Key -> 节点名称（影子比对路径展示用；基准版本节点名取不到时回退到 key） */
+  const nodeNameOf = (k?: string) =>
+    (viewNodes || []).find((n: any) => n.nodeKey === k)?.nodeName || k || '-';
   /** 设计态节点/出口（选流程即从 definition 拉取，无需测试实例即可渲染面板） */
   const [designNodes, setDesignNodes] = useState<any[]>([]);
   const [designLinks, setDesignLinks] = useState<any[]>([]);
@@ -463,6 +475,8 @@ const WorkflowTestPage: React.FC = () => {
     formData?: Record<string, any>,
     instIdOverride?: any,
     formNodeKey?: string,
+    /** 真人模式（方案 §6.4 C12 / F8）：以「本人身份」提交，走 /test/approve */
+    realMode?: boolean,
   ) => {
     const instId = instIdOverride ?? result?.instId;
     if (!instId) {
@@ -470,7 +484,11 @@ const WorkflowTestPage: React.FC = () => {
       return null;
     }
     // formNodeKey：本表单值来自哪个节点 → 后端按该节点布局校验必填（避免跨节点校验死锁）
-    const res: any = await stepWorkflowTest({ instId, opinion, formData, formNodeKey });
+    // 真人模式走 /test/approve：后端断言「本人是该测试待办的执行人」，
+    // 因此没有 workflow 角色的节点操作者本人也能提交；自动循环固定走代跑 /test/step。
+    const res: any = realMode
+      ? await approveWorkflowTest({ instId, opinion, formData, formNodeKey })
+      : await stepWorkflowTest({ instId, opinion, formData, formNodeKey });
     if (res?.success === false) {
       throw new Error(res?.msg || '推进失败');
     }
@@ -556,8 +574,27 @@ const WorkflowTestPage: React.FC = () => {
     setStepping(true);
     const prevNodeKey = result?.currentNodeKey;
     try {
+      // 真人模式判定（F8）：当前登录人是否就是该测试实例当前待办的执行人 ——
+      // 是则走 /test/approve（后端断言 assignee，无 workflow 角色的真人也能提交）；
+      // 否则走管理面代跑 /test/step。提交前实时查一次、不做缓存，
+      // 避免测试实例推进或换人后判定过期。
+      let realMode = false;
+      try {
+        const mine: any = await getMyWorkflowTestTodo();
+        realMode = (mine?.data || []).some(
+          (t: any) => String(t.instId) === String(result?.instId),
+        );
+      } catch {
+        realMode = false;
+      }
       // 带上「当前查看/填写的节点」：后端按这份布局校验必填（而不是固定按待办节点校验）
-      const data = await doStep(payload?.opinion, payload?.formData, undefined, effectiveNodeKey);
+      const data = await doStep(
+        payload?.opinion,
+        payload?.formData,
+        undefined,
+        effectiveNodeKey,
+        realMode,
+      );
       if (data?.instanceStatus != null && data.instanceStatus !== 0) {
         message.success(`测试结束：${data.summary || ''}`);
         loadHistory();
@@ -601,6 +638,32 @@ const WorkflowTestPage: React.FC = () => {
         }
       },
     });
+  };
+
+  const shadow = async () => {
+    if (!defId) {
+      message.warning('请选择流程');
+      return;
+    }
+    const base = (defs || [])
+      .filter((d: any) => d.procKey === currentDef?.procKey && (d.version ?? 0) < (currentDef?.version ?? 0))
+      .sort((a: any, b: any) => (b.version ?? 0) - (a.version ?? 0))[0];
+    setShadowLoading(true);
+    setShadowOpen(true);
+    try {
+      const res: any = await shadowWorkflowTest({ defId, baseDefId: base?.id, testUserId });
+      if (res?.success === false) {
+        message.error(res?.msg || '影子比对失败');
+        setShadowData(null);
+        return;
+      }
+      setShadowData(res?.data || null);
+    } catch (e: any) {
+      message.error(e?.msg || '影子比对失败');
+      setShadowData(null);
+    } finally {
+      setShadowLoading(false);
+    }
   };
 
   const viewHistory = async (id: any) => {
@@ -842,6 +905,9 @@ const WorkflowTestPage: React.FC = () => {
               </Button>
               <Button danger onClick={cleanup}>
                 清理测试数据
+              </Button>
+              <Button onClick={shadow} loading={shadowLoading} disabled={!defId}>
+                影子比对（新旧版本）
               </Button>
             </Space>
           </Col>
@@ -1201,6 +1267,67 @@ const WorkflowTestPage: React.FC = () => {
         <pre style={{ maxHeight: 460, overflow: 'auto', margin: 0, fontSize: 12 }}>
           {logView?.content}
         </pre>
+      </Modal>
+
+      <Modal
+        title="影子比对（新旧版本路径）"
+        open={shadowOpen}
+        onCancel={() => setShadowOpen(false)}
+        footer={null}
+        width={820}
+      >
+        {shadowLoading ? (
+          <div style={{ padding: 24, textAlign: 'center', color: '#999' }}>比对中…</div>
+        ) : shadowData ? (
+          <div>
+            <Alert
+              type={shadowData.identical ? 'success' : 'warning'}
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={
+                shadowData.identical
+                  ? '新旧版本路径等价（可作为上线依据）'
+                  : '新旧版本路径存在差异，请人工确认'
+              }
+            />
+            <Descriptions size="small" bordered column={1} style={{ marginBottom: 12 }}>
+              <Descriptions.Item label="新版本（target）">
+                {`#${shadowData.targetDefId ?? defId}（v${shadowData.targetVersion ?? currentDef?.version ?? '-'}）`}
+              </Descriptions.Item>
+              <Descriptions.Item label="基准版本（base）">
+                {`#${shadowData.baseDefId ?? '-'}（v${shadowData.baseVersion ?? '-'}）`}
+              </Descriptions.Item>
+            </Descriptions>
+            {(['target', 'base'] as const).map((k) => {
+              const s: any = shadowData[k];
+              return (
+                <Card key={k} size="small" title={k === 'target' ? '新版本路径' : '基准版本路径'} style={{ marginBottom: 12 }}>
+                  <Descriptions size="small" column={2} bordered>
+                    <Descriptions.Item label="结论">{testStatusTag(s?.testStatus)}</Descriptions.Item>
+                    <Descriptions.Item label="走到归档">{s?.reachedEnd ? <Tag color="green">是</Tag> : <Tag color="red">否</Tag>}</Descriptions.Item>
+                    <Descriptions.Item label="节点覆盖">{`${s?.nodePassed ?? 0}/${s?.nodeTotal ?? 0}`}</Descriptions.Item>
+                    <Descriptions.Item label="路径">{((s?.path as string[]) || []).map((p) => nodeNameOf(p)).join(' → ') || '-'}</Descriptions.Item>
+                  </Descriptions>
+                  {s?.summary ? <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>{s.summary}</div> : null}
+                </Card>
+              );
+            })}
+
+            <Card size="small" title="差异清单" style={{ marginBottom: 12 }}>
+              {(shadowData.diffs || []).length === 0 ? (
+                <div style={{ color: '#999' }}>（无差异，两版本行为等价）</div>
+              ) : (
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {(shadowData.diffs || []).map((d: string, i: number) => (
+                    <li key={i} style={{ marginBottom: 4 }}>{d}</li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          </div>
+        ) : (
+          <div style={{ padding: 24, textAlign: 'center', color: '#999' }}>（无数据）</div>
+        )}
       </Modal>
 
     </div>

@@ -511,6 +511,7 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
               children: (
                 <div>
                   <ApprovalFormRender
+                    testMode={testMode}
                     instanceId={preview ? undefined : instanceId}
                     previewDefId={preview ? previewDefId : undefined}
                     previewFormId={preview ? previewFormId : undefined}
