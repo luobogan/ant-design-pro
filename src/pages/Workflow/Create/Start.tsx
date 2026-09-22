@@ -129,7 +129,7 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
    *  「表单直发」不带 → 后端自造唯一占位 dataId（data_id 列 NOT NULL + uk_biz_key 唯一） */
   const dataId = new URLSearchParams(window.location.search).get('dataId');
   // defId 为 state：草稿续填时由实例详情回填（URL 可能不带 defId）
-  const [defId, setDefId] = useState<string | undefined>(urlDefId || undefined);
+  const [defId, setDefId] = useState<string | undefined>(props.defId || urlDefId || undefined);
   /** 当前草稿实例ID（保存草稿后回填；提交时作为 draftInstId 原地提升） */
   const [draftInstId, setDraftInstId] = useState<string>('');
   /** 由 URL 带入的草稿实例已被删除（待办/其他列表删过）：置 true 后禁止保存/提交，避免「删了又复活」 */
