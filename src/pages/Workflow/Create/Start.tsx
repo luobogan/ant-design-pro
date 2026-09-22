@@ -24,6 +24,7 @@ import ExcelPreview from '@/pages/FormMode/ExcelDesign/components/ExcelPreview';
 import type { NodePermissionResolver } from '@/pages/FormMode/ExcelDesign/components/ExcelPreview';
 import { collectFieldValues } from '@/pages/FormMode/ExcelDesign/utils/collectFieldValues';
 import FlowDiagram from '@/pages/FormMode/Test/components/FlowDiagram';
+import InstanceFlow from './InstanceFlow';
 import { MENUS_OPTIONS } from '@/pages/FormMode/WorkflowDesign/wfDict';
 import {
   getBpmn,
@@ -98,7 +99,7 @@ export interface StartFlowProps {
   /** 渲染/提交的节点（默认开始节点）；测试页切换「查看节点」时用 */
   nodeKey?: string;
   /** prod=正式发起（缺省，保持兼容） / test=测试域 / preview=设计态只读预览 */
-  mode?: 'prod' | 'test' | 'preview';
+  mode?: 'prod' | 'test' | 'preview' | 'instance';
   /** mode=test 时的测试发起人（缺省为当前登录用户） */
   testUserId?: string;
   /** 内嵌：不渲染外层 PageContainer、不做「发起后自动关闭」 */
@@ -107,6 +108,28 @@ export interface StartFlowProps {
   refreshKey?: number;
   /** 提交完成回调（父组件据此刷新测试状态 / 历史） */
   onSubmitted?: (payload: any) => void;
+  /** instance 模式：渲染已有实例的办理视图（与新建页统一入口，替代原 FlowFormPanel） */
+  instanceId?: string;
+  /** 实例态展示：流程名称（节点徽标） */
+  defName?: string;
+  /** 实例态展示：流程 BPMN XML（流程图页签）；缺省由本组件按 defId 拉取 */
+  bpmnXml?: string;
+  /** 实例态展示：测试结果节点清单（带 status/passTimes），用于「流程状态」页签 */
+  resultNodes?: any[];
+  /** 实例态：点流程图节点切换查看节点 */
+  onSelectNode?: (nodeKey?: string) => void;
+  /** 实例态：办理成功回调 */
+  onOperated?: () => void;
+  /** 实例态：是否测试域实例（is_test=1） */
+  testMode?: boolean;
+  /** 实例态：实例状态（0运行中 1通过 2不通过 3撤销 4暂停） */
+  instanceStatus?: number;
+  /** 实例态：当前节点是否存在待办 */
+  hasPending?: boolean;
+  /** 实例态：提交中（按钮 loading） */
+  submitting?: boolean;
+  /** 实例态：单步提交（带签字意见与表单值推进一个节点） */
+  onStep?: (payload: { opinion?: string; formData?: Record<string, any> }) => void;
 }
 
 const StartFlow: React.FC<StartFlowProps> = (props) => {
@@ -118,13 +141,17 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
   // defId / dataId 均为 19 位雪花 ID，全程保持字符串（Number() 会丢精度）
   const urlDefId = qs.get('defId');
   /** prod=正式发起 / test=测试域 / preview=设计态只读预览；缺省 prod（现有收藏/菜单链接不失效） */
-  const mode: 'prod' | 'test' | 'preview' = props.mode || (qs.get('mode') as any) || 'prod';
+  const mode: 'prod' | 'test' | 'preview' | 'instance' = props.mode || (qs.get('mode') as any) || 'prod';
   /** 内嵌（被父组件套用）：不渲染外层容器、不做自动关闭 */
   const embedded = !!props.embedded;
   const isTest = mode === 'test';
   const isPreview = mode === 'preview';
+  /** 实例态：渲染已有实例的办理视图（替代原 FlowFormPanel），与新建页统一为同一入口 */
+  const isInstance = mode === 'instance';
   /** 由「草稿」续填进入时带上的草稿实例ID（表单直发无） */
   const instanceId = new URLSearchParams(window.location.search).get('instanceId');
+  /** 独立路由（从待办/我的请求/已办点进来）时 nodeKey 由 URL 带入；内嵌时由 props 带入 */
+  const urlNodeKey = new URLSearchParams(window.location.search).get('nodeKey');
   /** 由「单据」发起时带上的业务数据ID（formtable_main_{formId}.id）；
    *  「表单直发」不带 → 后端自造唯一占位 dataId（data_id 列 NOT NULL + uk_biz_key 唯一） */
   const dataId = new URLSearchParams(window.location.search).get('dataId');
@@ -226,8 +253,8 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
           return;
         }
         setDef(d);
-        // 仅已发布（启用）的流程可发起
-        if (d.status !== 1) {
+        // 仅已发布（启用）的流程可发起（实例态跳过该门禁：实例已存在，无需校验发布状态）
+        if (!isInstance && d.status !== 1) {
           setLoadError('该流程未发布或已停用，无法发起');
           return;
         }
@@ -507,7 +534,8 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
     }
     // 过期/已删除门禁：动作前复检草稿是否仍存在且仍是草稿态
     // （避免「删了又复活」新建一条，或在已发起的实例上继续按草稿保存）
-    if (!(await guardDraft())) return;
+    // 测试域没有「草稿」概念（不写业务表、不建正式草稿），门禁仅 prod 生效（与 handleSubmitClick 同口径）
+    if (!isTest && !(await guardDraft())) return;
     setSaving(true);
     try {
       const values = formValuesRef.current || {};
@@ -522,6 +550,8 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
         dataId: savedDataId || undefined,
         instanceId: instanceId || draftInstId || undefined,
         fieldValues: payload,
+        // 测试态：建 is_test=1 测试草稿（后端跳过业务行、用占位 dataId、随 /test/cleanup 清理）
+        testFlag: isTest,
       });
       // 统一用 pickPayload 取响应载荷：request() 返回可能是「载荷本身 / {data:载荷} /
       // {data:{data:载荷}}」三种形态之一，直接取 res.data 在「载荷本身」形态下会拿到 undefined，
@@ -533,7 +563,7 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
       }
       if (savedInstId) {
         setDraftInstId(String(savedInstId));
-        // 取回该草稿实例的 dataId（保存草稿时已确保业务行存在），供后续提交复用
+        // 取回该草稿实例的 dataId（生产态=业务行ID；测试态=占位ID），供后续提交复用
         let nextDataId = savedDataId;
         try {
           const inst: any = pickPayload(await getInstance(savedInstId));
@@ -547,12 +577,15 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
         // 把草稿实例ID / 业务数据ID 回写到当前页 URL（对齐泛微 requestid 回写机制）：
         // 刷新或重开本页时，URL 带 instanceId → 顶部 effect 自动按「草稿续填」回填，复用同一条草稿，
         // 不会因内存里的 draftInstId 丢失而又新建一条草稿（避免重复流程）。
-        const url = new URL(window.location.href);
-        url.searchParams.set('instanceId', String(savedInstId));
-        if (nextDataId) url.searchParams.set('dataId', nextDataId);
-        window.history.replaceState({}, '', url.toString());
+        // ⚠️ 内嵌（如测试页右侧）不回写：宿主页 URL 由父页掌控，改写会污染测试页地址。
+        if (!embedded) {
+          const url = new URL(window.location.href);
+          url.searchParams.set('instanceId', String(savedInstId));
+          if (nextDataId) url.searchParams.set('dataId', nextDataId);
+          window.history.replaceState({}, '', url.toString());
+        }
       }
-      message.success('已保存草稿（未提交，可继续编辑后再提交）');
+      message.success(isTest ? '已保存测试草稿（不写业务表，可继续编辑）' : '已保存草稿（未提交，可继续编辑后再提交）');
     } catch (e: any) {
       notifyDraftFail(e?.msg, '保存失败');
     } finally {
@@ -621,8 +654,8 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
   );
 
   /**
-   * 保存（不提交）：节点「操作菜单」勾了「保存」才显示。
-   * 只把表单值写到业务表并记住 dataId，之后提交时复用同一行；不做必填校验（允许先存草稿）。
+   * 保存（不提交）：把表单值存为草稿、记住草稿实例ID，之后提交时复用。
+   * 生产态写业务行 + 草稿实例；测试态落 is_test=1 测试草稿（不写业务行）；不做必填校验（允许先存草稿）。
    */
   const saveButton = (
     <Button size="small" loading={saving} disabled={instanceGone || !!staleReason} onClick={handleSaveClick}>
@@ -633,7 +666,22 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
   /** 页面主体：三页签 + 表单 + 签字意见 —— 独立路由与「内嵌复用」共用同一份 */
   const content = (
     <Card styles={{ body: { padding: 16 } }}>
-          {loading ? (
+      {isInstance ? (
+        <InstanceFlow
+          instanceId={props.instanceId ?? (instanceId || undefined)}
+          nodeKey={props.nodeKey ?? (urlNodeKey || undefined)}
+          defName={props.defName}
+          bpmnXml={props.bpmnXml ?? bpmnXml}
+          nodes={props.resultNodes}
+          onSelectNode={props.onSelectNode}
+          onOperated={props.onOperated}
+          testMode={props.testMode}
+          instanceStatus={props.instanceStatus}
+          hasPending={props.hasPending}
+          submitting={props.submitting}
+          onStep={props.onStep}
+        />
+      ) : loading ? (
             <div style={{ padding: 48, textAlign: 'center' }}>
               <Spin />
             </div>
@@ -733,8 +781,8 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
                 <Space size={6} style={{ marginTop: 4 }}>
                   {/* 提交：节点操作菜单允许（或未配置）时显示；preview 只读不提交 */}
                   {!isPreview && canSubmit && submitButton}
-                  {/* 保存草稿：仅 prod —— 测试态不写业务表、不建草稿实例，预览态只读 */}
-                  {!isPreview && !isTest && canSave && saveButton}
+                  {/* 保存：生产态写业务行 + 草稿实例；测试态落 is_test=1 测试草稿（不写业务行）；预览态只读 */}
+                  {!isPreview && canSave && saveButton}
                   {/* 内嵌由父页面统一提供「返回/关闭」，这里不重复渲染 */}
                   {!embedded && (
                     <Button size="small" onClick={closeTab}>

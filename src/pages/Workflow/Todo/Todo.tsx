@@ -29,7 +29,7 @@ const URGENCY: Record<number, { text: string; color: string }> = {
 
 /**
  * 待办事宜：当前登录人待办任务列表。
- * 「办理」新标签打开审批承载页（ApprovalPage）；转办/加签走弹窗选人；催办一步到位。
+ * 「办理」新标签打开统一办理入口（/workflow/create/start?mode=instance）；转办/加签走弹窗选人；催办一步到位。
  */
 const TodoList: React.FC = () => {
   const { initialState } = useModel('@@initialState');
@@ -42,15 +42,15 @@ const TodoList: React.FC = () => {
     console.log('待办页按钮权限:', buttons);
   }, [buttons]);
 
-  /** 打开审批承载页（独立 layout，靠 URL 参数定位实例与任务） */
+  /** 打开办理承载页：统一入口 /workflow/create/start?defId=&mode=instance&instanceId=（独立 layout，靠 URL 定位实例与节点） */
   const openApproval = (record: WfTaskItem) => {
-    // 草稿任务（实例 status=5）：点击进入发起页续填，而非办理页
+    // 草稿任务（实例 status=5）：点击进入发起页续填（prod 模式，按草稿实例预填并原地提交），而非办理页
     if (record.instStatus === 5) {
       const url = `/workflow/create/start?defId=${record.defId}&instanceId=${record.instId}&dataId=${record.dataId}`;
       window.open(url, '_blank');
       return;
     }
-    const url = `/formmode/approval/ApprovalPage?instanceId=${record.instId}&taskId=${record.id}`;
+    const url = `/workflow/create/start?defId=${record.defId}&mode=instance&instanceId=${record.instId}${record.nodeKey ? `&nodeKey=${record.nodeKey}` : ''}`;
     window.open(url, '_blank');
   };
 

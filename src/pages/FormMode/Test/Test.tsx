@@ -20,7 +20,7 @@ import {
   Typography,
   message,
 } from 'antd';
-import FlowFormPanel from '@/pages/FormMode/Test/components/FlowFormPanel';
+
 import TestFlowPicker from '@/pages/FormMode/Test/components/TestFlowPicker';
 import StartFlow from '@/pages/Workflow/Create/Start';
 import {
@@ -138,6 +138,12 @@ const WorkflowTestPage: React.FC = () => {
   const effectiveNodeKey = viewNodeKey || defaultNodeKey;
   // 办理（提交/退回/…）成功后自增，强制流程表单面板重新拉取渲染包/审批记录
   const [formKey, setFormKey] = useState(0);
+  /**
+   * 有效测试实例ID：失败/未发起时后端可能给 null 或异常值（如 `-1`），
+   * 不能当作真实例去调 `/test/**`（否则会打出一串「测试实例不存在」）。
+   */
+  const validInstId =
+    result?.instId != null && Number(result.instId) > 0 ? result.instId : undefined;
 
   // ── 交互式测试（对齐 ecology 流程测试页：开始测试 → 自动测试 / 暂停，或手动提交）──
   /** 自动测试循环是否在跑（点「暂停」置 false 后循环自然退出） */
@@ -478,7 +484,7 @@ const WorkflowTestPage: React.FC = () => {
     /** 真人模式（方案 §6.4 C12 / F8）：以「本人身份」提交，走 /test/approve */
     realMode?: boolean,
   ) => {
-    const instId = instIdOverride ?? result?.instId;
+    const instId = instIdOverride ?? validInstId;
     if (!instId) {
       message.warning('请先点「开始自动测试」发起并推进测试实例');
       return null;
@@ -1176,38 +1182,25 @@ const WorkflowTestPage: React.FC = () => {
           <Card
             size="small"
             title={`节点审批情况${
-              result?.instId
-                ? `（测试实例 #${result.instId}）`
+              validInstId
+                ? `（测试实例 #${validInstId}）`
                 : defId && formId
                   ? '（预览）'
                   : ''
             }`}
-            extra={
-              (result?.nodes || viewNodes).length > 0 && (
-                <Space size={4}>
-                  <span style={{ fontSize: 12, color: '#888' }}>查看节点</span>
-                  <Select
-                    size="small"
-                    style={{ width: 200 }}
-                    value={effectiveNodeKey}
-                    onChange={(v: string) => pickViewNode(v)}
-                    options={(result?.nodes || viewNodes).map((n: any) => ({
-                      value: n.nodeKey,
-                      label: `${n.nodeName || n.nodeKey}（${NODE_TYPE[n.nodeType] ?? n.nodeType}）`,
-                    }))}
-                  />
-                </Space>
-              )
-            }
+            extra={null}
           >
-            {result?.instId ? (
-              <FlowFormPanel
-                key={`${result.instId}-${formKey}`}
-                instanceId={String(result.instId)}
+            {validInstId ? (
+              <StartFlow
+                key={`instance-${result.instId}-${formKey}`}
+                mode="instance"
+                embedded
+                defId={String(defId)}
+                instanceId={String(validInstId)}
                 nodeKey={effectiveNodeKey}
                 defName={currentDef?.name}
                 bpmnXml={bpmnXml}
-                nodes={sortedNodes.length ? sortedNodes : result.nodes || []}
+                resultNodes={sortedNodes.length ? sortedNodes : result.nodes || []}
                 onSelectNode={(k) => k && pickViewNode(k)}
                 testMode
                 instanceStatus={result.instanceStatus}
@@ -1218,6 +1211,7 @@ const WorkflowTestPage: React.FC = () => {
                   setFormKey((k) => k + 1);
                   loadHistory();
                 }}
+                refreshKey={formKey}
               />
             ) : defId && formId ? (
               /**

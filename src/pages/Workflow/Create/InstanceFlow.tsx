@@ -27,15 +27,18 @@ import {
   addSignTask,
   approveTask,
   forwardTask,
+  getInstance,
   getInstanceNodeOperators,
   getLogs,
   getWorkflowTestTodo,
   listTodo,
   markTaskViewed,
   rejectTask,
+  saveFormData,
   urgeTask,
 } from '@/services/workflow';
-import FlowDiagram from './FlowDiagram';
+import { pickPayload } from '@/utils/utils';
+import FlowDiagram from '@/pages/FormMode/Test/components/FlowDiagram';
 
 /**
  * 流程测试页右侧「节点审批情况」面板
@@ -85,6 +88,14 @@ const NEED_EXTRA = ['forward', 'sign'];
  */
 const TEST_BLOCKED_MENUS = ['reject', 'forward', 'sign', 'circulate', 'urge'];
 
+/**
+ * 测试态**白名单**：只保留"不产生真实用户待办/留痕"的动作。
+ *
+ * <p>推进测试实例靠「提交」（走 `/test/step`）即可；其余办理动作（转办/转交/传阅/意见征询/
+ * 保存/超时设置…）在测试域要么无意义、要么会给真人产生数据，一律不渲染。</p>
+ */
+const TEST_MENUS = ['submit', 'print', 'opinion'];
+
 const menuLabel = (code: string) => MENUS_OPTIONS.find((o) => o.value === code)?.label || code;
 
 /** 流转动作（wf_approval_log.log_type，对齐 WfApprovalLog 常量）→ 展示文案 */
@@ -114,7 +125,7 @@ const namesOf = (
     .join('、');
 };
 
-export interface FlowFormPanelProps {
+export interface InstanceFlowProps {
   /** 19 位雪花实例 ID：务必保持字符串，转 number 会丢精度；预览模式（preview=true）下可省略 */
   instanceId?: string;
   nodeKey?: string;
@@ -150,7 +161,7 @@ export interface FlowFormPanelProps {
   previewFormId?: number | string;
 }
 
-const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
+const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   instanceId,
   nodeKey,
   defName,
@@ -203,7 +214,8 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
   // 审批记录 + 当前查看节点的待办（实例换了或切换节点都要重取）
   useEffect(() => {
     let alive = true;
-    if (!instanceId) return () => {};
+    // 无效实例号（null / 0 / 负数，如失败哨兵 -1）一律不请求，直接空转
+    if (!instanceId || Number(instanceId) <= 0) return () => {};
     getLogs(instanceId)
       .then((r: any) => {
         // 倒序（最新在前）：与参照系统一致——刚办完的那条排最上面
@@ -246,14 +258,17 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
     (nodes || []).find((n: any) => String(n.nodeKey) === String(nodeKey))?.nodeName ||
     '-';
 
-  // 操作菜单：null/未配置 = 不限制（按 MENUS_OPTIONS 全量）；空数组 = 一个都不给
+  // 操作菜单：与发起页 `Start.tsx#menuAllowed` 同口径，避免"同一流程两边按钮不一样"：
+  //   - 渲染包未回来（pkg 为空）→ 一个都不给（否则会退化成"未配置=全量"，闪出一堆按钮）；
+  //   - allowMenus 为 null/未配置 → 不限制（按 MENUS_OPTIONS 全量）；
+  //   - 配置过 → 只给集合内的动作（空数组 = 全部禁用）。
+  // 测试态再收成白名单 TEST_MENUS：只保留不产生真实用户数据的动作。
   const menus = useMemo(() => {
+    if (!pkg) return [];
     const all = MENUS_OPTIONS.map((o) => String(o.value));
     const allowed =
-      pkg?.allowMenus == null ? all : all.filter((c) => (pkg.allowMenus || []).map(String).includes(c));
-    // 测试态：剔除会给真实用户产生任务/留痕的动作（C6 / V7）—— 直接不渲染，
-    // 比置灰更明确（这些动作在测试域本来就没有意义）
-    return testMode ? allowed.filter((c) => !TEST_BLOCKED_MENUS.includes(c)) : allowed;
+      pkg.allowMenus == null ? all : all.filter((c) => (pkg.allowMenus || []).map(String).includes(c));
+    return testMode ? allowed.filter((c) => TEST_MENUS.includes(c)) : allowed;
   }, [pkg, testMode]);
 
   /** 流程图标记：nodeKey -> 状态（1走通 2走不通） */
@@ -331,8 +346,55 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
       setModalType(code);
       return;
     }
+
+    // 保存（只存不流转）：与「正式办理页」同口径走 `/form/save` —— 写业务行 + 同步节点快照，
+    // 不改任务状态、不推进引擎。注意：保存**不需要待办**，故必须放在 `!taskId` 校验之前。
+    if (code === 'save') {
+      if (!instanceId) {
+        message.warning('当前实例不可用，无法保存');
+        return;
+      }
+      setActing(true);
+      try {
+        // defId/formId/dataId 从实例取（`/form/save` 只认 formId|defId）
+        const inst: any = pickPayload(await getInstance(instanceId));
+        let layout: any = null;
+        try {
+          layout = pkg?.layoutJson ? JSON.parse(pkg.layoutJson) : null;
+        } catch {
+          layout = null;
+        }
+        const res: any = await saveFormData({
+          instanceId,
+          nodeKey,
+          taskId,
+          defId: inst?.defId,
+          formId: inst?.formId,
+          dataId: inst?.dataId,
+          // 与提交同口径：坐标键（布局回显）+ 字段名键（出口条件）
+          fieldValues: { ...formValues, ...collectFieldValues(layout, formValues) },
+        });
+        if (res?.success === false) {
+          message.error(res?.msg || '保存失败');
+          return;
+        }
+        message.success('已保存（未流转）');
+      } catch (e: any) {
+        message.error(e?.msg || '保存失败');
+      } finally {
+        setActing(false);
+      }
+      return;
+    }
+
     if (!taskId) {
       message.warning(`当前实例无该节点待办，无法「${menuLabel(code)}」`);
+      return;
+    }
+    // 本页已接入的写操作只有 提交 / 退回 / 催办；其余菜单码（转办/转交/传阅/意见征询/抄送…）
+    // 尚未接入，**绝不能兜底成「催办」**（否则点错按钮会执行错误动作）。
+    if (code !== 'submit' && code !== 'reject' && code !== 'urge') {
+      message.info(`「${menuLabel(code)}」在办理页暂未接入，请在正式流程中使用`);
       return;
     }
     if ((code === 'submit' || code === 'reject') && pkg?.opinionRequired && isRichTextEmpty(opinion)) {
@@ -517,9 +579,16 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
                     previewFormId={preview ? previewFormId : undefined}
                     nodeKey={nodeKey}
                     hideHeader
-                    readOnly={preview ? true : testMode ? !hasPending : true}
+                    /*
+                     * 可编辑性：
+                     *  - 预览（设计态）→ 只读；
+                     *  - 测试态 → 有测试待办才可编辑（`!hasPending`）；开始节点无待办但需补填，故不能用 `!taskId`；
+                     *  - 正式态 → **本人在当前节点有待办即可编辑**（`!taskId`）；已办/我的请求查看态无待办 → 只读。
+                     */
+                    readOnly={preview ? true : testMode ? !hasPending : !taskId}
                     onPackage={setPkg}
-                    onValuesChange={testMode ? setFormValues : undefined}
+                    // 始终回传当前值：测试态手动提交、办理态「保存」都要用它（原先仅测试态接线，导致办理态保存拿不到值）
+                    onValuesChange={setFormValues}
                   />
                   {/* 签字意见固定在流程表单最下方（对齐 ecology 流程处理页） */}
                   {!preview && menus.some((c) =>
@@ -723,10 +792,10 @@ const FlowFormPanelContent: React.FC<FlowFormPanelProps> = ({
   );
 };
 
-const FlowFormPanel: React.FC<FlowFormPanelProps> = (props) => (
+const InstanceFlow: React.FC<InstanceFlowProps> = (props) => (
   <App>
-    <FlowFormPanelContent {...props} />
+    <InstanceFlowContent {...props} />
   </App>
 );
 
-export default FlowFormPanel;
+export default InstanceFlow;

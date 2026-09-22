@@ -31,7 +31,7 @@ const MyRequestList: React.FC = () => {
   const [backendMissing, setBackendMissing] = useState(false);
 
   const openProgress = (record: MyRequestItem) => {
-    window.open(`/formmode/approval/ApprovalPage?instanceId=${record.id}`, '_blank');
+    window.open(`/workflow/create/start?defId=${record.defId}&mode=instance&instanceId=${record.id}`, '_blank');
   };
 
   /** 草稿续填：打开发起页，带上草稿实例ID 与业务数据ID（与待办页草稿入口一致） */

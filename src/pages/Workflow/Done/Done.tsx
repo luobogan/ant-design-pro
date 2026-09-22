@@ -41,7 +41,7 @@ const DoneList: React.FC = () => {
 
   const openApproval = (record: WfTaskItem) => {
     // 已办无待办任务，仅带实例ID打开只读审批页
-    window.open(`/formmode/approval/ApprovalPage?instanceId=${record.instId}`, '_blank');
+    window.open(`/workflow/create/start?defId=${record.defId}&mode=instance&instanceId=${record.instId}`, '_blank');
   };
 
   const openLogs = async (record: WfTaskItem) => {
