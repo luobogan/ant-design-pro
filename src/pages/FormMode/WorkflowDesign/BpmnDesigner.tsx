@@ -33,7 +33,7 @@ import {
   ZoomInOutlined,
   ZoomOutOutlined,
 } from '@ant-design/icons';
-import { deployDefinition, saveBpmn } from '@/services/workflow';
+import { deployDefinition, saveBpmn, testDefinition } from '@/services/workflow';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import customTranslateModule from './bpmnZh';
 import './bpmnDesigner.css';
@@ -1288,13 +1288,27 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
     deployDefinition(defId)
       .then((r: any) => {
         if (r?.success) {
-          message.success('部署成功');
+          message.success('发布成功');
           onDeployed?.();
         } else {
-          message.error('部署失败');
+          message.error('发布失败');
         }
       })
-      .catch(() => message.error('部署失败'));
+      .catch(() => message.error('发布失败'));
+  };
+
+  const handleTest = () => {
+    if (defId == null) return;
+    testDefinition(defId)
+      .then((r: any) => {
+        if (r?.success) {
+          message.success('已设为测试态');
+          onDeployed?.();
+        } else {
+          message.error('操作失败');
+        }
+      })
+      .catch(() => message.error('操作失败'));
   };
 
   // ---------------- 工具栏动作（全部基于 modelerRef，缺失服务时静默降级） ----------------
@@ -1484,7 +1498,12 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
             保存
           </Button>
         )}
-        {hasPerm('workflow_design_deploy') && <Button onClick={handleDeploy}>部署到引擎</Button>}
+        {hasPerm('workflow_design_deploy') && (
+          <Space size={4}>
+            <Button onClick={handleDeploy}>发布</Button>
+            <Button onClick={handleTest}>测试</Button>
+          </Space>
+        )}
 
         <span style={{ color: '#999', fontSize: 12 }}>
           {editMode

@@ -20,7 +20,7 @@ interface WorkflowDef {
   formId?: number | string;
   name?: string;
   version?: number;
-  status?: number; // 0草稿 1已发布 2停用 3测试
+  status?: number; // 0草稿 1已发布 3测试
   isFree?: number;
   type?: string;
   formType?: number;
@@ -33,8 +33,6 @@ const STATUS_TAG = (s?: number) => {
   switch (s) {
     case 1:
       return <Tag color="green">已发布</Tag>;
-    case 2:
-      return <Tag color="red">停用</Tag>;
     case 3:
       return <Tag color="blue">测试</Tag>;
     default:
@@ -129,20 +127,20 @@ const Workflow: React.FC = () => {
             </Button>
           )}
           {hasPerm('workflow_deploy') && (
-            <Button type="link" onClick={() => handleDeploy(record)}>
-              部署
+            <Button type="link" onClick={() => handlePublish(record)}>
+              发布
             </Button>
           )}
-          {hasPerm('workflow_enable') &&
-            (record.status === 1 ? (
-              <Button type="link" danger onClick={() => handleDisable(record)}>
-                停用
-              </Button>
-            ) : (
-              <Button type="link" onClick={() => handleEnable(record)}>
-                启用
-              </Button>
-            ))}
+          {hasPerm('workflow_deploy') && (
+            <Button type="link" onClick={() => handleTest(record)}>
+              测试
+            </Button>
+          )}
+          {hasPerm('workflow_enable') && (record.status === 1 || record.status === 3) && (
+            <Button type="link" danger onClick={() => handleWithdraw(record)}>
+              撤回
+            </Button>
+          )}
           {hasPerm('workflow_design') && (
             <Button type="link" onClick={() => history.push(`/formmode/workflowdesign?defId=${record.id}`)}>
               进入设计
@@ -158,49 +156,50 @@ const Workflow: React.FC = () => {
     },
   ];
 
-  const handleDeploy = (r: WorkflowDef) => {
+  const handlePublish = (r: WorkflowDef) => {
     Modal.confirm({
-      title: '确认部署',
-      content: `确定要部署流程「${r.name}」吗？`,
+      title: '确认发布',
+      content: `确定要发布流程「${r.name}」吗？（将部署到引擎并置为已发布）`,
       onOk: async () => {
         try {
           await workflowApi.deployDefinition(r.id!);
-          message.success('部署成功');
+          message.success('发布成功');
           refresh();
         } catch {
-          message.error('部署失败');
+          message.error('发布失败');
         }
       },
     });
   };
 
-  const handleEnable = (r: WorkflowDef) => {
+  const handleTest = (r: WorkflowDef) => {
     Modal.confirm({
-      title: '确认启用',
-      content: `确定要启用流程「${r.name}」吗？`,
+      title: '确认测试发布',
+      content: `确定将流程「${r.name}」部署到测试引擎并置为测试态吗？`,
       onOk: async () => {
         try {
-          await workflowApi.enableDefinition(r.id!);
-          message.success('启用成功');
+          await workflowApi.testDefinition(r.id!);
+          message.success('已设为测试态');
           refresh();
         } catch {
-          message.error('启用失败');
+          message.error('操作失败');
         }
       },
     });
   };
 
-  const handleDisable = (r: WorkflowDef) => {
+  const handleWithdraw = (r: WorkflowDef) => {
     Modal.confirm({
-      title: '确认停用',
-      content: `确定要停用流程「${r.name}」吗？`,
+      title: '确认撤回',
+      content: `确定将流程「${r.name}」撤回为草稿并下线引擎部署吗？`,
+      okButtonProps: { danger: true },
       onOk: async () => {
         try {
-          await workflowApi.disableDefinition(r.id!);
-          message.success('停用成功');
+          await workflowApi.withdrawDefinition(r.id!);
+          message.success('已撤回为草稿');
           refresh();
         } catch {
-          message.error('停用失败');
+          message.error('操作失败');
         }
       },
     });

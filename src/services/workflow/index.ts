@@ -18,7 +18,7 @@ export interface WfProcessDefinition {
   formId?: number | string;
   name?: string;
   version?: number;
-  status?: number; // 0草稿 1已发布 2停用 3测试
+  status?: number; // 0草稿 1已发布 3测试（2停用已废除，仅存量数据）
   isFree?: number;
   /** 路径类型（对齐 ecology path_type 字典 code） */
   type?: string;
@@ -412,12 +412,12 @@ export async function diffVersion(id: number, targetId: string | number) {
   });
 }
 
-export async function enableDefinition(id: number) {
-  return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/enable`, { method: 'POST' });
+export async function testDefinition(id: number) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/deploy-test`, { method: 'POST' });
 }
 
-export async function disableDefinition(id: number) {
-  return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/disable`, { method: 'POST' });
+export async function withdrawDefinition(id: number) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/withdraw`, { method: 'POST' });
 }
 
 export async function getDefinition(id: number | string) {
@@ -1320,7 +1320,8 @@ export interface WfCustomOperationFull {
 }
 
 /** 运行时可见按钮（启用） */
-export async function listCustomOperations(defId: number, nodeKey: string) {
+// defId 为 19 位雪花 ID：按字符串下发（Number() 会丢精度）；后端 @RequestParam Long 可绑定数字字符串
+export async function listCustomOperations(defId: string | number, nodeKey: string) {
   return request<ApiResponse<any[]>>(`${WORKFLOW}/custom-operation/list`, {
     method: 'GET',
     params: { defId, nodeKey },
@@ -1342,7 +1343,12 @@ export async function saveCustomOperations(defId: number, nodeKey: string, paylo
   });
 }
 /** 运行时执行自定义操作 */
-export async function executeCustomOperation(opId: number, instId: number, operator?: number) {
+// 同 listCustomOperations：opId / instId 均按字符串下发，避免雪花 ID 精度丢失
+export async function executeCustomOperation(
+  opId: string | number,
+  instId: string | number,
+  operator?: string | number,
+) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/custom-operation/execute`, {
     method: 'POST',
     params: { opId, instId, operator },

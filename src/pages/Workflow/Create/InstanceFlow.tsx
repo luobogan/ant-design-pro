@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   App,
   Button,
   Dropdown,
@@ -11,6 +12,7 @@ import {
   Tag,
   Timeline,
   Tooltip,
+  Upload,
 } from 'antd';
 import { DeploymentUnitOutlined, EllipsisOutlined } from '@ant-design/icons';
 import RichTextEditor, {
@@ -26,16 +28,22 @@ import { MENUS_OPTIONS } from '@/pages/FormMode/WorkflowDesign/wfDict';
 import {
   addSignTask,
   approveTask,
+  circulateTask,
+  executeCustomOperation,
   forwardTask,
+  freshInstance,
   getInstance,
   getInstanceNodeOperators,
   getLogs,
   getWorkflowTestTodo,
+  listCustomOperations,
   listTodo,
   markTaskViewed,
+  rejectNodes,
   rejectTask,
   saveFormData,
   urgeTask,
+  validateForm,
 } from '@/services/workflow';
 import { pickPayload } from '@/utils/utils';
 import FlowDiagram from '@/pages/FormMode/Test/components/FlowDiagram';
@@ -74,8 +82,8 @@ const NODE_TYPE: Record<number, string> = {
   7: '网关',
 };
 
-/** 需要填写/选择额外信息的操作 */
-const NEED_EXTRA = ['forward', 'sign'];
+/** 需要填写/选择额外信息的操作（传阅可多人，走多选人员弹窗；附件走上传弹窗） */
+const NEED_EXTRA = ['forward', 'sign', 'circulate', 'attach'];
 
 /**
  * 测试态**置灰**的动作（方案 §6.4 **C6** / V7）。
@@ -91,10 +99,18 @@ const TEST_BLOCKED_MENUS = [
   'circulate', 'circulateFb', 'circulateNoFb',
   'consult', 'consultFb', 'consultNoFb', 'consultReply', 'consultRetract', 'consultTransfer',
   'urge', 'timeoutSet', 'flowSet', 'withdraw', 'submitToReject',
+  // 自定义操作按节点配置执行真实动作（可能写业务表/调外部接口），测试域一并置灰
+  'custom',
 ];
 
 /** 测试态置灰按钮的悬浮说明 */
 const TEST_BLOCKED_TIP = '测试域不支持：该操作会给真实用户产生待办/留痕，或触发节点后附加操作';
+
+/**
+ * 后端返回的过期提示统一措辞（见 WfTaskServiceImpl#staleTaskReason）。
+ * 命中即把本页降级为过期态，阻止继续写操作。
+ */
+const isStaleMsg = (msg?: string) => !!msg && msg.includes('本页已过期');
 
 const menuLabel = (code: string) => MENUS_OPTIONS.find((o) => o.value === code)?.label || code;
 
@@ -147,6 +163,12 @@ export interface InstanceFlowProps {
   currentNodeKey?: string;
   /** 实例「当前所在节点」名称（不传则由 `nodes` 按 `currentNodeKey` 兜底解析；正式态再用渲染包兜底） */
   currentNodeName?: string;
+  /**
+   * 显式指定待办 ID（生产办理页由 URL 带入）。
+   * 不传时按「实例 + 查看节点」自行查待办；会签 / 并行下同一节点有多条待办，
+   * 必须由调用方精确指定，否则可能取到别人的那条。
+   */
+  taskId?: string;
   /** 点流程图节点 → 切换当前查看节点 */
   onSelectNode?: (nodeKey?: string) => void;
   /** 办理成功回调（外层可据此刷新测试记录 / 统计） */
@@ -191,6 +213,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   testMode,
   instanceStatus,
   hasPending,
+  taskId: taskIdProp,
   onStep,
   onValuesChange,
   submitting,
@@ -232,6 +255,216 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   const [assignee, setAssignee] = useState<any>(undefined);
   const [addSignType, setAddSignType] = useState<number>(0);
 
+  // ── 界面新鲜度（过期复检）：与「正式办理页」ApprovalPage 同口径 ──
+  // 场景：流程被退回 / 被他人流转 / 被撤回 / 已归档，而本页仍按旧节点渲染。
+  // 此时继续保存或提交会把过期数据写回，故识别后禁止一切写操作并引导刷新。
+  const [stale, setStale] = useState<{ reason: string } | null>(null);
+  /** pkg 最新值快照：复检发生在异步回调/定时器里，直接读 state 会拿到闭包旧值 */
+  const pkgRef = useRef<any>(null);
+  /** 过期标记的同步副本：同一 tick 内多次门禁调用也要立即生效 */
+  const staleRef = useRef(false);
+  /** 表单渲染句柄：自绘「提交」按钮经它触发表单自身的布局级必填校验（与正式办理页同口径） */
+  const formRef = useRef<any>(null);
+  /** 提交已通过布局级必填校验（由 ApprovalFormRender.onSubmit 回调置位，避免递归触发校验） */
+  const submitAfterValidateRef = useRef(false);
+  /** 校验通过时表单回传的最新值（坐标键 + 字段名键），提交时优先用它 */
+  const submitValuesRef = useRef<Record<string, any> | null>(null);
+  /**
+   * 启用范围（比 ApprovalPage 更保守，因本组件可查看任意历史节点）：
+   *  · 预览态无实例 → 不启用；
+   *  · 测试态由父页按 result/formKey 驱动状态，且测试允许查看任意节点（那不是过期）→ 不启用；
+   *  · 必须有 taskId（当前查看节点确有本人名下待办）——无待办时本就禁止写操作，无需复检。
+   */
+  const staleEnabled = !preview && !testMode && !!taskId;
+
+  /** 标记本页已过期（幂等：保留第一次的原因，避免被后续复检结果覆盖） */
+  const markStale = useCallback((reason: string) => {
+    staleRef.current = true;
+    setStale((prev) => prev || { reason });
+  }, []);
+
+  /**
+   * 界面新鲜度复检：判定交给后端 GET /instance/{id}/fresh（单一权威实现，
+   * 并行网关分支安全，不会把并行分支上的合法办理误判为过期），前端只负责拦截与提示。
+   */
+  const checkFresh = useCallback(async (): Promise<boolean> => {
+    if (!instanceId || !staleEnabled) return true;
+    if (staleRef.current) return false;
+    let res: any = null;
+    try {
+      res = await freshInstance(instanceId, pkgRef.current?.nodeKey, taskId || undefined);
+    } catch (e: any) {
+      const msg = e?.msg || e?.message || '';
+      if (msg.includes('不存在')) {
+        markStale('该流程已不存在（可能已被删除），请关闭本页');
+        return false;
+      }
+      // 网络抖动等无法判定：不拦截，写操作由后端权威守卫兜底，避免误伤正常办理
+      return true;
+    }
+    const p: any = pickPayload(res);
+    if (p && p.stale) {
+      markStale(p.staleReason || '流程状态已变更，本页已过期');
+      return false;
+    }
+    return true;
+  }, [instanceId, taskId, staleEnabled, markStale]);
+
+  /** 写操作前的统一门禁：保存 / 提交 / 退回 / 转办 / 加签 / 催办 一律先过这里 */
+  const guardFresh = useCallback(async (): Promise<boolean> => {
+    if (!staleEnabled) return true;
+    if (staleRef.current) {
+      message.error('本页已过期：流程状态已变更，请刷新页面后重新操作');
+      return false;
+    }
+    const ok = await checkFresh();
+    if (!ok) {
+      message.error('本页已过期：流程状态已变更（可能已回退或被他人流转），请刷新页面后重新操作');
+    }
+    return ok;
+  }, [staleEnabled, checkFresh]);
+
+  /** 统一失败提示：识别后端「本页已过期」并同步把本页降级为过期态 */
+  const notifyFail = useCallback(
+    (msg: string | undefined, fallback: string) => {
+      const text = msg || fallback;
+      if (isStaleMsg(text)) markStale(text);
+      message.error(text);
+    },
+    [markStale],
+  );
+
+  // pkg 变化时同步快照，供定时器/异步回调里的复检读取
+  useEffect(() => {
+    pkgRef.current = pkg;
+  }, [pkg]);
+
+  // 换了实例或待办 → 解除过期态（新的一次办理起点）
+  useEffect(() => {
+    staleRef.current = false;
+    setStale(null);
+  }, [instanceId, taskId]);
+
+  // 渲染包回来即复检一次：覆盖「用历史任务/旧链接打开」的过期页面
+  // （此时渲染包与任务都还查得到，但流程早已不在该节点）。
+  useEffect(() => {
+    if (!pkg || !staleEnabled) return;
+    checkFresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pkg, staleEnabled]);
+
+  // 主动识别过期：定时轮询 + 切回标签页/窗口聚焦时复检。
+  // 覆盖「用户停在本页期间，流程被他人退回或流转」——界面不会自己更新，
+  // 只有主动复检才能及时发现并把页面降级为只读。
+  useEffect(() => {
+    if (!staleEnabled) return;
+    const timer = window.setInterval(() => {
+      checkFresh();
+    }, 20000);
+    const onWake = () => {
+      if (document.visibilityState === 'visible') checkFresh();
+    };
+    window.addEventListener('focus', onWake);
+    document.addEventListener('visibilitychange', onWake);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onWake);
+      document.removeEventListener('visibilitychange', onWake);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staleEnabled]);
+
+  // ── 退回：可退回节点候选 + 「选择退回目标」（与正式办理页 ApprovalPage 同口径）──
+  /** 后端返回：type=1 直接退回（退默认/上一节点）；type=2 选择退回节点 */
+  const [rejectCandidates, setRejectCandidates] = useState<any>(null);
+  /** 用户在弹窗里选中的退回目标节点 key */
+  const [rejectTargetKey, setRejectTargetKey] = useState<string | undefined>(undefined);
+  /** 附件（仅本地暂存；后端持久化接口待接入，与正式办理页同口径） */
+  const [fileList, setFileList] = useState<any[]>([]);
+
+  /** 关闭弹窗：一并清掉退回 / 转办 / 加签的临时态 */
+  const closeModal = useCallback(() => {
+    setModalType(null);
+    setAssignee(undefined);
+    setRejectCandidates(null);
+    setRejectTargetKey(undefined);
+  }, []);
+
+  /**
+   * 退回：先拉可退回节点候选，拉到才开弹窗（查询失败不开，避免退到未知节点）。
+   * 与「正式办理页」同口径：候选为空/失败一律终止。
+   */
+  const openReject = useCallback(async () => {
+    if (!taskId) {
+      message.warning('当前实例无该节点待办，无法「退回」');
+      return;
+    }
+    if (!(await guardFresh())) return;
+    try {
+      const res: any = await rejectNodes(taskId);
+      if (res?.success === false) {
+        notifyFail(res?.msg, '查询退回节点失败');
+        return;
+      }
+      const data: any = res?.data || {};
+      const list: any[] = Array.isArray(data.nodes) ? data.nodes : [];
+      setRejectCandidates(data);
+      // type=2 且有多个候选才让用户选；单候选时后端仍需 targetNodeKey，提交时自动带上
+      const defaultKey = data.defaultNodeKey || list[0]?.nodeKey;
+      setRejectTargetKey(data.type === 2 && list.length > 1 ? defaultKey : undefined);
+      setModalType('reject');
+    } catch (e: any) {
+      message.error(e?.msg || e?.message || '查询退回节点失败');
+    }
+  }, [taskId, guardFresh, notifyFail]);
+
+  /**
+   * 执行节点「自定义操作」：按节点配置走真实动作（可能写业务表 / 调外部接口），
+   * 与其余写操作一样先过新鲜度门禁。
+   */
+  const runCustom = useCallback(
+    async (op: any) => {
+      if (!instanceId) {
+        message.warning('当前实例不可用，无法执行该操作');
+        return;
+      }
+      if (!(await guardFresh())) return;
+      setActing(true);
+      try {
+        // 雪花 ID 按字符串下发，避免 Number() 丢精度（后端 @RequestParam Long 可绑定数字字符串）
+        const res: any = await executeCustomOperation(String(op?.id), String(instanceId));
+        if (res?.success === false) {
+          notifyFail(res?.msg, '执行失败');
+          return;
+        }
+        message.success('自定义操作已执行');
+        onOperated?.();
+      } catch (e: any) {
+        notifyFail(e?.msg || e?.message, '执行失败');
+      } finally {
+        setActing(false);
+      }
+    },
+    [instanceId, guardFresh, notifyFail, onOperated],
+  );
+
+  /** 节点「自定义操作」按钮：allowMenus 显式含 'custom' 时才拉（未启用不请求） */
+  const [customOps, setCustomOps] = useState<any[]>([]);
+  useEffect(() => {
+    if (
+      pkg?.defId &&
+      pkg?.nodeKey &&
+      (pkg.allowMenus || []).map(String).includes('custom')
+    ) {
+      // 雪花 ID 按字符串下发（后端 @RequestParam Long 可绑定数字字符串）
+      listCustomOperations(String(pkg.defId), String(pkg.nodeKey))
+        .then((r: any) => setCustomOps(Array.isArray(r?.data) ? r.data : []))
+        .catch(() => setCustomOps([]));
+    } else {
+      setCustomOps([]);
+    }
+  }, [pkg?.defId, pkg?.nodeKey, pkg?.allowMenus]);
+
   // 审批记录 + 当前查看节点的待办（实例换了或切换节点都要重取）
   useEffect(() => {
     let alive = true;
@@ -258,7 +491,11 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
             String(t.instId) === String(instanceId) &&
             (!nodeKey || String(t.nodeKey) === String(nodeKey)),
         );
-        if (alive) setTaskId(hit ? String(hit.id) : undefined);
+        // 调用方显式给了 taskId（生产办理页 URL 带入）时以它为准：
+        // 会签 / 并行下同一节点有多条待办，自行查询可能取到别人的那条。
+        if (alive) {
+          setTaskId(taskIdProp ? String(taskIdProp) : hit ? String(hit.id) : undefined);
+        }
         // 测试态：打开该节点表单即视为「已查看」（后端只记首次），
         // 让流程图悬浮「操作者」面板能区分「已查看」与「未操作」
         if (alive && testMode && hit?.id) {
@@ -327,6 +564,20 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
    */
   const formEditable = !preview && (testMode ? !!hasPending : !!taskId);
 
+  /**
+   * 签字意见是否必填（对齐 ecology「意见必填」三态，与「正式办理页」同口径）：
+   *  never=从不要求 / all=所有操作均必填 / byOperation=仅指定操作必填（如只「退回」必填）。
+   *  未配置时回退旧字段 `opinionRequired`（等价于 all）。
+   */
+  const isOpinionRequired = (op: string): boolean => {
+    const mode = pkg?.opinionMustInput;
+    if (mode === 'all') return true;
+    if (mode === 'byOperation') {
+      return (pkg?.opinionMustInputOperations || []).map(String).includes(op);
+    }
+    return !!pkg?.opinionRequired;
+  };
+
   // 操作菜单：与发起页 `Start.tsx#menuAllowed` 同口径，避免"同一流程两边按钮不一样"：
   //   - 渲染包未回来（pkg 为空）→ 一个都不给（否则会退化成"未配置=全量"，闪出一堆按钮）；
   //   - allowMenus 为 null/未配置 → 不限制（按 MENUS_OPTIONS 全量）；
@@ -337,8 +588,10 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   const menus = useMemo(() => {
     if (!pkg) return [];
     const all = MENUS_OPTIONS.map((o) => String(o.value));
-    const allowed =
-      pkg.allowMenus == null ? all : all.filter((c) => (pkg.allowMenus || []).map(String).includes(c));
+    // 'custom' 不渲染成通用按钮（点了只会提示"暂未接入"），改由下方 customOps 渲染真实按钮
+    const allowed = (
+      pkg.allowMenus == null ? all : all.filter((c) => (pkg.allowMenus || []).map(String).includes(c))
+    ).filter((c) => c !== 'custom');
     if (formEditable && !allowed.includes('save')) {
       const i = allowed.indexOf('submit');
       return i >= 0
@@ -392,10 +645,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
       focusRichText('flow-form-opinion');
       return;
     }
-    if (code === 'attach') {
-      message.info('附件上传接口待接入');
-      return;
-    }
+    // 注：attach 已纳入 NEED_EXTRA（走上传弹窗），此处不再提前拦截
     // 测试态兜底拦截（菜单已不渲染这些按钮，这里是防御：避免任何路径绕过 UI 触发）
     if (testMode && TEST_BLOCKED_MENUS.includes(code)) {
       message.info(`流程测试不支持「${menuLabel(code)}」：该操作会给真实用户产生任务或留痕`);
@@ -408,7 +658,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
         message.warning('当前节点无待办，无法提交（可切换节点查看，或点「开始自动测试」）');
         return;
       }
-      if (pkg?.opinionRequired && isRichTextEmpty(opinion)) {
+      if (isOpinionRequired('submit') && isRichTextEmpty(opinion)) {
         message.warning('当前节点要求填写签字意见，无法提交');
         return;
       }
@@ -440,6 +690,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
         message.warning('当前实例不可用，无法保存');
         return;
       }
+      if (!(await guardFresh())) return;
       setActing(true);
       try {
         // defId/formId/dataId 从实例取（`/form/save` 只认 formId|defId）
@@ -477,21 +728,76 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
       message.warning(`当前实例无该节点待办，无法「${menuLabel(code)}」`);
       return;
     }
+    // 写操作统一门禁：本页已过期（流程已回退/被他人流转/已归档）则中断，绝不写回过期数据
+    if (!(await guardFresh())) return;
+    // 退回：需先拉可退回节点候选、由用户选目标节点，故单独分支（不走下面的直接办理）
+    if (code === 'reject') {
+      await openReject();
+      return;
+    }
+    // 提交：先走表单自身的布局级必填校验（会标红并提示具体缺失字段名）。
+    // 校验通过由 ApprovalFormRender.onSubmit 回调再次进入本函数（submitAfterValidateRef 置位）。
+    if (code === 'submit' && formRef.current && !submitAfterValidateRef.current) {
+      submitAfterValidateRef.current = true;
+      // ExcelPreview.handleSubmit 是同步的：校验通过会同步回调 onSubmit → run('submit')
+      formRef.current.submit();
+      submitAfterValidateRef.current = false;
+      return;
+    }
+    submitAfterValidateRef.current = false;
     // 本页已接入的写操作只有 提交 / 退回 / 催办；其余菜单码（转办/转交/传阅/意见征询/抄送…）
     // 尚未接入，**绝不能兜底成「催办」**（否则点错按钮会执行错误动作）。
     if (code !== 'submit' && code !== 'reject' && code !== 'urge') {
       message.info(`「${menuLabel(code)}」在办理页暂未接入，请在正式流程中使用`);
       return;
     }
-    if ((code === 'submit' || code === 'reject') && pkg?.opinionRequired && isRichTextEmpty(opinion)) {
+    if ((code === 'submit' || code === 'reject') && isOpinionRequired(code) && isRichTextEmpty(opinion)) {
       message.warning(`当前节点要求填写签字意见，无法「${menuLabel(code)}」`);
       return;
+    }
+    // 与「测试态提交 / 保存」同口径：坐标键（布局回显）+ 字段名键（出口条件 UEL ${字段名}）
+    // 一并作为流程变量下发；否则表单值传不到引擎，排他网关会走错分支。
+    let layout: any = null;
+    try {
+      layout = pkg?.layoutJson ? JSON.parse(pkg.layoutJson) : null;
+    } catch {
+      layout = null;
+    }
+    // 优先用「校验通过时回传的最新值」，其次才是 onChange 累积的 formValues
+    const submitValues = submitValuesRef.current || formValues;
+    const variables: Record<string, any> = {
+      ...(pkg?.dataJson || {}),
+      ...submitValues,
+      ...collectFieldValues(layout, submitValues),
+    };
+    // 提交前：服务端按节点必填矩阵复核（前端校验不可信，与「正式办理页」同口径）。
+    // 布局级必填已由 ExcelPreview 提交时校验，这里补「字段权限=必填」那一层。
+    if (code === 'submit') {
+      try {
+        const vres: any = await validateForm({
+          instanceId,
+          defId: pkg?.defId,
+          nodeKey: nodeKey || pkg?.nodeKey,
+          formData: variables,
+        });
+        if (vres?.success === false) {
+          notifyFail(vres?.msg, '服务端必填校验未通过');
+          return;
+        }
+      } catch (e: any) {
+        const vmsg = e?.msg || e?.message || '';
+        // 明确是必填 / 过期问题时拦截；其余异常交给 approveTask 的后端守卫兜底，避免误伤正常办理
+        if (/必填|过期/.test(vmsg)) {
+          notifyFail(vmsg, '服务端必填校验未通过');
+          return;
+        }
+      }
     }
     setActing(true);
     try {
       const res: any =
         code === 'submit'
-          ? await approveTask(taskId, { opinion })
+          ? await approveTask(taskId, { opinion, variables })
           : code === 'reject'
             ? await rejectTask(taskId, { opinion })
             : await urgeTask(taskId, { opinion });
@@ -500,6 +806,11 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
         return;
       }
       afterOperate(menuLabel(code));
+      // 与「正式办理页」同口径：提交 / 退回后关闭页签（加签 / 传阅 / 催办 / 附件留在原页继续操作）。
+      // 仅非内嵌时自动关闭 —— 内嵌时本组件是宿主页面的一部分，关页会把宿主页面一起关掉。
+      if (!embedded && (code === 'submit' || code === 'reject')) {
+        window.setTimeout(() => closeTab(), 800);
+      }
     } catch (e: any) {
       message.error(e?.msg || '操作失败');
     } finally {
@@ -514,28 +825,82 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
       message.info('流程测试不支持该操作：会给真实用户产生任务或留痕');
       return;
     }
-    if (!assignee) {
-      message.warning('请选择人员');
+    // 退回：目标节点已在弹窗里选好（单候选则自动取默认节点），不需要选人员
+    if (modalType === 'reject') {
+      if (!(await guardFresh())) return;
+      if (isOpinionRequired('reject') && isRichTextEmpty(opinion)) {
+        message.warning('当前节点要求填写签字意见，无法「退回」');
+        return;
+      }
+      const list: any[] = Array.isArray(rejectCandidates?.nodes) ? rejectCandidates.nodes : [];
+      const needChoose = rejectCandidates?.type === 2 && list.length > 1;
+      if (needChoose && !rejectTargetKey) {
+        message.warning('请选择退回节点');
+        return;
+      }
+      // ⚠️ type=2 时后端无条件要求 targetNodeKey（rejectType==2 且无目标直接抛错），
+      //    故即便只有一个候选也要带上，不能像旧实现那样在单候选时传空。
+      const target =
+        rejectCandidates?.type === 2
+          ? rejectTargetKey || rejectCandidates?.defaultNodeKey || list[0]?.nodeKey
+          : undefined;
+      setActing(true);
+      try {
+        const res: any = await rejectTask(taskId, { opinion, targetNodeKey: target });
+        if (res?.success === false) {
+          notifyFail(res?.msg, '退回失败');
+          return;
+        }
+        closeModal();
+        afterOperate('退回');
+      } catch (e: any) {
+        notifyFail(e?.msg || e?.message, '退回失败');
+      } finally {
+        setActing(false);
+      }
       return;
     }
+    // 附件：暂仅本地选择（后端持久化接口待接入），确定即收进本次附件列表
+    if (modalType === 'attach') {
+      closeModal();
+      return;
+    }
+    if (!assignee) {
+      message.warning(`请选择${modalType === 'circulate' ? '传阅人' : '人员'}`);
+      return;
+    }
+    if (!(await guardFresh())) return;
     setActing(true);
     try {
       // ⚠️ assignee 是 19 位雪花 ID **字符串**（PersonOrgField 回传 id 串）：
       //   绝不能 Number() 转换 —— JS Number 只有 16 位有效精度，会指派到另一个人。
       //   后端 DTO 是 Long，Jackson 能把数字字符串正确反序列化为 Long，故按字符串下发。
+      // 传阅可多选：PersonOrgField 回传逗号 id 串，拆成数组下发。
+      // 保持字符串不转 Number —— 19 位雪花 ID 转 Number 会丢精度、传阅给错误的人。
+      const assignees = String(assignee)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
       const res: any =
-        modalType === 'forward'
-          ? await forwardTask(taskId, { opinion, assignee: String(assignee) })
-          : await addSignTask(taskId, {
-              opinion,
-              assignee: String(assignee),
-              addSignType,
-            });
+        modalType === 'circulate'
+          ? await circulateTask(taskId, { opinion, assignees })
+          : modalType === 'forward'
+            ? await forwardTask(taskId, { opinion, assignee: String(assignee) })
+            : await addSignTask(taskId, {
+                opinion,
+                assignee: String(assignee),
+                addSignType,
+              });
       if (res?.success === false) {
         message.error(res?.msg || '操作失败');
         return;
       }
       afterOperate(menuLabel(modalType || ''));
+      // 转办后关闭页签（与正式办理页同口径）；加签 / 传阅留在原页继续操作。
+      // 仅非内嵌时关闭（内嵌时关页会连宿主页面一起关掉）。
+      if (!embedded && modalType === 'forward') {
+        window.setTimeout(() => closeTab(), 800);
+      }
       setModalType(null);
     } catch (e: any) {
       message.error(e?.msg || '操作失败');
@@ -580,6 +945,20 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   const effectiveInstStatus = pkg?.instanceStatus ?? instanceStatus;
   const statusCfg = effectiveInstStatus != null ? INST_STATUS[effectiveInstStatus] : undefined;
 
+  /**
+   * 意见显示范围（节点「意见显示设置」）：
+   *  all=全部可见（缺省） / none=全不可见 / list=仅 opinionViewNodeKeys 内节点可见。
+   */
+  const visibleLogs = useMemo(() => {
+    const mode = pkg?.opinionViewMode || 'all';
+    if (mode === 'none') return [];
+    if (mode === 'list') {
+      const keys: string[] = (pkg?.opinionViewNodeKeys || []).map(String);
+      return logs.filter((l: any) => keys.includes(String(l.nodeKey)));
+    }
+    return logs;
+  }, [logs, pkg?.opinionViewMode, pkg?.opinionViewNodeKeys]);
+
   const statusColumns = [
     {
       title: '节点名称',
@@ -607,6 +986,22 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
 
   return (
     <div>
+      {/* ⓪ 过期横幅：流程已回退 / 节点已变更 / 任务已办结，但界面未刷新时置顶告警。
+          具体指引由后端 staleReason 按场景给出，此处只说明「写操作已停用」并给刷新入口。 */}
+      {stale && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="流程状态已变更，本页已过期"
+          description={`${stale.reason}。为避免把过期数据写回，本页的保存/提交/退回等操作已停用。`}
+          action={
+            <Button size="small" type="primary" onClick={() => window.location.reload()}>
+              刷新页面
+            </Button>
+          }
+        />
+      )}
       {/* ① 节点审批情况栏 + 操作按钮 */}
       <div
         style={{
@@ -668,8 +1063,15 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
         </Space>
         {!preview && (
           <Space size={6} wrap>
-            {inlineMenus.map(menuBtn)}
-            {moreMenus.length > 0 && (
+            {/* 过期页面：操作按钮整体停用，只保留「刷新页面」（与顶部横幅同一处理） */}
+            {stale ? (
+              <Button size="small" type="primary" onClick={() => window.location.reload()}>
+                刷新页面
+              </Button>
+            ) : (
+              <>
+                {inlineMenus.map(menuBtn)}
+                {moreMenus.length > 0 && (
               <Dropdown
                 menu={{
                   items: moreMenus.map((c) => {
@@ -683,9 +1085,27 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                   onClick: ({ key }) => run(key),
                 }}
               >
-                <Button size="small" icon={<EllipsisOutlined />} />
-              </Dropdown>
+                  <Button size="small" icon={<EllipsisOutlined />} />
+                </Dropdown>
+              )}
+              </>
             )}
+            {/* 节点「自定义操作」按钮：由后端配置驱动；测试域置灰（TEST_BLOCKED_MENUS 含 custom） */}
+            {customOps.map((op: any) => {
+              const blocked = !!testMode;
+              const btn = (
+                <Button key={op.id} size="small" disabled={blocked} onClick={() => runCustom(op)}>
+                  {op.name || op.label || '自定义操作'}
+                </Button>
+              );
+              return blocked ? (
+                <Tooltip key={op.id} title={TEST_BLOCKED_TIP}>
+                  <span style={{ display: 'inline-block', cursor: 'not-allowed' }}>{btn}</span>
+                </Tooltip>
+              ) : (
+                btn
+              );
+            })}
             {/* 返回：非内嵌时显示（内嵌由父页统一提供）——与发起页 `!embedded` 口径一致 */}
             {!embedded && (
               <Button size="small" onClick={closeTab}>
@@ -713,46 +1133,66 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
               children: (
                 <div>
                   <ApprovalFormRender
+                    ref={formRef}
                     testMode={testMode}
                     instanceId={preview ? undefined : instanceId}
                     previewDefId={preview ? previewDefId : undefined}
                     previewFormId={preview ? previewFormId : undefined}
                     nodeKey={nodeKey}
                     hideHeader
-                    /* 可编辑性见上方 `formEditable` 的三条口径 */
-                    readOnly={!formEditable}
+                    /* 可编辑性见上方 `formEditable` 的三条口径；
+                       页面已过期时强制只读：表单按「原节点」渲染的字段权限已不适用于当前节点 */
+                    readOnly={!formEditable || !!stale}
                     onPackage={setPkg}
                     // 始终回传当前值：测试态手动提交、办理态「保存」都要用它（原先仅测试态接线，导致办理态保存拿不到值）
                     onValuesChange={(v) => {
                       setFormValues(v || {});
                       onValuesChange?.(v || {});
                     }}
+                    // 布局级必填校验通过后才真正提交（缺失字段已由 ExcelPreview 标红并提示字段名）
+                    onSubmit={(vals: Record<string, any>, fieldValues: Record<string, any>) => {
+                      submitValuesRef.current = { ...(vals || {}), ...(fieldValues || {}) };
+                      submitAfterValidateRef.current = true;
+                      run('submit');
+                    }}
                   />
                   {/* 签字意见固定在流程表单最下方（对齐 ecology 流程处理页） */}
-                  {!preview && menus.some((c) =>
-                    ['submit', 'reject', 'forward', 'sign', 'urge'].includes(c),
-                  ) && (
-                    <div id="flow-form-opinion" style={{ margin: '12px 0 4px' }}>
-                      <div style={{ fontSize: 13, marginBottom: 4 }}>签字意见</div>
-                      {/* 签字意见统一用富文本（与系统其余审批入口一致） */}
-                      <RichTextEditor
-                        compact
-                        height={140}
-                        value={opinion}
-                        onChange={setOpinion}
-                        placeholder={
-                          pkg?.opinionRequired ? '请填写签字意见（必填）' : '签字意见（可选）'
-                        }
-                      />
-                    </div>
-                  )}
+                  {/* 签字意见：受节点「签字意见设置」约束 ——
+                      hideArea=整块不显示；hideInput=仅隐藏输入框（历史意见仍见下方「流转意见」） */}
+                  {!preview &&
+                    !pkg?.opinionHideArea &&
+                    menus.some((c) =>
+                      ['submit', 'reject', 'forward', 'sign', 'urge'].includes(c),
+                    ) && (
+                      <div id="flow-form-opinion" style={{ margin: '12px 0 4px' }}>
+                        <div style={{ fontSize: 13, marginBottom: 4 }}>签字意见</div>
+                        {/* 签字意见统一用富文本（与系统其余审批入口一致） */}
+                        {!pkg?.opinionHideInput && (
+                          <RichTextEditor
+                            compact
+                            height={140}
+                            value={opinion}
+                            onChange={setOpinion}
+                            placeholder={
+                              isOpinionRequired('submit')
+                                ? '请填写签字意见（必填）'
+                                : '签字意见（可选）'
+                            }
+                          />
+                        )}
+                      </div>
+                    )}
                   {/* 流转意见：本实例全部节点的审批/流转记录。
                       切到下一节点（或归档节点）后即能看到上一节点的流转意见（对齐 ecology 处理页）。 */}
-                  <div style={{ marginTop: 14 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>流转意见</div>
-                    <Timeline
-                      items={
-                        logs.length === 0
+                  {/* 意见显示范围：none=整块不展示 */}
+                  {pkg?.opinionViewMode !== 'none' && (
+                    <div style={{ marginTop: 14 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                        流转意见
+                      </div>
+                      <Timeline
+                        items={
+                          visibleLogs.length === 0
                           ? [
                               {
                                 children: (
@@ -760,7 +1200,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                                 ),
                               },
                             ]
-                          : logs.map((l: any) => {
+                          : visibleLogs.map((l: any) => {
                               const u = userMap[String(l.operator)];
                               const who =
                                 String(l.operator) === '0'
@@ -824,7 +1264,8 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                             })
                       }
                     />
-                  </div>
+                    </div>
+                  )}
                 </div>
               ),
             },
@@ -864,7 +1305,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                   <div style={{ marginTop: 12, maxHeight: 200, overflow: 'auto', fontSize: 12 }}>
                     <Timeline
                       items={
-                        logs.length === 0
+                        visibleLogs.length === 0
                           ? [
                               {
                                 children: (
@@ -872,7 +1313,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                                 ),
                               },
                             ]
-                          : logs.map((l: any) => ({
+                          : visibleLogs.map((l: any) => ({
                               children: (
                                 <Space size={6} wrap>
                                   <span style={{ fontWeight: 600 }}>
@@ -903,24 +1344,85 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
         open={!!modalType}
         onOk={handleModalOk}
         confirmLoading={acting}
-        onCancel={() => setModalType(null)}
+        onCancel={closeModal}
         destroyOnHidden
       >
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ marginBottom: 6 }}>{modalType === 'forward' ? '转办人' : '加签人'}</div>
-          <PersonOrgField
-            browserType={1}
-            multiple={false}
-            value={assignee}
-            onChange={(v: any) => setAssignee(v || undefined)}
-            placeholder="选择人员"
-          />
-        </div>
-        {modalType === 'sign' && (
-          <Radio.Group value={addSignType} onChange={(e) => setAddSignType(e.target.value)}>
-            <Radio value={0}>前加签</Radio>
-            <Radio value={1}>后加签</Radio>
-          </Radio.Group>
+        {modalType === 'reject' ? (
+          <>
+            {rejectCandidates?.type === 2 && (rejectCandidates?.nodes?.length || 0) > 1 ? (
+              <>
+                <div style={{ marginBottom: 6 }}>请选择退回节点</div>
+                <Radio.Group
+                  value={rejectTargetKey}
+                  onChange={(e) => setRejectTargetKey(e.target.value)}
+                >
+                  <Space direction="vertical">
+                    {(rejectCandidates?.nodes || []).map((n: any) => (
+                      <Radio key={n.nodeKey} value={n.nodeKey}>
+                        {n.nodeName || n.nodeKey}
+                        {/* 后端无「是否发起人」标记，靠 nodeType=0 派生（与正式办理页同口径） */}
+                        {n.nodeType === 0 ? '（退回发起人）' : ''}
+                        <span style={{ color: '#999', marginLeft: 6 }}>
+                          {NODE_TYPE[n.nodeType] || ''}
+                        </span>
+                      </Radio>
+                    ))}
+                  </Space>
+                </Radio.Group>
+              </>
+            ) : (
+              <div>
+                {(rejectCandidates?.nodes || []).some(
+                  (n: any) =>
+                    n.nodeKey ===
+                      (rejectCandidates?.defaultNodeKey ||
+                        rejectCandidates?.nodes?.[0]?.nodeKey) &&
+                    n.nodeType === 0,
+                )
+                  ? '确认退回？流程将退回给发起人（开始节点），由其重新填写后再次提交。'
+                  : '确认退回？流程将回退到上一节点（或节点配置的默认退回节点），并保持流程继续运行。'}
+              </div>
+            )}
+          </>
+        ) : modalType === 'attach' ? (
+          <>
+            <Upload
+              multiple
+              fileList={fileList}
+              beforeUpload={() => false}
+              onChange={({ fileList: fl }) => setFileList(fl)}
+            >
+              <Button size="small">选择文件</Button>
+            </Upload>
+            <div style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)', marginTop: 8 }}>
+              附件仅本地暂存，持久化接口待接入（与正式办理页同口径）
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ marginBottom: 6 }}>
+                {modalType === 'forward'
+                  ? '转办人'
+                  : modalType === 'circulate'
+                    ? '传阅人（可多选）'
+                    : '加签人'}
+              </div>
+              <PersonOrgField
+                browserType={1}
+                multiple={modalType === 'circulate'}
+                value={assignee}
+                onChange={(v: any) => setAssignee(v || undefined)}
+                placeholder={modalType === 'circulate' ? '选择传阅人' : '选择人员'}
+              />
+            </div>
+            {modalType === 'sign' && (
+              <Radio.Group value={addSignType} onChange={(e) => setAddSignType(e.target.value)}>
+                <Radio value={0}>前加签</Radio>
+                <Radio value={1}>后加签</Radio>
+              </Radio.Group>
+            )}
+          </>
         )}
       </Modal>
     </div>

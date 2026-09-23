@@ -6,6 +6,8 @@ import {
   deployDefinition,
   getBpmn,
   saveBpmn,
+  testDefinition,
+  withdrawDefinition,
   listDefinitions,
   listLinks,
   listNodes,
@@ -50,8 +52,6 @@ const STATUS_TAG = (s?: number) => {
       return <Tag color="default">草稿</Tag>;
     case 1:
       return <Tag color="green">已发布</Tag>;
-    case 2:
-      return <Tag color="red">停用</Tag>;
     case 3:
       return <Tag color="blue">测试</Tag>;
     default:
@@ -432,11 +432,25 @@ const WorkflowDesignPage: React.FC = () => {
       .catch(() => setFormFieldList([]));
   }, [current?.id, current?.formId]);
 
-  const handleDeploy = (id?: string | number) => {
+  const handlePublish = (id?: string | number) => {
     if (!id) return;
     deployDefinition(id as any)
-      .then((r: any) => (r?.success ? message.success('部署成功') : message.error('部署失败')))
-      .catch(() => message.error('部署失败'));
+      .then((r: any) => (r?.success ? message.success('发布成功') : message.error('发布失败')))
+      .catch(() => message.error('发布失败'));
+  };
+
+  const handleTest = (id?: string | number) => {
+    if (!id) return;
+    testDefinition(id as any)
+      .then((r: any) => (r?.success ? message.success('已设为测试态') : message.error('操作失败')))
+      .catch(() => message.error('操作失败'));
+  };
+
+  const handleWithdraw = (id?: string | number) => {
+    if (!id) return;
+    withdrawDefinition(id as any)
+      .then((r: any) => (r?.success ? message.success('已撤回为草稿') : message.error('操作失败')))
+      .catch(() => message.error('操作失败'));
   };
 
   const handleSaveAsNewVersion = (id: string | number) => {
@@ -488,7 +502,13 @@ const WorkflowDesignPage: React.FC = () => {
         </Button>
         <Button onClick={() => setActiveTab('flow')}>打开流程画布</Button>
         {hasPerm('workflow_design_deploy') && (
-          <Button onClick={() => handleDeploy(current?.id)}>部署</Button>
+          <Button onClick={() => handlePublish(current?.id)}>发布</Button>
+        )}
+        {hasPerm('workflow_design_deploy') && (
+          <Button onClick={() => handleTest(current?.id)}>测试</Button>
+        )}
+        {hasPerm('workflow_design_deploy') && (current?.status === 1 || current?.status === 3) && (
+          <Button danger onClick={() => handleWithdraw(current?.id)}>撤回</Button>
         )}
       </Space>
     </Space>
@@ -786,12 +806,10 @@ const WorkflowDesignPage: React.FC = () => {
     const statusTag = (s?: number) =>
       s === 1 ? (
         <Tag color="green">已发布</Tag>
-      ) : s === 2 ? (
-        <Tag color="default">停用</Tag>
       ) : s === 3 ? (
         <Tag color="blue">测试</Tag>
       ) : (
-        <Tag color="blue">草稿</Tag>
+        <Tag color="default">草稿</Tag>
       );
     return (
       <Space size="small" style={{ marginRight: 8 }}>
@@ -922,9 +940,19 @@ const WorkflowDesignPage: React.FC = () => {
       title={`节点列表（${current?.name}）`}
       extra={
         hasPerm('workflow_design_deploy') ? (
-          <Button type="primary" size="small" onClick={() => handleDeploy(current?.id)}>
-            部署
-          </Button>
+          <Space size={4}>
+            <Button type="primary" size="small" onClick={() => handlePublish(current?.id)}>
+              发布
+            </Button>
+            <Button size="small" onClick={() => handleTest(current?.id)}>
+              测试
+            </Button>
+            {(current?.status === 1 || current?.status === 3) && (
+              <Button size="small" danger onClick={() => handleWithdraw(current?.id)}>
+                撤回
+              </Button>
+            )}
+          </Space>
         ) : null
       }
     >

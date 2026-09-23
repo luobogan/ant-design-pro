@@ -323,11 +323,7 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
 });
 
 const ApprovalFormRender = React.forwardRef<ApprovalFormHandle, ApprovalFormRenderProps>(
-  (props, ref) => (
-    <App>
-      <ApprovalFormRenderContent ref={ref} {...props} />
-    </App>
-  ),
+  (props, ref) => <ApprovalFormRenderContent ref={ref} {...props} />,
 );
 
 export default ApprovalFormRender;
