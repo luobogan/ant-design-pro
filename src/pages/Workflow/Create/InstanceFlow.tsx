@@ -89,13 +89,16 @@ const NEED_EXTRA = ['forward', 'sign', 'circulate', 'attach'];
  * 测试态**置灰**的动作（方案 §6.4 **C6** / V7）。
  *
  * 共同点是「会给真实用户产生东西」：转办/转交给真人新建待办、传阅给真人建已办条目、
- * 催办在真人名下写留痕、退回会触发节点后附加操作（可能写业务表/调外部接口）。
+ * 催办在真人名下写留痕、自定义操作可能写业务表/调外部接口。
  *
  * 测试态**保留按钮位置但禁用**（+ 悬浮说明），使「测试 ↔ 正式」的按钮布局完全一致，
  * 差异只在可用性；后端 C16 亦一律拒绝（绕不过）。
+ *
+ * 注：「退回」不在本清单 —— 退回是流程测试需要验证的核心路径（后端 C16 明确豁免：
+ * 允许执行 + 跳过节点后附加操作 + 留痕记节点接收人），测试与正式同一弹窗同一步骤。
  */
 const TEST_BLOCKED_MENUS = [
-  'reject', 'forward', 'forwardRetract', 'transfer', 'deliver', 'sign',
+  'forward', 'forwardRetract', 'transfer', 'deliver', 'sign',
   'circulate', 'circulateFb', 'circulateNoFb',
   'consult', 'consultFb', 'consultNoFb', 'consultReply', 'consultRetract', 'consultTransfer',
   'urge', 'timeoutSet', 'flowSet', 'withdraw', 'submitToReject',
@@ -197,6 +200,8 @@ export interface InstanceFlowProps {
   previewFormId?: number | string;
   /** 内嵌（父页提供外壳与返回）：不再渲染「返回」按钮（与发起页 `!embedded` 口径一致） */
   embedded?: boolean;
+  /** 外层自增键：每次办理成功 +1，用于强制本面板重新拉取节点操作者等运行态数据 */
+  refreshKey?: number | string;
 }
 
 const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
@@ -221,6 +226,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   previewDefId,
   previewFormId,
   embedded,
+  refreshKey,
 }) => {
   const { message } = App.useApp();
   const [pkg, setPkg] = useState<any>(null);
@@ -283,6 +289,9 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     setStale((prev) => prev || { reason });
   }, []);
 
+  /** 复检节流时间戳：避免「聚焦/可见性事件 + 渲染包回流」被高频触发时，/fresh 被打成死循环 */
+  const lastFreshRef = useRef(0);
+
   /**
    * 界面新鲜度复检：判定交给后端 GET /instance/{id}/fresh（单一权威实现，
    * 并行网关分支安全，不会把并行分支上的合法办理误判为过期），前端只负责拦截与提示。
@@ -290,6 +299,12 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   const checkFresh = useCallback(async (): Promise<boolean> => {
     if (!instanceId || !staleEnabled) return true;
     if (staleRef.current) return false;
+    // 全局节流（1.5s）：点击字段、表单逐字段校验/回流会高频触发 focus / 渲染包回流，
+    // 不加保护就会把 /fresh 打成死循环。节流内的重复调用直接放行（以最近一次复检为准），
+    // 写操作门禁可接受此短暂时效，正常办理不受影响。
+    const now = Date.now();
+    if (now - lastFreshRef.current < 1500) return true;
+    lastFreshRef.current = now;
     let res: any = null;
     try {
       res = await freshInstance(instanceId, pkgRef.current?.nodeKey, taskId || undefined);
@@ -345,13 +360,20 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     setStale(null);
   }, [instanceId, taskId]);
 
-  // 渲染包回来即复检一次：覆盖「用历史任务/旧链接打开」的过期页面
+  // 渲染包首次就绪 + 待办确定后复检一次：覆盖「用历史任务/旧链接打开」的过期页面
   // （此时渲染包与任务都还查得到，但流程早已不在该节点）。
+  // 用 ref 保证「每个（实例, 待办）只复检一次」：pkg 引用每次渲染都是新对象，
+  // 若直接依赖 pkg 会让该 effect 随表单回流反复跑 → /fresh 死循环。
+  const initCheckedRef = useRef(false);
   useEffect(() => {
-    if (!pkg || !staleEnabled) return;
+    initCheckedRef.current = false;
+  }, [instanceId, taskId]);
+  useEffect(() => {
+    if (!pkg || !staleEnabled || initCheckedRef.current) return;
+    initCheckedRef.current = true;
     checkFresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pkg, staleEnabled]);
+  }, [pkg, staleEnabled, instanceId, taskId]);
 
   // 主动识别过期：定时轮询 + 切回标签页/窗口聚焦时复检。
   // 覆盖「用户停在本页期间，流程被他人退回或流转」——界面不会自己更新，
@@ -364,11 +386,12 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     const onWake = () => {
       if (document.visibilityState === 'visible') checkFresh();
     };
-    window.addEventListener('focus', onWake);
+    // 仅监听 visibilitychange（切回标签页/窗口时复检），去掉 window 'focus'：
+    // 'focus' 会在表单逐字段聚焦 / 嵌入式环境反复触发，与 1.5s 节流叠加仍表现为 /fresh 死循环。
+    // 空闲过期检测由下方 20s 轮询兜底，不依赖 focus。
     document.addEventListener('visibilitychange', onWake);
     return () => {
       window.clearInterval(timer);
-      window.removeEventListener('focus', onWake);
       document.removeEventListener('visibilitychange', onWake);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -379,6 +402,8 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   const [rejectCandidates, setRejectCandidates] = useState<any>(null);
   /** 用户在弹窗里选中的退回目标节点 key */
   const [rejectTargetKey, setRejectTargetKey] = useState<string | undefined>(undefined);
+  /** 退回后再提交的处理方式：1=逐级审批（缺省） 2=直达本节点（对齐 ecology 退回设置弹窗） */
+  const [rejectResubmitMode, setRejectResubmitMode] = useState<number>(1);
   /** 附件（仅本地暂存；后端持久化接口待接入，与正式办理页同口径） */
   const [fileList, setFileList] = useState<any[]>([]);
 
@@ -388,6 +413,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     setAssignee(undefined);
     setRejectCandidates(null);
     setRejectTargetKey(undefined);
+    setRejectResubmitMode(1);
   }, []);
 
   /**
@@ -409,9 +435,10 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
       const data: any = res?.data || {};
       const list: any[] = Array.isArray(data.nodes) ? data.nodes : [];
       setRejectCandidates(data);
-      // type=2 且有多个候选才让用户选；单候选时后端仍需 targetNodeKey，提交时自动带上
-      const defaultKey = data.defaultNodeKey || list[0]?.nodeKey;
-      setRejectTargetKey(data.type === 2 && list.length > 1 ? defaultKey : undefined);
+      // 「退回设置」弹窗始终展示候选 radio 表；未点选时生效选中 = 默认退回节点
+      // （defaultNodeKey），展示态与提交态一致，无需区分 type=1/2 与候选数量
+      setRejectTargetKey(undefined);
+      setRejectResubmitMode(1);
       setModalType('reject');
     } catch (e: any) {
       message.error(e?.msg || e?.message || '查询退回节点失败');
@@ -508,7 +535,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     return () => {
       alive = false;
     };
-  }, [instanceId, nodeKey, testMode]);
+  }, [instanceId, nodeKey, testMode, refreshKey]);
 
   // 渲染包未回来时先用测试结果里的节点名兜底，避免头部/徽标短暂显示「-」
   const nodeName =
@@ -516,24 +543,34 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     (nodes || []).find((n: any) => String(n.nodeKey) === String(nodeKey))?.nodeName ||
     '-';
 
-  // 实例「当前所在节点」（流程此刻流转到哪）：与查看节点 nodeKey 解耦，头部与流程图高亮跟随它
+  // 头部「节点审批情况」跟随的节点：
+  //  - 正式态：引擎当前节点 currentNodeKey（流程流转到哪，不随点开历史节点变）；
+  //  - 测试态：用户正在查看/填写的节点 nodeKey（测试逐节点走查，nodeKey 即「当前节点」；
+  //    且开始节点被自动完成后引擎停在下一节点，若跟 currentNodeKey 申请人姓名永远出不来）。
+  const headerNodeKey = testMode ? nodeKey : currentNodeKey;
   const currentNodeNameResolved =
-    currentNodeName ||
-    (nodes || []).find((n: any) => String(n.nodeKey) === String(currentNodeKey))?.nodeName ||
-    (currentNodeKey != null && String(currentNodeKey) === String(nodeKey)
-      ? pkg?.nodeName
+    (headerNodeKey != null
+      ? (nodes || []).find((n: any) => String(n.nodeKey) === String(headerNodeKey))?.nodeName
       : undefined) ||
-    (currentNodeKey != null ? '-' : nodeName);
+    (testMode ? undefined : currentNodeName) ||
+    (headerNodeKey != null && String(headerNodeKey) === String(nodeKey) ? pkg?.nodeName : undefined) ||
+    (headerNodeKey != null ? '-' : nodeName);
   /**
-   * 当前节点的「实际待办人」（流程流转到谁在办理）：取实例态 `nodeOps[currentNodeKey].todo`，
+   * 当前节点的「实际办理人」：取实例态 `nodeOps[headerNodeKey]` 的「待办人 → 已操作 → 已查看」回退名单。
    * 这是引擎真正下发的待办办理人，而非节点设计态/测试结果里的候选人；
-   * 语义即「流程流转到哪个操作者」，且不受「点开查看其它历史节点」影响。
+   * 测试态直接跟「查看节点」走，故开始节点能显示申请人、已办结节点也能显示办理人。
    */
   const currentNodeOperators = useMemo(() => {
-    if (currentNodeKey == null) return [] as string[];
-    const grp = nodeOps[String(currentNodeKey)] || {};
-    return (grp.todo || []).map((id: any) => resolveUserName(id)).filter(Boolean);
-  }, [currentNodeKey, nodeOps, resolveUserName]);
+    if (headerNodeKey == null) return [] as string[];
+    const grp = nodeOps[String(headerNodeKey)] || {};
+    // 优先「待办人」（流程此刻流转到谁在办理）；无待办时回退到「已操作 / 已查看」名单，
+    // 让开始节点（申请人，已被引擎自动完成 → 落在 handled）与已办结节点也能显示出操作者姓名，
+    // 否则这些节点 todo 为空、头部只能退回「测试实例 #id」兜底，看不到是谁在操作。
+    const ids: any[] = (grp.todo && grp.todo.length
+      ? grp.todo
+      : [...(grp.handled || []), ...(grp.viewed || [])]);
+    return ids.map((id: any) => resolveUserName(id)).filter(Boolean);
+  }, [headerNodeKey, nodeOps, resolveUserName]);
 
   /**
    * 当前节点的「下一个节点」及其操作者：沿出口（links）找 `fromNodeKey === 当前节点` 的下游节点，
@@ -589,9 +626,26 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     if (!pkg) return [];
     const all = MENUS_OPTIONS.map((o) => String(o.value));
     // 'custom' 不渲染成通用按钮（点了只会提示"暂未接入"），改由下方 customOps 渲染真实按钮
-    const allowed = (
+    let allowed = (
       pkg.allowMenus == null ? all : all.filter((c) => (pkg.allowMenus || []).map(String).includes(c))
     ).filter((c) => c !== 'custom');
+    // 创建节点(nodeType=0)：对齐「正式发起页」开始节点的操作集 —— 仅 提交/保存/打印/填写意见/附件。
+    // 退回/转发/转办/加签/传阅/征询/催办等在第一个节点无意义（无上游可退回，且发起页本就不给这些），
+    // 测试页与正式页在开始节点保持菜单完全一致，避免出现「开始节点却显示退回」的差异。
+    const atStartNode = (nodes || []).some(
+      (n: any) => String(n.nodeKey) === String(nodeKey) && n.nodeType === 0,
+    );
+    if (atStartNode) {
+      allowed = allowed.filter((c) => ['submit', 'save', 'print', 'opinion', 'attach'].includes(c));
+    }
+    // 仅「本人可操作节点」展示写操作（提交/退回/转发/转办/加签/传阅/催办…）：
+    // 正式态=当前节点有待办(taskId)、测试态=有待办(hasPending)，或测试态开始节点（申请人补填后提交）。
+    // 查看无待办的其它节点（历史节点 / 他人节点）只保留 打印 / 填写意见 / 附件 等只读辅助动作，
+    // 避免出现「当前节点不是我操作的却显示提交」的错位。
+    const canOperate = formEditable || (testMode && atStartNode);
+    if (!canOperate) {
+      allowed = allowed.filter((c) => ['print', 'opinion', 'attach'].includes(c));
+    }
     if (formEditable && !allowed.includes('save')) {
       const i = allowed.indexOf('submit');
       return i >= 0
@@ -599,7 +653,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
         : ['save', ...allowed];
     }
     return allowed;
-  }, [pkg, formEditable]);
+  }, [pkg, formEditable, nodes, nodeKey, testMode]);
 
   /** 流程图标记：nodeKey -> 状态（1走通 2走不通） */
   const nodeStatusMap = useMemo(() => {
@@ -833,20 +887,24 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
         return;
       }
       const list: any[] = Array.isArray(rejectCandidates?.nodes) ? rejectCandidates.nodes : [];
-      const needChoose = rejectCandidates?.type === 2 && list.length > 1;
-      if (needChoose && !rejectTargetKey) {
+      // 弹窗为 radio 选择表，未点选时以「默认退回节点」为生效选中（与展示态一致）
+      const effKey = rejectTargetKey ?? rejectCandidates?.defaultNodeKey ?? list[0]?.nodeKey;
+      if (list.length > 0 && !effKey) {
         message.warning('请选择退回节点');
         return;
       }
-      // ⚠️ type=2 时后端无条件要求 targetNodeKey（rejectType==2 且无目标直接抛错），
-      //    故即便只有一个候选也要带上，不能像旧实现那样在单候选时传空。
-      const target =
-        rejectCandidates?.type === 2
-          ? rejectTargetKey || rejectCandidates?.defaultNodeKey || list[0]?.nodeKey
-          : undefined;
+      // ⚠️ type=2 时后端无条件要求 targetNodeKey（rejectType==2 且无目标直接抛错）；
+      //    type=1 显式带上用户所选节点同样合法（后端校验目标在可退回集合内）。
+      const target = list.length > 0 ? effKey : undefined;
       setActing(true);
       try {
-        const res: any = await rejectTask(taskId, { opinion, targetNodeKey: target });
+        const res: any = await rejectTask(taskId, {
+          opinion,
+          targetNodeKey: target,
+          // 退回后再提交的处理方式：1 逐级审批 / 2 直达本节点（后端 reject 写引擎标记，
+          // 退回目标节点重新提交时消费，跳过中间节点直达本次执行退回的节点）
+          resubmitMode: rejectResubmitMode,
+        });
         if (res?.success === false) {
           notifyFail(res?.msg, '退回失败');
           return;
@@ -1340,8 +1398,9 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
       </div>
 
       <Modal
-        title={modalType ? menuLabel(modalType) : ''}
+        title={modalType === 'reject' ? '退回设置' : modalType ? menuLabel(modalType) : ''}
         open={!!modalType}
+        okText={modalType === 'reject' ? '确定' : 'OK'}
         onOk={handleModalOk}
         confirmLoading={acting}
         onCancel={closeModal}
@@ -1349,40 +1408,71 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
       >
         {modalType === 'reject' ? (
           <>
-            {rejectCandidates?.type === 2 && (rejectCandidates?.nodes?.length || 0) > 1 ? (
-              <>
-                <div style={{ marginBottom: 6 }}>请选择退回节点</div>
-                <Radio.Group
-                  value={rejectTargetKey}
-                  onChange={(e) => setRejectTargetKey(e.target.value)}
+            {/* 请选择退回节点：radio 表格（节点名称 / 操作者），对齐 ecology「退回设置」弹窗。
+                未点选时生效选中 = 后端默认退回节点（defaultNodeKey），与展示态保持一致。 */}
+            <div style={{ marginBottom: 8 }}>请选择退回节点</div>
+            {(rejectCandidates?.nodes?.length || 0) > 0 ? (
+              <Radio.Group
+                style={{ width: '100%' }}
+                value={
+                  rejectTargetKey ??
+                  rejectCandidates?.defaultNodeKey ??
+                  rejectCandidates?.nodes?.[0]?.nodeKey
+                }
+                onChange={(e) => setRejectTargetKey(e.target.value)}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    background: '#fafafa',
+                    padding: '6px 12px',
+                    borderRadius: 4,
+                    color: 'rgba(0,0,0,0.65)',
+                  }}
                 >
-                  <Space direction="vertical">
-                    {(rejectCandidates?.nodes || []).map((n: any) => (
-                      <Radio key={n.nodeKey} value={n.nodeKey}>
-                        {n.nodeName || n.nodeKey}
-                        {/* 后端无「是否发起人」标记，靠 nodeType=0 派生（与正式办理页同口径） */}
-                        {n.nodeType === 0 ? '（退回发起人）' : ''}
-                        <span style={{ color: '#999', marginLeft: 6 }}>
-                          {NODE_TYPE[n.nodeType] || ''}
-                        </span>
-                      </Radio>
-                    ))}
-                  </Space>
-                </Radio.Group>
-              </>
+                  <div style={{ flex: 1 }}>节点名称</div>
+                  <div style={{ flex: 1 }}>操作者</div>
+                </div>
+                {(rejectCandidates?.nodes || []).map((n: any) => (
+                  <label
+                    key={n.nodeKey}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '8px 12px',
+                      cursor: 'pointer',
+                      borderBottom: '1px solid #f5f5f5',
+                    }}
+                  >
+                    <Radio value={n.nodeKey} style={{ marginRight: 0 }} />
+                    <span style={{ flex: 1 }}>
+                      {n.nodeName || n.nodeKey}
+                      {/* 后端无「是否发起人」标记，靠 nodeType=0 派生（与正式办理页同口径） */}
+                      {n.nodeType === 0 ? '（退回发起人）' : ''}
+                    </span>
+                    <span style={{ flex: 1, color: '#1677ff' }}>{n.operators || '-'}</span>
+                  </label>
+                ))}
+              </Radio.Group>
             ) : (
               <div>
-                {(rejectCandidates?.nodes || []).some(
-                  (n: any) =>
-                    n.nodeKey ===
-                      (rejectCandidates?.defaultNodeKey ||
-                        rejectCandidates?.nodes?.[0]?.nodeKey) &&
-                    n.nodeType === 0,
-                )
-                  ? '确认退回？流程将退回给发起人（开始节点），由其重新填写后再次提交。'
-                  : '确认退回？流程将回退到上一节点（或节点配置的默认退回节点），并保持流程继续运行。'}
+                确认退回？流程将回退到上一节点（或节点配置的默认退回节点），并保持流程继续运行。
               </div>
             )}
+            {/* 退回后再提交的处理方式（对齐 ecology）：逐级审批=重新按顺序经过各节点；
+                直达本节点=重新提交时跳过中间节点，直接回到本次执行退回的节点 */}
+            <div style={{ margin: '16px 0 8px' }}>退回后再提交的处理方式</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: 'rgba(0,0,0,0.45)' }}>请选择：</span>
+              <Radio.Group
+                value={rejectResubmitMode}
+                onChange={(e) => setRejectResubmitMode(e.target.value)}
+              >
+                <Radio value={1}>逐级审批</Radio>
+                <Radio value={2}>直达本节点</Radio>
+              </Radio.Group>
+            </div>
           </>
         ) : modalType === 'attach' ? (
           <>

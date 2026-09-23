@@ -1627,10 +1627,16 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
     onValuesChangeRef.current?.(formValues);
   }, [formValues]);
 
-  // 初始值异步到达（渲染包晚于挂载）时并入受控值
+  // 初始值异步到达（渲染包晚于挂载）时并入受控值。
+  // 用 lastInitialRef 记录「已合并过的初始值引用」：引用不变（父组件 useMemo 后每次重渲染传入同一对象）
+  // 则跳过合并，避免 合并 → onValuesChange 通知外层 → 外层 setFormValues → 重渲染 → 新 initialValues → 再合并 的死循环。
+  const lastInitialRef = useRef<any>(null);
   useEffect(() => {
-    if (initialValues && Object.keys(initialValues).length > 0) {
-      setFormValues((prev) => ({ ...initialValues, ...prev }));
+    if (initialValues && initialValues !== lastInitialRef.current) {
+      lastInitialRef.current = initialValues;
+      if (Object.keys(initialValues).length > 0) {
+        setFormValues((prev) => ({ ...initialValues, ...prev }));
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialValues]);

@@ -1,4 +1,4 @@
-import React, { useEffect, useImperativeHandle, useRef, useState } from 'react';
+import React, { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Result, Spin } from 'antd';
 import ExcelPreview, { NodePermissionResolver } from './ExcelPreview';
 import { collectFieldValues, expandInitialValues } from '../utils/collectFieldValues';
@@ -276,6 +276,15 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
     };
   }, [instanceId, taskId, nodeKey, isPreview, previewDefId, previewFormId, testMode]);
 
+  // initialValues 仅依赖「布局 + 业务数据快照」，二者在渲染包回来后引用稳定；
+  // 用 useMemo 固定引用（放在所有提前 return 之前，遵守 Hooks 规则，避免 hook 数量随条件分支变化），
+  // 避免父组件每次重渲染都生成新对象 → 触发 ExcelPreview 的 [initialValues] 合并 effect →
+  // onValuesChange 通知外层 → 外层 setFormValues → 重渲染 → 新 initialValues … 的死循环。
+  const initialValues = useMemo(
+    () => expandInitialValues(layoutData || {}, values),
+    [layoutData, values],
+  );
+
   if (loading || !done) {
     return (
       <div style={{ padding: 24, textAlign: 'center' }}>
@@ -306,7 +315,7 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
       nodePermission={nodePermission}
       // 快照可能是坐标键（Excel 路径）或字段名键（旧 FieldRenderer/测试页场景表单），
       // 后者补成坐标键才能回显
-      initialValues={expandInitialValues(layoutData, values)}
+      initialValues={initialValues}
       title="流程表单"
       onValuesChange={onValuesChange}
       onSubmit={async (vals, _errors, valid) => {

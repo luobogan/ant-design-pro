@@ -170,6 +170,9 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
   const [defId, setDefId] = useState<string | undefined>(props.defId || urlDefId || undefined);
   /** 当前草稿实例ID（保存草稿后回填；提交时作为 draftInstId 原地提升） */
   const [draftInstId, setDraftInstId] = useState<string>('');
+  /** 实例「当前所在节点」Key（流程此刻流转到的节点）：从实例详情回填，
+   *  用于标题（已流转到下一节点时显示「处理 - 提交xx节点的审批」）与流程图高亮 */
+  const [instanceCurrentNodeKey, setInstanceCurrentNodeKey] = useState<string | undefined>();
   /** 由 URL 带入的草稿实例已被删除（待办/其他列表删过）：置 true 后禁止保存/提交，避免「删了又复活」 */
   const [instanceGone, setInstanceGone] = useState<boolean>(false);
   /**
@@ -220,6 +223,8 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
           if (!defId && inst.defId) setDefId(String(inst.defId));
           if (inst.dataId) setSavedDataId(String(inst.dataId));
           setDraftInstId(String(inst.id));
+          // 回填「实例当前节点」：流程已流转到下一节点时，标题/流程图应以它为准（而非开始节点）
+          if (inst.currentNodeKey != null) setInstanceCurrentNodeKey(String(inst.currentNodeKey));
         } else {
           // 草稿已被删除（待办/我的请求/其他列表删过它）：标记后禁止保存/提交
           setInstanceGone(true);
@@ -338,11 +343,21 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defId, props.nodeKey, props.refreshKey, mode]);
 
-  /** 开始节点的类型名（0创建 1审批 …）：页头「流程:{类型名} - {流程名} - {类型名}」用 */
-  const startTypeName = useMemo(() => {
-    const n = nodes.find((x) => String(x.nodeKey) === String(startNodeKey));
-    return NODE_TYPE[n?.nodeType ?? 0] || '创建';
-  }, [nodes, startNodeKey]);
+  /** 当前「渲染/查看」节点的类型与名称：页头副标题随查看节点变化
+   *  - 创建节点（nodeType 0）：「流程:创建 - 流程名 - 创建（草稿）」
+   *  - 审批等节点：「流程:处理 - 流程名 - 提交{节点名}节点的审批」
+   *  解析顺序：显式查看节点(props.nodeKey/urlNodeKey) → 实例当前节点(instanceCurrentNodeKey)
+   *   → 开始节点兜底。原先固定取开始节点，导致「已流转到下一节点」时标题仍写「创建」。 */
+  const viewNodeKey = props.nodeKey ?? urlNodeKey;
+  const renderNodeInfo = useMemo(() => {
+    const n =
+      (viewNodeKey && nodes.find((x) => String(x.nodeKey) === String(viewNodeKey))) ||
+      (instanceCurrentNodeKey &&
+        nodes.find((x) => String(x.nodeKey) === String(instanceCurrentNodeKey))) ||
+      nodes.find((x) => String(x.nodeKey) === String(startNodeKey));
+    const nodeType = n?.nodeType ?? 0;
+    return { nodeType, name: n?.nodeName || '', isCreate: nodeType === 0 };
+  }, [nodes, viewNodeKey, instanceCurrentNodeKey, startNodeKey]);
 
   const initialValues = useMemo<Record<string, any>>(() => {
     const base = pkg?.dataJson || {};
@@ -694,7 +709,7 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
           bpmnXml={props.bpmnXml ?? bpmnXml}
           nodes={props.resultNodes}
           links={props.links}
-          currentNodeKey={props.currentNodeKey ?? (props.nodeKey ?? (urlNodeKey || undefined))}
+          currentNodeKey={props.currentNodeKey ?? viewNodeKey ?? instanceCurrentNodeKey}
           currentNodeName={props.currentNodeName}
           onSelectNode={props.onSelectNode}
           onOperated={props.onOperated}
@@ -936,7 +951,9 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
    * 正式页作 PageContainer 标题，内嵌作面板顶部一行。</p>
    */
   const flowTitle = def
-    ? `流程:${startTypeName} - ${def.name} - ${startTypeName}${draftInstId ? '（草稿）' : ''}`
+    ? renderNodeInfo.isCreate
+      ? `流程:创建 - ${def.name} - 创建`
+      : `流程:处理 - ${def.name} - 提交${renderNodeInfo.name}节点的审批`
     : '';
 
   // 内嵌模式：不套 PageContainer / 外层背景，由父页面统一布局（如流程测试页的「节点审批情况」）；
