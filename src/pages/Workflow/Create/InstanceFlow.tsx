@@ -85,6 +85,27 @@ const NODE_TYPE: Record<number, string> = {
 /** 需要填写/选择额外信息的操作（传阅可多人，走多选人员弹窗；附件走上传弹窗） */
 const NEED_EXTRA = ['forward', 'sign', 'circulate', 'attach'];
 
+/** /fresh 复检超时哨兵：用于区分「超时」与真实业务错误 */
+const FRESH_TIMEOUT = '__FRESH_TIMEOUT__';
+/** /form/validate 必填复核超时哨兵 */
+const VALIDATE_TIMEOUT = '__VALIDATE_TIMEOUT__';
+
+/**
+ * 请求超时竞速：超时抛带哨兵的 Error，调用方据此「放行」而非当成业务失败。
+ *
+ * 只用于**前端兜底校验类**请求（/fresh 新鲜度复检、/form/validate 必填复核）：
+ * 它们一旦挂起会永久阻塞写操作，而这二者的权威判定都在后端写接口
+ * （approveTask / saveFormData 自身会校验状态与必填），故超时一律放行，
+ * 绝不让前端的辅助校验把正常办理卡死。
+ */
+const withTimeout = (p: Promise<any>, ms: number, sentinel: string): Promise<any> =>
+  Promise.race([
+    p,
+    new Promise<never>((_, rej) => {
+      window.setTimeout(() => rej(new Error(sentinel)), ms);
+    }),
+  ]);
+
 /**
  * 测试态**置灰**的动作（方案 §6.4 **C6** / V7）。
  *
@@ -254,6 +275,22 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   );
   const [taskId, setTaskId] = useState<string | undefined>();
   const [acting, setActing] = useState(false);
+  /**
+   * 操作进行中计数（而非布尔）：提交会「同步重入」一次 ——
+   * ExcelPreview 校验通过后同步回调 onSubmit → run('submit')，外层此时已走到 return。
+   * 若用布尔，外层结束会先把 loading 关掉，导致真正耗时的那段
+   * （await /fresh → /form/validate → approveTask）完全没有反馈。
+   * 计数归零才复位，重入安全。
+   */
+  const actingDepth = useRef(0);
+  const beginActing = useCallback(() => {
+    actingDepth.current += 1;
+    setActing(true);
+  }, []);
+  const endActing = useCallback(() => {
+    actingDepth.current = Math.max(0, actingDepth.current - 1);
+    if (actingDepth.current === 0) setActing(false);
+  }, []);
   const [opinion, setOpinion] = useState('');
   /** 测试态手动提交：ExcelPreview 回传的当前表单值（作为流程变量下发引擎） */
   const [formValues, setFormValues] = useState<Record<string, any>>({});
@@ -307,8 +344,19 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     lastFreshRef.current = now;
     let res: any = null;
     try {
-      res = await freshInstance(instanceId, pkgRef.current?.nodeKey, taskId || undefined);
+      // 超时竞速（3s）：/fresh 一旦挂起（后端慢 / 网络异常）会永久阻塞提交，
+      // 且 setActing 尚未置位时前端零反馈。超时按「未过期」放行 ——
+      // 权威判定交给后端写操作守卫（approveTask 自身会校验状态），不会因前端跳过而出错。
+      res = await withTimeout(
+        freshInstance(instanceId, pkgRef.current?.nodeKey, taskId || undefined),
+        3000,
+        FRESH_TIMEOUT,
+      );
     } catch (e: any) {
+      if (e?.message === FRESH_TIMEOUT) {
+        // 复检超时：不拦截、不标记过期，放行让提交继续
+        return true;
+      }
       const msg = e?.msg || e?.message || '';
       if (msg.includes('不存在')) {
         markStale('该流程已不存在（可能已被删除），请关闭本页');
@@ -689,8 +737,9 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     }
   };
 
-  /** 点击操作按钮：有待办则真实办理，否则提示 */
-  const run = async (code: string) => {
+  /** 点击操作按钮：有待办则真实办理，否则提示（实际动作；入口见下方 `run`，由它统一管 loading） */
+  const runOperation = async (code: string) => {
+    console.log('[WF] runOperation 进入:', code, 'taskId=', taskId);
     if (code === 'print') {
       window.print();
       return;
@@ -783,7 +832,14 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
       return;
     }
     // 写操作统一门禁：本页已过期（流程已回退/被他人流转/已归档）则中断，绝不写回过期数据
-    if (!(await guardFresh())) return;
+    console.log('[WF] before guardFresh (/fresh 复检)');
+    const freshOk = await guardFresh();
+    console.log('[WF] after guardFresh:', freshOk);
+    if (!freshOk) {
+      // 内层校验后重入路径若在此失败，必须复位标志，否则下次点击跳过校验
+      submitAfterValidateRef.current = false;
+      return;
+    }
     // 退回：需先拉可退回节点候选、由用户选目标节点，故单独分支（不走下面的直接办理）
     if (code === 'reject') {
       await openReject();
@@ -792,12 +848,19 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     // 提交：先走表单自身的布局级必填校验（会标红并提示具体缺失字段名）。
     // 校验通过由 ApprovalFormRender.onSubmit 回调再次进入本函数（submitAfterValidateRef 置位）。
     if (code === 'submit' && formRef.current && !submitAfterValidateRef.current) {
+      console.log('[WF] 触发表单布局级校验 (formRef.submit → handleSubmit)');
       submitAfterValidateRef.current = true;
-      // ExcelPreview.handleSubmit 是同步的：校验通过会同步回调 onSubmit → run('submit')
+      // ExcelPreview.handleSubmit 是同步的：校验通过会同步回调 onSubmit → run('submit')。
+      // ⚠️ 绝不在 submit() 返回后「同步」复位 submitAfterValidateRef：
+      // submit() 触发的 run('submit') 是 async，会在 await guardFresh() 处挂起让出，
+      // 若此处同步复位，内层异步 runOperation 醒来读到 false → 再次进入本分支 → 无限递归。
+      // 复位统一放到下方「真实写操作」入口（仅重入路径带 true 到达），见 912 行附近。
       formRef.current.submit();
-      submitAfterValidateRef.current = false;
+      console.log('[WF] 表单校验同步返回（ref 不在此复位，交由写操作入口复位）');
       return;
     }
+    // 走到这里说明本调用跳过了上面的校验分支（非 submit / 已是校验后重入）。
+    // 防御性复位：内层重入若在此前的分支提前 return，也会在此清零。
     submitAfterValidateRef.current = false;
     // 本页已接入的写操作只有 提交 / 退回 / 催办；其余菜单码（转办/转交/传阅/意见征询/抄送…）
     // 尚未接入，**绝不能兜底成「催办」**（否则点错按钮会执行错误动作）。
@@ -828,25 +891,41 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     // 布局级必填已由 ExcelPreview 提交时校验，这里补「字段权限=必填」那一层。
     if (code === 'submit') {
       try {
-        const vres: any = await validateForm({
-          instanceId,
-          defId: pkg?.defId,
-          nodeKey: nodeKey || pkg?.nodeKey,
-          formData: variables,
-        });
+        const vres: any = await withTimeout(
+          validateForm({
+            instanceId,
+            defId: pkg?.defId,
+            nodeKey: nodeKey || pkg?.nodeKey,
+            formData: variables,
+          }),
+          5000,
+          VALIDATE_TIMEOUT,
+        );
         if (vres?.success === false) {
           notifyFail(vres?.msg, '服务端必填校验未通过');
+          submitAfterValidateRef.current = false;
           return;
         }
       } catch (e: any) {
         const vmsg = e?.msg || e?.message || '';
-        // 明确是必填 / 过期问题时拦截；其余异常交给 approveTask 的后端守卫兜底，避免误伤正常办理
-        if (/必填|过期/.test(vmsg)) {
+        // 复核超时：不拦截、放行（继续往下走 approveTask）。
+        // ⚠️ 此处绝不能 return —— return 会中断整个提交流程。
+        // 权威必填判定由后端 approveTask 守卫兜底，超时放行不会写出不合法数据。
+        const isTimeout = e?.message === VALIDATE_TIMEOUT;
+        // 明确是必填 / 过期问题时拦截；其余异常（含超时）交给 approveTask 的后端守卫兜底，避免误伤正常办理
+        if (!isTimeout && /必填|过期/.test(vmsg)) {
           notifyFail(vmsg, '服务端必填校验未通过');
+          submitAfterValidateRef.current = false;
           return;
         }
       }
     }
+    // 走到真实写操作：这是 submitAfterValidateRef 唯一的「正常」复位点。
+    // 只有「提交校验通过后重入」的内层 run 会带着 true 到达这里；
+    // 退回 / 催办分支不会置位该标志（保持 false），复位为 no-op。
+    // 复位后，下一次真正的点击才会重新走上面的表单校验分支。
+    submitAfterValidateRef.current = false;
+    console.log('[WF] before 写操作(approve/reject/urge), code=', code);
     setActing(true);
     try {
       const res: any =
@@ -855,10 +934,12 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
           : code === 'reject'
             ? await rejectTask(taskId, { opinion })
             : await urgeTask(taskId, { opinion });
+      console.log('[WF] 写操作返回 success=', res?.success, 'msg=', res?.msg);
       if (res?.success === false) {
         message.error(res?.msg || '操作失败');
         return;
       }
+      console.log('[WF] 即将 afterOperate');
       afterOperate(menuLabel(code));
       // 与「正式办理页」同口径：提交 / 退回后关闭页签（加签 / 传阅 / 催办 / 附件留在原页继续操作）。
       // 仅非内嵌时自动关闭 —— 内嵌时本组件是宿主页面的一部分，关页会把宿主页面一起关掉。
@@ -869,6 +950,23 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
       message.error(e?.msg || '操作失败');
     } finally {
       setActing(false);
+    }
+  };
+
+  /**
+   * 统一入口：点击即置 loading（beginActing），全部结束才复位（endActing）。
+   * 这样「提交前 await /fresh、/form/validate」期间也有转圈反馈，
+   * 不会再出现「点了完全没反应」。重入安全（见 actingDepth 注释）。
+   */
+  const run = async (code: string) => {
+    console.log('[WF] run 进入:', code);
+    beginActing();
+    try {
+      await runOperation(code);
+      console.log('[WF] runOperation 完成:', code);
+    } finally {
+      console.log('[WF] run finally endActing:', code);
+      endActing();
     }
   };
 
@@ -1209,6 +1307,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                     }}
                     // 布局级必填校验通过后才真正提交（缺失字段已由 ExcelPreview 标红并提示字段名）
                     onSubmit={(vals: Record<string, any>, fieldValues: Record<string, any>) => {
+                      console.log('[WF] 表单校验回调 onSubmit(内层 run 触发): 进入');
                       submitValuesRef.current = { ...(vals || {}), ...(fieldValues || {}) };
                       submitAfterValidateRef.current = true;
                       run('submit');

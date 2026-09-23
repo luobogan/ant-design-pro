@@ -319,12 +319,15 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
       title="流程表单"
       onValuesChange={onValuesChange}
       onSubmit={async (vals, _errors, valid) => {
+        console.log('[WF] ApprovalFormRender.onSubmit 包装 进入, valid=', valid);
         if (!valid) {
           // 具体缺失哪些字段已由 ExcelPreview 的校验提示（带字段名）给出，这里不再重复弹一次
+          console.log('[WF] 校验未通过(valid=false), 不提交');
           return;
         }
         // 校验通过：交给外层决定后续（发起 / 提交审批）。
         // 同时给出「字段名 → 值」，让出口条件 UEL（如 ${amount > 1000}）拿得到变量。
+        console.log('[WF] 校验通过, 调用外层 onSubmit');
         onSubmit?.(vals, collectFieldValues(layoutData, vals));
       }}
     />

@@ -1782,6 +1782,7 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
 
   // 提交校验：遍历所有必填字段（含各明细表子画布），未填写则标记错误
   const handleSubmit = () => {
+    console.log('[WF] ExcelPreview.handleSubmit 进入');
     const newErrors: Record<string, boolean> = {};
     /** 缺失的必填字段名（去重；明细表同一字段多行只报一次，避免 toast 被刷屏） */
     const missingLabels = new Set<string>();
@@ -1832,6 +1833,7 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
     } else {
       message.success('校验通过，所有必填项均已填写');
     }
+    console.log('[WF] ExcelPreview.handleSubmit 完成, 缺失必填数=', cnt, 'valid=', cnt === 0);
     onSubmit?.(formValues, newErrors, cnt === 0);
   };
   // 供命令式句柄（ref.submit）调用：外层自绘「提交」按钮时走同一套必填校验
