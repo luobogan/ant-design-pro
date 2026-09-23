@@ -133,6 +133,8 @@ export function joinIds(ids: string[]): string {
 
 interface OrgData {
   users: PersonOrgItem[];
+  /** 全量人员（含已删除/离职/禁用），供历史流转意见的名字解析，不做「在职过滤」 */
+  allUsers: PersonOrgItem[];
   depts: PersonOrgItem[];
   deptTree: any[];
   roles: PersonOrgItem[];
@@ -148,7 +150,23 @@ let loaded = false;
 
 const PAGE_SIZE = 1000;
 
-/** 人员：分页拉全量（本地过滤 + 分类树过滤，避免依赖后端检索参数差异） */
+/** 取「在职可选项」：逻辑删除 / 离职 / 禁用的人不参与选人。
+ *  历史流转意见的名字解析用 allUsers（不过滤），避免因人员状态变化导致历史记录显示不出姓名。 */
+export function filterActiveUsers(items: PersonOrgItem[]): PersonOrgItem[] {
+  return items.filter((it) => {
+    const raw: any = (it as any)?.raw || {};
+    if (!it || it.id == null) return false;
+    // 兜底过滤：逻辑删除的人（后端 @TableLogic 已默认排除，这里双重保险，防后端契约变动）
+    if (raw.isDeleted === true || raw.is_deleted === 1) return false;
+    // 过滤离职 / 禁用的人（blade 约定：user.status 1=正常 / 2=禁用；
+    // status 缺省 undefined 视为正常、不误伤；若贵司离职/禁用码不同，改这里）
+    const st = Number(raw.status);
+    if (!Number.isNaN(st) && st !== 1) return false;
+    return true;
+  });
+}
+
+/** 人员：分页拉全量（不做在职过滤，全量返回；在职过滤由 filterActiveUsers 在选人场景套用） */
 async function fetchAllUsers(): Promise<PersonOrgItem[]> {
   const all: any[] = [];
   for (let current = 1; current <= 10; current += 1) {
@@ -159,16 +177,14 @@ async function fetchAllUsers(): Promise<PersonOrgItem[]> {
     const total = Number(payload?.total ?? all.length);
     if (records.length < PAGE_SIZE || all.length >= total) break;
   }
-  return all
-    .filter((u) => u && u.id != null)
-    .map((u) => ({
-      id: String(u.id),
-      name: u.realName || u.name || u.account || String(u.id),
-      code: u.account || '',
-      desc: [u.deptName, u.roleName].filter(Boolean).join(' · '),
-      deptId: u.deptId != null ? String(u.deptId) : '',
-      raw: u,
-    }));
+  return all.map((u) => ({
+    id: String(u.id),
+    name: u.realName || u.name || u.account || String(u.id),
+    code: u.account || '',
+    desc: [u.deptName, u.roleName].filter(Boolean).join(' · '),
+    deptId: u.deptId != null ? String(u.deptId) : '',
+    raw: u,
+  }));
 }
 
 /** 部门树 → 扁平列表（含完整树结构用于分类树） */
@@ -195,8 +211,12 @@ async function fetchAll(): Promise<OrgData> {
   ]);
 
   let users: PersonOrgItem[] = [];
-  if (usersR.status === 'fulfilled') users = usersR.value;
-  else {
+  let allUsers: PersonOrgItem[] = [];
+  if (usersR.status === 'fulfilled') {
+    // 选人用「在职过滤」后的；历史解析用全量（不过滤）
+    allUsers = usersR.value;
+    users = filterActiveUsers(allUsers);
+  } else {
     errors.push('人员数据加载失败（用户列表接口需要管理员权限）');
     console.warn('[personOrg] 人员数据加载失败:', usersR.reason);
   }
@@ -244,7 +264,7 @@ async function fetchAll(): Promise<OrgData> {
     console.warn('[personOrg] 岗位数据加载失败:', postR.reason);
   }
 
-  Object.assign(cache, { users, depts, deptTree, roles, posts, errors } satisfies OrgData);
+  Object.assign(cache, { users, allUsers, depts, deptTree, roles, posts, errors } satisfies OrgData);
   // 四类数据全部非空才标记已加载，否则下次打开重新拉取（不把失败缓存成空）
   if (users.length && depts.length && roles.length && posts.length) {
     loaded = true;

@@ -260,8 +260,9 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   useEffect(() => {
     loadPersonOrgData()
       .then((d: any) => {
+        // 历史流转意见解析：用「全量」字典（含已删除/离职/禁用），否则这些人会显示成裸 ID
         const m: Record<string, { name: string; desc?: string }> = {};
-        ((d?.users || []) as any[]).forEach((u) => {
+        ((d?.allUsers || d?.users || []) as any[]).forEach((u) => {
           m[String(u.id)] = { name: u.name, desc: u.desc };
         });
         setUserMap(m);
@@ -547,8 +548,25 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     if (!instanceId || Number(instanceId) <= 0) return () => {};
     getLogs(instanceId)
       .then((r: any) => {
+        // 临时诊断：逐条打印关键字段，定位「接收人」真实语义
+        const _list: any[] = r?.data || [];
+        _list.forEach((it: any, i: number) => {
+          // eslint-disable-next-line no-console
+          console.log(
+            '[WF-LOG] #' + i,
+            '| nodeName=' + (it?.nodeName ?? '-'),
+            '| operatorName=' + (it?.operatorName ?? '-'),
+            '| handlerName=' + (it?.handlerName ?? '-'),
+            '| nextHandlerIds=' + JSON.stringify(it?.nextHandlerIds ?? null),
+            '| nextHandlerNames=' + JSON.stringify(it?.nextHandlerNames ?? null),
+            '| outgoing=' + JSON.stringify(it?.outgoing ?? null),
+          );
+        });
+        // 末条完整对象（JSON 化避免控制台折叠丢字段）
+        // eslint-disable-next-line no-console
+        console.log('[WF-LOG] 末条完整字段(JSON)=', JSON.stringify(_list[_list.length - 1] ?? null, null, 2));
         // 倒序（最新在前）：与参照系统一致——刚办完的那条排最上面
-        if (alive) setLogs([...(r?.data || [])].reverse());
+        if (alive) setLogs([..._list].reverse());
       })
       .catch(() => alive && setLogs([]));
     // 流程图节点「谁批的」+ 悬浮「操作者」分组（已操作/已查看/未操作）
@@ -1409,10 +1427,15 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                                         }`}
                                       </Tag>
                                     </Space>
-                                    {/* 第四行：接收人（下一节点办理人，后端按出口解析部门/角色/人员后返回ID） */}
-                                    {l.nextHandlerIds ? (
+                                    {/* 第四行：接收人（下一节点办理人）。
+                                        优先用后端直发的 nextHandlerNames；缺失时再按 nextHandlerIds + 本地人员字典兜底，
+                                        避免后端未下发姓名、或本地字典缺人（如已删除/离职）时显示裸 ID */}
+                                    {l.nextHandlerIds || l.nextHandlerNames ? (
                                       <div style={{ fontSize: 12, color: '#8c8c8c' }}>
-                                        接收人：{namesOf(l.nextHandlerIds, userMap) || '—'}
+                                        接收人：
+                                        {l.nextHandlerNames?.trim()
+                                          ? l.nextHandlerNames
+                                          : namesOf(l.nextHandlerIds, userMap) || '—'}
                                       </div>
                                     ) : null}
                                   </div>
