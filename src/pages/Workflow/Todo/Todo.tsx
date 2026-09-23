@@ -1,11 +1,12 @@
 import { useModel } from '@umijs/max';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Badge, Modal, Popconfirm, Space, Tag, message } from 'antd';
+import { Badge, Modal, Popconfirm, Radio, Space, Tag, message } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import { PermissionButton } from '@/components/PermissionButton';
 import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
+import { loadPersonOrgData } from '@/components/FormMode/personOrg';
 import { listTodo, forwardTask, addSignTask, urgeTask, deleteDraft } from '@/services/workflow';
 import type { WfTaskItem } from '@/services/workflow';
 import { pickPayload } from '@/utils/utils';
@@ -37,6 +38,23 @@ const TodoList: React.FC = () => {
   const { buttons } = usePageButtons('workflow_todo');
   const actionRef = useRef<ActionType>();
   const [modal, setModal] = useState<{ type: 'forward' | 'sign'; record?: WfTaskItem; assignee?: any; addSignType?: number } | null>(null);
+  /** 人员字典：用户ID → 姓名（把后端下发的「发起人」ID 解析成姓名，避免列表显示裸 ID） */
+  const [userMap, setUserMap] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    loadPersonOrgData()
+      .then((d: any) => {
+        const m: Record<string, string> = {};
+        ((d?.users || []) as any[]).forEach((u) => {
+          m[String(u.id)] = u.name;
+        });
+        setUserMap(m);
+      })
+      .catch(() => {});
+  }, []);
+
+  /** 用户ID → 姓名（字典缺失时回退原 ID，避免信息丢失） */
+  const resolveUserName = (id?: string | number) => (id ? userMap[String(id)] || String(id) : '-');
 
   useEffect(() => {
     console.log('待办页按钮权限:', buttons);
@@ -101,7 +119,7 @@ const TodoList: React.FC = () => {
     },
     { title: '流程名称', dataIndex: 'defName', ellipsis: true, hideInSearch: true },
     { title: '当前节点', dataIndex: 'nodeName', hideInSearch: true },
-    { title: '发起人', dataIndex: 'starter', hideInSearch: true },
+    { title: '发起人', dataIndex: 'starter', hideInSearch: true, render: (_, r) => resolveUserName(r.starter) },
     {
       title: '紧急程度',
       dataIndex: 'urgency',

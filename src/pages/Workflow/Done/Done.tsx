@@ -2,8 +2,9 @@ import { useModel } from '@umijs/max';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { Badge, Drawer, Tag, Timeline } from 'antd';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePageButtons } from '@/hooks/usePageButtons';
+import { loadPersonOrgData } from '@/components/FormMode/personOrg';
 import { listDone, getLogs } from '@/services/workflow';
 import type { WfTaskItem } from '@/services/workflow';
 import { pickPayload } from '@/utils/utils';
@@ -38,6 +39,23 @@ const DoneList: React.FC = () => {
   const [logVisible, setLogVisible] = useState(false);
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [logTitle, setLogTitle] = useState('');
+  /** 人员字典：用户ID → 姓名（把后端下发的「发起人」ID 解析成姓名，避免列表显示裸 ID） */
+  const [userMap, setUserMap] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    loadPersonOrgData()
+      .then((d: any) => {
+        const m: Record<string, string> = {};
+        ((d?.users || []) as any[]).forEach((u) => {
+          m[String(u.id)] = u.name;
+        });
+        setUserMap(m);
+      })
+      .catch(() => {});
+  }, []);
+
+  /** 用户ID → 姓名（字典缺失时回退原 ID，避免信息丢失） */
+  const resolveUserName = (id?: string | number) => (id ? userMap[String(id)] || String(id) : '-');
 
   const openApproval = (record: WfTaskItem) => {
     // 已办无待办任务，仅带实例ID打开只读审批页
@@ -59,7 +77,7 @@ const DoneList: React.FC = () => {
     { title: '流程标题', dataIndex: 'title', ellipsis: true, render: (_, r) => <a onClick={() => openApproval(r)}>{r.title || '-'}</a> },
     { title: '流程名称', dataIndex: 'defName', ellipsis: true, hideInSearch: true },
     { title: '当前节点', dataIndex: 'nodeName', hideInSearch: true },
-    { title: '发起人', dataIndex: 'starter', hideInSearch: true },
+    { title: '发起人', dataIndex: 'starter', hideInSearch: true, render: (_, r) => resolveUserName(r.starter) },
     { title: '办理时间', dataIndex: 'operateTime', valueType: 'dateTime', hideInSearch: true },
     {
       title: '状态',
