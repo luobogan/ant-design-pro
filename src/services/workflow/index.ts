@@ -574,6 +574,8 @@ export interface SimulateResult {
   path?: SimulatePathStep[];
   nodes?: SimulateNodeResult[];
   summary?: string;
+  /** 可读流转时间线（带时间戳的叙述式走查日志，逐事件一行） */
+  logLines?: string[];
 }
 
 /** 流程模拟运行：带模拟表单数据走查节点/网关条件，回写节点测试状态 */

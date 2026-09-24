@@ -15,6 +15,7 @@ import {
   SimulateResult,
   WfProcessNode,
 } from '@/services/workflow';
+import WfLogTimeline from '@/pages/FormMode/components/WfLogTimeline';
 
 export interface SimulateModalProps {
   open: boolean;
@@ -152,6 +153,13 @@ const SimulateModal: React.FC<SimulateModalProps> = ({
             showIcon
             message={result.summary}
           />
+          {result.logLines && result.logLines.length > 0 && (
+            <WfLogTimeline
+              log={result.logLines}
+              title="可读流转时间线（按时间顺序）"
+              maxHeight={360}
+            />
+          )}
           <Card size="small" title="流转路径">
             <div style={{ lineHeight: '22px', fontSize: 13 }}>{pathText || '（无路径）'}</div>
           </Card>

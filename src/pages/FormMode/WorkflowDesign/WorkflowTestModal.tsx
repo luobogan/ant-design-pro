@@ -24,6 +24,7 @@ import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
 import { dataApi } from '@/services/formmode';
 import type { FieldDefinition } from '@/services/formmode';
 import FieldRenderer from '@/pages/FormMode/FormView/components/FieldRenderer';
+import WfLogTimeline from '@/pages/FormMode/components/WfLogTimeline';
 
 export interface WorkflowTestModalProps {
   open: boolean;
@@ -386,20 +387,12 @@ const WorkflowTestModal: React.FC<WorkflowTestModalProps> = ({
                     ]}
                   />
                 </Card>
-                <Card size="small" title="测试日志">
-                  <div
-                    style={{
-                      maxHeight: 220,
-                      overflow: 'auto',
-                      fontSize: 12,
-                      lineHeight: '20px',
-                      whiteSpace: 'pre-wrap',
-                      fontFamily: 'monospace',
-                    }}
-                  >
-                    {(result.log || []).join('\n')}
-                  </div>
-                </Card>
+                <WfLogTimeline
+                  log={result.log}
+                  title="测试日志"
+                  maxHeight={220}
+                  emptyText="（无日志）"
+                />
               </Space>
             ) : (
               <div style={{ color: '#999', fontSize: 12 }}>

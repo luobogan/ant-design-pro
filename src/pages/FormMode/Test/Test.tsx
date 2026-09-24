@@ -22,6 +22,7 @@ import {
 } from 'antd';
 
 import TestFlowPicker from '@/pages/FormMode/Test/components/TestFlowPicker';
+import WfLogTimeline from '@/pages/FormMode/components/WfLogTimeline';
 import StartFlow from '@/pages/Workflow/Create/Start';
 import {
   approveWorkflowTest,
@@ -1194,21 +1195,12 @@ const WorkflowTestPage: React.FC = () => {
               />
             )}
           </Card>
-          <Card size="small" title="测试日志" style={{ marginBottom: 12 }}>
-            <pre
-              style={{
-                maxHeight: 240,
-                overflow: 'auto',
-                margin: 0,
-                fontSize: 12,
-                background: '#fafafa',
-                padding: 8,
-                borderRadius: 4,
-              }}
-            >
-              {result?.log?.join('\n') || '（无日志）'}
-            </pre>
-          </Card>
+          <WfLogTimeline
+            log={result?.log}
+            title="测试日志"
+            maxHeight={240}
+            emptyText="（无日志）"
+          />
           <Card size="small" title="测试历史">
             <Table
               size="small"
