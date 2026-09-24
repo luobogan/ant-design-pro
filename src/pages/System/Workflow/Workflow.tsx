@@ -1,9 +1,9 @@
-import { PlusOutlined } from '@ant-design/icons';
+import { PlusOutlined, UploadOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { history, useRequest } from '@umijs/max';
-import { Button, message, Modal, Tag } from 'antd';
-import React, { useMemo, useState } from 'react';
+import { Button, message, Modal, Tag, Upload, Input, Space } from 'antd';
+import React, { useMemo, useState, useRef } from 'react';
 import * as workflowApi from '@/services/workflow';
 import { workflowBrowserApi, FormFieldOption } from '@/services/workflow';
 import { usePageButtons } from '@/hooks/usePageButtons';
@@ -46,15 +46,31 @@ const Workflow: React.FC = () => {
   const [viewVisible, setViewVisible] = useState(false);
   const [current, setCurrent] = useState<WorkflowDef | null>(null);
 
+  // 导入 BPMN（调用后端 /definition/import，新建草稿定义并自动配置节点/操作者/权限）
+  const [importOpen, setImportOpen] = useState(false);
+  const [importName, setImportName] = useState('');
+  const [importFileName, setImportFileName] = useState('');
+  const [importText, setImportText] = useState('');
+  const [importing, setImporting] = useState(false);
+  // 表格实例引用：导入成功后重置搜索条件（避免客户端 search 过滤把新行挡掉）
+  const actionRef = useRef<any>(null);
+
   // 列表：全局拦截器返回 ApiResponse 包装体，用 data?.data 取数组（兼容后端直接返回数组的情况）
   const { data, loading, refresh } = useRequest(() => workflowApi.listDefinitions());
   const allDefs: WorkflowDef[] = Array.isArray(data) ? data : (data?.data || []);
   // 每个流程（同 procKey 版本组）仅展示「当前激活版本」那一行：
-  // 锚点 = activeVersionId 非空则取其值，否则为自身 id；仅保留 id 与锚点相等的记录。
+  // 锚点 = activeVersionId 非空且非 -1 则取其值，否则为自身 id；仅保留 id 与锚点相等的记录。
+  // ⚠️ 不要对 activeVersionId 做 Number() 转换：19 位雪花 ID 经 JSON 可能为字符串，
+  //    Number() 会丢失精度导致锚点与原 id 比对不相等，把已激活的发布/测试行整行丢弃。
+  // ⚠️ activeVersionId 可能为 -1：导入草稿时 Java 侧 setActiveVersionId(null)，但 MyBatis-Plus 插入策略
+  //    跳过 null 字段，落到库默认值 -1；此时 -1 并非有效锚点，应视为「单版本流程、锚点=自身」，
+  //    否则导入的草稿会被这条过滤规则整行丢弃，列表看不到（见 /definition/import 导入链路）。
   const defs = useMemo<WorkflowDef[]>(() => {
     const map = new Map<string, WorkflowDef>();
     for (const d of allDefs) {
-      const anchor = d.activeVersionId != null ? d.activeVersionId : d.id;
+      const av = d.activeVersionId;
+      const isSelfAnchor = av == null || av === -1 || av === '-1';
+      const anchor = isSelfAnchor ? d.id : av;
       if (String(anchor) === String(d.id)) {
         map.set(String(anchor), d);
       }
@@ -222,6 +238,44 @@ const Workflow: React.FC = () => {
     });
   };
 
+  // 选择本地 BPMN 文件：读文本存起来（阻止自动上传，由「导入」按钮统一提交）
+  const handleImportFile = (file: any) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImportText(String(reader.result));
+      setImportFileName(file.name);
+    };
+    reader.readAsText(file);
+    return false;
+  };
+
+  const handleImportOk = async () => {
+    if (!importText) {
+      message.warning('请先选择 BPMN 文件');
+      return;
+    }
+    setImporting(true);
+    try {
+      const res = await workflowApi.importDefinition({ name: importName, bpmnXml: importText });
+      if (res?.success) {
+        message.success('导入成功' + (res.data ? `（defId=${res.data}）` : ''));
+        setImportOpen(false);
+        setImportName('');
+        setImportText('');
+        setImportFileName('');
+        refresh();
+        // 重置表格搜索条件，避免"流程名称/流程Key"关键字过滤把新导入的行挡在客户端之外
+        setTimeout(() => actionRef.current?.reset?.(), 0);
+      } else {
+        message.error('导入失败：' + (res?.msg || '未知错误'));
+      }
+    } catch {
+      message.error('导入失败');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleSaveAsNewVersion = async (id: number) => {
     try {
       await workflowApi.saveAsNewVersion(id);
@@ -239,6 +293,7 @@ const Workflow: React.FC = () => {
       subTitle="流程定义管理（对接 blade-workflow：新建 / 部署 / 启用 / 停用 / 字段权限）"
     >
       <ProTable
+        actionRef={actionRef}
         columns={columns}
         dataSource={defs}
         loading={loading}
@@ -258,6 +313,13 @@ const Workflow: React.FC = () => {
                 </Button>,
               ]
             : []),
+          <Button
+            key="import"
+            icon={<UploadOutlined />}
+            onClick={() => setImportOpen(true)}
+          >
+            导入
+          </Button>,
           <Button key="refresh" onClick={refresh}>
             刷新
           </Button>,
@@ -333,6 +395,41 @@ const Workflow: React.FC = () => {
             </div>
           )}
         </div>
+      </Modal>
+
+      {/* 导入 BPMN：选择本地 .bpmn/.xml 文件 → 调后端 /definition/import 新建草稿定义并自动配置 */}
+      <Modal
+        title="导入流程 (BPMN)"
+        open={importOpen}
+        onOk={handleImportOk}
+        onCancel={() => setImportOpen(false)}
+        confirmLoading={importing}
+        okText="导入"
+        destroyOnClose
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <Input
+            placeholder="流程名称（可空，缺省取 BPMN 的 process id）"
+            value={importName}
+            onChange={(e) => setImportName(e.target.value)}
+            allowClear
+          />
+          <Upload
+            accept=".xml,.bpmn,.bpmn20.xml"
+            maxCount={1}
+            beforeUpload={handleImportFile}
+            fileList={importFileName ? [{ uid: '-1', name: importFileName, status: 'done' }] : []}
+            onRemove={() => {
+              setImportText('');
+              setImportFileName('');
+            }}
+          >
+            <Button icon={<UploadOutlined />}>选择 BPMN 文件</Button>
+          </Upload>
+          <div style={{ color: '#999', fontSize: 12 }}>
+            导入将新建一个版本=1 的草稿流程，并自动解析 wf: 扩展配置节点操作者 / 操作菜单 / 字段权限。
+          </div>
+        </Space>
       </Modal>
     </PageContainer>
   );

@@ -322,6 +322,20 @@ export async function updateDefinition(id: number, dto: any) {
   });
 }
 
+/**
+ * 从 BPMN XML 导入并自动配置流程（新建版本=1 的草稿定义，解析 wf: 扩展自动创建节点/操作者/操作菜单/字段权限）。
+ * 对应后端 POST /definition/import。
+ * ⚠️ bpmnXml 按 base64 编码发送，规避 SpringBlade XSS 过滤器把 <bpmn:*> 标签整段删掉（与 saveBpmn 一致）；
+ *    后端 importNewDefinition 会对「不含 < 的串」做 base64 解码。
+ */
+export async function importDefinition(dto: { name?: string; bpmnXml: string }) {
+  const encoded = utf8ToBase64(dto.bpmnXml);
+  return request<ApiResponse<string>>(`${WORKFLOW}/definition/import`, {
+    method: 'POST',
+    data: { name: dto.name || '', bpmnXml: encoded },
+  });
+}
+
 export async function deployDefinition(id: number) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/deploy`, { method: 'POST' });
 }
