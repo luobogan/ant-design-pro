@@ -78,6 +78,12 @@ const translations: Record<string, string> = {
   'Parallel Gateway': '并行网关',
   'Inclusive Gateway': '包容网关',
   'Complex Gateway': '复杂网关',
+  // ⚠️ 事件网关：bpmn-js 实际请求的是 'Event-based gateway'（连字符 + 小写 gateway），
+  //    与旧词条 'Event Based Gateway'（空格）归一化后仍不一致（`-` ≠ 空格），导致
+  //    「更改元素」替换菜单里唯独它显示英文。这里把连字符/空格、gateway/Gateway 各拼法都登记，
+  //    确保命中（lowerIndex 只保留每个键首次出现，多写几种拼写不影响其它词条）。
+  'Event-based gateway': '事件网关',
+  'Event-based Gateway': '事件网关',
   'Event Based Gateway': '事件网关',
   Participant: '参与者',
   Pool: '池',
@@ -88,6 +94,80 @@ const translations: Record<string, string> = {
   'Sequence Flow': '顺序流',
   'Message Flow': '消息流',
   Association: '关联',
+
+  // ───────── 替换菜单（ReplaceOptions）事件/池类标签 ─────────
+  // ⚠️ 这些是 bpmn-js「更改元素」菜单里的事件类选项。bpmn-js 的 label 采用「空格 + 小写」写法
+  //    （如 'Message start event'），与本表此前的 'Start Event' 风格不同；虽 lowerIndex 大小写不敏感，
+  //    但为便于比对，这里直接采用 bpmn-js 的原始拼写。括号 (non-interrupting) 统一译作「（非中断）」。
+  // 消息事件
+  'Message start event': '消息开始事件',
+  'Message start event (non-interrupting)': '消息开始事件（非中断）',
+  'Message intermediate catch event': '消息中间捕获事件',
+  'Message intermediate throw event': '消息中间抛出事件',
+  'Message boundary event': '消息边界事件',
+  'Message boundary event (non-interrupting)': '消息边界事件（非中断）',
+  'Message end event': '消息结束事件',
+  // 定时器事件
+  'Timer start event': '定时器开始事件',
+  'Timer start event (non-interrupting)': '定时器开始事件（非中断）',
+  'Timer intermediate catch event': '定时器中间捕获事件',
+  'Timer boundary event': '定时器边界事件',
+  'Timer boundary event (non-interrupting)': '定时器边界事件（非中断）',
+  // 条件事件
+  'Conditional start event': '条件开始事件',
+  'Conditional start event (non-interrupting)': '条件开始事件（非中断）',
+  'Conditional intermediate catch event': '条件中间捕获事件',
+  'Conditional boundary event': '条件边界事件',
+  'Conditional boundary event (non-interrupting)': '条件边界事件（非中断）',
+  // 信号事件
+  'Signal start event': '信号开始事件',
+  'Signal start event (non-interrupting)': '信号开始事件（非中断）',
+  'Signal intermediate catch event': '信号中间捕获事件',
+  'Signal intermediate throw event': '信号中间抛出事件',
+  'Signal boundary event': '信号边界事件',
+  'Signal boundary event (non-interrupting)': '信号边界事件（非中断）',
+  'Signal end event': '信号结束事件',
+  // 错误事件
+  'Error start event': '错误开始事件',
+  'Error boundary event': '错误边界事件',
+  'Error end event': '错误结束事件',
+  // 升级事件
+  'Escalation start event': '升级开始事件',
+  'Escalation start event (non-interrupting)': '升级开始事件（非中断）',
+  'Escalation intermediate throw event': '升级中间抛出事件',
+  'Escalation boundary event': '升级边界事件',
+  'Escalation boundary event (non-interrupting)': '升级边界事件（非中断）',
+  'Escalation end event': '升级结束事件',
+  // 补偿事件
+  'Compensation start event': '补偿开始事件',
+  'Compensation intermediate throw event': '补偿中间抛出事件',
+  'Compensation boundary event': '补偿边界事件',
+  'Compensation end event': '补偿结束事件',
+  // 终止 / 取消 / 链接事件
+  'Terminate end event': '终止结束事件',
+  'Cancel boundary event': '取消边界事件',
+  'Cancel end event': '取消结束事件',
+  'Link intermediate catch event': '链接中间捕获事件',
+  'Link intermediate throw event': '链接中间抛出事件',
+  // 连接线 / 池
+  'Data object reference': '数据对象引用',
+  'Default flow': '默认流',
+  'Conditional flow': '条件流',
+  'Expanded pool/participant': '展开的池/参与者',
+  // ⚠️ 该条 label 在 bpmn-js 里是「函数式」的（label: function(element){...}），
+  //    会按是否有子元素拼接后缀，故两种形态都要登记。
+  'Empty pool/participant': '空池/参与者',
+  'Empty pool/participant (removes content)': '空池/参与者（移除内容）',
+
+  // ───────── 替换菜单头部开关按钮（PopupMenu header entries）─────────
+  // 选中任务/活动时，「更改元素」弹窗右上角会显示这三个循环特性图标，
+  // 其 title 即悬停提示；另有数据对象/参与者/边界事件对应的开关。
+  'Parallel multi-instance': '并行多实例',
+  'Sequential multi-instance': '串行多实例',
+  'Loop': '循环',
+  'Participant multiplicity': '参与者多重性',
+  'Ad-hoc': '即席',
+  'Toggle non-interrupting': '切换非中断',
 
   // ───────── 通用操作 ─────────
   Undo: '撤销',
@@ -646,18 +726,32 @@ const translations: Record<string, string> = {
   'After each: {type}': '每次之后：{type}',
 };
 
-/** 小写索引，用于大小写/首尾空格不敏感的兜底匹配（bpmn-js 部分词条带尾部空格） */
+/**
+ * 归一化键：去首尾空格、转小写、把连字符/下划线/斜杠视作空格、压缩多余空格。
+ * 目的：让 bpmn-js 的多种拼写都能命中同一词条，例如
+ *   'Event-based gateway' ↔ 'Event Based Gateway'、'Parallel gateway' ↔ 'Parallel Gateway'，
+ *   无需逐条补译。bpmn-js 文案中的 '-'/'_'/'/' 均为分隔符，归一化不会改变语义。
+ */
+function normKey(s: string): string {
+  return (s ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[-_/]+/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+/** 归一化索引，用于大小写/空格/连字符/下划线/斜杠不敏感的兜底匹配 */
 const lowerIndex: Record<string, string> = {};
 Object.keys(translations).forEach((key) => {
-  const lower = key.trim().toLowerCase();
-  if (!(lower in lowerIndex)) {
-    lowerIndex[lower] = translations[key];
+  const n = normKey(key);
+  if (!(n in lowerIndex)) {
+    lowerIndex[n] = translations[key];
   }
 });
 
 /**
  * 自定义翻译函数：
- * 1) 先精确匹配，再按「去空格+小写」兜底匹配，都没命中则原样返回英文；
+ * 1) 先精确匹配，再按「归一化键」兜底匹配，都没命中则原样返回英文；
  * 2) 替换 {xxx} 占位符为实际值（占位符的取值若也在词条表中则一并翻译）。
  */
 export function customTranslate(
@@ -665,14 +759,14 @@ export function customTranslate(
   replacements?: Record<string, any>,
 ): string {
   const t = (template ?? '').trim();
-  let result: string = translations[t] || lowerIndex[t.toLowerCase()] || template;
+  let result: string = translations[t] || lowerIndex[normKey(t)] || template;
 
   if (replacements) {
     result = result.replace(/{([^}]+)}/g, (_match: string, key: string) => {
       const value = replacements[key];
       if (value === undefined || value === null) return `{${key}}`;
       const strValue = String(value);
-      return translations[strValue] || lowerIndex[strValue.toLowerCase()] || strValue;
+      return translations[strValue] || lowerIndex[normKey(strValue)] || strValue;
     });
   }
 

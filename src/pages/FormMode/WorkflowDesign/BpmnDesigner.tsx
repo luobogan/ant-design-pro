@@ -127,6 +127,51 @@ const NODE_TYPES = [
 const isNodeElement = (el: any): boolean =>
   !!el && NODE_TYPES.indexOf(el?.businessObject?.$type) >= 0;
 
+/**
+ * 网关中文名规整：画布直接渲染 BPMN 元素的 `name`，而导入的 BPMN 网关常带英文名
+ * （如 "Exclusive Gateway"）或干脆无 name（bpmn-js 则不显示文字）。
+ * bpmnZh 只翻译 bpmn-js 的菜单/面板文案，不翻译元素名，故这里在 importXML 前把网关
+ * 名规整为中文类型名（排他网关 / 并行网关 / 包容网关 / 事件网关 / 复杂网关），
+ * 让画布标签与节点信息都显示中文。
+ * 仅改「待导入的 XML 字符串」，不触发 commandStack / 自动保存，无副作用、无循环。
+ */
+const GATEWAY_ZH: Record<string, string> = {
+  ExclusiveGateway: '排他网关',
+  ParallelGateway: '并行网关',
+  InclusiveGateway: '包容网关',
+  EventBasedGateway: '事件网关',
+  ComplexGateway: '复杂网关',
+};
+const GATEWAY_EN_ZH: Record<string, string> = {
+  'Exclusive Gateway': '排他网关',
+  'Parallel Gateway': '并行网关',
+  'Inclusive Gateway': '包容网关',
+  'Event Based Gateway': '事件网关',
+  'Complex Gateway': '复杂网关',
+};
+const normalizeGatewayNamesXml = (xml: string): string => {
+  if (typeof xml !== 'string' || xml.length === 0) return xml;
+  return xml.replace(
+    /<(\w*:)?(ExclusiveGateway|ParallelGateway|InclusiveGateway|EventBasedGateway|ComplexGateway)\b([^>]*)>/g,
+    (full, ns: string, type: string, attrs: string) => {
+      const zh = GATEWAY_ZH[type] || '网关';
+      const nameMatch = attrs.match(/name\s*=\s*"([^"]*)"/);
+      const cur = nameMatch ? nameMatch[1] : null;
+      const needFix = !cur || !cur.trim() || GATEWAY_EN_ZH[cur.trim()] != null;
+      if (!needFix) return full;
+      if (cur != null) {
+        // 原 name 为英文名/空：替换其值
+        return full.replace(/name\s*=\s*"[^"]*"/, `name="${zh}"`);
+      }
+      // 无 name：在标签内补 name（兼容自闭合 />）
+      if (attrs.endsWith('/')) {
+        return `<${ns || ''}${type}${attrs.slice(0, -1)} name="${zh}"/>`;
+      }
+      return `<${ns || ''}${type}${attrs} name="${zh}">`;
+    },
+  );
+};
+
 /** 展示态（只读）需拦截的编辑类命令：命中只读态即返回 false 阻止执行，但保留原生选中
  *  （selection 不在此列）。直接在 eventBus 上注册 commandStack.<action>.canExecute 监听，
  *  无需引入 diagram-js 的 RuleProvider（其为 bpmn-js 的传递依赖，pnpm 下不可由应用代码直接引用）。 */
@@ -473,9 +518,11 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
     };
     eventBus.on('commandStack.changed', scheduleAutoSave);
 
-    const xml = hasDisplayableContent(bpmnXml)
-      ? (bpmnXml as string)
-      : BLANK_XML(procKey || 'Process_1', name || '流程');
+    const xml = normalizeGatewayNamesXml(
+      hasDisplayableContent(bpmnXml)
+        ? (bpmnXml as string)
+        : BLANK_XML(procKey || 'Process_1', name || '流程'),
+    );
     // 画布入参留痕：出现空图时便于在控制台直接核对 XML（procKey 非法是常见原因）
     (window as any).__wfDebug = { defId, procKey, name, xml };
     modeler
@@ -537,9 +584,11 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
     }
     const m = modelerRef.current;
     if (!m) return;
-    const xml = hasDisplayableContent(bpmnXml)
-      ? (bpmnXml as string)
-      : BLANK_XML(procKey || 'Process_1', name || '流程');
+    const xml = normalizeGatewayNamesXml(
+      hasDisplayableContent(bpmnXml)
+        ? (bpmnXml as string)
+        : BLANK_XML(procKey || 'Process_1', name || '流程'),
+    );
     m.importXML(xml)
       .then(() => renderOverlaysRef.current())
       .catch((e: any) => message.error('画布重载失败：' + (e?.message || e)));
@@ -1272,12 +1321,12 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
   };
 
   const handleImport = async () => {
-    if (!modelerRef.current) return;
-    try {
-      await modelerRef.current.importXML(importText);
-      renderOverlaysRef.current();
-      setImportOpen(false);
-      message.success('导入成功');
+  if (!modelerRef.current) return;
+  try {
+    await modelerRef.current.importXML(normalizeGatewayNamesXml(importText));
+    renderOverlaysRef.current();
+    setImportOpen(false);
+    message.success('导入成功');
     } catch (e: any) {
       message.error('BPMN 非法：' + (e?.message || e));
     }
@@ -1384,7 +1433,7 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
     const reader = new FileReader();
     reader.onload = () => {
       modelerRef.current
-        .importXML(String(reader.result))
+        .importXML(normalizeGatewayNamesXml(String(reader.result)))
         .then(() => {
           renderOverlaysRef.current();
           message.success(`已打开文件：${file.name}`);
