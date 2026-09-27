@@ -62,6 +62,14 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({
 }) => {
   const { initialState, setInitialState } = useModel('@@initialState');
 
+  // 顶栏待办角标计数。
+  // 注意：hooks 必须无条件调用，不能放在下面的早退分支（return <Spin/>）之后！
+  // 否则 initialState / currentUser 由「有值」变成「无值」时（如退出登录、拉取失败），
+  // 后续渲染调用的 hooks 会比上一次少，React 直接抛
+  // "Rendered fewer hooks than expected"。
+  const [todoCount, setTodoCount] = useState(0);
+  const currentUser = initialState?.currentUser;
+
   const onMenuClick: MenuProps['onClick'] = (event) => {
     const { key } = event;
     if (key === 'logout') {
@@ -78,22 +86,12 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({
     history.push(`/account/${key}`);
   };
 
-  if (!initialState) {
-    return <Spin size="small" />;
-  }
-
-  const { currentUser } = initialState;
-
-  if (!currentUser) {
-    return <Spin size="small" />;
-  }
-
-  // 顶栏待办角标：拉当前用户待办计数
-  const [todoCount, setTodoCount] = useState(0);
   useEffect(() => {
     if (!currentUser?.userid) return;
+    let alive = true;
     monitorCount(currentUser.userid)
       .then((res: any) => {
+        if (!alive) return;
         const m = pickPayload(res) || {};
         const c =
           typeof m.todo === 'number'
@@ -101,8 +99,17 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({
             : Object.values(m).reduce((a: number, b: any) => a + (Number(b) || 0), 0);
         setTodoCount(c);
       })
-      .catch(() => setTodoCount(0));
+      .catch(() => {
+        if (alive) setTodoCount(0);
+      });
+    return () => {
+      alive = false;
+    };
   }, [currentUser?.userid]);
+
+  if (!initialState || !currentUser) {
+    return <Spin size="small" />;
+  }
 
   return (
     <Badge count={todoCount} size="small" offset={[-2, 2]}>

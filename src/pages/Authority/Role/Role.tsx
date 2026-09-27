@@ -277,11 +277,26 @@ const RolePage: React.FC = () => {
     }
   };
 
+  // 拉全量用户（分页累加）。注意：后端 /user/list 走 SpringBlade 的 Query，
+  // 默认只返回第一页（size≈10）。若不累加，库里靠后的用户（如 dd123）不会进入
+  // allUsers，前端搜索框就搜不到。这里循环翻页拉全量。
+  const loadAllUsers = async (): Promise<User[]> => {
+    const list: User[] = [];
+    for (let current = 1; current <= 200; current += 1) {
+      const response: any = await userApi.list({ current, size: 1000 });
+      const records: any[] = response?.data?.records || [];
+      if (!records.length) break;
+      list.push(...records);
+      const total = Number(response?.data?.total ?? list.length);
+      if (list.length >= total) break;
+    }
+    return list;
+  };
+
   // 打开添加用户弹窗
   const handleOpenAddUserModal = async () => {
     try {
-      const response = await userApi.list({});
-      const users = Array.isArray(response) ? response : response?.data?.records || [];
+      const users = await loadAllUsers();
       const roleUserIds = currentRoleUsers.map((u) => u.id);
       const availableUsers = users.filter((u: User) => !roleUserIds.includes(u.id));
       setAllUsers(availableUsers);
