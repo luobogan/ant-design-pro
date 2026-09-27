@@ -32,7 +32,7 @@ import {
 } from '@/utils/authority';
 import { clearFormData, getSavedFormData } from '@/requestErrorConfig';
 import Crypto from '@/utils/crypto';
-import { getQueryString, getTopUrl, pickPayload, validateNull } from '@/utils/utils';
+import { getQueryString, getSafeRedirectUrl, getTopUrl, pickPayload, validateNull } from '@/utils/utils';
 import { dynamicButtons, dynamicRoutes } from '@/services/system/menu';
 // 左侧 AI 流程引擎视觉图形（SVG + CSS 动画）
 import AiFlowVisual from './components/AiFlowVisual';
@@ -297,9 +297,13 @@ const Login: React.FC = () => {
         }
 
         message.success('登录成功');
-        console.log('准备跳转到 /dashboard/workplace');
+        // 登录成功后回到「被拦截前的页面」：URL 形如 /user/login?redirect=%2Fsystem%2Fworkflow
+        // 做同源校验（防开放重定向），无 redirect 或非法时回落到工作台。
+        const redirectParam = getQueryString('redirect');
+        const redirectUrl = getSafeRedirectUrl(redirectParam, '/dashboard/workplace');
+        console.log('准备跳转到', redirectUrl, '（redirect 参数：', redirectParam, '）');
         // 使用 window.location.href 强制刷新页面,触发 getInitialState 重新加载用户信息
-        window.location.href = '/dashboard/workplace';
+        window.location.href = redirectUrl;
       } else {
         setLoginError(data.msg || '登录失败,请检查您的凭据');
         fetchCaptcha();

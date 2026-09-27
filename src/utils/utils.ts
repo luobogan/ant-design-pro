@@ -11,6 +11,46 @@ export const getQueryString = (name: string): string => {
 };
 
 /**
+ * 登录成功后的跳转地址（防开放重定向）。
+ *
+ * 只接受**同源相对路径**：
+ *  - 必须以 `/` 开头，且不能以 `//` 开头（协议相对 URL，如 //evil.com）
+ *  - 解析后的 origin 必须与当前站点一致
+ *  - 不允许跳回登录页自身（否则登录成功又回登录页，形成死循环）
+ * 兜底返回 fallback。
+ *
+ * @param redirect URL 上的 redirect 参数值（未解码亦可）
+ * @param fallback 非法/缺省时的兜底地址
+ */
+export const getSafeRedirectUrl = (
+  redirect: string | null | undefined,
+  fallback = '/',
+  loginPath = '/user/login',
+): string => {
+  if (!redirect) return fallback;
+  // 兼容被 encodeURIComponent 过的值（?redirect=%2Fsystem%2Fworkflow）
+  let raw = redirect;
+  try {
+    raw = decodeURIComponent(raw);
+  } catch {
+    /* 非法编码时按原值处理，后续规则会兜底 */
+  }
+  if (!raw.startsWith('/') || raw.startsWith('//')) return fallback;
+  try {
+    const parsed = new URL(raw, window.location.origin);
+    if (parsed.origin !== window.location.origin) return fallback;
+    const target = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    if (!target.startsWith('/')) return fallback;
+    if (target === loginPath || target.startsWith(`${loginPath}/`) || target.startsWith(`${loginPath}?`)) {
+      return fallback;
+    }
+    return target;
+  } catch {
+    return fallback;
+  }
+};
+
+/**
  * 获取顶级URL
  * @returns 顶级URL
  */

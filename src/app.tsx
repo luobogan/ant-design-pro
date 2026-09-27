@@ -34,6 +34,23 @@ const isDev = process.env.NODE_ENV === 'development';
 const isDevOrTest = isDev || process.env.CI;
 const loginPath = '/user/login';
 
+/**
+ * 跳登录页并**保留来源地址**（?redirect=...），登录后才能回到原页面。
+ * 已有 redirect 参数时原样保留，避免二次编码。
+ */
+const pushToLoginWithRedirect = () => {
+  const { pathname, search } = window.location;
+  if (pathname === loginPath) {
+    history.push(loginPath + search);
+    return;
+  }
+  const existing = new URLSearchParams(search).get('redirect');
+  const nextSearch = existing
+    ? search
+    : `?redirect=${encodeURIComponent(`${pathname}${search}`)}`;
+  history.push(`${loginPath}${nextSearch}`);
+};
+
 interface MenuItem {
   url: string;
   menuName: string;
@@ -334,24 +351,16 @@ export function render(oldRender: () => void) {
       extraRoutes = formatRoutes(pickPayload(menuData));
       const urlParams = new URL(window.location.href).searchParams;
       const redirect = urlParams.get('redirect');
-      if (redirect) {
+      // ⚠️ 只有「确实拿到了菜单（=已登录）」才自动跳回 redirect。
+      // 未登录时后端返回空列表（不报错，走的是 try 分支），若此时直接 push(redirect)，
+      // 会被 onPageChange 以「无 currentUser」打回登录页，而打回时丢了 redirect 参数
+      // → 登录后只能去默认首页，回不到原页面（/user/login?redirect=xxx 失效的根因）。
+      if (redirect && extraRoutes.length > 0) {
         history.push(redirect);
       }
       oldRender();
     } catch (_e) {
-      const { search, pathname } = window.location;
-      const urlParams = new URL(window.location.href).searchParams;
-      const redirect = urlParams.get('redirect');
-      if (window.location.pathname !== loginPath && !redirect) {
-        history.replace({
-          pathname: loginPath,
-          search: stringify({
-            redirect: pathname + search,
-          }),
-        });
-      } else {
-        history.push(loginPath + window.location.search);
-      }
+      pushToLoginWithRedirect();
       oldRender();
     }
   }, 500);
@@ -373,7 +382,8 @@ export async function getInitialState(): Promise<{
       return pickPayload(res);
     } catch (_error) {
       console.error('获取用户信息失败:', _error);
-      history.push(loginPath);
+      // 保留来源地址，登录后跳回（而非落到默认首页）
+      pushToLoginWithRedirect();
     }
     return undefined;
   };
@@ -467,7 +477,8 @@ export const layout: RunTimeLayoutConfig = ({
     onPageChange: () => {
       const { location } = history;
       if (!initialState?.currentUser && location.pathname !== loginPath) {
-        history.push(loginPath);
+        // 带上 ?redirect=，登录后回到被拦截的页面（此前直接 push(loginPath) 把参数丢了）
+        pushToLoginWithRedirect();
       }
     },
     bgLayoutImgList: [
