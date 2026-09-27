@@ -27,6 +27,8 @@ interface WorkflowDef {
   description?: string;
   sortOrder?: number;
   activeVersionId?: number | string;
+  /** 创建时间（实体继承 TenantEntity 自动带出；用于列表按时间倒序） */
+  createTime?: string;
 }
 
 const STATUS_TAG = (s?: number) => {
@@ -75,7 +77,12 @@ const Workflow: React.FC = () => {
         map.set(String(anchor), d);
       }
     }
-    return Array.from(map.values());
+    // 按创建时间倒序（最新在前）；无创建时间（异常数据）沉底，保持稳定
+    return Array.from(map.values()).sort((a, b) => {
+      const ta = a.createTime ? new Date(a.createTime).getTime() : 0;
+      const tb = b.createTime ? new Date(b.createTime).getTime() : 0;
+      return tb - ta;
+    });
   }, [allDefs]);
   const { buttons: pageButtons } = usePageButtons();
   // 按钮 code 门禁：与后端 workflow 角色门禁口径一致（菜单/按钮由 blade_role_menu 按角色授权）

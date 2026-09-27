@@ -949,6 +949,38 @@ export const browserApi = {
     },
 };
 
+/**
+ * 泛微 ecology 表单导入 API
+ * 对应后端 EcologyFormImportController（/form-definition/ecology）
+ */
+export const ecologyImportApi = {
+  /**
+   * 列出 ecology 中可导入的自定义表单
+   */
+  listForms: async () => {
+    const response = await request<BladeResponse<Array<Record<string, any>>>>(
+      `${FORM_DEFINITION_BASE_URL}/ecology/forms`,
+      { method: 'GET' },
+    );
+    return response.data;
+  },
+
+  /**
+   * 导入指定 ecology 表单（按 ecology 表单ID）
+   * @param ecologyFormIds ecology 表单ID列表
+   */
+  importForms: async (ecologyFormIds: number[]) => {
+    const response = await request<BladeResponse<Array<Record<string, any>>>>(
+      `${FORM_DEFINITION_BASE_URL}/ecology/import`,
+      {
+        method: 'POST',
+        data: { ecologyFormIds },
+      },
+    );
+    return response.data;
+  },
+};
+
 // 导出所有 API
 export {
   workflowBillApi as formApi,

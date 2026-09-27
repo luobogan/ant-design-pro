@@ -1,4 +1,4 @@
-import { PlusOutlined, ReloadOutlined, DeleteOutlined, EditOutlined, EyeOutlined, SettingOutlined, SearchOutlined, TableOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, DeleteOutlined, EditOutlined, EyeOutlined, SettingOutlined, SearchOutlined, TableOutlined, ImportOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { useNavigate } from '@umijs/max';
 import { usePageButtons } from '@/hooks/usePageButtons';
@@ -20,7 +20,7 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import React, { useEffect, useState } from 'react';
-import { formApi } from '@/services/formmode';
+import { formApi, ecologyImportApi } from '@/services/formmode';
 import type { WorkflowBill, PageParams } from '@/services/formmode/typings';
 
 const { Search } = Input;
@@ -31,6 +31,12 @@ const { Search } = Input;
 const FormManageList: React.FC = () => {
   const navigate = useNavigate();
   const { buttons } = usePageButtons();
+
+  // 导入弹窗相关状态
+  const [importVisible, setImportVisible] = useState(false);
+  const [ecologyForms, setEcologyForms] = useState<any[]>([]);
+  const [ecologyLoading, setEcologyLoading] = useState(false);
+  const [ecologySelectedKeys, setEcologySelectedKeys] = useState<React.Key[]>([]);
 
   const [searchForm] = Form.useForm();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -273,6 +279,62 @@ const FormManageList: React.FC = () => {
     }
   };
 
+  // 打开导入弹窗：拉取 ecology 可导入表单
+  const openImport = async () => {
+    setImportVisible(true);
+    setEcologySelectedKeys([]);
+    setEcologyLoading(true);
+    try {
+      const list = await ecologyImportApi.listForms();
+      setEcologyForms(list || []);
+    } catch (error) {
+      console.error('获取 ecology 表单列表失败:', error);
+      message.error('获取 ecology 表单列表失败');
+    } finally {
+      setEcologyLoading(false);
+    }
+  };
+
+  // 确认导入：调用后端批量导入
+  const handleImportConfirm = async () => {
+    if (ecologySelectedKeys.length === 0) {
+      message.warning('请选择要导入的表单');
+      return;
+    }
+    setEcologyLoading(true);
+    try {
+      const res = await ecologyImportApi.importForms(ecologySelectedKeys as number[]);
+      const imported = res || [];
+      const ok = imported.filter((r: any) => r.success).length;
+      const failList = imported.filter((r: any) => !r.success);
+      if (failList.length > 0) {
+        Modal.warning({
+          title: `${failList.length} 个表单导入失败`,
+          width: 560,
+          content: (
+            <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
+              {failList.map((item: any) => (
+                <li key={item.ecologyFormId}>
+                  {item.ecologyFormId}：{item.message}
+                </li>
+              ))}
+            </ul>
+          ),
+        });
+      }
+      if (ok > 0) {
+        message.success(`已导入 ${ok} 个表单`);
+      }
+      setImportVisible(false);
+      fetchData();
+    } catch (error) {
+      console.error('导入失败:', error);
+      message.error('导入失败');
+    } finally {
+      setEcologyLoading(false);
+    }
+  };
+
   // 表格列定义
   const columns: ColumnsType<FormDefinition> = [
     {
@@ -381,6 +443,11 @@ const FormManageList: React.FC = () => {
               新增
             </Button>
           )}
+          {hasPermission('formmanage_import') && (
+            <Button icon={<ImportOutlined />} onClick={openImport}>
+              导入
+            </Button>
+          )}
           <Button icon={<ReloadOutlined />} onClick={handleRefresh}>
             刷新
           </Button>
@@ -443,6 +510,35 @@ const FormManageList: React.FC = () => {
           }}
         />
       </Card>
+
+      {/* 从泛微 ecology 导入表单弹窗 */}
+      <Modal
+        title="从泛微 ecology 导入表单"
+        open={importVisible}
+        onCancel={() => setImportVisible(false)}
+        onOk={handleImportConfirm}
+        okText="确认导入"
+        confirmLoading={ecologyLoading}
+        width={960}
+        style={{ top: 40 }}
+        destroyOnClose
+      >
+        <Table
+          rowKey="ecologyFormId"
+          dataSource={ecologyForms}
+          loading={ecologyLoading}
+          size="small"
+          scroll={{ x: 'max-content' }}
+          pagination={{ pageSize: 8, showTotal: (total) => `共 ${total} 个` }}
+          rowSelection={{ selectedRowKeys: ecologySelectedKeys, onChange: setEcologySelectedKeys }}
+          columns={[
+            { title: '表单名称', dataIndex: 'formName', key: 'formName', width: 240, ellipsis: true },
+            { title: '源表名', dataIndex: 'tableName', key: 'tableName', width: 240, ellipsis: true },
+            { title: '字段数', dataIndex: 'fieldCount', key: 'fieldCount', width: 90 },
+            { title: '明细表数', dataIndex: 'detailCount', key: 'detailCount', width: 100 },
+          ]}
+        />
+      </Modal>
     </PageContainer>
   );
 };
