@@ -457,7 +457,7 @@ const FieldManageForm: React.FC<FieldManageFormProps> = ({
 
       <ProFormDependency name={['fieldHtmlType']}>
         {({ fieldHtmlType }) => {
-          if (fieldHtmlType === 3 || fieldHtmlType === 5 || fieldHtmlType === 6) {
+          if (fieldHtmlType === 3 || fieldHtmlType === 4 || fieldHtmlType === 5 || fieldHtmlType === 6) {
             return (
               <FieldOptionManager
                 fieldId={initialValues?.id}

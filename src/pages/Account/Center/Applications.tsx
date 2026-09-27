@@ -12,8 +12,8 @@ const Applications: React.FC = () => {
   const [applications, _setApplications] = useState<any[]>([
     {
       id: 1,
-      name: 'Sword Admin',
-      description: '企业级中后台管理系统',
+      name: '流程引擎系统',
+      description: 'AI 驱动的企业级流程中枢',
       version: '2.0.0',
       status: 'running',
       progress: 100,

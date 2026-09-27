@@ -64,6 +64,9 @@ import '@univerjs/sheets-ui/lib/index.css';
 import '@univerjs/sheets-formula-ui/lib/index.css';
 import '@univerjs/sheets-numfmt-ui/lib/index.css';
 
+// 字段类型编码 → 控件类型 / 中文标签的单一来源（浏览按钮 = fieldHtmlType 3）
+import { mapFieldToControlType, resolveBrowserType } from '@/components/FormMode/fieldTypes';
+
 /**
  * 将保存的单元格样式（IStyleData）应用到 range。
  * 逐个属性还原，单属性失败不影响整表加载。覆盖：字体(ff/fs/cl)、粗体/斜体/下划线/删除线(bl/it/ul/st)、
@@ -117,6 +120,8 @@ const FIELD_TYPE_META = {
   select:    { label: '下拉框',   category: '选择字段', validationType: 'list' },
   checkbox:  { label: '复选框',   category: '选择字段', validationType: 'checkbox' },
   radio:     { label: '单选框',   category: '选择字段', validationType: 'list' },
+  // 浏览按钮（人力资源 / 多人力资源 / 部门 / 角色 …）：细类由 fieldMeta.browserType 决定
+  browser:   { label: '浏览按钮', category: '选择字段', validationType: null },
   attachment:{ label: '附件',     category: '高级字段', validationType: null },
   richtext:  { label: '富文本',   category: '文本字段', validationType: 'textLength', maxLength: 65535 },
   group:     { label: '分组框',   category: '布局字段', validationType: null },
@@ -142,6 +147,12 @@ interface FieldMeta {
   cellType?: 'label' | 'field' | 'detailTableMarker';
   /** 所属明细表索引（>0）：明细字段归属的明细表序号；detailTableMarker 用它定位打开哪个明细画布 */
   detailTable?: number;
+  /** 后端字段类型（fieldHtmlType）：1文本 2多行文本 3浏览按钮 4选择框 5附件 6复选框 7特殊字段 8布局组件 */
+  fieldHtmlType?: number;
+  /** 后端字段细类（fieldType 数值）；fieldHtmlType=3 时即浏览按钮类型（1人力资源 / 161多人力资源 …） */
+  fieldTypeNum?: number;
+  /** 浏览按钮类型（browType，优先级高于 fieldTypeNum） */
+  browserType?: number;
   required: boolean;
   readonly: boolean;
   /** 字段属性：1=只读 2=可编辑 3=必填（参照 ecology fieldAttrMap） */
@@ -179,6 +190,7 @@ interface FieldMeta {
     select: '🔽',
     checkbox: '☑️',
     radio: '',
+    browser: '👤',
     attachment: '📎',
     richtext: '📝',
     group: '📦',
@@ -2274,23 +2286,18 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   }, [workbook, saveLayoutData]);
 
   const mapToFieldType = (field: any): FieldType => {
-    const htmlType = field.fieldHtmlType || 1;
-    const type = field.fieldType || 1;
-    // fieldhtmltype=1 文本字段：type=1 单行文本，type=2 多行文本
-    if (htmlType === 1) return type === 2 ? 'textarea' : 'text';
-    // fieldhtmltype=2 浏览按钮 → text
-    if (htmlType === 2) return 'text';
-    // fieldhtmltype=3/8 选择框/下拉框
-    if (htmlType === 3 || htmlType === 8) return 'select';
-    // fieldhtmltype=4 附件
-    if (htmlType === 4) return 'attachment';
-    // fieldhtmltype=5 特殊字段：type=1 日期，type=2 日期时间
-    if (htmlType === 5) return type === 2 ? 'datetime' : 'date';
-    // fieldhtmltype=6 复选框
-    if (htmlType === 6) return 'checkbox';
-    // fieldhtmltype=9 树形选择 → select
-    if (htmlType === 9) return 'select';
-    return 'text';
+    // 后端字段定义（带 fieldHtmlType）：按统一编码映射。
+    // ⚠️ 本系统 fieldHtmlType=3 是「浏览按钮」（人力资源 / 多人力资源 / 部门 …），
+    //    旧实现按 ecology 原生编码把 3 当「选择框」、2 当「浏览按钮」，
+    //    导致浏览按钮字段被渲染成无选项的空 Select（预览里看不到任何类型信息）。
+    const htmlType = Number(field?.fieldHtmlType ?? field?.fieldhtmltype ?? 0);
+    if (htmlType > 0) {
+      const mapped = mapFieldToControlType(field) as FieldType;
+      return FIELD_TYPE_META[mapped] ? mapped : 'text';
+    }
+    // 设计器内置静态字段（未绑定后端字段）：自身 type 即控件类型
+    const raw = String(field?.type || '') as FieldType;
+    return FIELD_TYPE_META[raw] ? raw : 'text';
   };
 
   // ──────────────────────────────────────
@@ -2524,6 +2531,11 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         fieldLabel: actualField.fieldLabel || actualField.label || '',
         fieldType: resolvedType,
         cellType: isLabel ? 'label' : 'field',
+        // 后端字段类型原样透传：预览页靠它把「浏览按钮」还原成「人力资源 / 多人力资源 …」等具体类型。
+        // 只存 fieldType（控件类型）会丢失细类，预览就只能显示一个空下拉框。
+        fieldHtmlType: Number(actualField.fieldHtmlType ?? actualField.fieldhtmltype ?? 0) || undefined,
+        fieldTypeNum: Number(actualField.fieldType ?? actualField.fieldtype ?? 0) || undefined,
+        browserType: resolveBrowserType(actualField),
         // 标签是静态说明文本：不参与「只读 / 必填 / 可编辑」等字段属性（不显示状态），
         // 但仍完整保留可拖动与放置能力。
         required: isLabel ? false : (actualField.required || false),

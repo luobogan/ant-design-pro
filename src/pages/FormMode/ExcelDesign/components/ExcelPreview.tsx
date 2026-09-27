@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
-import { Modal, Button, Space, Typography, Form, Input, Select, DatePicker, Checkbox, Radio, InputNumber, message, Table, Segmented } from 'antd';
+import { Modal, Button, Space, Typography, Form, Input, Select, DatePicker, Checkbox, Radio, InputNumber, Tag, message, Table, Segmented } from 'antd';
 import {
   PrinterOutlined,
   DownloadOutlined,
@@ -22,6 +22,11 @@ import {
   installFieldDomApi,
   type FieldDomIds,
 } from '../utils/fieldDomId';
+// 浏览按钮字段（人力资源 / 多人力资源 / 部门 / 角色 / 岗位 …）的「选人/选组织」控件
+import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
+import { BROWSER_TYPE_META } from '@/components/FormMode/personOrg';
+// 字段类型编码 → 中文标签（单一来源，见 components/FormMode/fieldTypes.ts）
+import { getBrowserTypeLabel, getFieldTypeLabel, isBrowserTypeMultiple } from '@/components/FormMode/fieldTypes';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -55,6 +60,12 @@ interface FieldMeta {
   cellType?: 'label' | 'field' | 'detailTableMarker';
   /** 明细表标记格对应的明细表序号 */
   detailTable?: number;
+  /** 后端字段类型（fieldHtmlType）：1文本 2多行文本 3浏览按钮 4选择框 5附件 6复选框 7特殊字段 8布局组件 */
+  fieldHtmlType?: number;
+  /** 后端字段细类（fieldType 数值）；fieldHtmlType=3 时即浏览按钮类型（1人力资源 / 161多人力资源 …） */
+  fieldTypeNum?: number;
+  /** 浏览按钮类型（browType，优先级高于 fieldTypeNum） */
+  browserType?: number;
   required: boolean;
   readonly: boolean;
   /** 字段属性：1=只读 2=可编辑 3=必填（参照 ecology viewAttr） */
@@ -269,6 +280,38 @@ const extractSheets = (layout: any): SheetLayoutData[] => {
 const isEmptyValue = (fieldType: string | undefined, v: any): boolean => {
   if (fieldType === 'checkbox') return !v; // 必填复选框必须勾选
   return v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
+};
+
+/**
+ * 取单元格字段的「浏览按钮类型」编号。
+ * 取值链路：`browserType`（browType，最权威）→ `fieldTypeNum`（fieldHtmlType=3 时即浏览按钮类型）。
+ * 拿不到时返回 undefined，由调用方降级为通用「浏览按钮」。
+ */
+const browserTypeOf = (meta: any): number | undefined => {
+  const bt = Number(meta?.browserType ?? 0);
+  if (bt > 0) return bt;
+  const ft = Number(meta?.fieldTypeNum ?? 0);
+  if (ft > 0 && (Number(meta?.fieldHtmlType ?? 0) === 3 || meta?.fieldType === 'browser')) return ft;
+  return undefined;
+};
+
+/**
+ * 字段的中文类型名（用于预览中展示「类型标签 / 占位内容」）。
+ * 例：(fieldHtmlType=3, type=1) → 人力资源；(3, 161) → 多人力资源；(4, 1) → 下拉框。
+ */
+const fieldTypeLabelOf = (meta: any): string => {
+  if (!meta) return '';
+  const bt = browserTypeOf(meta);
+  if (bt != null) return getBrowserTypeLabel(bt) || '浏览按钮';
+  if (meta.fieldHtmlType) return getFieldTypeLabel(meta.fieldHtmlType, meta.fieldTypeNum);
+  // 旧布局（未带 fieldHtmlType）：按控件类型给一个可读名
+  const fallback: Record<string, string> = {
+    browser: '浏览按钮', select: '下拉框', radio: '单选框', checkbox: '复选框',
+    date: '日期', datetime: '日期时间', number: '数字', wholeNumber: '整数',
+    text: '单行文本', textarea: '多行文本', attachment: '附件', richtext: '富文本',
+    group: '分组框', custom: '自定义',
+  };
+  return fallback[String(meta.fieldType)] || '';
 };
 
 // ──────────────────────────────────────────────
@@ -528,6 +571,48 @@ const FieldCell: React.FC<{
 
       case 'checkbox':
         return <Checkbox disabled={disabled} checked={!!value} onChange={(e) => onChange(e.target.checked)}>同意</Checkbox>;
+
+      case 'browser': {
+        // 浏览按钮字段（人力资源 / 多人力资源 / 部门 / 分部 / 角色 / 岗位 …）：
+        // 必须展示出具体类型，否则在预览里就是一个「什么都看不出来」的空控件。
+        const bt = browserTypeOf(meta);
+        const typeLabel = fieldTypeLabelOf(meta) || '浏览按钮';
+        // 已实现数据选择的类型（人员/组织/角色/岗位）走 PersonOrgField；
+        // 其余（资产/文档/流程等）暂未接入数据，退化为带类型提示的输入框。
+        const supported = bt != null && !!BROWSER_TYPE_META[bt];
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', minWidth: 0 }}>
+            <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+              {supported ? (
+                <PersonOrgField
+                  browserType={bt}
+                  // 单选/多选按类型语义：只有「多人力资源 / 多部门 / 多分部 …」才是多选，
+                  // 「人力资源 / 部门 / 分部」为单选（PersonOrgPicker 默认多选，必须显式传值）
+                  multiple={isBrowserTypeMultiple(bt)}
+                  value={value}
+                  onChange={(v: any) => onChange(v)}
+                  disabled={disabled}
+                  placeholder={`请选择${typeLabel}`}
+                />
+              ) : (
+                <Input
+                  {...commonProps}
+                  value={value}
+                  placeholder={`请选择${typeLabel}`}
+                  onChange={(e) => onChange(e.target.value)}
+                />
+              )}
+            </div>
+            <Tag
+              color="blue"
+              title={`字段类型：${typeLabel}`}
+              style={{ margin: 0, flexShrink: 0, fontSize: 11, lineHeight: '16px' }}
+            >
+              {typeLabel}
+            </Tag>
+          </div>
+        );
+      }
 
       case 'attachment':
         return (

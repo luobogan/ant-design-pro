@@ -14,9 +14,9 @@ const Articles: React.FC = () => {
   const [articles, _setArticles] = useState<any[]>([
     {
       id: 1,
-      title: 'Sword Admin 系统架构设计',
+      title: '流程引擎系统架构设计',
       summary:
-        '本文详细介绍了 Sword Admin 系统的架构设计，包括前端技术栈、后端架构和数据库设计。',
+        '本文详细介绍了流程引擎系统的架构设计，包括前端技术栈、后端架构和数据库设计。',
       tags: ['架构设计', '前端', '后端'],
       views: 128,
       likes: 24,

@@ -41,6 +41,8 @@ import { EXCEL_PREVIEW_DATA_KEY } from './ExcelPreviewPage';
 import { encodeScriptForStorage, decodeScriptFromStorage } from './utils/runLayoutScript';
 import { saveFormLayout, getFormLayout } from '@/services/formmode/formLayoutApi';
 import { fieldDefinitionApi } from '@/services/formmode';
+// 字段类型编码 → 控件类型 / 中文标签的单一来源（含历史布局类型回填）
+import { backfillLayoutFieldMeta } from '@/components/FormMode/fieldTypes';
 
 /**
  * 收集主表布局中实际存在的明细表标记序号（cellType==='detailTableMarker' 的 fieldMeta.detailTable）。
@@ -308,6 +310,18 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         // 新表单或未保存布局时 layoutJson 可能为 undefined/null，规范成对象避免后续读取字段崩溃
         if (!layoutJson || typeof layoutJson !== 'object') {
           layoutJson = {};
+        }
+
+        // 修复历史布局：旧版拖入字段时未写入 fieldHtmlType / browserType，且把「浏览按钮」
+        // 误判成下拉框 → 预览里「人力资源 / 多人力资源」等字段只显示空下拉框（类型信息全丢）。
+        // 这里以「后端字段定义」为准回填（只补 fieldHtmlType 缺失的旧数据，不动新数据）。
+        try {
+          const fieldDefs = await fieldDefinitionApi.getByFormId(String(formId));
+          if (Array.isArray(fieldDefs) && fieldDefs.length > 0) {
+            backfillLayoutFieldMeta(layoutJson, fieldDefs);
+          }
+        } catch (e) {
+          console.warn('[LoadFormLayout] 回填字段类型失败（不影响布局加载）:', e);
         }
 
         // 竞态防护：初始异步加载若晚于用户拖入字段才返回，会覆盖掉已带字段元数据的布局，

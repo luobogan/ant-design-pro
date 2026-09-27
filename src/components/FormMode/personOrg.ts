@@ -60,27 +60,34 @@ export interface BrowserTypeMeta {
   tree: boolean;
 }
 
-/** 支持的浏览按钮类型表（对齐 BrowserButtonPreview 的编号；未列出的类型视为暂未实现） */
+/**
+ * 支持的浏览按钮类型表（对齐 BrowserButtonPreview 的编号；未列出的类型视为暂未实现）
+ *
+ * ⚠️ multiple 语义：只有带「多」的类型才是多选（多人力资源 / 多部门 / 多分部 / 多角色 …），
+ *    基础类型（人力资源 1 / 部门 2 / 分部 18 / 角色 3 / 岗位 4）为**单选**。
+ *    注：PersonOrgPicker 目前「默认多选」（multiple !== false），故需要按类型区分单/多选的
+ *    调用方（如 Excel 预览 / 发起页）必须显式传入 multiple，见 fieldTypes.isBrowserTypeMultiple。
+ */
 export const BROWSER_TYPE_META: Record<number, BrowserTypeMeta> = {
   // 人员类
-  1: { browserType: 1, label: '人力资源', category: 'hrm', multiple: true, tree: true },
+  1: { browserType: 1, label: '人力资源', category: 'hrm', multiple: false, tree: true },
   161: { browserType: 161, label: '多人力资源', category: 'hrm', multiple: true, tree: true },
   166: { browserType: 166, label: '角色人员', category: 'hrm', multiple: true, tree: true },
   167: { browserType: 167, label: '分权单人力资源', category: 'hrm', multiple: false, tree: true },
   168: { browserType: 168, label: '分权多人力资源', category: 'hrm', multiple: true, tree: true },
   // 组织类
-  2: { browserType: 2, label: '部门', category: 'dept', multiple: true, tree: true },
+  2: { browserType: 2, label: '部门', category: 'dept', multiple: false, tree: true },
   17: { browserType: 17, label: '多部门', category: 'dept', multiple: true, tree: true },
   19: { browserType: 19, label: '分权单部门', category: 'dept', multiple: false, tree: true },
   20: { browserType: 20, label: '分权多部门', category: 'dept', multiple: true, tree: true },
-  18: { browserType: 18, label: '分部', category: 'branch', multiple: true, tree: true },
+  18: { browserType: 18, label: '分部', category: 'branch', multiple: false, tree: true },
   21: { browserType: 21, label: '分权单分部', category: 'branch', multiple: false, tree: true },
   22: { browserType: 22, label: '分权多分部', category: 'branch', multiple: true, tree: true },
   23: { browserType: 23, label: '多分部', category: 'branch', multiple: true, tree: true },
   // 角色 / 岗位
-  3: { browserType: 3, label: '角色', category: 'role', multiple: true, tree: false },
+  3: { browserType: 3, label: '角色', category: 'role', multiple: false, tree: false },
   163: { browserType: 163, label: '多角色', category: 'role', multiple: true, tree: false },
-  4: { browserType: 4, label: '岗位', category: 'post', multiple: true, tree: false },
+  4: { browserType: 4, label: '岗位', category: 'post', multiple: false, tree: false },
 };
 
 /**

@@ -1,71 +1,724 @@
+/* ============================================================
+   登录页 —— AI 流程引擎风格
+   布局：左侧品牌视觉图形 / 右侧登录卡片；≤1024px 收起左侧，卡片居中
+   ============================================================ */
+
 .main {
+  --ai-ink: #05070f;
+  --ai-ink-2: #0a1220;
+  --ai-cyan: #34e7d6;
+  --ai-blue: #4c7dff;
+  --ai-amber: #ffb347;
+  --ai-text: #e9f2ff;
+  --ai-muted: rgba(233, 242, 255, 0.62);
+  --ai-line: rgba(255, 255, 255, 0.1);
+
+  position: relative;
   min-height: 100vh;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 24px;
+  overflow: hidden;
+  padding: 32px 24px;
+  background:
+    radial-gradient(120% 90% at 12% 18%, rgba(52, 231, 214, 0.16) 0%, transparent 55%),
+    radial-gradient(90% 80% at 88% 82%, rgba(76, 125, 255, 0.22) 0%, transparent 58%),
+    linear-gradient(160deg, var(--ai-ink) 0%, var(--ai-ink-2) 55%, #060c18 100%);
 
-  .container {
-    width: 100%;
-    max-width: 480px;
-    background: white;
-    border-radius: 12px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-    overflow: hidden;
-
-    .header {
-      text-align: center;
-      padding: 40px 24px 24px;
-      background: #f5f5f5;
-
-      h1 {
-        margin: 0 0 8px;
-        font-size: 28px;
-        font-weight: 600;
-        color: #1890ff;
-      }
-
-      p {
-        margin: 0;
-        font-size: 14px;
-        color: #666;
-      }
-    }
-
-    .form {
-      padding: 32px;
-
-      @media (max-width: 480px) {
-        padding: 24px;
-      }
-    }
+  /* 细网格 + 噪点，制造「工程感」底纹 */
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: 46px 46px;
+    mask-image: radial-gradient(80% 70% at 50% 40%, #000 30%, transparent 100%);
+    pointer-events: none;
   }
 
-  @media (max-width: 480px) {
-    .container {
-      margin: 0;
-      border-radius: 0;
-      box-shadow: none;
-      min-height: 100vh;
+  /* 右上角一束斜向光带 */
+  &::after {
+    content: '';
+    position: absolute;
+    top: -20%;
+    right: -10%;
+    width: 46vw;
+    height: 140%;
+    background: linear-gradient(
+      100deg,
+      transparent 0%,
+      rgba(52, 231, 214, 0.1) 45%,
+      rgba(255, 179, 71, 0.07) 60%,
+      transparent 100%
+    );
+    transform: rotate(12deg);
+    pointer-events: none;
+  }
+}
+
+.layout {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* ───────────────────────── 左侧：品牌 + 视觉图形 ───────────────────────── */
+
+.brand {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 20px;
+  padding: 64px 56px;
+  min-width: 0;
+  animation: aiRise 0.9s 0.05s cubic-bezier(0.22, 0.68, 0.32, 1) both;
+}
+
+.brandTop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mark {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--ai-cyan), var(--ai-blue));
+  box-shadow: 0 8px 24px rgba(52, 231, 214, 0.35);
+  flex-shrink: 0;
+
+  svg {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+.logoText {
+  font-size: 15px;
+  letter-spacing: 0.22em;
+  font-weight: 600;
+  color: var(--ai-text);
+  text-transform: uppercase;
+}
+
+.logoSub {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  color: var(--ai-muted);
+}
+
+.brandTitle {
+  margin: 4px 0 0 !important;
+  font-size: clamp(30px, 3.4vw, 44px) !important;
+  line-height: 1.25 !important;
+  font-weight: 700 !important;
+  color: var(--ai-text) !important;
+  letter-spacing: 0.01em;
+
+  em {
+    font-style: normal;
+    background: linear-gradient(100deg, var(--ai-cyan), var(--ai-blue) 60%, var(--ai-amber));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+.brandDesc {
+  margin: 0 !important;
+  max-width: 520px;
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--ai-muted) !important;
+}
+
+.visualWrap {
+  margin: 8px 0 4px;
+  max-width: 620px;
+  animation: aiFloat 7s ease-in-out infinite;
+}
+
+.visual {
+  width: 100%;
+  height: auto;
+  display: block;
+  overflow: visible;
+}
+
+/* ── SVG 内部动效 ── */
+
+.edge {
+  stroke-width: 1.6;
+  stroke-dasharray: 7 13;
+  opacity: 0.85;
+  animation: aiDash 1.8s linear infinite;
+}
+
+.orbit {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.16);
+  stroke-width: 1;
+  stroke-dasharray: 2 10;
+  transform-box: view-box;
+  transform-origin: 280px 232px;
+}
+
+.orbit1 {
+  animation: aiSpin 34s linear infinite;
+}
+.orbit2 {
+  animation: aiSpinRev 26s linear infinite;
+  stroke: rgba(52, 231, 214, 0.28);
+}
+.orbit3 {
+  animation: aiSpin 52s linear infinite;
+  stroke-dasharray: 1 14;
+}
+
+.pulse {
+  fill: #c9fff7;
+  filter: drop-shadow(0 0 6px rgba(52, 231, 214, 0.9));
+}
+
+.pulseWarm {
+  fill: #ffe0b8;
+  filter: drop-shadow(0 0 6px rgba(255, 179, 71, 0.9));
+}
+
+.nodeBox {
+  fill: rgba(10, 20, 34, 0.85);
+  stroke: rgba(52, 231, 214, 0.45);
+  stroke-width: 1.2;
+}
+
+.nodeBoxOut {
+  stroke: rgba(255, 179, 71, 0.45);
+}
+
+.nodeDot {
+  fill: var(--ai-cyan);
+  filter: drop-shadow(0 0 6px rgba(52, 231, 214, 0.8));
+  animation: aiPulse 2.4s ease-in-out infinite;
+}
+
+.nodeDotOut {
+  fill: var(--ai-amber);
+  filter: drop-shadow(0 0 6px rgba(255, 179, 71, 0.8));
+  animation-delay: 0.6s;
+}
+
+.nodeLabel {
+  fill: rgba(233, 242, 255, 0.86);
+  font-size: 13px;
+  text-anchor: middle;
+  letter-spacing: 0.08em;
+}
+
+.coreSpin {
+  transform-box: view-box;
+  transform-origin: 280px 232px;
+  animation: aiSpin 9s linear infinite;
+}
+
+.coreRing {
+  filter: drop-shadow(0 0 8px rgba(52, 231, 214, 0.35));
+}
+
+.coreSatellite {
+  fill: var(--ai-cyan);
+  filter: drop-shadow(0 0 10px rgba(52, 231, 214, 0.95));
+}
+
+.coreHex {
+  animation: aiPulse 3.6s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.coreDot {
+  fill: #eafffb;
+  animation: aiPulse 2s ease-in-out infinite;
+}
+
+.coreLabel {
+  fill: rgba(52, 231, 214, 0.75);
+  font-size: 11px;
+  letter-spacing: 0.32em;
+  text-anchor: middle;
+}
+
+.brandPoints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px;
+    font-size: 13px;
+    color: var(--ai-muted);
+    border: 1px solid var(--ai-line);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(6px);
+  }
+
+  i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ai-cyan);
+    box-shadow: 0 0 8px var(--ai-cyan);
+  }
+}
+
+/* ============================================================
+   卡片基座（登录卡 .card 与注册卡 .container 共用）
+   —— 注册页 / 注册结果页的结构是 main > container > header/form，
+      复用同一套深色玻璃卡片，避免两套登录相关页面风格割裂
+   ============================================================ */
+
+.ai-card() {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  padding: 38px 36px 30px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.09) 0%,
+    rgba(255, 255, 255, 0.03) 45%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  backdrop-filter: blur(22px) saturate(140%);
+  box-shadow:
+    0 32px 80px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+
+  /* 卡片顶部一道青色高光 */
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -1px -1px auto;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--ai-cyan), transparent);
+    opacity: 0.8;
+  }
+}
+
+/* antd 组件在深色玻璃卡内的适配（class 需 :global 才能命中，CSS Modules 会哈希类名） */
+.ai-dark-controls() {
+  :global {
+    .ant-form-item-label > label {
+      color: rgba(233, 242, 255, 0.72);
+      font-size: 13px;
+      letter-spacing: 0.04em;
+    }
+
+    .ant-input,
+    .ant-input-affix-wrapper,
+    .ant-input-password {
+      background: rgba(255, 255, 255, 0.05) !important;
+      border: 1px solid rgba(255, 255, 255, 0.14) !important;
+      color: var(--ai-text);
+      border-radius: 10px;
+      transition: all 0.25s;
+    }
+
+    .ant-input-affix-wrapper > input.ant-input {
+      background: transparent !important;
+      border: none !important;
+    }
+
+    .ant-input::placeholder {
+      color: rgba(233, 242, 255, 0.32);
+    }
+
+    .ant-input:hover,
+    .ant-input-affix-wrapper:hover,
+    .ant-input-password:hover {
+      border-color: rgba(52, 231, 214, 0.45) !important;
+    }
+
+    .ant-input:focus,
+    .ant-input-affix-wrapper:focus,
+    .ant-input-affix-wrapper-focused,
+    .ant-input-password:focus {
+      border-color: var(--ai-cyan) !important;
+      box-shadow: 0 0 0 3px rgba(52, 231, 214, 0.16);
+    }
+
+    .ant-input-prefix {
+      color: rgba(52, 231, 214, 0.85);
+      margin-right: 10px;
+    }
+
+    .ant-input-password-icon {
+      color: rgba(233, 242, 255, 0.55);
+    }
+
+    .ant-checkbox-wrapper {
+      color: var(--ai-muted);
+    }
+
+    .ant-checkbox-inner {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.24);
+    }
+
+    .ant-checkbox-checked .ant-checkbox-inner {
+      background: var(--ai-cyan);
+      border-color: var(--ai-cyan);
+    }
+
+    .ant-checkbox-checked .ant-checkbox-inner::after {
+      border-color: #04121a;
+    }
+
+    .ant-alert-error {
+      border-radius: 10px;
+    }
+
+    .ant-btn-default {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.16);
+      color: rgba(233, 242, 255, 0.75);
+
+      &:hover {
+        color: var(--ai-cyan);
+        border-color: var(--ai-cyan);
+        background: rgba(52, 231, 214, 0.1);
+      }
     }
   }
 }
 
-.iconPreview {
+/* ───────────────────────── 右侧：登录卡片 ───────────────────────── */
+
+.panel {
+  flex: 0 0 520px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 56px 48px 24px;
+  animation: aiRise 0.9s 0.18s cubic-bezier(0.22, 0.68, 0.32, 1) both;
+}
+
+/* 登录卡（.layout > .panel > .card） */
+.card {
+  .ai-card();
+  .ai-dark-controls();
+}
+
+/* 注册 / 注册结果页卡片（.main > .container > .header/.form）：
+   沿用同一基座，仅改为整页居中（margin:auto 在 flex 容器下同时实现水平+垂直居中） */
+.container {
+  .ai-card();
+  .ai-dark-controls();
+  margin: auto;
+  max-width: 440px;
+  animation: aiRise 0.9s 0.05s cubic-bezier(0.22, 0.68, 0.32, 1) both;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 26px;
+
+  h1 {
+    margin: 0 0 6px;
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--ai-text);
+  }
+
+  p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--ai-muted);
+  }
+}
+
+.form {
+  /* 与卡片共用同一套深色控件适配，此处仅保证结果页文案颜色 */
+  color: var(--ai-text);
+
+  :global {
+    .ant-result-title {
+      color: var(--ai-text);
+    }
+
+    .ant-result-subtitle {
+      color: var(--ai-muted);
+    }
+  }
+}
+
+.cardHead {
+  margin-bottom: 26px;
+}
+
+.cardTitle {
+  margin: 14px 0 6px !important;
+  font-size: 26px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em;
+  color: var(--ai-text) !important;
+}
+
+.cardSub {
+  margin: 0 !important;
+  font-size: 13px;
+  color: var(--ai-muted) !important;
+}
+
+.submitBtn {
+  height: 46px !important;
+  border: none !important;
+  border-radius: 12px !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.16em;
+  color: #04121a !important;
+  background: linear-gradient(100deg, var(--ai-cyan) 0%, #6ee7ff 45%, var(--ai-blue) 100%) !important;
+  box-shadow: 0 12px 30px rgba(52, 231, 214, 0.32);
+  transition: transform 0.2s, box-shadow 0.2s, filter 0.2s;
+
+  &:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.06);
+    box-shadow: 0 16px 38px rgba(52, 231, 214, 0.45);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+}
+
+.extra {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 4px 0 22px;
+  font-size: 13px;
+}
+
+.forgot {
+  color: var(--ai-muted);
+  transition: color 0.2s;
+
+  &:hover {
+    color: var(--ai-cyan);
+  }
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 6px 0 16px;
+  font-size: 12px;
+  color: rgba(233, 242, 255, 0.45);
+
+  &::before,
+  &::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--ai-line);
+  }
+}
+
+.socials {
   display: flex;
   justify-content: center;
-  margin: 24px 0;
+  gap: 10px;
 
-  .anticon {
-    font-size: 24px;
-    margin: 0 12px;
-    cursor: pointer;
-    transition: all 0.3s;
+  :global {
+    .ant-btn {
+      width: 36px;
+      height: 36px;
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.14);
+      color: rgba(233, 242, 255, 0.7);
 
-    &:hover {
-      transform: scale(1.1);
-      color: #1890ff;
+      &:hover {
+        color: var(--ai-cyan);
+        border-color: var(--ai-cyan);
+        background: rgba(52, 231, 214, 0.1);
+        transform: translateY(-2px);
+      }
     }
+  }
+}
+
+.captchaImg {
+  width: 100%;
+  height: 40px;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  object-fit: cover;
+}
+
+.footer {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: rgba(233, 242, 255, 0.35);
+}
+
+/* ───────────────────────── 响应式 ───────────────────────── */
+
+@media (max-width: 1180px) {
+  .brand {
+    padding: 48px 36px;
+  }
+
+  .panel {
+    flex-basis: 460px;
+    padding: 40px 36px;
+  }
+}
+
+/* 平板 / 手机：收起左侧视觉，卡片居中占满 */
+@media (max-width: 1024px) {
+  .main {
+    align-items: center;
+  }
+
+  .layout {
+    align-items: center;
+    justify-content: center;
+  }
+
+  .brand {
+    display: none;
+  }
+
+  .panel {
+    flex: 1 1 auto;
+    padding: 32px 20px;
+  }
+
+  .card {
+    max-width: 440px;
+  }
+}
+
+@media (max-width: 480px) {
+  .main {
+    padding: 16px 12px;
+  }
+
+  .panel {
+    padding: 20px 16px 28px;
+  }
+
+  .card {
+    padding: 30px 22px 24px;
+    border-radius: 18px;
+    backdrop-filter: blur(14px);
+  }
+
+  .cardTitle {
+    font-size: 22px !important;
+  }
+}
+
+/* 矮屏（横屏手机 / 小笔记本）避免卡片被裁切 */
+@media (max-height: 700px) {
+  .main,
+  .layout {
+    min-height: auto;
+  }
+
+  .main {
+    padding: 24px 0;
+  }
+}
+
+/* ───────────────────────── 动画 ───────────────────────── */
+
+@keyframes aiDash {
+  to {
+    stroke-dashoffset: -220;
+  }
+}
+
+@keyframes aiSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes aiSpinRev {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes aiPulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.14);
+  }
+}
+
+@keyframes aiFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes aiRise {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 尊重系统「减少动效」设置 */
+@media (prefers-reduced-motion: reduce) {
+  .brand,
+  .panel,
+  .visualWrap,
+  .edge,
+  .orbit1,
+  .orbit2,
+  .orbit3,
+  .coreSpin,
+  .coreHex,
+  .coreDot,
+  .nodeDot {
+    animation: none !important;
   }
 }

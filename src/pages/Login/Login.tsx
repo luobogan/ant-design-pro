@@ -34,9 +34,34 @@ import { clearFormData, getSavedFormData } from '@/requestErrorConfig';
 import Crypto from '@/utils/crypto';
 import { getQueryString, getTopUrl, pickPayload, validateNull } from '@/utils/utils';
 import { dynamicButtons, dynamicRoutes } from '@/services/system/menu';
+// 左侧 AI 流程引擎视觉图形（SVG + CSS 动画）
+import AiFlowVisual from './components/AiFlowVisual';
 import styles from './Login.less';
 
 const { Title, Paragraph } = Typography;
+
+/** 左侧能力标签 */
+const BRAND_POINTS = ['智能节点推荐', '自动路由分流', '实时流程洞察', '多租户权限隔离'];
+
+/** 品牌标记：六边形 + 流程链（与左侧视觉图形的「引擎核心」呼应） */
+const BrandMark: React.FC = () => (
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden>
+    <path
+      d="M12 2.6 20 7v10l-8 4.4L4 17V7z"
+      stroke="#04121a"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+      fill="rgba(4,18,26,0.25)"
+    />
+    <path
+      d="M8 14.5h3V9.5h3V14.5h2"
+      stroke="#04121a"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
 
 interface CaptchaResponse {
   code: number;
@@ -297,16 +322,62 @@ const Login: React.FC = () => {
 
   return (
     <div className={styles.main}>
-      <div className={styles.container}>
-        <div className={styles.header}>
-          <Title level={1}>Sword Admin</Title>
-          <Paragraph type="secondary">企业级中后台管理系统</Paragraph>
-        </div>
-        <div className={styles.form}>
-          <Form form={form} onFinish={handleSubmit} layout="vertical">
+      <div className={styles.layout}>
+        {/* 左：AI 流程引擎视觉区（≤1024px 收起，保证移动端只保留登录卡片） */}
+        <aside className={styles.brand}>
+          <div className={styles.brandTop}>
+            <span className={styles.mark}>
+              <BrandMark />
+            </span>
+            <span>
+              <div className={styles.logoText}>流程引擎系统</div>
+              <div className={styles.logoSub}>FLOW ENGINE · AI</div>
+            </span>
+          </div>
+
+          <Title className={styles.brandTitle} level={1}>
+            让每一条流程
+            <br />
+            都<em>自动流转</em>
+          </Title>
+          <Paragraph className={styles.brandDesc}>
+            面向企业的 AI 流程中枢：可视化编排、智能审批路由与自动化执行，
+            让审批、表单与业务数据在一条流水线上闭环。
+          </Paragraph>
+
+          <div className={styles.visualWrap}>
+            <AiFlowVisual />
+          </div>
+
+          <ul className={styles.brandPoints}>
+            {BRAND_POINTS.map((p) => (
+              <li key={p}>
+                <i />
+                {p}
+              </li>
+            ))}
+          </ul>
+        </aside>
+
+        {/* 右：登录卡片 */}
+        <section className={styles.panel}>
+          <div className={styles.card}>
+            <div className={styles.cardHead}>
+              <span className={styles.mark}>
+                <BrandMark />
+              </span>
+              <Title className={styles.cardTitle} level={3}>
+                流程引擎系统
+              </Title>
+              <Paragraph className={styles.cardSub}>
+                登录以进入流程设计与审批工作台
+              </Paragraph>
+            </div>
+
+            <Form form={form} onFinish={handleSubmit} layout="vertical">
             {loginError && (
               <Alert
-                style={{ marginBottom: 24 }}
+                style={{ marginBottom: 20 }}
                 message={loginError}
                 type="error"
                 showIcon
@@ -384,13 +455,7 @@ const Login: React.FC = () => {
                         <img
                           alt="验证码"
                           src={captchaImage}
-                          style={{
-                            width: '100%',
-                            height: 32,
-                            cursor: 'pointer',
-                            border: '1px solid #d9d9d9',
-                            borderRadius: '4px',
-                          }}
+                          className={styles.captchaImg}
                           onClick={refreshCaptcha}
                           title="点击刷新验证码"
                         />
@@ -401,86 +466,69 @@ const Login: React.FC = () => {
               </Form.Item>
             )}
 
-            <div
-              style={{
-                marginBottom: 24,
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
+            <div className={styles.extra}>
               <Checkbox
                 checked={autoLogin}
                 onChange={(e) => setAutoLogin(e.target.checked)}
               >
                 记住我
               </Checkbox>
-              <a href="#">忘记密码？</a>
+              <a className={styles.forgot} href="#">
+                忘记密码？
+              </a>
             </div>
 
             <Form.Item>
               <Button
+                className={styles.submitBtn}
                 type="primary"
                 htmlType="submit"
                 block
                 size="large"
                 loading={loginLoading}
-                style={{ marginBottom: 24 }}
               >
                 登录
               </Button>
             </Form.Item>
 
-            <div style={{ textAlign: 'center', marginBottom: 24 }}>
-              <span>其他登录方式：</span>
-            </div>
+            <div className={styles.divider}>其他登录方式</div>
 
-            <Row gutter={24} justify="center">
-              <Col span={4}>
-                <Button
-                  shape="circle"
-                  icon={<GithubOutlined />}
-                  onClick={() => handleSocialLogin('github')}
-                />
-              </Col>
-              <Col span={4}>
-                <Button
-                  shape="circle"
-                  icon={<GoogleOutlined />}
-                  onClick={() => handleSocialLogin('gitee')}
-                />
-              </Col>
-              <Col span={4}>
-                <Button
-                  shape="circle"
-                  icon={<WechatOutlined />}
-                  onClick={() => handleSocialLogin('wechat_open')}
-                />
-              </Col>
-              <Col span={4}>
-                <Button
-                  shape="circle"
-                  icon={<DingtalkOutlined />}
-                  onClick={() => handleSocialLogin('dingtalk')}
-                />
-              </Col>
-              <Col span={4}>
-                <Button
-                  shape="circle"
-                  icon={<AlipayOutlined />}
-                  onClick={() => handleSocialLogin('alipay')}
-                />
-              </Col>
-              <Col span={4}>
-                <Button
-                  shape="circle"
-                  icon={<TaobaoOutlined />}
-                  onClick={() => handleSocialLogin('taobao')}
-                />
-              </Col>
-            </Row>
-          </Form>
-        </div>
+            <div className={styles.socials}>
+              <Button
+                shape="circle"
+                icon={<GithubOutlined />}
+                onClick={() => handleSocialLogin('github')}
+              />
+              <Button
+                shape="circle"
+                icon={<GoogleOutlined />}
+                onClick={() => handleSocialLogin('gitee')}
+              />
+              <Button
+                shape="circle"
+                icon={<WechatOutlined />}
+                onClick={() => handleSocialLogin('wechat_open')}
+              />
+              <Button
+                shape="circle"
+                icon={<DingtalkOutlined />}
+                onClick={() => handleSocialLogin('dingtalk')}
+              />
+              <Button
+                shape="circle"
+                icon={<AlipayOutlined />}
+                onClick={() => handleSocialLogin('alipay')}
+              />
+              <Button
+                shape="circle"
+                icon={<TaobaoOutlined />}
+                onClick={() => handleSocialLogin('taobao')}
+              />
+            </div>
+            </Form>
+            <div className={styles.footer}>© 2026 FLOW ENGINE · AI 流程引擎系统</div>
+          </div>
+        </section>
       </div>
     </div>
   );

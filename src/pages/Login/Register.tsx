@@ -47,8 +47,8 @@ const Register: React.FC = () => {
     <div className={styles.main}>
       <div className={styles.container}>
         <div className={styles.header}>
-          <h1>Sword Admin</h1>
-          <p>企业级中后台管理系统 - 注册</p>
+          <h1>流程引擎系统</h1>
+          <p>AI 流程中枢 · 注册账号</p>
         </div>
         <div className={styles.form}>
           <ProForm onFinish={handleSubmit} layout="vertical">

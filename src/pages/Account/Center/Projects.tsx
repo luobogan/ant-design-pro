@@ -12,8 +12,8 @@ const Projects: React.FC = () => {
   const [projects, _setProjects] = useState<any[]>([
     {
       id: 1,
-      name: 'Sword Admin 重构',
-      description: '将 Sword Admin 从 Ant Design Pro v4 重构到 v6',
+      name: '流程引擎系统 重构',
+      description: '将流程引擎系统从 Ant Design Pro v4 重构到 v6',
       status: 'in_progress',
       progress: 75,
       members: 3,
@@ -52,7 +52,7 @@ const Projects: React.FC = () => {
     {
       id: 4,
       name: '移动应用开发',
-      description: '开发 Sword Admin 的移动应用版本',
+      description: '开发流程引擎系统的移动应用版本',
       status: 'planning',
       progress: 25,
       members: 4,

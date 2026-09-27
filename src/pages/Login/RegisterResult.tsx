@@ -16,7 +16,7 @@ const RegisterResult: React.FC = () => {
     <div className={styles.main}>
       <div className={styles.container}>
         <div className={styles.header}>
-          <h1>Sword Admin</h1>
+          <h1>流程引擎系统</h1>
         </div>
         <div className={styles.form}>
           <Result

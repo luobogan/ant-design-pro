@@ -41,10 +41,16 @@ import {
   Empty,
 } from 'antd';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { formApi, fieldApi } from '@/services/formmode';
-import type { WorkflowBill, FieldDefinitionFormData } from '@/services/formmode/typings';
+import { formApi, fieldApi, fieldOptionApi } from '@/services/formmode';
+import type { WorkflowBill, FieldDefinitionFormData, FieldOption } from '@/services/formmode/typings';
 import BrowserButtonPreview from './components/BrowserButtonPreview';
 import BrowserTypePicker from './components/BrowserTypePicker';
+import FieldOptionManager from '../FieldManage/components/FieldOptionManager';
+// 浏览按钮类型映射：与 Excel 设计器 / 预览页共用同一份（components/FormMode/fieldTypes.ts）
+import { BROWSER_TYPE_LABEL_MAP, BROWSER_TYPE_ORDER } from '@/components/FormMode/fieldTypes';
+
+// ==================== 浏览按钮类型 ====================
+// 映射已上移到共享模块（上方 import），此处不再重复定义，避免显示与下拉、预览页不一致。
 
 // 导入 @dnd-kit 拖拽排序相关组件
 import {
@@ -410,6 +416,43 @@ const TableDesign: React.FC<TableDesignProps> = ({
     record: any;
   } | null>(null);
 
+  // 选择框/复选框 选项配置弹窗
+  const [optionModal, setOptionModal] = useState<{ open: boolean; index: number; isDetail: boolean }>({
+    open: false,
+    index: -1,
+    isDetail: false,
+  });
+  const openOptionModal = (index: number, isDetail: boolean) =>
+    setOptionModal({ open: true, index, isDetail });
+  const closeOptionModal = () => setOptionModal({ open: false, index: -1, isDetail: false });
+
+  // 拉取并回显选择框/复选框的选项（按 fieldId 归并）
+  const attachOptionsToFields = async (formId: string) => {
+    try {
+      const opts = await fieldOptionApi.getByFormId(formId);
+      if (!opts || opts.length === 0) return;
+      const map = new Map<string, FieldOption[]>();
+      opts.forEach((o: FieldOption) => {
+        const k = String(o.fieldId);
+        if (!map.has(k)) map.set(k, []);
+        map.get(k)!.push(o);
+      });
+      setFields(prev =>
+        prev.map(f => (map.has(String(f.id)) ? { ...f, options: map.get(String(f.id)) } : f)),
+      );
+      setDetailTables(prev =>
+        prev.map(dt => ({
+          ...dt,
+          fields: dt.fields.map(f =>
+            map.has(String(f.id)) ? { ...f, options: map.get(String(f.id)) } : f,
+          ),
+        })),
+      );
+    } catch (e) {
+      console.error('加载字段选项失败:', e);
+    }
+  };
+
   // 主表选中行
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
@@ -595,6 +638,8 @@ const TableDesign: React.FC<TableDesignProps> = ({
           setDetailTables(newDetailTables);
           setActiveDetailTab(newDetailTables[0]?.key || '');
           setDetailTableCounter(newDetailTables.length);
+          // 回显选择框/复选框选项
+          attachOptionsToFields(id);
         } else {
           // 没有字段数据时，重置为默认状态
           const defaultSystemFields = getDefaultSystemFields();
@@ -914,6 +959,8 @@ const TableDesign: React.FC<TableDesignProps> = ({
       setDetailTables(newDetailTables);
       setActiveDetailTab(newDetailTables[0]?.key || '');
       setDetailTableCounter(newDetailTables.length);
+      // 回显选择框/复选框选项
+      attachOptionsToFields(formId);
 
       message.success('已加载主表数据');
     } catch (error) {
@@ -1205,8 +1252,7 @@ const TableDesign: React.FC<TableDesignProps> = ({
       case 2: // 多行文本
         return '多行文本';
       case 3: // 浏览按钮
-        const browserTypeMap: Record<number, string> = { 1: '人力资源', 2: '部门', 3: '角色', 4: '岗位', 8: '项目', 16: '相关客户', 24: '文档', 30: '流程', 57: '附件', 98: '日期', 99: '时间', 164: '自定义浏览按钮', 256: '自定义树形单选', 257: '自定义树形多选' };
-        return browserTypeMap[type || 1] || `浏览按钮(${type})`;
+        return BROWSER_TYPE_LABEL_MAP[type || 1] || `浏览按钮(${type})`;
       case 4: // 选择框
         const selectTypeMap: Record<number, string> = { 1: '下拉框', 2: '单选框', 3: '复选框' };
         return selectTypeMap[type || 1] || '下拉框';
@@ -1350,22 +1396,9 @@ const TableDesign: React.FC<TableDesignProps> = ({
             options = [<Select.Option key={1} value={1}>多行文本</Select.Option>];
             break;
           case 3: // 浏览按钮
-            options = [
-              <Select.Option key={1} value={1}>人力资源</Select.Option>,
-              <Select.Option key={2} value={2}>部门</Select.Option>,
-              <Select.Option key={3} value={3}>角色</Select.Option>,
-              <Select.Option key={4} value={4}>岗位</Select.Option>,
-              <Select.Option key={8} value={8}>项目</Select.Option>,
-              <Select.Option key={16} value={16}>相关客户</Select.Option>,
-              <Select.Option key={24} value={24}>文档</Select.Option>,
-              <Select.Option key={30} value={30}>流程</Select.Option>,
-              <Select.Option key={57} value={57}>附件</Select.Option>,
-              <Select.Option key={98} value={98}>日期</Select.Option>,
-              <Select.Option key={99} value={99}>时间</Select.Option>,
-              <Select.Option key={164} value={164}>自定义浏览按钮</Select.Option>,
-              <Select.Option key={256} value={256}>自定义树形单选</Select.Option>,
-              <Select.Option key={257} value={257}>自定义树形多选</Select.Option>,
-            ];
+            options = BROWSER_TYPE_ORDER.map((id) => (
+              <Select.Option key={id} value={id}>{BROWSER_TYPE_LABEL_MAP[id]}</Select.Option>
+            ));
             break;
           case 4: // 选择框
             options = [
@@ -1399,15 +1432,7 @@ const TableDesign: React.FC<TableDesignProps> = ({
         }
         // 浏览按钮类型：值区域点击预览，箭头点击类型选择
         if (htmlType === 3) {
-          const typeLabelMap: Record<number, string> = {
-            1: '人力资源', 2: '部门', 3: '角色', 4: '岗位', 8: '项目',
-            16: '相关客户', 24: '文档', 30: '流程', 57: '附件',
-            98: '日期', 99: '时间', 164: '自定义浏览按钮',
-            161: '多人力资源', 17: '多部门', 18: '分部', 31: '多流程',
-            26: '多文档', 167: '分权单人力资源', 168: '分权多人力资源',
-            19: '分权单部门', 20: '分权多部门', 257: '自定义树形多选',
-          };
-          const currentLabel = typeLabelMap[value as number] || '未知类型';
+          const currentLabel = BROWSER_TYPE_LABEL_MAP[value as number] || '未知类型';
           return (
             <div style={{ display: 'inline-block', width: '100%', position: 'relative' }}>
               {/* 值区域覆盖层：点击文字弹出预览，带下划线 */}
@@ -1617,6 +1642,21 @@ const TableDesign: React.FC<TableDesignProps> = ({
       ),
     },
     {
+      title: '选项',
+      key: 'options',
+      width: 90,
+      render: (_: any, record: any, index: number) => {
+        const isSelect = record.fieldHtmlType === 4 || record.fieldHtmlType === 6;
+        if (!isSelect) return <span style={{ color: '#bbb' }}>—</span>;
+        const optCount = (record.options && record.options.length) || 0;
+        return (
+          <Button type="link" size="small" onClick={() => openOptionModal(index, false)}>
+            选项{optCount > 0 ? `(${optCount})` : ''}
+          </Button>
+        );
+      },
+    },
+    {
       title: '操作',
       key: 'action',
       width: 90,
@@ -1747,22 +1787,9 @@ const TableDesign: React.FC<TableDesignProps> = ({
             options = [<Select.Option key={1} value={1}>多行文本</Select.Option>];
             break;
           case 3: // 浏览按钮
-            options = [
-              <Select.Option key={1} value={1}>人力资源</Select.Option>,
-              <Select.Option key={2} value={2}>部门</Select.Option>,
-              <Select.Option key={3} value={3}>角色</Select.Option>,
-              <Select.Option key={4} value={4}>岗位</Select.Option>,
-              <Select.Option key={8} value={8}>项目</Select.Option>,
-              <Select.Option key={16} value={16}>相关客户</Select.Option>,
-              <Select.Option key={24} value={24}>文档</Select.Option>,
-              <Select.Option key={30} value={30}>流程</Select.Option>,
-              <Select.Option key={57} value={57}>附件</Select.Option>,
-              <Select.Option key={98} value={98}>日期</Select.Option>,
-              <Select.Option key={99} value={99}>时间</Select.Option>,
-              <Select.Option key={164} value={164}>自定义浏览按钮</Select.Option>,
-              <Select.Option key={256} value={256}>自定义树形单选</Select.Option>,
-              <Select.Option key={257} value={257}>自定义树形多选</Select.Option>,
-            ];
+            options = BROWSER_TYPE_ORDER.map((id) => (
+              <Select.Option key={id} value={id}>{BROWSER_TYPE_LABEL_MAP[id]}</Select.Option>
+            ));
             break;
           case 4: // 选择框
             options = [
@@ -1796,15 +1823,7 @@ const TableDesign: React.FC<TableDesignProps> = ({
         }
         // 浏览按钮类型：值区域点击预览，箭头点击类型选择
         if (htmlType === 3) {
-          const typeLabelMap: Record<number, string> = {
-            1: '人力资源', 2: '部门', 3: '角色', 4: '岗位', 8: '项目',
-            16: '相关客户', 24: '文档', 30: '流程', 57: '附件',
-            98: '日期', 99: '时间', 164: '自定义浏览按钮',
-            161: '多人力资源', 17: '多部门', 18: '分部', 31: '多流程',
-            26: '多文档', 167: '分权单人力资源', 168: '分权多人力资源',
-            19: '分权单部门', 20: '分权多部门', 257: '自定义树形多选',
-          };
-          const currentLabel = typeLabelMap[value as number] || '未知类型';
+          const currentLabel = BROWSER_TYPE_LABEL_MAP[value as number] || '未知类型';
           return (
             <div style={{ display: 'inline-block', width: '100%', position: 'relative' }}>
               {/* 值区域覆盖层：点击文字弹出预览，带下划线 */}
@@ -1999,6 +2018,21 @@ const TableDesign: React.FC<TableDesignProps> = ({
           disabled={record.isSystemField === 1}
         />
       ),
+    },
+    {
+      title: '选项',
+      key: 'options',
+      width: 90,
+      render: (_: any, record: any, index: number) => {
+        const isSelect = record.fieldHtmlType === 4 || record.fieldHtmlType === 6;
+        if (!isSelect) return <span style={{ color: '#bbb' }}>—</span>;
+        const optCount = (record.options && record.options.length) || 0;
+        return (
+          <Button type="link" size="small" onClick={() => openOptionModal(index, true)}>
+            选项{optCount > 0 ? `(${optCount})` : ''}
+          </Button>
+        );
+      },
     },
     {
       title: '操作',
@@ -2213,7 +2247,8 @@ const TableDesign: React.FC<TableDesignProps> = ({
           if (field.id) {
             await fieldApi.update(field.id, fieldData);
           } else {
-            await fieldApi.create(fieldData);
+            const created = await fieldApi.create(fieldData);
+            if (created && created.id) field.id = created.id; // 捕获新ID，供选项保存使用
           }
           savedMainCount++;
         } catch (error: any) {
@@ -2247,7 +2282,8 @@ const TableDesign: React.FC<TableDesignProps> = ({
               }
               await fieldApi.update(field.id, fieldData);
             } else {
-              await fieldApi.create(fieldData);
+              const created = await fieldApi.create(fieldData);
+              if (created && created.id) field.id = created.id; // 捕获新ID，供选项保存使用
             }
             savedDetailCount++;
           } catch (error: any) {
@@ -2256,6 +2292,21 @@ const TableDesign: React.FC<TableDesignProps> = ({
           }
         }
       }
+      // 5. 同步选择框/复选框选项（后端按 fieldId 先删后插）
+      try {
+        const allSelFields: Partial<FieldDefinitionFormData>[] = [
+          ...fields,
+          ...detailTables.flatMap(dt => dt.fields),
+        ].filter(f => (f.fieldHtmlType === 4 || f.fieldHtmlType === 6) && f.id);
+        for (const f of allSelFields) {
+          await fieldOptionApi.saveOptions(String(f.id), formId, f.options || []);
+        }
+        console.log('[TableDesign] 选项保存完成，字段数:', allSelFields.length);
+      } catch (e) {
+        console.error('[TableDesign] 选项保存失败:', e);
+        message.warning('部分字段选项保存失败');
+      }
+
       console.log('[TableDesign] 明细表字段保存完成，成功:', savedDetailCount);
       if (savedMainCount > 0 || savedDetailCount > 0) {
         message.success('表单定义保存成功');
@@ -2392,6 +2443,8 @@ const TableDesign: React.FC<TableDesignProps> = ({
                 };
               });
               setDetailTables(updatedDetailTables);
+              // 同步刚保存的选项，回填到内存字段
+              attachOptionsToFields(formId);
             }
           } else {
             // 如果表中存在数据，显示友好的提示信息
@@ -2943,6 +2996,37 @@ const TableDesign: React.FC<TableDesignProps> = ({
         }}
         onCancel={() => setTypePickerVisible(false)}
       />
+
+      {/* 选择框/复选框 选项配置弹窗 */}
+      <Modal
+        title="选项配置（下拉框 / 单选框 / 复选框）"
+        open={optionModal.open}
+        footer={null}
+        width={760}
+        onCancel={closeOptionModal}
+      >
+        {optionModal.open &&
+          (() => {
+            const optField = optionModal.isDetail
+              ? detailTables.find(dt => dt.key === activeDetailTab)?.fields[optionModal.index]
+              : fields[optionModal.index];
+            if (!optField) return null;
+            return (
+              <FieldOptionManager
+                fieldId={optField.id}
+                formId={tableConfig.id}
+                options={optField.options || []}
+                onChange={opts => {
+                  if (optionModal.isDetail) {
+                    handleDetailFieldChange(optionModal.index, 'options', opts);
+                  } else {
+                    handleFieldChange(optionModal.index, 'options', opts);
+                  }
+                }}
+              />
+            );
+          })()}
+      </Modal>
     </>
   );
 

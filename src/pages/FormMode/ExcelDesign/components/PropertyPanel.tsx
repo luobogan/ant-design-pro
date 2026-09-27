@@ -18,6 +18,8 @@ const FIELD_TYPE_OPTIONS = [
   { label: '下拉框', value: 'select' },
   { label: '复选框', value: 'checkbox' },
   { label: '单选框', value: 'radio' },
+  // 浏览按钮：细类（人力资源 / 多人力资源 / 部门 …）取自后端字段定义，预览页按它显示类型标签
+  { label: '浏览按钮', value: 'browser' },
   { label: '附件', value: 'attachment' },
   { label: '富文本', value: 'richtext' },
   { label: '分组框', value: 'group' },
