@@ -44,6 +44,12 @@ export default [
         path: '/',
         redirect: '/welcome',
       },
+      // 欢迎页：/ 重定向落点，必须显式注册，否则落到 /* 渲染 404
+      {
+        path: '/welcome',
+        name: 'welcome',
+        component: './Welcome',
+      },
       // 通配符路由，直接指向404页面
       {
         path: '/*',

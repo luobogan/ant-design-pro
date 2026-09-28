@@ -12,6 +12,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import { history } from '@umijs/max';
+import { getButton, hasButton } from '@/utils/authority';
 import {
   Avatar,
   Badge,
@@ -422,6 +423,7 @@ const Workplace: React.FC = () => {
                   <div>系统监控</div>
                 </Card>
               </Col>
+              {hasButton(getButton('account_settings'), 'account_setting') && (
               <Col span={8}>
                 <Card
                   hoverable
@@ -434,6 +436,7 @@ const Workplace: React.FC = () => {
                   <div>个人设置</div>
                 </Card>
               </Col>
+              )}
             </Row>
           </Card>
         </Col>

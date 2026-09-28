@@ -8,7 +8,7 @@ import type { MenuProps } from 'antd';
 import { Badge, Spin } from 'antd';
 import React, { startTransition, useEffect, useState } from 'react';
 import { outLogin } from '@/services/ant-design-pro/api';
-import { clearAuthority } from '@/utils/authority';
+import { clearAuthority, getButton, hasButton } from '@/utils/authority';
 import { monitorCount } from '@/services/workflow';
 import { pickPayload } from '@/utils/utils';
 import HeaderDropdown from '../HeaderDropdown';
@@ -17,26 +17,8 @@ type GlobalHeaderRightProps = {
   children?: React.ReactNode;
 };
 
-const menuItems: MenuProps['items'] = [
-  {
-    key: 'settings',
-    icon: <SettingOutlined />,
-    label: '个人设置',
-  },
-  {
-    key: 'theme',
-    icon: <SkinOutlined />,
-    label: '主题设置',
-  },
-  {
-    type: 'divider' as const,
-  },
-  {
-    key: 'logout',
-    icon: <LogoutOutlined />,
-    label: '退出登录',
-  },
-];
+// 用户下拉菜单：根据按钮权限「个人设置」(account_setting) 决定是否显示该项。
+// 权限来自 /menu/buttons（登录后写入 localStorage 的 sword-buttons），无授权则隐藏。
 
 const loginOut = async () => {
   try {
@@ -115,6 +97,28 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({
   if (!initialState || !currentUser) {
     return <Spin size="small" />;
   }
+
+  // 「个人设置」下拉项按按钮权限 account_setting 显隐：无权限则隐藏。
+  const accountSettingPerm = hasButton(getButton('account_settings'), 'account_setting');
+  const menuItems: MenuProps['items'] = [];
+  if (accountSettingPerm) {
+    menuItems.push({
+      key: 'settings',
+      icon: <SettingOutlined />,
+      label: '个人设置',
+    });
+  }
+  menuItems.push({
+    key: 'theme',
+    icon: <SkinOutlined />,
+    label: '主题设置',
+  });
+  menuItems.push({ type: 'divider' as const });
+  menuItems.push({
+    key: 'logout',
+    icon: <LogoutOutlined />,
+    label: '退出登录',
+  });
 
   return (
     <Badge count={todoCount} size="small" offset={[-2, 2]}>
