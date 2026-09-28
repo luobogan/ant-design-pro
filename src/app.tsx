@@ -3,8 +3,8 @@ import * as icons from '@ant-design/icons';
 import type { Settings as LayoutSettings, MenuDataItem } from '@ant-design/pro-components';
 import { SettingDrawer } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
-import { history, Link, Navigate } from '@umijs/max';
-import { message, Spin } from 'antd';
+import { history, Link, Navigate, request as httpRequest } from '@umijs/max';
+import { message, Spin, Button, Space } from 'antd';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import React from 'react';
@@ -265,18 +265,24 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
 
         const pageComponentName = toPascalCase(page);
         const componentPath = `./pages/${module}/${page}/${pageComponentName}.tsx`;
-        console.log(`组件路径：${componentPath}`);
+        // 目录入口回退：如 /account/settings → ./pages/Account/Settings/index.tsx
+        const componentIndexPath = `./pages/${module}/${page}/index.tsx`;
+        console.log(`组件路径：${componentPath}（回退：${componentIndexPath}）`);
 
         Component = React.lazy(
           () =>
             new Promise((resolve, _reject) => {
-              import(`./pages/${module}/${page}/${pageComponentName}.tsx`)
+              import(componentPath)
                 .then((mod) => resolve(mod))
-                .catch((error) => {
-                  console.error('组件导入错误:', componentPath, error);
-                  message.error(`页面组件加载失败：${componentPath}（详见控制台）`);
-                  import('./pages/exception/404').then((mod) => resolve(mod));
-                });
+                .catch(() =>
+                  import(componentIndexPath)
+                    .then((mod) => resolve(mod))
+                    .catch((error) => {
+                      console.error('组件导入错误:', componentPath, componentIndexPath, error);
+                      message.error(`页面组件加载失败：${componentPath} / ${componentIndexPath}（详见控制台）`);
+                      import('./pages/exception/404').then((mod) => resolve(mod));
+                    }),
+                );
             }),
         );
       }
@@ -417,11 +423,22 @@ export async function getInitialState(): Promise<{
       fetchUserInfo(),
       fetchButtons(),
     ]);
+    // 登录时加载当前用户保存的主题设置（若存在），合并到布局 settings，实现「按用户加载主题」
+    let settings = defaultSettings as Partial<LayoutSettings>;
+    const savedTheme = currentUser?.themeSetting;
+    if (savedTheme) {
+      try {
+        const parsed = JSON.parse(savedTheme);
+        settings = { ...settings, ...parsed };
+      } catch {
+        // 主题配置损坏则忽略，回退默认
+      }
+    }
     return {
       fetchUserInfo,
       currentUser,
       buttons,
-      settings: defaultSettings as Partial<LayoutSettings>,
+      settings,
     };
   }
   return {
@@ -514,6 +531,43 @@ export const layout: RunTimeLayoutConfig = ({
     ErrorBoundary,
     menuHeaderRender: undefined,
     childrenRender: (children) => {
+      // 保存当前用户的主题设置到后端（按用户持久化，登录时随用户信息返回并加载）
+      const handleSaveTheme = async () => {
+        const theme = initialState?.settings;
+        if (!theme) return;
+        try {
+          const res = await httpRequest('/api/blade-system/user/theme-setting', {
+            method: 'POST',
+            data: { themeSetting: JSON.stringify(theme) },
+          });
+          // 响应形态：umi 包装对象 { data: ApiResponse }，ApiResponse = { code, success, data, msg }。
+          // 注意 pickPayload 对 data 为基本类型（本接口 data 为 boolean）会多剥一层，取不到 success，
+          // 这里直接定位 ApiResponse 的成功标识，并兼容「包装对象 / ApiResponse 直出」两种形态。
+          const r = res as any;
+          const api = r?.data && typeof r.data === 'object' && r.data.success !== undefined ? r.data : r;
+          if (api?.success) {
+            message.success('主题设置已保存');
+            setInitialState((pre) => ({
+              ...pre,
+              currentUser: pre.currentUser
+                ? { ...pre.currentUser, themeSetting: JSON.stringify(theme) }
+                : pre.currentUser,
+            }));
+          } else {
+            message.error(api?.msg || '主题设置保存失败');
+          }
+        } catch {
+          message.error('主题设置保存失败');
+        }
+      };
+      // 恢复默认主题（仅本地重置，不自动保存）
+      const handleResetTheme = () => {
+        setInitialState((pre) => ({
+          ...pre,
+          settings: defaultSettings as Partial<LayoutSettings>,
+        }));
+        message.success('已恢复默认主题，点击「保存主题」可生效');
+      };
       return (
         <>
           {children}
@@ -521,6 +575,26 @@ export const layout: RunTimeLayoutConfig = ({
             disableUrlParams
             enableDarkTheme
             settings={initialState?.settings}
+            // SettingDrawer 的抽屉 open 由内部 state 控制，但 drawerProps.open 会覆盖它，
+            // 导致浮动齿轮（setOpen 改内部 state）点了没反应。
+            // 改用受控项 collapse + onCollapseChange 驱动 open，齿轮与「主题设置」菜单都能正常开关。
+            collapse={initialState?.settingDrawerOpen}
+            onCollapseChange={(o: boolean) => {
+              setInitialState((pre) => ({ ...pre, settingDrawerOpen: !!o }));
+            }}
+            drawerProps={{
+              onClose: () => {
+                setInitialState((pre) => ({ ...pre, settingDrawerOpen: false }));
+              },
+              footer: (
+                <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+                  <Button onClick={handleResetTheme}>恢复默认</Button>
+                  <Button type="primary" onClick={handleSaveTheme}>
+                    保存主题
+                  </Button>
+                </Space>
+              ),
+            }}
             onSettingChange={(settings) => {
               setInitialState((preInitialState) => ({
                 ...preInitialState,

@@ -179,7 +179,7 @@ const Login: React.FC = () => {
       // 根据验证码模式决定 grant_type
       const grantType = isCaptchaEnabled() ? 'captcha' : 'password';
       formData.append('grantType', grantType);
-      formData.append('tenantId', values.tenantId || '000000');
+      formData.append('tenantId', values.tenantId);
       formData.append('account', values.account);
       formData.append('password', encryptedPassword);
       formData.append('scope', 'all');
@@ -378,7 +378,12 @@ const Login: React.FC = () => {
               </Paragraph>
             </div>
 
-            <Form form={form} onFinish={handleSubmit} layout="vertical">
+            <Form
+              form={form}
+              onFinish={handleSubmit}
+              layout="vertical"
+              initialValues={{ tenantId: '000000' }}
+            >
             {loginError && (
               <Alert
                 style={{ marginBottom: 20 }}

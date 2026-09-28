@@ -10,6 +10,8 @@ declare namespace API {
     signature?: string;
     title?: string;
     group?: string;
+    /** 主题设置（JSON 字符串），保存前端布局主题配置，登录时加载 */
+    themeSetting?: string;
     tags?: { key?: string; label?: string }[];
     notifyCount?: number;
     unreadCount?: number;

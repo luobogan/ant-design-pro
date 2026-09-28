@@ -8,6 +8,7 @@ import type { MenuProps } from 'antd';
 import { Badge, Spin } from 'antd';
 import React, { startTransition, useEffect, useState } from 'react';
 import { outLogin } from '@/services/ant-design-pro/api';
+import { clearAuthority } from '@/utils/authority';
 import { monitorCount } from '@/services/workflow';
 import { pickPayload } from '@/utils/utils';
 import HeaderDropdown from '../HeaderDropdown';
@@ -41,8 +42,12 @@ const loginOut = async () => {
   try {
     await outLogin();
   } catch {
-    // Local logout has already cleared user state; redirect should still proceed.
+    // 后端退出失败也不影响前端退出：本地登录态必须清掉，否则刷新后用旧 token 又会自动登录
   }
+  // ⚠️ 关键：真正清除本地登录态（sword-token / 权限 / 用户信息 / 菜单按钮缓存等）。
+  // 旧实现只调用了后端 /api/blade-auth/logout，没清 localStorage，
+  // 于是刷新后 getInitialState 仍用旧 token 拉到用户信息 → 「自动登录」回来了。
+  clearAuthority();
   const { search, pathname } = window.location;
   const urlParams = new URL(window.location.href).searchParams;
   const searchParams = new URLSearchParams({
