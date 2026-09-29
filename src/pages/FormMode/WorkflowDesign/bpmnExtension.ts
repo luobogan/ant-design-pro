@@ -17,7 +17,7 @@
  * - `extJson` / `extraOperations` 走文本体（`isBody`），可承载任意 JSON / 多行文本。
  */
 
-/** 操作者（对齐 wf_node_operator，保留 groupNo/levelMin/levelMax 等 schema 已含字段） */
+/** 操作者（对齐 wf_node_operator，含操作组名/可见性/生效条件/协办等全部字段） */
 export interface WfOperator {
   groupNo?: string;
   opType?: string;
@@ -25,6 +25,16 @@ export interface WfOperator {
   bhxj?: string;
   levelMin?: string;
   levelMax?: string;
+  signOrder?: string;
+  batchNo?: string;
+  groupName?: string;
+  canView?: string;
+  conditionJson?: string;
+  isCoadjutant?: string;
+  coadjutants?: string;
+  isPending?: string;
+  isModify?: string;
+  signType?: string;
 }
 
 /** 主表字段权限（wf:fieldPerm） */
@@ -166,6 +176,16 @@ export const getWfNodeExt = (element: any): WfNodeExt | null => {
     bhxj: str(o.bhxj),
     levelMin: str(o.levelMin),
     levelMax: str(o.levelMax),
+    signOrder: str(o.signOrder),
+    batchNo: str(o.batchNo),
+    groupName: str(o.groupName),
+    canView: str(o.canView),
+    conditionJson: str(o.conditionJson),
+    isCoadjutant: str(o.isCoadjutant),
+    coadjutants: str(o.coadjutants),
+    isPending: str(o.isPending),
+    isModify: str(o.isModify),
+    signType: str(o.signType),
   }));
   const fieldPerms: WfFieldPerm[] = arr('fieldPerms').map((f) => ({
     field: str(f.field) || '',
@@ -301,6 +321,16 @@ const buildOperators = (moddle: any, ops?: WfOperator[]) =>
       bhxj: o.bhxj,
       levelMin: o.levelMin,
       levelMax: o.levelMax,
+      signOrder: o.signOrder,
+      batchNo: o.batchNo,
+      groupName: o.groupName,
+      canView: o.canView,
+      conditionJson: o.conditionJson,
+      isCoadjutant: o.isCoadjutant,
+      coadjutants: o.coadjutants,
+      isPending: o.isPending,
+      isModify: o.isModify,
+      signType: o.signType,
     }),
   );
 

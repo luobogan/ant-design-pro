@@ -64,7 +64,17 @@
         { "name": "objId", "type": "String" },
         { "name": "bhxj", "type": "String" },
         { "name": "levelMin", "type": "String" },
-        { "name": "levelMax", "type": "String" }
+        { "name": "levelMax", "type": "String" },
+        { "name": "signOrder", "type": "String" },
+        { "name": "batchNo", "type": "String" },
+        { "name": "groupName", "type": "String" },
+        { "name": "canView", "type": "String" },
+        { "name": "conditionJson", "type": "String" },
+        { "name": "isCoadjutant", "type": "String" },
+        { "name": "coadjutants", "type": "String" },
+        { "name": "isPending", "type": "String" },
+        { "name": "isModify", "type": "String" },
+        { "name": "signType", "type": "String" }
       ]
     },
     {
