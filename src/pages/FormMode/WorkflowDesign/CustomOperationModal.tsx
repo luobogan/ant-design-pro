@@ -12,15 +12,45 @@ import {
   message,
 } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import {
-  fullCustomOperations,
-  saveCustomOperations,
-  WfCustomOperationFull,
-  WfCustomOperationRight,
-  WfProcessNode,
-} from '@/services/workflow';
+import { WfCustomOperationFull, WfCustomOperationRight, WfProcessNode } from '@/services/workflow';
+import { getActiveModeler } from './bpmnModelerHolder';
+import { getWfNodeExt, setWfNodeExt, WfOperation } from './bpmnExtension';
 
 const { Option } = Select;
+
+/** BPMN 扩展 `wf:operation` → 弹窗用的三级结构（op / action / rights） */
+const fromExt = (o: WfOperation): WfCustomOperationFull => ({
+  op: {
+    btnName: o.btnName,
+    btnOrder: o.btnOrder != null ? Number(o.btnOrder) : undefined,
+    enabled: o.enabled != null ? Number(o.enabled) : undefined,
+    actionType: o.actionType != null ? Number(o.actionType) : undefined,
+  },
+  action: {
+    url: o.url,
+    httpMethod: o.httpMethod,
+    flowOperation: o.flowOperation,
+    interfaceName: o.interfaceName,
+    paramExpr: o.paramExpr,
+    opinion: o.opinion,
+  },
+  rights: (o.rights || []).map((r) => ({ rightType: r.rightType, rightValue: r.rightValue })),
+});
+
+/** 弹窗三级结构 → BPMN 扩展 `wf:operation` */
+const toExt = (d: WfCustomOperationFull): WfOperation => ({
+  btnName: d.op?.btnName,
+  btnOrder: d.op?.btnOrder != null ? String(d.op.btnOrder) : undefined,
+  actionType: d.op?.actionType != null ? String(d.op.actionType) : undefined,
+  enabled: d.op?.enabled != null ? String(d.op.enabled) : undefined,
+  url: d.action?.url,
+  httpMethod: d.action?.httpMethod,
+  paramExpr: d.action?.paramExpr,
+  flowOperation: d.action?.flowOperation,
+  interfaceName: d.action?.interfaceName,
+  opinion: d.action?.opinion,
+  rights: (d.rights || []).map((r) => ({ rightType: r.rightType, rightValue: r.rightValue })),
+});
 
 const ACTION_TYPES = [
   { label: 'URL（HTTP 调用）', value: 1 },
@@ -57,15 +87,17 @@ const CustomOperationModal: React.FC<{
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // 路线 B：自定义操作改读 BPMN `wf:node/wf:operation[]`，不再调 fullCustomOperations
   useEffect(() => {
-    if (open && defId && node?.nodeKey) {
-      setLoading(true);
-      fullCustomOperations(Number(defId), node.nodeKey)
-        .then((r: any) => setData(Array.isArray(r?.data) ? r.data : []))
-        .catch(() => setData([]))
-        .finally(() => setLoading(false));
+    if (!open || !node?.nodeKey) return;
+    const modeler = getActiveModeler();
+    const element = modeler?.get('elementRegistry')?.get(node.nodeKey);
+    if (!element) {
+      setData([]);
+      return;
     }
-  }, [open, defId, node?.nodeKey]);
+    setData((getWfNodeExt(element)?.operation || []).map(fromExt));
+  }, [open, node?.nodeKey]);
 
   const patchOp = (i: number, p: any) =>
     setData((prev) => prev.map((it, idx) => (idx === i ? { ...it, op: { ...it.op, ...p } } : it)));
@@ -75,6 +107,7 @@ const CustomOperationModal: React.FC<{
     setData((prev) => prev.map((it, idx) => (idx === i ? { ...it, rights } : it)));
 
   const onSave = async () => {
+    if (!node?.nodeKey) return;
     const payload = data
       .filter((d) => d.op?.btnName && d.op.btnName.trim())
       .map((d, i) => ({
@@ -82,13 +115,21 @@ const CustomOperationModal: React.FC<{
         op: { ...d.op, btnOrder: i, enabled: d.op?.enabled ? 1 : 0 },
         rights: (d.rights || []).filter((r) => r.rightValue && r.rightValue.trim()),
       }));
+    const modeler = getActiveModeler();
+    const element = modeler?.get('elementRegistry')?.get(node.nodeKey);
+    if (!element) {
+      message.error('画布未就绪，无法保存');
+      return;
+    }
     setSaving(true);
     try {
-      await saveCustomOperations(Number(defId), node!.nodeKey!, payload as any);
-      message.success('自定义操作已保存');
+      // 路线 B：整体覆盖写回 BPMN 扩展，由画布自动保存落库
+      const ext = getWfNodeExt(element) || {};
+      setWfNodeExt(modeler, element, { ...ext, operation: payload.map(toExt) });
+      message.success('自定义操作已保存（已写入 BPMN 扩展）');
       onClose();
     } catch (e: any) {
-      message.error(e?.msg || '保存失败');
+      message.error(e?.message || '保存失败');
     } finally {
       setSaving(false);
     }

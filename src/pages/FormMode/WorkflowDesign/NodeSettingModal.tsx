@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Checkbox, Form, Input, InputNumber, Modal, Radio, Select, Space, Switch, message } from 'antd';
-import { updateNode, WfProcessNode } from '@/services/workflow';
+import { WfProcessNode } from '@/services/workflow';
 import { buildExtJson, nodeSettings, SETTING_DEFS, SettingField } from './nodeSettings';
+import { getActiveModeler } from './bpmnModelerHolder';
+import { getWfNodeExt, setWfNodeExt } from './bpmnExtension';
 
 export interface NodeSettingModalProps {
   open: boolean;
@@ -39,9 +41,17 @@ const NodeSettingModal: React.FC<NodeSettingModalProps> = ({
   const [saving, setSaving] = useState(false);
   const def = SETTING_DEFS.find((d) => d.key === defKey);
 
+  /** 路线 B：extJson 优先读 BPMN `wf:node` 扩展；画布未就绪时回退父级传入的 node.extJson */
+  const extJsonOfNode = (): string | undefined => {
+    const modeler = getActiveModeler();
+    const element = node?.nodeKey ? modeler?.get('elementRegistry')?.get(node.nodeKey) : undefined;
+    return element ? getWfNodeExt(element)?.extJson : node?.extJson;
+  };
+
   useEffect(() => {
     if (!open || !def || !node) return;
-    form.setFieldsValue(nodeSettings(node)[def.key] || {});
+    const extJson = extJsonOfNode();
+    form.setFieldsValue(nodeSettings(extJson != null ? { ...node, extJson } : node)[def.key] || {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defKey, node?.nodeKey]);
 
@@ -172,7 +182,8 @@ const NodeSettingModal: React.FC<NodeSettingModalProps> = ({
     }
     setSaving(true);
     try {
-      const extJson = buildExtJson(node, (s) => {
+      // 路线 B：以 BPMN 扩展里的 extJson 为基准重建，避免覆盖掉画布上已有的其它设置项
+      const extJson = buildExtJson({ ...node, extJson: extJsonOfNode() }, (s) => {
         s[def.key] = values;
       });
       if (draftMode) {
@@ -180,13 +191,16 @@ const NodeSettingModal: React.FC<NodeSettingModalProps> = ({
         onClose();
         return;
       }
-      const r: any = await updateNode(defId, node.nodeKey, { extJson });
-      if (r?.success === false) {
-        message.error('保存失败');
+      const modeler = getActiveModeler();
+      const element = modeler?.get('elementRegistry')?.get(node.nodeKey);
+      if (!element) {
+        message.error('画布未就绪，无法保存');
         return;
       }
+      const ext = getWfNodeExt(element) || {};
+      setWfNodeExt(modeler, element, { ...ext, extJson });
       onSaved?.(node.nodeKey, extJson);
-      message.success('设置已保存');
+      message.success('设置已保存（已写入 BPMN 扩展）');
       onClose();
     } catch {
       message.error('保存失败');

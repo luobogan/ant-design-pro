@@ -18,7 +18,6 @@ import { CheckCircleFilled, SettingOutlined } from '@ant-design/icons';
 import {
   getFieldPerm,
   getNodeOperators,
-  updateNode,
   WfNodeOperator,
   WfProcessNode,
 } from '@/services/workflow';
@@ -291,12 +290,16 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
       sign: nextExt.sign ? 1 : 0,
       settings: nextExt.settings || {},
     });
+    const modeler = getActiveModeler();
+    const element = modeler?.get('elementRegistry')?.get(nodeKey);
+    if (!element) {
+      message.error('画布未就绪，无法保存');
+      return false;
+    }
     try {
-      const r: any = await updateNode(defId, nodeKey, { extJson });
-      if (r?.success === false) {
-        message.error('保存失败');
-        return false;
-      }
+      // 路线 B：extJson 写 BPMN `wf:node` 扩展，由画布自动保存落库
+      const cur = getWfNodeExt(element) || {};
+      setWfNodeExt(modeler, element, { ...cur, extJson });
       setExt(nextExt);
       onPatch?.(nodeKey, { extJson });
       return true;
@@ -321,11 +324,27 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
         allowForward: v.allowForward ? 1 : 0,
         autoApprove: v.autoApprove ? 1 : 0,
       };
-      const r: any = await updateNode(defId, nodeKey, patch);
-      if (r?.success === false) {
-        message.error('保存失败');
+      // 路线 B：节点名 → 画布元素 name；其余节点属性 → BPMN `wf:node` 扩展
+      const modeler = getActiveModeler();
+      const element = modeler?.get('elementRegistry')?.get(nodeKey);
+      if (!element) {
+        message.error('画布未就绪，无法保存');
         return;
       }
+      if (v.nodeName && element.businessObject?.name !== v.nodeName) {
+        modeler.get('modeling').updateProperties(element, { name: v.nodeName });
+      }
+      const cur = getWfNodeExt(element) || {};
+      setWfNodeExt(modeler, element, {
+        ...cur,
+        nodeType: v.nodeType != null ? String(v.nodeType) : cur.nodeType,
+        signOrder: v.signOrder != null ? String(v.signOrder) : cur.signOrder,
+        mergeType: v.mergeType != null ? String(v.mergeType) : cur.mergeType,
+        passNum: v.passNum != null ? String(v.passNum) : cur.passNum,
+        allowReject: String(v.allowReject ? 1 : 0),
+        allowForward: String(v.allowForward ? 1 : 0),
+        autoApprove: String(v.autoApprove ? 1 : 0),
+      });
       onPatch?.(nodeKey, patch);
       const ok = await persistExt({ ...ext, sign: v.sign ? 1 : 0 });
       if (!ok) return;

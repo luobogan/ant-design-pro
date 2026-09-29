@@ -16,9 +16,11 @@ import {
 } from 'antd';
 import { DeleteOutlined, HolderOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { pickPayload } from '@/utils/utils';
-import { listCustomActions, updateNode, WfProcessNode, WfCustomAction } from '@/services/workflow';
+import { listCustomActions, WfProcessNode, WfCustomAction } from '@/services/workflow';
 import { FormFieldBrief } from './LinkInfoPanel';
 import CustomActionRegisterModal from './CustomActionRegisterModal';
+import { getActiveModeler } from './bpmnModelerHolder';
+import { getWfNodeExt, setWfNodeExt } from './bpmnExtension';
 import { EXTRA_OPERATE_TYPES, FAIL_MODES } from './wfDict';
 import {
   buildExtJson,
@@ -166,9 +168,18 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
 
   const fieldLabel = field === 'preOperate' ? '节点前附加操作' : '节点后附加操作';
 
+  /** 路线 B：extJson 优先读 BPMN `wf:node` 扩展；画布未就绪时回退父级传入的 node.extJson */
+  const extJsonOfNode = (): string | undefined => {
+    const modeler = getActiveModeler();
+    const element = node?.nodeKey ? modeler?.get('elementRegistry')?.get(node.nodeKey) : undefined;
+    return element ? getWfNodeExt(element)?.extJson : node?.extJson;
+  };
+
   useEffect(() => {
     if (!open || !node) return;
-    setItems(normalizeExtraOperate(nodeSettings(node)[field]).items);
+    const extJson = extJsonOfNode();
+    const src = extJson != null ? { ...node, extJson } : node;
+    setItems(normalizeExtraOperate(nodeSettings(src)[field]).items);
     setSelectedKeys([]);
     setActiveTab('field');
     setEditing(undefined);
@@ -364,7 +375,8 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
       message.warning(`已忽略 ${items.length - kept.length} 条未配置的附加操作`);
     }
     const cfg = buildExtraOperateConfig(kept);
-    const extJson = buildExtJson(node, (s) => {
+    // 路线 B：以 BPMN 扩展里的 extJson 为基准重建，避免覆盖掉画布上已有的其它设置项
+    const extJson = buildExtJson({ ...node, extJson: extJsonOfNode() }, (s) => {
       s[field] = cfg;
     });
 
@@ -375,13 +387,16 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
         onClose();
         return;
       }
-      const r: any = await updateNode(defId, node.nodeKey, { extJson });
-      if (r?.success === false) {
-        message.error('保存失败');
+      const modeler = getActiveModeler();
+      const element = modeler?.get('elementRegistry')?.get(node.nodeKey);
+      if (!element) {
+        message.error('画布未就绪，无法保存');
         return;
       }
+      const ext = getWfNodeExt(element) || {};
+      setWfNodeExt(modeler, element, { ...ext, extJson });
       onSaved?.(node.nodeKey, extJson);
-      message.success(`${fieldLabel}已保存`);
+      message.success(`${fieldLabel}已保存（已写入 BPMN 扩展）`);
       onClose();
     } catch {
       message.error('保存失败');

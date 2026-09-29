@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Popconfirm, Select, Space, Table, Tag, message } from 'antd';
 import { CheckCircleFilled, HolderOutlined, PlusOutlined } from '@ant-design/icons';
-import { getNodeOperators, updateNode, WfNodeOperator, WfProcessNode } from '@/services/workflow';
+import { getNodeOperators, WfNodeOperator, WfProcessNode } from '@/services/workflow';
+import { getActiveModeler } from './bpmnModelerHolder';
+import { getWfNodeExt, setWfNodeExt } from './bpmnExtension';
 import NodeOperatorModal from './NodeOperatorModal';
 import NodeSettingModal from './NodeSettingModal';
 import NodeOperateMenuModal from './NodeOperateMenuModal';
@@ -201,13 +203,25 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
 
   const draftKey = (nodeKey: string, field: string) => `${nodeKey}|${field}`;
 
-  /** 提交节点字段（名称/类型）——真实节点 */
+  /** 提交节点字段（名称/类型/审批方式…）——真实节点（路线 B：写 BPMN `wf:node` 扩展 / 元素 name） */
   const saveField = async (nodeKey: string, patch: Partial<WfProcessNode>) => {
+    const modeler = getActiveModeler();
+    const element = modeler?.get('elementRegistry')?.get(nodeKey);
+    if (!element) {
+      message.error('画布未就绪，无法保存');
+      return;
+    }
     try {
-      const r: any = await updateNode(defId, nodeKey, patch);
-      if (r?.success === false) {
-        message.error('保存失败');
-        return;
+      const ext = getWfNodeExt(element) || {};
+      const next: any = { ...ext };
+      if (patch.nodeType != null) next.nodeType = String(patch.nodeType);
+      if (patch.signOrder != null) next.signOrder = String(patch.signOrder);
+      if (patch.mergeType != null) next.mergeType = String(patch.mergeType);
+      if (patch.sortOrder != null) next.sortOrder = String(patch.sortOrder);
+      setWfNodeExt(modeler, element, next);
+      // 节点名仍落在画布元素 name 上（画布标签与库同步）
+      if (patch.nodeName != null && element.businessObject?.name !== patch.nodeName) {
+        modeler.get('modeling').updateProperties(element, { name: patch.nodeName });
       }
       onPatch?.(nodeKey, patch);
     } catch {
@@ -215,19 +229,23 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
     }
   };
 
-  /** 提交 settings 类改动——真实节点 */
+  /** 提交 settings 类改动——真实节点（路线 B：extJson 写 BPMN `wf:node` 扩展） */
   const saveSettings = async (
     node: WfProcessNode,
     mutate: (settings: Record<string, any>) => void,
   ) => {
     const nodeKey = node.nodeKey!;
-    const extJson = buildExtJson(node, mutate);
+    const modeler = getActiveModeler();
+    const element = modeler?.get('elementRegistry')?.get(nodeKey);
+    if (!element) {
+      message.error('画布未就绪，无法保存');
+      return;
+    }
+    const ext = getWfNodeExt(element) || {};
+    // 以 BPMN 扩展里的 extJson 为基准重建，避免覆盖画布上已有的其它设置项
+    const extJson = buildExtJson({ ...node, extJson: ext.extJson }, mutate);
     try {
-      const r: any = await updateNode(defId, nodeKey, { extJson });
-      if (r?.success === false) {
-        message.error('保存失败');
-        return;
-      }
+      setWfNodeExt(modeler, element, { ...ext, extJson });
       onPatch?.(nodeKey, { extJson });
     } catch {
       message.error('保存失败');

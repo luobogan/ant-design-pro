@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Input, Modal, Radio, Space, Switch, Table, Tag, message } from 'antd';
 import { ArrowDownOutlined, ArrowUpOutlined, HolderOutlined } from '@ant-design/icons';
-import { updateNode, WfProcessNode } from '@/services/workflow';
+import { WfProcessNode } from '@/services/workflow';
 import { DEFAULT_MENUS, MENUS_OPTIONS } from './wfDict';
 import {
   buildExtJson,
@@ -10,6 +10,8 @@ import {
   normalizeOperateMenu,
   OperateMenuItem,
 } from './nodeSettings';
+import { getActiveModeler } from './bpmnModelerHolder';
+import { getWfNodeExt, setWfNodeExt } from './bpmnExtension';
 
 export interface NodeOperateMenuModalProps {
   open: boolean;
@@ -46,9 +48,17 @@ const NodeOperateMenuModal: React.FC<NodeOperateMenuModalProps> = ({
   const [defaultKey, setDefaultKey] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
 
+  /** 路线 B：extJson 优先读 BPMN `wf:node` 扩展；画布未就绪时回退父级传入的 node.extJson */
+  const extJsonOfNode = (): string | undefined => {
+    const modeler = getActiveModeler();
+    const element = node?.nodeKey ? modeler?.get('elementRegistry')?.get(node.nodeKey) : undefined;
+    return element ? getWfNodeExt(element)?.extJson : node?.extJson;
+  };
+
   useEffect(() => {
     if (!open || !node) return;
-    const om = nodeSettings(node).operateMenu || {};
+    const extJson = extJsonOfNode();
+    const om = nodeSettings(extJson != null ? { ...node, extJson } : node).operateMenu || {};
     setItems(normalizeOperateMenu(om));
     setDefaultKey(typeof om.default === 'string' ? om.default : undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -128,7 +138,8 @@ const NodeOperateMenuModal: React.FC<NodeOperateMenuModalProps> = ({
     // 默认操作必须处于启用状态
     const dk =
       defaultKey && cleaned.some((c) => c.key === defaultKey && c.enabled) ? defaultKey : undefined;
-    const extJson = buildExtJson(node, (s) => {
+    // 路线 B：以 BPMN 扩展里的 extJson 为基准重建，避免覆盖掉画布上已有的其它设置项
+    const extJson = buildExtJson({ ...node, extJson: extJsonOfNode() }, (s) => {
       s.operateMenu = {
         items: cleaned,
         default: dk,
@@ -143,13 +154,16 @@ const NodeOperateMenuModal: React.FC<NodeOperateMenuModalProps> = ({
         onClose();
         return;
       }
-      const r: any = await updateNode(defId, node.nodeKey, { extJson });
-      if (r?.success === false) {
-        message.error('保存失败');
+      const modeler = getActiveModeler();
+      const element = modeler?.get('elementRegistry')?.get(node.nodeKey);
+      if (!element) {
+        message.error('画布未就绪，无法保存');
         return;
       }
+      const ext = getWfNodeExt(element) || {};
+      setWfNodeExt(modeler, element, { ...ext, extJson });
       onSaved?.(node.nodeKey, extJson);
-      message.success('操作菜单已保存');
+      message.success('操作菜单已保存（已写入 BPMN 扩展）');
       onClose();
     } catch {
       message.error('保存失败');

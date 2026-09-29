@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Card, Descriptions, Divider, Input, message, Space, Tag } from 'antd';
-import { updateLink, WfNodeLink, WfProcessNode } from '@/services/workflow';
+import { WfNodeLink, WfProcessNode } from '@/services/workflow';
 import { FormFieldBrief, LinkChange } from './LinkInfoPanel';
 import { useLinkActions } from './useLinkActions';
+import { getActiveModeler } from './bpmnModelerHolder';
+import { findSequenceFlow, getWfLinkExt, setWfLinkExt } from './bpmnExtension';
 
 export interface LinkDetailProps {
   defId: any;
@@ -64,26 +66,37 @@ const LinkDetail: React.FC<LinkDetailProps> = ({
     [links, selectedLink],
   );
 
-  const [extra, setExtra] = useState(currentLink?.extraOperations || '');
+  const [extra, setExtra] = useState('');
   const [saving, setSaving] = useState(false);
+  // 路线 B：附加操作优先读 BPMN `wf:link` 扩展；画布未就绪时回退列表行上的值
   useEffect(() => {
-    setExtra(currentLink?.extraOperations || '');
-  }, [currentLink]);
+    const flow = selectedLink
+      ? findSequenceFlow(getActiveModeler(), selectedLink.from, selectedLink.to)
+      : undefined;
+    const fromExt = flow ? getWfLinkExt(flow)?.extraOperations : undefined;
+    setExtra(fromExt ?? currentLink?.extraOperations ?? '');
+  }, [currentLink, selectedLink]);
 
   if (!currentLink) return null;
 
   /** 保存出口级附加操作脚本 */
   const saveExtra = async () => {
-    if (currentLink.id == null) return;
+    if (!selectedLink) return;
+    const modeler = getActiveModeler();
+    const flow = findSequenceFlow(modeler, selectedLink.from, selectedLink.to);
+    if (!flow) {
+      message.error('画布上未找到该连线，无法保存');
+      return;
+    }
     setSaving(true);
     try {
-      const r: any = await updateLink(defId, currentLink.id, { extraOperations: extra });
-      if (r?.success === false) {
-        message.error('保存失败');
-        return;
+      // 路线 B：附加操作写 BPMN `wf:link/wf:extraOperations`，由画布自动保存落库
+      const ext = getWfLinkExt(flow) || {};
+      setWfLinkExt(modeler, flow, { ...ext, extraOperations: extra });
+      if (currentLink?.id != null) {
+        onPatch?.(currentLink.id, { extraOperations: extra });
       }
-      onPatch?.(currentLink.id, { extraOperations: extra });
-      message.success('出口级附加操作已保存');
+      message.success('出口级附加操作已保存（已写入 BPMN 扩展）');
     } catch {
       message.error('保存失败');
     } finally {

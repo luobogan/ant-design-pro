@@ -96,6 +96,13 @@ export interface WfOperation {
   btnOrder?: string;
   actionType?: string;
   enabled?: string;
+  /** 动作明细：按 actionType 使用（1=URL，2=流程操作，3=接口） */
+  url?: string;
+  httpMethod?: string;
+  paramExpr?: string;
+  flowOperation?: string;
+  interfaceName?: string;
+  opinion?: string;
   rights?: WfRight[];
 }
 
@@ -240,6 +247,12 @@ export const getWfNodeExt = (element: any): WfNodeExt | null => {
     btnOrder: str(o.btnOrder),
     actionType: str(o.actionType),
     enabled: str(o.enabled),
+    url: str(o.url),
+    httpMethod: str(o.httpMethod),
+    paramExpr: str(o.paramExpr),
+    flowOperation: str(o.flowOperation),
+    interfaceName: str(o.interfaceName),
+    opinion: str(o.opinion),
     rights: (o.get?.('rights') ?? o.rights ?? []).map((r: any) => ({
       rightType: str(r.rightType),
       rightValue: str(r.rightValue),
@@ -297,6 +310,49 @@ export const getWfProcessMeta = (processElement: any): WfProcessMeta | null => {
     grayRule: str(meta.grayRule),
     raw: meta,
   };
+};
+
+/**
+ * 按源/目标节点 Key 定位画布上的真实连线（SequenceFlow 元素）。
+ *
+ * 出口可能是「穿透网关折叠」的逻辑出口（A→网关→B，viaGateway=1），画布上并不存在 A→B 直连，
+ * 故先试直连，失败再 BFS 穿透网关/事件等**中转元素**还原 A→…→B（与后端折叠规则一致：不越过业务节点）。
+ */
+export const findSequenceFlow = (
+  modeler: any,
+  fromKey?: string,
+  toKey?: string,
+): any | undefined => {
+  if (!modeler || !fromKey || !toKey) return undefined;
+  const registry = modeler.get('elementRegistry');
+  const from = registry?.get(fromKey);
+  if (!from) return undefined;
+
+  const match = (c: any) => c.target?.id === toKey || c.businessObject?.targetRef?.id === toKey;
+  const direct = (from.outgoing || []).find(match);
+  if (direct) return direct;
+
+  const queue: string[] = [fromKey];
+  const seen = new Set<string>([fromKey]);
+  while (queue.length) {
+    const cur = queue.shift() as string;
+    for (const conn of registry.get(cur)?.outgoing || []) {
+      const target = conn.target;
+      if (!target) continue;
+      if (match(conn)) return conn;
+      const type = target.businessObject?.$type;
+      // 只穿透网关 / 事件等中转元素，不越过中间业务节点
+      if (
+        typeof type === 'string' &&
+        (type.includes('Gateway') || type.includes('Event')) &&
+        !seen.has(target.id)
+      ) {
+        seen.add(target.id);
+        queue.push(target.id);
+      }
+    }
+  }
+  return undefined;
 };
 
 // ───────────────────────────────── 写 ─────────────────────────────────
@@ -393,6 +449,12 @@ const buildOperations = (moddle: any, list?: WfOperation[]) =>
       btnOrder: o.btnOrder,
       actionType: o.actionType,
       enabled: o.enabled,
+      url: o.url,
+      httpMethod: o.httpMethod,
+      paramExpr: o.paramExpr,
+      flowOperation: o.flowOperation,
+      interfaceName: o.interfaceName,
+      opinion: o.opinion,
       rights: (o.rights || []).map((r) =>
         moddle.create('wf:right', { rightType: r.rightType, rightValue: r.rightValue }),
       ),

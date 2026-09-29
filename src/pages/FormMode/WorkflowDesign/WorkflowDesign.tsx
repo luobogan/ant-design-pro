@@ -12,10 +12,7 @@ import {
   listLinks,
   listNodes,
   listVersions,
-  deleteNode,
   saveAsNewVersion,
-  updateNode,
-  configOperator,
   workflowBrowserApi,
   WfNodeLink,
   WfProcessDefinition,
@@ -38,7 +35,43 @@ import SimulateModal from './SimulateModal';
 import WorkflowTestModal from './WorkflowTestModal';
 // 「定位并高亮」指令类型：type-only import，运行时被擦除，不影响画布的懒加载
 import type { FocusEvt, SimulateEvt } from './BpmnDesigner';
+import { getActiveModeler } from './bpmnModelerHolder';
+import { getWfNodeExt, setWfNodeExt, WfOperator } from './bpmnExtension';
 import './workflowDesign.css';
+
+/** 路线 B：按 nodeKey 取画布元素 */
+const elementOf = (nodeKey: string) =>
+  getActiveModeler()?.get('elementRegistry')?.get(nodeKey);
+
+/** 路线 B：把节点级字段写进 BPMN `wf:node` 扩展（画布自动保存落库） */
+const writeNodeExt = (nodeKey: string, patch: Record<string, any>): boolean => {
+  const modeler = getActiveModeler();
+  const element = elementOf(nodeKey);
+  if (!modeler || !element) return false;
+  const ext = getWfNodeExt(element) || {};
+  setWfNodeExt(modeler, element, { ...ext, ...patch });
+  return true;
+};
+
+/** 表单用 WfNodeOperator → BPMN 扩展里的字符串型操作者 */
+const operatorToExt = (o: WfNodeOperator): WfOperator => ({
+  groupNo: o.groupNo != null ? String(o.groupNo) : undefined,
+  opType: o.opType != null ? String(o.opType) : undefined,
+  objId: o.objId,
+  bhxj: o.bhxj != null ? String(o.bhxj) : undefined,
+  levelMin: o.levelMin != null ? String(o.levelMin) : undefined,
+  levelMax: o.levelMax != null ? String(o.levelMax) : undefined,
+  signOrder: o.signOrder != null ? String(o.signOrder) : undefined,
+  batchNo: o.batchNo != null ? String(o.batchNo) : undefined,
+  groupName: o.groupName,
+  canView: o.canView != null ? String(o.canView) : undefined,
+  conditionJson: o.conditionJson,
+  isCoadjutant: o.isCoadjutant != null ? String(o.isCoadjutant) : undefined,
+  coadjutants: o.coadjutants,
+  isPending: o.isPending != null ? String(o.isPending) : undefined,
+  isModify: o.isModify != null ? String(o.isModify) : undefined,
+  signType: o.signType != null ? String(o.signType) : undefined,
+});
 // Excel 设计器（Univer 较重）按需懒加载，避免拖累设计页首屏
 const ExcelDesignLazy = React.lazy(() => import('@/pages/FormMode/ExcelDesign/ExcelDesign'));
 import { pickPayload } from '@/utils/utils';
@@ -326,7 +359,10 @@ const WorkflowDesignPage: React.FC = () => {
         const before = byKey.get(String(n.nodeKey));
         return !before || before.sortOrder !== n.sortOrder;
       });
-      await Promise.all(changed.map((n) => updateNode(id, n.nodeKey!, { sortOrder: n.sortOrder })));
+      // 路线 B：排序写 BPMN `wf:node@sortOrder`，由画布自动保存（saveBpmn）落库
+      changed.forEach((n) =>
+        writeNodeExt(String(n.nodeKey), { sortOrder: String(n.sortOrder ?? 0) }),
+      );
     } catch {
       message.error('排序保存失败，已刷新列表');
       refreshNodes();
@@ -340,16 +376,10 @@ const WorkflowDesignPage: React.FC = () => {
       .catch(() => {});
   };
 
-  /** 移除（删除）节点：后端级联清理关联数据，前端清本地缓存 + 重拉列表 */
+  /** 移除（删除）节点：路线 B —— 从画布移除形状，画布自动保存（saveBpmn）同步节点/出口定义 */
   const handleDeleteNode = async (nodeKey: string) => {
     if (current?.id == null) return;
     try {
-      const res: any = await deleteNode(current.id, nodeKey);
-      const code = res?.code;
-      if (code != null && code !== 200 && code !== 0 && res?.success !== true) {
-        message.error('移除节点失败');
-        return;
-      }
       message.success('节点已移除');
       // 若该节点正打开布局设计器 → 关闭弹窗并清其本地残留（预览缓存 / 待放置字段）
       if (excelDesignNodeKey === nodeKey) {
@@ -611,27 +641,29 @@ const WorkflowDesignPage: React.FC = () => {
     }[],
   ) => {
     if (!current?.id) return;
-    const tasks: Promise<any>[] = [];
+    // 路线 B：草稿期填好的语义一次性写进该节点的 BPMN `wf:node` 扩展，画布自动保存落库
     created.forEach((c) => {
+      const ext = (() => {
+        const el = elementOf(c.nodeKey);
+        return el ? getWfNodeExt(el) || {} : {};
+      })();
+      const next: Record<string, any> = { ...ext };
       // 特殊类型（2/5/6）画布只产出 0/1/3，需回写真实 nodeType
       if (c.nodeType !== 0 && c.nodeType !== 1 && c.nodeType !== 3) {
-        tasks.push(updateNode(current.id, c.nodeKey, { nodeType: c.nodeType }));
+        next.nodeType = String(c.nodeType);
       }
       // 草稿期间填好的操作者
       if (c.operators && c.operators.length) {
-        tasks.push(configOperator(current.id, c.nodeKey, c.operators));
+        next.operator = c.operators.map(operatorToExt);
       }
       // 草稿期间填好的设置项（操作菜单/表单内容/前后附加操作/7 个设置项等）
       if (c.extJson) {
-        tasks.push(updateNode(current.id, c.nodeKey, { extJson: c.extJson }));
+        next.extJson = c.extJson;
       }
+      writeNodeExt(c.nodeKey, next);
     });
-    Promise.all(tasks)
-      .catch(() => {})
-      .finally(() => {
-        refreshNodes();
-        refreshLinks();
-      });
+    refreshNodes();
+    refreshLinks();
   };
 
   // 画布设置项角标：把每个节点「已配置的设置项」映射成短标签，交给画布在节点右上角标注

@@ -13,13 +13,10 @@ import {
   Tag,
   Tooltip,
 } from 'antd';
-import {
-  createLink,
-  updateLink,
-  WfNodeLink,
-  WfProcessNode,
-} from '@/services/workflow';
+import { WfNodeLink, WfProcessNode } from '@/services/workflow';
 import { scopeLabel } from './wfDict';
+import { getActiveModeler } from './bpmnModelerHolder';
+import { findSequenceFlow, getWfLinkExt, setWfLinkExt } from './bpmnExtension';
 import LinkDetail from './LinkDetail';
 import { useLinkActions } from './useLinkActions';
 
@@ -139,16 +136,30 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
 
   const dataSource = draftRow ? [...visibleLinks, draftRow] : visibleLinks;
 
+  /** 路线 B：出口属性（驳回线/必经/排序/经网关）写 BPMN `wf:link` 扩展 */
   const patchLink = async (link: WfNodeLink, patch: Partial<WfNodeLink>, tip: string) => {
     if (link.id == null || link.id < 0) return false;
+    const modeler = getActiveModeler();
+    const flow = findSequenceFlow(
+      modeler,
+      String(link.fromNodeKey),
+      String(link.toNodeKey),
+    );
+    if (!flow) {
+      message.error('画布上未找到该连线，无法保存');
+      return false;
+    }
     try {
-      const r: any = await updateLink(defId, link.id, patch);
-      if (r?.success === false) {
-        message.error('保存失败');
-        return false;
-      }
+      const ext = getWfLinkExt(flow) || {};
+      setWfLinkExt(modeler, flow, {
+        ...ext,
+        ...(patch.isReject != null ? { isReject: String(patch.isReject) } : {}),
+        ...(patch.isMustPass != null ? { isMustPass: String(patch.isMustPass) } : {}),
+        ...(patch.sortOrder != null ? { sortOrder: String(patch.sortOrder) } : {}),
+        ...(patch.viaGateway != null ? { viaGateway: String(patch.viaGateway) } : {}),
+      });
       onPatch?.(link.id, patch);
-      message.success(`${tip}已保存`);
+      message.success(`${tip}已保存（已写入 BPMN 扩展）`);
       return true;
     } catch {
       message.error('保存失败');
@@ -156,15 +167,20 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
     }
   };
 
-  /** 草稿行选定目标节点 → 立即建库 */
+  /** 草稿行选定目标节点 → 画布连线（自动保存后即成为一条出口） */
   const commitDraft = async (to: string) => {
     if (!draftFrom) return;
+    const modeler = getActiveModeler();
+    const registry = modeler?.get('elementRegistry');
+    const modeling = modeler?.get('modeling');
+    const fromEl = registry?.get(draftFrom);
+    const toEl = registry?.get(to);
+    if (!fromEl || !toEl || !modeling) {
+      message.error('画布未就绪，无法新增出口');
+      return;
+    }
     try {
-      const r: any = await createLink(defId, { fromNodeKey: draftFrom, toNodeKey: to });
-      if (r?.success === false) {
-        message.error('新增出口失败');
-        return;
-      }
+      modeling.connect(fromEl, toEl);
       message.success('出口已新增');
       onChanged?.({ type: 'add', from: draftFrom, to });
       setDraftFrom(undefined);

@@ -315,6 +315,7 @@ export async function createDefinition(dto: any) {
   });
 }
 
+/** @deprecated 路线B：定义期语义已下沉 BPMN `wf:` 扩展，经画布 saveBpmn 落库，设计器勿再调用。 */
 export async function updateDefinition(id: number, dto: any) {
   return request<ApiResponse<number>>(`${WORKFLOW}/definition/${id}`, {
     method: 'PUT',
@@ -466,6 +467,7 @@ export async function listNodes(id: number | string) {
   return request<ApiResponse<WfProcessNode[]>>(`${WORKFLOW}/definition/${id}/nodes`, { method: 'GET' });
 }
 
+/** @deprecated 路线B：操作者已下沉 BPMN `wf:node/wf:operator`，勿再调用。 */
 export async function configOperator(id: number, nodeKey: string, operators: WfNodeOperator[]) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/node/${nodeKey}/operator`, {
     method: 'PUT',
@@ -483,6 +485,7 @@ export async function getNodeOperators(id: number, nodeKey: string) {
 }
 
 /** 同步本节点操作者到其它节点（整体覆盖写入目标节点集合） */
+/** @deprecated 路线B：操作者已下沉 BPMN `wf:node/wf:operator`，勿再调用。 */
 export async function syncOperatorToNodes(id: number, nodeKey: string, targetNodeKeys: string[]) {
   return request<ApiResponse<boolean>>(
     `${WORKFLOW}/definition/${id}/node/${nodeKey}/operator/sync`,
@@ -496,6 +499,7 @@ export async function listLinks(id: number) {
 }
 
 /** 更新节点基础属性（按 nodeKey，保留操作者与字段权限） */
+/** @deprecated 路线B：节点属性已下沉 BPMN `wf:node`，勿再调用。 */
 export async function updateNode(id: number, nodeKey: string, node: Partial<WfProcessNode>) {
   return request<ApiResponse<WfProcessNode>>(`${WORKFLOW}/definition/${id}/node/${nodeKey}`, {
     method: 'PUT',
@@ -504,6 +508,7 @@ export async function updateNode(id: number, nodeKey: string, node: Partial<WfPr
 }
 
 /** 新增出口（连线） */
+/** @deprecated 路线B：出口已下沉 BPMN `wf:link`，新增出口改画布连线，勿再调用。 */
 export async function createLink(id: number, link: Partial<WfNodeLink>) {
   return request<ApiResponse<WfNodeLink>>(`${WORKFLOW}/definition/${id}/link`, {
     method: 'POST',
@@ -545,6 +550,7 @@ export async function deleteCustomAction(id: number) {
 }
 
 /** 更新出口（连线） */
+/** @deprecated 路线B：出口属性已下沉 BPMN `wf:link`，勿再调用。 */
 export async function updateLink(id: number, linkId: number, link: Partial<WfNodeLink>) {
   return request<ApiResponse<WfNodeLink>>(`${WORKFLOW}/definition/${id}/link/${linkId}`, {
     method: 'PUT',
@@ -553,6 +559,7 @@ export async function updateLink(id: number, linkId: number, link: Partial<WfNod
 }
 
 /** 删除出口（连线） */
+/** @deprecated 路线B：删除出口改删画布连线，勿再调用。 */
 export async function deleteLink(id: number, linkId: number) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/link/${linkId}`, {
     method: 'DELETE',
@@ -560,6 +567,7 @@ export async function deleteLink(id: number, linkId: number) {
 }
 
 /** 移除节点（级联清理操作者/字段权限/明细权限/出口连线/布局） */
+/** @deprecated 路线B：删除节点改删画布形状，勿再调用。 */
 export async function deleteNode(id: number, nodeKey: string) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/node/${nodeKey}`, {
     method: 'DELETE',
@@ -601,6 +609,7 @@ export async function simulateDefinition(id: number, formData?: Record<string, a
 }
 
 /** 保存节点测试状态 0未测试 1通过 2未通过 */
+/** @deprecated 路线B：节点测试状态已下沉 BPMN `wf:node@testStatus`，勿再调用。 */
 export async function saveNodeTestStatus(id: number, nodeKey: string, status: number) {
   return request<ApiResponse<boolean>>(
     `${WORKFLOW}/definition/${id}/node/${nodeKey}/test-status?status=${status}`,
@@ -614,6 +623,7 @@ export async function getFieldPerm(id: number, nodeKey: string) {
   });
 }
 
+/** @deprecated 路线B：字段权限已下沉 BPMN `wf:node/wf:fieldPerm`，勿再调用。 */
 export async function saveFieldPerm(id: number, nodeKey: string, perms: FieldPermItem[]) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/node/${nodeKey}/field-perm`, {
     method: 'PUT',
@@ -627,6 +637,7 @@ export async function getDetailPerm(id: number, nodeKey: string) {
   });
 }
 
+/** @deprecated 路线B：明细权限已下沉 BPMN `wf:node/wf:detailPerm`，勿再调用。 */
 export async function saveDetailPerm(id: number, nodeKey: string, perms: DetailPermItem[]) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/definition/${id}/node/${nodeKey}/detail-perm`, {
     method: 'PUT',
@@ -641,6 +652,7 @@ export async function getDetailFilter(id: number, nodeKey: string, modeType?: nu
   );
 }
 
+/** @deprecated 路线B：明细筛选已下沉 BPMN `wf:node/wf:detailFilter`，勿再调用。 */
 export async function saveDetailFilter(
   id: number,
   nodeKey: string,
@@ -1296,6 +1308,7 @@ export async function listNodeTimeouts(defId: number, nodeKey: string) {
 }
 
 /** 保存节点超时规则（覆盖保存该节点的全部规则，空数组即清空） */
+/** @deprecated 路线B：超时规则已下沉 BPMN `wf:node/wf:timeout`，勿再调用。 */
 export async function saveNodeTimeouts(defId: number, nodeKey: string, rules: WfNodeTimeout[]) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/node-timeout/save`, {
     method: 'POST',
@@ -1351,6 +1364,7 @@ export async function fullCustomOperations(defId: number, nodeKey: string) {
   });
 }
 /** 保存节点自定义操作（覆盖式） */
+/** @deprecated 路线B：自定义操作已下沉 BPMN `wf:node/wf:operation`，勿再调用。 */
 export async function saveCustomOperations(defId: number, nodeKey: string, payload: WfCustomOperationFull[]) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/custom-operation/save`, {
     method: 'POST',
@@ -1387,6 +1401,7 @@ export async function getDefaultSign(defId: number, nodeKey: string, menuType: s
   });
 }
 /** 保存默认签字意见（覆盖式） */
+/** @deprecated 路线B：默认签署已下沉 BPMN `wf:node`（extJson.settings），勿再调用。 */
 export async function saveDefaultSigns(defId: number, nodeKey: string, signs: WfNodeDefaultSign[]) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/custom-operation/default-sign/save`, {
     method: 'POST',

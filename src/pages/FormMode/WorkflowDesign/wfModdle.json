@@ -132,6 +132,12 @@
         { "name": "btnOrder", "type": "String" },
         { "name": "actionType", "type": "String" },
         { "name": "enabled", "type": "String" },
+        { "name": "url", "type": "String" },
+        { "name": "httpMethod", "type": "String" },
+        { "name": "paramExpr", "type": "String" },
+        { "name": "flowOperation", "type": "String" },
+        { "name": "interfaceName", "type": "String" },
+        { "name": "opinion", "type": "String" },
         { "name": "rights", "type": "right", "isMany": true }
       ]
     },

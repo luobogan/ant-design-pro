@@ -13,7 +13,9 @@ import {
   message,
 } from 'antd';
 import { PlusOutlined, QuestionCircleOutlined, SearchOutlined } from '@ant-design/icons';
-import { updateNode, WfProcessNode, DetailFilterItem } from '@/services/workflow';
+import { WfProcessNode, DetailFilterItem } from '@/services/workflow';
+import { getActiveModeler } from './bpmnModelerHolder';
+import { getWfNodeExt, setWfNodeExt } from './bpmnExtension';
 import { getFormLayout, saveFormLayout } from '@/services/formmode/formLayoutApi';
 import {
   FORM_CONTENT_OPTIONS,
@@ -82,6 +84,23 @@ const MARGIN_TYPES = [
   { value: 0, label: '自定义' },
   { value: 1, label: '继承表单默认' },
 ];
+
+/** 路线 B：优先取 BPMN `wf:node` 扩展里的 extJson，回退节点行上的值 */
+const extJsonOf = (nodeKey?: string, node?: WfProcessNode | null): string | undefined => {
+  const modeler = getActiveModeler();
+  const element = nodeKey ? modeler?.get('elementRegistry')?.get(nodeKey) : undefined;
+  return element ? getWfNodeExt(element)?.extJson : node?.extJson;
+};
+
+/** 路线 B：把 extJson 写进目标节点的 BPMN `wf:node` 扩展（画布自动保存落库） */
+const writeExtJson = (nodeKey: string, extJson: string): boolean => {
+  const modeler = getActiveModeler();
+  const element = modeler?.get('elementRegistry')?.get(nodeKey);
+  if (!element) return false;
+  const ext = getWfNodeExt(element) || {};
+  setWfNodeExt(modeler, element, { ...ext, extJson });
+  return true;
+};
 
 /** 取节点 ext_json.settings（坏数据按空处理） */
 const readSettings = (node?: WfProcessNode): Record<string, any> => {
@@ -257,7 +276,7 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
 
   useEffect(() => {
     if (open) {
-      const s = readSettings(node);
+      const s = readSettings({ ...node, extJson: extJsonOf(nodeKey, node) });
       setFc({ ...(s.formContent || {}) });
       setTab('show');
     }
@@ -292,17 +311,16 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
   /** 保存本节点 */
   const save = async () => {
     if (!defId || !nodeKey) return;
-    const settings = readSettings(node);
+    const settings = readSettings({ ...node, extJson: extJsonOf(nodeKey, node) });
     const extJson = JSON.stringify({ settings: { ...settings, formContent: fc } });
     setSaving(true);
     try {
-      const r: any = await updateNode(defId, nodeKey, { extJson });
-      if (r?.success === false) {
-        message.error('保存失败');
+      if (!writeExtJson(nodeKey, extJson)) {
+        message.error('画布未就绪，无法保存');
         return;
       }
       onPatch?.(nodeKey, { extJson });
-      message.success('表单内容已保存');
+      message.success('表单内容已保存（已写入 BPMN 扩展）');
       onClose();
     } catch {
       message.error('保存失败');
@@ -375,13 +393,13 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
         }
 
         // ③ formContent 配置（显示模式 / 页边距 / 明细过滤等）一并同步
-        const settings = readSettings(target);
+        // 路线 B：目标节点的 settings 也优先读 BPMN 扩展，避免覆盖画布上已有的配置
+        const settings = readSettings({ ...target, extJson: extJsonOf(key, target) });
         // 同步过去时清掉各自的「同步目标」自身，避免互相指向
         const next = { ...fc, syncNodeKeys: undefined, mobile: { ...(fc.mobile || {}), nodeKeys: undefined } };
         const extJson = JSON.stringify({ settings: { ...settings, formContent: next } });
         try {
-          const r: any = await updateNode(defId, key, { extJson });
-          if (r?.success !== false) cfgOk++;
+          if (writeExtJson(key, extJson)) cfgOk++;
         } catch {
           /* 单个失败不阻断其余 */
         }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Modal, message } from 'antd';
-import { deleteLink, updateLink, WfNodeLink, WfProcessNode } from '@/services/workflow';
+import { WfNodeLink, WfProcessNode } from '@/services/workflow';
 import ConditionBuilder, {
   buildCondExpr,
   CondField,
@@ -9,6 +9,27 @@ import ConditionBuilder, {
 } from './ConditionBuilder';
 import { FormFieldBrief, LinkChange } from './LinkInfoPanel';
 import { scopeLabel } from './wfDict';
+import { getActiveModeler } from './bpmnModelerHolder';
+import { findSequenceFlow, getWfLinkExt, setWfLinkExt } from './bpmnExtension';
+
+/**
+ * 写原生 `<conditionExpression>`（引擎唯一事实源）。
+ *
+ * 契约 §4.2：条件表达式**仍写原生** `<conditionExpression>`，不进 `wf:link`，
+ * 与扩展互不干扰；`wf:link@conditionCn` 只存中文描述用于展示。
+ */
+const setNativeConditionExpression = (modeler: any, flow: any, expr?: string) => {
+  const modeling = modeler.get('modeling');
+  const moddle = modeler.get('moddle');
+  const body = expr && expr.trim() ? expr.trim() : undefined;
+  if (!body) {
+    modeling.updateProperties(flow, { conditionExpression: undefined });
+    return;
+  }
+  modeling.updateProperties(flow, {
+    conditionExpression: moddle.create('bpmn:FormalExpression', { body }),
+  });
+};
 
 export interface LinkActionsOpts {
   onPatch?: (linkId: number, patch: Partial<WfNodeLink>) => void;
@@ -49,7 +70,14 @@ export function useLinkActions(
 
   const openCond = (link: WfNodeLink) => {
     setCondLink(link);
-    setCondRows(parseCondExpr(link.conditionExpr));
+    const flow = findSequenceFlow(
+      getActiveModeler(),
+      String(link.fromNodeKey),
+      String(link.toNodeKey),
+    );
+    // 路线 B：优先读画布连线的原生 conditionExpression（引擎事实源），回退列表行上的值
+    const expr = flow?.businessObject?.conditionExpression?.body ?? link.conditionExpr;
+    setCondRows(parseCondExpr(expr));
   };
 
   const submitCond = async () => {
@@ -57,14 +85,24 @@ export function useLinkActions(
     setSavingCond(true);
     try {
       const { expr, cn } = buildCondExpr(condRows);
-      const patch = { conditionExpr: expr || undefined, conditionCn: cn || undefined };
-      const r: any = await updateLink(defId, condLink.id!, patch);
-      if (r?.success === false) {
-        message.error('保存失败');
+      const modeler = getActiveModeler();
+      const flow = findSequenceFlow(
+        modeler,
+        String(condLink.fromNodeKey),
+        String(condLink.toNodeKey),
+      );
+      if (!flow) {
+        message.error('画布上未找到该连线，无法保存');
         return;
       }
-      onPatch?.(condLink.id!, patch);
-      message.success('流转条件已保存');
+      // 路线 B：表达式 → 原生 <conditionExpression>；中文描述 → wf:link@conditionCn
+      setNativeConditionExpression(modeler, flow, expr || undefined);
+      const ext = getWfLinkExt(flow) || {};
+      setWfLinkExt(modeler, flow, { ...ext, conditionCn: cn || undefined });
+      if (condLink.id != null) {
+        onPatch?.(condLink.id, { conditionExpr: expr || undefined, conditionCn: cn || undefined });
+      }
+      message.success('流转条件已保存（已写入 BPMN）');
       setCondLink(undefined);
     } catch {
       message.error('保存失败');
@@ -80,7 +118,18 @@ export function useLinkActions(
       okType: 'danger',
       onOk: async () => {
         try {
-          await deleteLink(defId, link.id!);
+          // 路线 B：删除画布连线即可，画布自动保存（saveBpmn）会同步出口定义
+          const modeler = getActiveModeler();
+          const flow = findSequenceFlow(
+            modeler,
+            String(link.fromNodeKey),
+            String(link.toNodeKey),
+          );
+          if (!flow) {
+            message.error('画布上未找到该连线');
+            return;
+          }
+          modeler.get('modeling').removeElements([flow]);
           message.success('出口已删除');
           onChanged?.({
             type: 'delete',
