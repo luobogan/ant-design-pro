@@ -836,10 +836,9 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
       <NodeOperatorModal
         open={opModalOpen}
         draftMode={opDraftIndex != null}
-        defId={defId}
         nodeKey={opNodeKey ?? (opDraftIndex != null ? `__draft_${opDraftIndex}` : undefined)}
         nodeName={opNode?.nodeName}
-        operators={opNodeOperators}
+        initialOperators={opDraftIndex != null ? opNodeOperators : undefined}
         onSaved={(nodeKey, ops) => {
           if (opDraftIndex != null) {
             setDraftRows((prev) => prev.map((d, i) => (i === opDraftIndex ? { ...d, operators: ops } : d)));

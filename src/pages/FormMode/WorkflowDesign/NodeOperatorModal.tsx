@@ -15,40 +15,41 @@ import {
 } from 'antd';
 import { DeleteOutlined, LinkOutlined } from '@ant-design/icons';
 import {
-  configOperator,
-  getNodeOperators,
-  listNodes,
-  syncOperatorToNodes,
   WfNodeOperator,
-  WfProcessNode,
 } from '@/services/workflow';
 import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
 import { loadPersonOrgData } from '@/components/FormMode/personOrg';
 import { BHXJ, SIGN_ORDERS } from './wfDict';
+import { getActiveModeler } from './bpmnModelerHolder';
+import { getWfNodeExt, setWfNodeExt, WfOperator } from './bpmnExtension';
 
 export interface NodeOperatorModalProps {
   open: boolean;
-  defId: any;
+  /** 目标节点 key（bpmn-js 元素 id，即 wf_process_node.node_key） */
   nodeKey?: string;
   nodeName?: string;
-  /** 已有操作者（由列表加载后传入，避免弹窗内再拉一次） */
-  operators: WfNodeOperator[];
-  /** 保存成功后回调，供列表就地更新 */
+  /** 草稿行初始化操作者（草稿行尚无 BPMN 元素，走本地 operators）；真实节点传 undefined 改读 BPMN 扩展 */
+  initialOperators?: WfNodeOperator[];
+  /** 保存成功后回调，供列表就地更新（写入 BPMN 扩展后触发画布自动保存） */
   onSaved?: (nodeKey: string, ops: WfNodeOperator[]) => void;
-  /** 草稿模式：不落库，仅通过 onSaved 回传，供列表本地暂存 */
+  /** 草稿模式：不落扩展，仅通过 onSaved 回传，供列表本地暂存 */
   draftMode?: boolean;
   onClose: () => void;
 }
 
 /**
- * 节点操作者编辑弹窗 —— 对齐 ecology 的「添加操作组」交互（E9 风格）：
+ * 节点操作者编辑弹窗 —— 对齐 ecology 的「添加操作组」交互（E9 风格）。
+ *
+ * 路线 B：直接读写 BPMN 元素的 `wf:` 扩展（getWfNodeExt/setWfNodeExt），
+ * 不再调用 wf_node_operator 细粒度接口。保存即覆盖该节点扩展里的全部操作者；
+ * 画布自动保存（commandStack.changed）会把扩展随 BPMN 落库并由 saveBpmn 回写 wf_*（过渡期）。
+ * 「同步到其它节点」亦改为直接写目标节点的 BPMN 扩展。
  *
  * · 操作组名称（必填）：一组操作者的标识。除借用 condition_json 外，新增的 group_name 列直存，便于查询/展示。
  * · 操作组可见性 canView：表单填写人是否能看到该操作组（1可见 0不可见）。
  * · 类型单选（指定人/指定部门/指定分部/指定角色/指定岗位/所有人/创建人本人/创建人上级/本部门）。
  * · 生效条件升级：AND/OR + 可视化规则（字段/运算符/值），并生成中文描述；旧版纯文本条件降级展示。
  * · 协办/征询意见人：勾选后本组操作者作为非阻塞知会对象（生成协办待办，不门禁流转）。
- * · 提交走 `configOperator`（整体覆盖写 wf_node_operator）；另提供「同步到其它节点」。
  */
 
 /** 条件规则：字段 + 运算符 + 值（可视化条件，对齐 ecology 条件设置） */
@@ -65,6 +66,7 @@ const COND_OP_LABELS: Record<CondRule['op'], string> = {
   in: '属于',
   contains: '包含',
 };
+
 const COND_OP_OPTIONS = (Object.keys(COND_OP_LABELS) as CondRule['op'][]).map((k) => ({
   value: k,
   label: COND_OP_LABELS[k],
@@ -170,12 +172,51 @@ const TYPE_LABELS: Record<number, string> = {
   43: '字段-角色',
 };
 
+/** BPMN 扩展里的字符串型操作者 → 表单用的混合类型（WfNodeOperator） */
+const fromExt = (o: WfOperator): WfNodeOperator => ({
+  groupNo: o.groupNo != null ? Number(o.groupNo) : undefined,
+  opType: o.opType != null ? Number(o.opType) : undefined,
+  objId: o.objId,
+  bhxj: o.bhxj != null ? Number(o.bhxj) : undefined,
+  levelMin: o.levelMin != null ? Number(o.levelMin) : undefined,
+  levelMax: o.levelMax != null ? Number(o.levelMax) : undefined,
+  signOrder: o.signOrder != null ? Number(o.signOrder) : undefined,
+  batchNo: o.batchNo != null ? Number(o.batchNo) : undefined,
+  groupName: o.groupName,
+  canView: o.canView != null ? Number(o.canView) : undefined,
+  conditionJson: o.conditionJson,
+  isCoadjutant: o.isCoadjutant != null ? Number(o.isCoadjutant) : undefined,
+  coadjutants: o.coadjutants,
+  isPending: o.isPending != null ? Number(o.isPending) : undefined,
+  isModify: o.isModify != null ? Number(o.isModify) : undefined,
+  signType: o.signType != null ? Number(o.signType) : undefined,
+});
+
+/** 表单用的 WfNodeOperator → BPMN 扩展里的字符串型操作者 */
+const toExt = (o: WfNodeOperator): WfOperator => ({
+  groupNo: o.groupNo != null ? String(o.groupNo) : undefined,
+  opType: o.opType != null ? String(o.opType) : undefined,
+  objId: o.objId,
+  bhxj: o.bhxj != null ? String(o.bhxj) : undefined,
+  levelMin: o.levelMin != null ? String(o.levelMin) : undefined,
+  levelMax: o.levelMax != null ? String(o.levelMax) : undefined,
+  signOrder: o.signOrder != null ? String(o.signOrder) : undefined,
+  batchNo: o.batchNo != null ? String(o.batchNo) : undefined,
+  groupName: o.groupName,
+  canView: o.canView != null ? String(o.canView) : undefined,
+  conditionJson: o.conditionJson,
+  isCoadjutant: o.isCoadjutant != null ? String(o.isCoadjutant) : undefined,
+  coadjutants: o.coadjutants,
+  isPending: o.isPending != null ? String(o.isPending) : undefined,
+  isModify: o.isModify != null ? String(o.isModify) : undefined,
+  signType: o.signType != null ? String(o.signType) : undefined,
+});
+
 const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
   open,
-  defId,
   nodeKey,
   nodeName,
-  operators,
+  initialOperators,
   draftMode,
   onSaved,
   onClose,
@@ -220,12 +261,16 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
   const [targetKeys, setTargetKeys] = useState<string[]>([]);
   const [syncing, setSyncing] = useState(false);
 
+  // 从 BPMN 扩展读取该节点已有操作者（草稿行用 initialOperators）
   useEffect(() => {
-    if (!open) {
-      setDictLoaded(false);
-      return;
-    }
-    const list = (operators || []).map((o) => ({ ...o }));
+    if (!open) return;
+    const list: WfNodeOperator[] = initialOperators
+      ? initialOperators.map((o) => ({ ...o }))
+      : (() => {
+          const modeler = getActiveModeler();
+          const element = nodeKey ? modeler?.get('elementRegistry')?.get(nodeKey) : undefined;
+          return element ? (getWfNodeExt(element)?.operators || []).map(fromExt) : [];
+        })();
     setOps(list);
     setSelectedKeys([]);
     // 操作组名称：优先取 group_name 列，回退 condition_json 里存的 name
@@ -247,7 +292,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
     setSignType(co?.signType);
     setSyncOpen(false);
     setTargetKeys([]);
-  }, [open, operators]);
+  }, [open, nodeKey, initialOperators]);
 
   // 打开时加载一次人员/部门/角色/岗位字典（选择弹窗与表格名称解析共用，模块级缓存）
   useEffect(() => {
@@ -299,6 +344,20 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
 
   const condMetaOf = (r: WfNodeOperator) => parseCondMeta(r.conditionJson);
 
+  /** 组名/可见性/条件/协办 统一回写进每行，保证重开弹窗可还原 */
+  const buildFinalOps = (): WfNodeOperator[] =>
+    ops.map((o) => ({
+      ...o,
+      groupName: groupName.trim(),
+      canView,
+      conditionJson: buildCondJson({ name: groupName.trim(), logic: condLogic, rules, expr: legacyExpr }),
+      isCoadjutant: isCoadjutant ? 1 : 0,
+      coadjutants: isCoadjutant ? coadjutants || '' : undefined,
+      isPending: isCoadjutant ? isPending : 0,
+      isModify: isCoadjutant ? isModify : 0,
+      signType: isCoadjutant ? signType : undefined,
+    }));
+
   /** 添加操作者设置：校验 → 追加一行 */
   const addOperator = () => {
     if (!groupName.trim()) {
@@ -347,53 +406,42 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
       message.warning('请输入操作组名称');
       return;
     }
-    // 组名/可见性/条件/协办 统一回写进每行，保证重开弹窗可还原
-    const finalOps = ops.map((o) => ({
-      ...o,
-      groupName: groupName.trim(),
-      canView,
-      conditionJson: buildCondJson({ name: groupName.trim(), logic: condLogic, rules, expr: legacyExpr }),
-      isCoadjutant: isCoadjutant ? 1 : 0,
-      coadjutants: isCoadjutant ? coadjutants || '' : undefined,
-      isPending: isCoadjutant ? isPending : 0,
-      isModify: isCoadjutant ? isModify : 0,
-      signType: isCoadjutant ? signType : undefined,
-    }));
+    const finalOps = buildFinalOps();
     if (draftMode) {
       onSaved?.(nodeKey, finalOps);
       onClose();
       return;
     }
+    const modeler = getActiveModeler();
+    const element = modeler?.get('elementRegistry')?.get(nodeKey);
+    if (!element) {
+      message.error('画布未就绪，无法保存');
+      return;
+    }
     setSaving(true);
     try {
-      const r: any = await configOperator(defId, nodeKey, finalOps);
-      if (r?.success === false) {
-        message.error('保存失败');
-        return;
-      }
+      const ext = getWfNodeExt(element) || {};
+      setWfNodeExt(modeler, element, { ...ext, operators: finalOps.map(toExt) });
       onSaved?.(nodeKey, finalOps);
-      message.success('操作者已保存');
+      message.success('操作者已保存（已写入 BPMN 扩展）');
       onClose();
-    } catch {
-      message.error('保存失败');
+    } catch (e: any) {
+      message.error(e?.message || '保存失败');
     } finally {
       setSaving(false);
     }
   };
 
-  const openSync = async () => {
+  const openSync = () => {
     setSyncOpen(true);
-    try {
-      const res: any = await listNodes(defId);
-      const nodes: WfProcessNode[] = res?.data || [];
-      setNodeOptions(
-        nodes
-          .filter((n) => n.nodeKey && n.nodeKey !== nodeKey)
-          .map((n) => ({ value: n.nodeKey as string, label: n.nodeName || (n.nodeKey as string) })),
-      );
-    } catch {
-      setNodeOptions([]);
-    }
+    const modeler = getActiveModeler();
+    const reg: any = modeler?.get('elementRegistry');
+    const nodes: any[] = reg ? reg.filter((el: any) => el.type === 'bpmn:UserTask') : [];
+    setNodeOptions(
+      nodes
+        .filter((n) => n.id !== nodeKey)
+        .map((n) => ({ value: n.id, label: (n.businessObject?.name as string) || n.id })),
+    );
   };
 
   const handleSync = async () => {
@@ -402,17 +450,26 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
       message.warning('请选择要同步的目标节点');
       return;
     }
+    const finalOps = buildFinalOps();
+    const modeler = getActiveModeler();
+    const reg: any = modeler?.get('elementRegistry');
+    if (!reg) {
+      message.error('画布未就绪，无法同步');
+      return;
+    }
     setSyncing(true);
     try {
-      const r: any = await syncOperatorToNodes(defId, nodeKey, targetKeys);
-      if (r?.success === false) {
-        message.error('同步失败');
-        return;
+      for (const tk of targetKeys) {
+        const el = reg.get(tk);
+        if (el) {
+          const ext = getWfNodeExt(el) || {};
+          setWfNodeExt(modeler, el, { ...ext, operators: finalOps.map(toExt) });
+        }
       }
-      message.success('已同步到所选节点');
+      message.success('已同步到所选节点（BPMN 扩展）');
       setSyncOpen(false);
-    } catch {
-      message.error('同步失败');
+    } catch (e: any) {
+      message.error(e?.message || '同步失败');
     } finally {
       setSyncing(false);
     }
@@ -492,7 +549,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
       </div>
 
       {/* 生效条件（AND/OR + 可视化规则） */}
-      <Divider orientation="left" style={{ margin: '16px 0 8px' }}>生效条件</Divider>
+      <Divider titlePlacement="left" style={{ margin: '16px 0 8px' }}>生效条件</Divider>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16 }}>
         <Space size={4}>
           <span style={{ color: '#666' }}>逻辑关系：</span>
@@ -562,7 +619,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
       </div>
 
       {/* 协办 / 征询意见人 */}
-      <Divider orientation="left" style={{ margin: '16px 0 8px' }}>协办 / 征询意见人</Divider>
+      <Divider titlePlacement="left" style={{ margin: '16px 0 8px' }}>协办 / 征询意见人</Divider>
       <Space direction="vertical" size={8} style={{ width: '100%' }}>
         <Space size={8}>
           <Switch checked={isCoadjutant} onChange={setIsCoadjutant} />
@@ -710,7 +767,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
         ]}
       />
       <div style={{ color: '#999', fontSize: 12, marginTop: 8 }}>
-        保存为整体覆盖：保存后该节点的操作者以本列表为准（写回 wf_node_operator）。
+        保存为整体覆盖：保存后该节点的操作者以本列表为准（写入 BPMN wf: 扩展，画布自动保存时随流程定义落库）。
       </div>
 
       {/* 同步到其它节点 */}
@@ -725,7 +782,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
         okText="同 步"
         cancelText="取消"
       >
-        <div style={{ marginBottom: 8, color: '#666' }}>选择目标节点（整体覆盖写入）：</div>
+        <div style={{ marginBottom: 8, color: '#666' }}>选择目标节点（整体覆盖写入 BPMN 扩展）：</div>
         <Select
           mode="multiple"
           style={{ width: '100%' }}
