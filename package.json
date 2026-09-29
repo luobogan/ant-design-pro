@@ -186,6 +186,8 @@
       "@ant-design/pro-components": "$@ant-design/pro-components",
       "axios": "^1.19.0"
     },
+    "umi-presets-pro": "^2.0.3",
+    "umi-serve": "^1.9.11",
     "@umijs/lint": {
       "@babel/core": "^7.29.6"
     },
@@ -199,10 +201,6 @@
       "js-yaml": "^4.3.1"
     },
     "postcss": "^8.5.23"
-      "@ant-design/pro-components": "$@ant-design/pro-components"
-    },
-    "umi-presets-pro": "^2.0.3",
-    "umi-serve": "^1.9.11"
   },
   "engines": {
     "node": ">=22.0.0"
