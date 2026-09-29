@@ -881,8 +881,8 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
 
       <NodeTimeoutModal
         open={!!timeoutNode}
-        defId={defId}
-        node={timeoutNode}
+        nodeKey={timeoutNode?.nodeKey}
+        nodeName={timeoutNode?.nodeName}
         onClose={() => setTimeoutNode(null)}
       />
 

@@ -11,6 +11,7 @@ import {
 import camundaModdleDescriptor from 'camunda-bpmn-moddle/resources/camunda.json';
 // F-T1：wf: 扩展描述符（对齐后端 T-3 冻结 schema；后端回填的 wf: 扩展需被设计器识别，否则加载报错）
 import wfModdleDescriptor from './wfModdle.json';
+import { setActiveModeler } from './bpmnModelerHolder';
 import '@bpmn-io/properties-panel/dist/assets/properties-panel.css';
 import { Button, Dropdown, Input, Modal, Space, Tag, Tooltip, message } from 'antd';
 import {
@@ -374,6 +375,8 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
       ],
     });
     modelerRef.current = modeler;
+    // F-T2：暴露活动模型器给面板，便于按 nodeKey 读写 wf: 扩展
+    setActiveModeler(modeler);
 
     const overlays = modeler.get('overlays');
     const eventBus = modeler.get('eventBus');
@@ -573,6 +576,7 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
       eventBus.off('commandStack.changed', scheduleAutoSave);
       modeler.destroy();
       modelerRef.current = null;
+      setActiveModeler(null);
       renderOverlaysRef.current = () => {};
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

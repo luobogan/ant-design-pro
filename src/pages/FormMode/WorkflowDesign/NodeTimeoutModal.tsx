@@ -13,7 +13,9 @@ import {
   message,
 } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { listNodeTimeouts, saveNodeTimeouts, WfNodeTimeout, WfProcessNode } from '@/services/workflow';
+import { WfNodeTimeout } from '@/services/workflow';
+import { getActiveModeler } from './bpmnModelerHolder';
+import { getWfNodeExt, setWfNodeExt, WfTimeout } from './bpmnExtension';
 
 const { Option } = Select;
 
@@ -40,8 +42,9 @@ const REMIND_TYPES = [
 
 export interface NodeTimeoutModalProps {
   open: boolean;
-  defId: any;
-  node?: WfProcessNode | null;
+  /** 目标节点 key（bpmn-js 元素 id，即 wf_process_node.node_key） */
+  nodeKey?: string;
+  nodeName?: string;
   onClose: () => void;
 }
 
@@ -55,44 +58,96 @@ const emptyRule = (): WfNodeTimeout => ({
   seq: 0,
 });
 
+/** BPMN 扩展里的字符串型超时规则 → 表单用的混合类型规则 */
+const fromExt = (t: WfTimeout): WfNodeTimeout => ({
+  enabled: t.enabled === '0' ? 0 : 1,
+  startType: Number(t.startType ?? 1),
+  startField: t.startField,
+  endType: Number(t.endType ?? 1),
+  durationMin: t.durationMin ? Number(t.durationMin) : undefined,
+  endFixedTime: t.endFixedTime,
+  endField: t.endField,
+  actionWay: t.actionWay || 'autoApprove',
+  opinion: t.opinion,
+  operatorIds: t.operatorIds,
+  remindTypes: t.remindTypes,
+  remindBeforeOperator: t.remindBeforeOperator === '1' ? 1 : 0,
+  remindPersons: t.remindPersons,
+  seq: t.seq ? Number(t.seq) : 0,
+});
+
+/** 表单规则 → BPMN 扩展里的字符串型超时规则 */
+const toExt = (r: WfNodeTimeout): WfTimeout => ({
+  enabled: String(r.enabled ?? 1),
+  startType: String(r.startType ?? 1),
+  startField: r.startField,
+  endType: String(r.endType ?? 1),
+  durationMin: r.durationMin != null ? String(r.durationMin) : undefined,
+  endFixedTime: r.endFixedTime,
+  endField: r.endField,
+  actionWay: r.actionWay,
+  opinion: r.opinion,
+  operatorIds: r.operatorIds,
+  remindTypes: r.remindTypes,
+  remindBeforeOperator: String(r.remindBeforeOperator ?? 0),
+  remindPersons: r.remindPersons,
+  seq: String(r.seq ?? 0),
+});
+
 /**
  * 节点超时规则编辑器（对齐泛微节点信息「超时设置」）。
  *
- * 多条规则按 seq 升序；每条规则配置：起算方式（节点到达/表单时间字段）、
- * 截止方式（相对时长/固定时刻/表单时间字段）、超时动作（自动通过/流转/指定操作者/提醒）与提醒通道。
- * 保存即覆盖该节点全部规则（后端 wf_node_timeout）。
+ * 路线 B：直接读写 BPMN 元素的 `wf:` 扩展（getWfNodeExt/setWfNodeExt），
+ * 不再调用 wf_node_timeout 细粒度接口。保存即覆盖该节点扩展里的全部超时规则；
+ * 画布自动保存（commandStack.changed）会把扩展随 BPMN 落库并由 saveBpmn 回写 wf_*（过渡期）。
  */
-const NodeTimeoutModal: React.FC<NodeTimeoutModalProps> = ({ open, defId, node, onClose }) => {
+const NodeTimeoutModal: React.FC<NodeTimeoutModalProps> = ({ open, nodeKey, nodeName, onClose }) => {
   const [rules, setRules] = useState<WfNodeTimeout[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (open && defId && node?.nodeKey) {
-      setLoading(true);
-      listNodeTimeouts(Number(defId), node.nodeKey)
-        .then((r: any) => setRules(Array.isArray(r?.data) ? r.data : []))
-        .catch(() => setRules([]))
-        .finally(() => setLoading(false));
+    if (!open || !nodeKey) return;
+    const modeler = getActiveModeler();
+    const element = modeler?.get('elementRegistry')?.get(nodeKey);
+    if (!element) {
+      setRules([]);
+      setLoading(false);
+      return;
     }
-  }, [open, defId, node?.nodeKey]);
+    setLoading(true);
+    try {
+      const ext = getWfNodeExt(element);
+      setRules((ext?.timeouts ?? []).map(fromExt));
+    } catch {
+      setRules([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [open, nodeKey]);
 
   const update = (idx: number, patch: Partial<WfNodeTimeout>) =>
     setRules((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
 
   const onSave = async () => {
-    if (!defId || !node?.nodeKey) return;
-    // 清理提交：去掉空字段，seq 重排
+    if (!nodeKey) return;
+    const modeler = getActiveModeler();
+    const element = modeler?.get('elementRegistry')?.get(nodeKey);
+    if (!element) {
+      message.error('画布未就绪，无法保存');
+      return;
+    }
     const payload = rules
       .filter((r) => r.actionWay)
-      .map((r, i) => ({ ...r, seq: i }));
+      .map((r, i) => ({ ...toExt(r), seq: String(i) }));
     setSaving(true);
     try {
-      await saveNodeTimeouts(Number(defId), node.nodeKey!, payload);
-      message.success('超时规则已保存');
+      const ext = getWfNodeExt(element) || {};
+      setWfNodeExt(modeler, element, { ...ext, timeouts: payload });
+      message.success('超时规则已保存到流程定义');
       onClose();
     } catch (e: any) {
-      message.error(e?.msg || '保存失败');
+      message.error(e?.message || '保存失败');
     } finally {
       setSaving(false);
     }
@@ -100,7 +155,7 @@ const NodeTimeoutModal: React.FC<NodeTimeoutModalProps> = ({ open, defId, node, 
 
   return (
     <Modal
-      title={`超时设置 · ${node?.nodeName || node?.nodeKey || ''}`}
+      title={`超时设置 · ${nodeName || nodeKey || ''}`}
       open={open}
       width={760}
       onCancel={onClose}
