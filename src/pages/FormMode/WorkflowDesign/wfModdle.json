@@ -1,0 +1,162 @@
+{
+  "name": "WF",
+  "uri": "http://www.springblade.org/workflow",
+  "prefix": "wf",
+  "xml": {
+    "tagAlias": "lowerCase"
+  },
+  "types": [
+    {
+      "name": "NodeExtension",
+      "extends": ["Element"],
+      "properties": [
+        { "name": "nodeType", "type": "String" },
+        { "name": "signOrder", "type": "String" },
+        { "name": "mergeType", "type": "String" },
+        { "name": "passNum", "type": "String" },
+        { "name": "allowReject", "type": "String" },
+        { "name": "allowForward", "type": "String" },
+        { "name": "autoApprove", "type": "String" },
+        { "name": "sortOrder", "type": "String" },
+        { "name": "testStatus", "type": "String" },
+        { "name": "multiInstance", "type": "String" },
+        { "name": "formKey", "type": "String" },
+        { "name": "operators", "type": "Operator", "isMany": true },
+        { "name": "fieldPerms", "type": "FieldPerm", "isMany": true },
+        { "name": "detailPerms", "type": "DetailPerm", "isMany": true },
+        { "name": "detailFilters", "type": "DetailFilter", "isMany": true },
+        { "name": "timeouts", "type": "Timeout", "isMany": true },
+        { "name": "customActions", "type": "CustomAction", "isMany": true },
+        { "name": "operations", "type": "Operation", "isMany": true },
+        { "name": "extJson", "type": "ExtJson" }
+      ]
+    },
+    {
+      "name": "LinkExtension",
+      "extends": ["Element"],
+      "properties": [
+        { "name": "isReject", "type": "String" },
+        { "name": "isMustPass", "type": "String" },
+        { "name": "conditionCn", "type": "String" },
+        { "name": "sortOrder", "type": "String" },
+        { "name": "viaGateway", "type": "String" },
+        { "name": "extraOperations", "type": "ExtraOperations" }
+      ]
+    },
+    {
+      "name": "ProcessMeta",
+      "extends": ["Element"],
+      "properties": [
+        { "name": "defKey", "type": "String" },
+        { "name": "workflowType", "type": "String" },
+        { "name": "formId", "type": "String" },
+        { "name": "layoutId", "type": "String" },
+        { "name": "grayEnabled", "type": "String" },
+        { "name": "grayRule", "type": "String" }
+      ]
+    },
+    {
+      "name": "Operator",
+      "extends": ["Element"],
+      "properties": [
+        { "name": "groupNo", "type": "String" },
+        { "name": "opType", "type": "String" },
+        { "name": "objId", "type": "String" },
+        { "name": "bhxj", "type": "String" },
+        { "name": "levelMin", "type": "String" },
+        { "name": "levelMax", "type": "String" }
+      ]
+    },
+    {
+      "name": "FieldPerm",
+      "extends": ["Element"],
+      "properties": [
+        { "name": "field", "type": "String" },
+        { "name": "perm", "type": "String" }
+      ]
+    },
+    {
+      "name": "DetailPerm",
+      "extends": ["Element"],
+      "properties": [
+        { "name": "dtKey", "type": "String" },
+        { "name": "field", "type": "String" },
+        { "name": "perm", "type": "String" }
+      ]
+    },
+    {
+      "name": "DetailFilter",
+      "extends": ["Element"],
+      "properties": [
+        { "name": "dtKey", "type": "String" },
+        { "name": "rowFilter", "type": "String" }
+      ]
+    },
+    {
+      "name": "Timeout",
+      "extends": ["Element"],
+      "properties": [
+        { "name": "seq", "type": "String" },
+        { "name": "enabled", "type": "String" },
+        { "name": "startType", "type": "String" },
+        { "name": "startField", "type": "String" },
+        { "name": "endType", "type": "String" },
+        { "name": "endFixedTime", "type": "String" },
+        { "name": "endField", "type": "String" },
+        { "name": "durationMin", "type": "String" },
+        { "name": "actionWay", "type": "String" },
+        { "name": "opinion", "type": "String" },
+        { "name": "operatorIds", "type": "String" },
+        { "name": "remindBeforeOperator", "type": "String" },
+        { "name": "remindTypes", "type": "String" },
+        { "name": "remindPersons", "type": "String" }
+      ]
+    },
+    {
+      "name": "CustomAction",
+      "extends": ["Element"],
+      "properties": [
+        { "name": "actionKey", "type": "String" },
+        { "name": "name", "type": "String" },
+        { "name": "type", "type": "String" },
+        { "name": "url", "type": "String" },
+        { "name": "expression", "type": "String" }
+      ]
+    },
+    {
+      "name": "Operation",
+      "extends": ["Element"],
+      "properties": [
+        { "name": "btnName", "type": "String" },
+        { "name": "btnOrder", "type": "String" },
+        { "name": "actionType", "type": "String" },
+        { "name": "enabled", "type": "String" },
+        { "name": "rights", "type": "Right", "isMany": true }
+      ]
+    },
+    {
+      "name": "Right",
+      "extends": ["Element"],
+      "properties": [
+        { "name": "rightType", "type": "String" },
+        { "name": "rightValue", "type": "String" }
+      ]
+    },
+    {
+      "name": "ExtJson",
+      "extends": ["Element"],
+      "properties": [
+        { "name": "body", "type": "String", "isBody": true }
+      ]
+    },
+    {
+      "name": "ExtraOperations",
+      "extends": ["Element"],
+      "properties": [
+        { "name": "body", "type": "String", "isBody": true }
+      ]
+    }
+  ],
+  "enumerations": [],
+  "associations": []
+}

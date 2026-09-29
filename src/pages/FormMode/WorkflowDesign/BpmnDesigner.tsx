@@ -9,6 +9,8 @@ import {
   CamundaPlatformPropertiesProviderModule,
 } from 'bpmn-js-properties-panel';
 import camundaModdleDescriptor from 'camunda-bpmn-moddle/resources/camunda.json';
+// F-T1：wf: 扩展描述符（对齐后端 T-3 冻结 schema；后端回填的 wf: 扩展需被设计器识别，否则加载报错）
+import wfModdleDescriptor from './wfModdle.json';
 import '@bpmn-io/properties-panel/dist/assets/properties-panel.css';
 import { Button, Dropdown, Input, Modal, Space, Tag, Tooltip, message } from 'antd';
 import {
@@ -361,7 +363,8 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
       propertiesPanel: { parent: propsPanelRef.current },
       // Camunda 平台属性（表单/分配/多实例/监听器/扩展属性 等）依赖 camunda moddle 描述符，
       // 否则这些分组里的控件一渲染就会因「未知类型」报错。
-      moddleExtensions: { camunda: camundaModdleDescriptor },
+      // F-T1：wf: 扩展描述符（节点/出口/操作者/字段权限/超时/自定义操作 等定义期语义，随 BPMN 持久化）。
+      moddleExtensions: { camunda: camundaModdleDescriptor, wf: wfModdleDescriptor },
       // customTranslateModule 需放在最后，覆盖内置 translate 文案
       additionalModules: [
         BpmnPropertiesPanelModule,
