@@ -269,7 +269,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
       : (() => {
           const modeler = getActiveModeler();
           const element = nodeKey ? modeler?.get('elementRegistry')?.get(nodeKey) : undefined;
-          return element ? (getWfNodeExt(element)?.operators || []).map(fromExt) : [];
+          return element ? (getWfNodeExt(element)?.operator || []).map(fromExt) : [];
         })();
     setOps(list);
     setSelectedKeys([]);
@@ -421,7 +421,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
     setSaving(true);
     try {
       const ext = getWfNodeExt(element) || {};
-      setWfNodeExt(modeler, element, { ...ext, operators: finalOps.map(toExt) });
+      setWfNodeExt(modeler, element, { ...ext, operator: finalOps.map(toExt) });
       onSaved?.(nodeKey, finalOps);
       message.success('操作者已保存（已写入 BPMN 扩展）');
       onClose();
@@ -463,7 +463,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
         const el = reg.get(tk);
         if (el) {
           const ext = getWfNodeExt(el) || {};
-          setWfNodeExt(modeler, el, { ...ext, operators: finalOps.map(toExt) });
+          setWfNodeExt(modeler, el, { ...ext, operator: finalOps.map(toExt) });
         }
       }
       message.success('已同步到所选节点（BPMN 扩展）');

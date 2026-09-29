@@ -7,8 +7,7 @@
   },
   "types": [
     {
-      "name": "NodeExtension",
-      "extends": ["Element"],
+      "name": "node",
       "properties": [
         { "name": "nodeType", "type": "String" },
         { "name": "signOrder", "type": "String" },
@@ -21,31 +20,29 @@
         { "name": "testStatus", "type": "String" },
         { "name": "multiInstance", "type": "String" },
         { "name": "formKey", "type": "String" },
-        { "name": "operators", "type": "Operator", "isMany": true },
-        { "name": "fieldPerms", "type": "FieldPerm", "isMany": true },
-        { "name": "detailPerms", "type": "DetailPerm", "isMany": true },
-        { "name": "detailFilters", "type": "DetailFilter", "isMany": true },
-        { "name": "timeouts", "type": "Timeout", "isMany": true },
-        { "name": "customActions", "type": "CustomAction", "isMany": true },
-        { "name": "operations", "type": "Operation", "isMany": true },
-        { "name": "extJson", "type": "ExtJson" }
+        { "name": "operator", "type": "operator", "isMany": true },
+        { "name": "fieldPerm", "type": "fieldPerm", "isMany": true },
+        { "name": "detailPerm", "type": "detailPerm", "isMany": true },
+        { "name": "detailFilter", "type": "detailFilter", "isMany": true },
+        { "name": "timeout", "type": "timeout", "isMany": true },
+        { "name": "customAction", "type": "customAction", "isMany": true },
+        { "name": "operation", "type": "operation", "isMany": true },
+        { "name": "extJson", "type": "extJson" }
       ]
     },
     {
-      "name": "LinkExtension",
-      "extends": ["Element"],
+      "name": "link",
       "properties": [
         { "name": "isReject", "type": "String" },
         { "name": "isMustPass", "type": "String" },
         { "name": "conditionCn", "type": "String" },
         { "name": "sortOrder", "type": "String" },
         { "name": "viaGateway", "type": "String" },
-        { "name": "extraOperations", "type": "ExtraOperations" }
+        { "name": "extraOperations", "type": "extraOperations" }
       ]
     },
     {
-      "name": "ProcessMeta",
-      "extends": ["Element"],
+      "name": "processMeta",
       "properties": [
         { "name": "defKey", "type": "String" },
         { "name": "workflowType", "type": "String" },
@@ -56,8 +53,7 @@
       ]
     },
     {
-      "name": "Operator",
-      "extends": ["Element"],
+      "name": "operator",
       "properties": [
         { "name": "groupNo", "type": "String" },
         { "name": "opType", "type": "String" },
@@ -78,16 +74,15 @@
       ]
     },
     {
-      "name": "FieldPerm",
-      "extends": ["Element"],
+      "name": "fieldPerm",
       "properties": [
+        { "name": "scope", "type": "String" },
         { "name": "field", "type": "String" },
         { "name": "perm", "type": "String" }
       ]
     },
     {
-      "name": "DetailPerm",
-      "extends": ["Element"],
+      "name": "detailPerm",
       "properties": [
         { "name": "dtKey", "type": "String" },
         { "name": "field", "type": "String" },
@@ -95,16 +90,14 @@
       ]
     },
     {
-      "name": "DetailFilter",
-      "extends": ["Element"],
+      "name": "detailFilter",
       "properties": [
         { "name": "dtKey", "type": "String" },
         { "name": "rowFilter", "type": "String" }
       ]
     },
     {
-      "name": "Timeout",
-      "extends": ["Element"],
+      "name": "timeout",
       "properties": [
         { "name": "seq", "type": "String" },
         { "name": "enabled", "type": "String" },
@@ -123,8 +116,7 @@
       ]
     },
     {
-      "name": "CustomAction",
-      "extends": ["Element"],
+      "name": "customAction",
       "properties": [
         { "name": "actionKey", "type": "String" },
         { "name": "name", "type": "String" },
@@ -134,34 +126,30 @@
       ]
     },
     {
-      "name": "Operation",
-      "extends": ["Element"],
+      "name": "operation",
       "properties": [
         { "name": "btnName", "type": "String" },
         { "name": "btnOrder", "type": "String" },
         { "name": "actionType", "type": "String" },
         { "name": "enabled", "type": "String" },
-        { "name": "rights", "type": "Right", "isMany": true }
+        { "name": "rights", "type": "right", "isMany": true }
       ]
     },
     {
-      "name": "Right",
-      "extends": ["Element"],
+      "name": "right",
       "properties": [
         { "name": "rightType", "type": "String" },
         { "name": "rightValue", "type": "String" }
       ]
     },
     {
-      "name": "ExtJson",
-      "extends": ["Element"],
+      "name": "extJson",
       "properties": [
         { "name": "body", "type": "String", "isBody": true }
       ]
     },
     {
-      "name": "ExtraOperations",
-      "extends": ["Element"],
+      "name": "extraOperations",
       "properties": [
         { "name": "body", "type": "String", "isBody": true }
       ]

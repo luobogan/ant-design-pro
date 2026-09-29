@@ -16,15 +16,14 @@ import {
 } from 'antd';
 import { CheckCircleFilled, SettingOutlined } from '@ant-design/icons';
 import {
-  configOperator,
   getFieldPerm,
   getNodeOperators,
-  saveFieldPerm,
   updateNode,
-  FieldPermItem,
   WfNodeOperator,
   WfProcessNode,
 } from '@/services/workflow';
+import { getActiveModeler } from './bpmnModelerHolder';
+import { getWfNodeExt, setWfNodeExt, WfOperator, WfFieldPerm } from './bpmnExtension';
 import NodeOperateMenuModal from './NodeOperateMenuModal';
 import NodeExtraOperateModal from './NodeExtraOperateModal';
 import { FormFieldBrief } from './LinkInfoPanel';
@@ -59,6 +58,47 @@ const permToTriple = (p?: number): PermTriple => {
 /** 三维度 → perm 兼容列（提交时一并发，保证老消费方继续可用） */
 const tripleToPerm = (t: PermTriple): 0 | 1 | 2 | 3 =>
   !t.visible ? 0 : t.required ? 3 : t.editable ? 2 : 1;
+
+/** BPMN/REST 操作者 → 本地编辑模型（数字字段统一 parse，缺省保留为 null） */
+const toLocalOp = (o: any): WfNodeOperator => ({
+  id: o?.id,
+  opType: parseInt(o?.opType ?? '3', 10),
+  objId: o?.objId ?? null,
+  bhxj: parseInt(o?.bhxj ?? '0', 10),
+  batchNo: parseInt(o?.batchNo ?? '0', 10),
+  groupNo: parseInt(o?.groupNo ?? '1', 10),
+  groupName: o?.groupName ?? null,
+  levelMin: o?.levelMin != null ? parseInt(o.levelMin, 10) : null,
+  levelMax: o?.levelMax != null ? parseInt(o.levelMax, 10) : null,
+  signOrder: o?.signOrder != null ? parseInt(o.signOrder, 10) : null,
+  canView: o?.canView != null ? parseInt(o.canView, 10) : null,
+  conditionJson: o?.conditionJson ?? null,
+  isCoadjutant: o?.isCoadjutant != null ? parseInt(o.isCoadjutant, 10) : null,
+  coadjutants: o?.coadjutants ?? null,
+  isPending: o?.isPending != null ? parseInt(o.isPending, 10) : null,
+  isModify: o?.isModify != null ? parseInt(o.isModify, 10) : null,
+  signType: o?.signType != null ? parseInt(o.signType, 10) : null,
+});
+
+/** 本地编辑模型 → BPMN 扩展字符串型操作者（保留完整字段，迁移时不错损） */
+const toExtOp = (r: WfNodeOperator): WfOperator => ({
+  groupNo: r.groupNo != null ? String(r.groupNo) : undefined,
+  opType: r.opType != null ? String(r.opType) : undefined,
+  objId: r.objId ?? undefined,
+  bhxj: r.bhxj != null ? String(r.bhxj) : undefined,
+  levelMin: r.levelMin != null ? String(r.levelMin) : undefined,
+  levelMax: r.levelMax != null ? String(r.levelMax) : undefined,
+  signOrder: r.signOrder != null ? String(r.signOrder) : undefined,
+  batchNo: r.batchNo != null ? String(r.batchNo) : undefined,
+  groupName: r.groupName ?? undefined,
+  canView: r.canView != null ? String(r.canView) : undefined,
+  conditionJson: r.conditionJson ?? undefined,
+  isCoadjutant: r.isCoadjutant != null ? String(r.isCoadjutant) : undefined,
+  coadjutants: r.coadjutants ?? undefined,
+  isPending: r.isPending != null ? String(r.isPending) : undefined,
+  isModify: r.isModify != null ? String(r.isModify) : undefined,
+  signType: r.signType != null ? String(r.signType) : undefined,
+});
 
 // E9 风格「节点设置」项的 schema 已抽到 `nodeSettings.ts`（与「节点信息」可编辑列表共用），
 // 这里只负责纵向面板形态的渲染；统一存到 wf_process_node.ext_json.settings。
@@ -162,27 +202,78 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
       autoApprove: node?.autoApprove === 1,
       sign: parsed.sign === 1 || parsed.sign === true,
     });
-    getNodeOperators(defId, nodeKey)
-      .then((r: any) => setOperators(r?.data || []))
-      .catch(() => setOperators([]));
-    getFieldPerm(defId, nodeKey)
-      .then((r: any) => {
+    // 操作者：BPMN 优先；缺失时回退 REST 并就地迁移到 BPMN（路线 B 单一事实源）
+    const modeler = getActiveModeler();
+    const element = modeler?.get('elementRegistry')?.get(nodeKey);
+    if (element) {
+      const bpmnExt = getWfNodeExt(element);
+      if (bpmnExt?.operator && bpmnExt.operator.length) {
+        setOperators(bpmnExt.operator.map(toLocalOp));
+      } else {
+        getNodeOperators(defId, nodeKey)
+          .then((r: any) => {
+            const ops: WfNodeOperator[] = (r?.data || []).map(toLocalOp);
+            setOperators(ops);
+            // 迁移：把 REST 操作者写入 BPMN（保留完整字段，避免后续保存清空）
+            if (ops.length) {
+              setWfNodeExt(modeler!, element, { ...(bpmnExt || {}), operator: ops.map(toExtOp) });
+            }
+          })
+          .catch(() => setOperators([]));
+      }
+      // 字段权限：BPMN 优先（含明细表 scope=dt{idx}），缺失时回退 REST
+      if (bpmnExt?.fieldPerm && bpmnExt.fieldPerm.length) {
         const map: Record<string, PermTriple> = {};
-        (r?.data || []).forEach((p: FieldPermItem) => {
-          // 三维度为权威值；仅当三维度全部缺省（老数据）才回退到 perm 兼容列
-          map[`${p.scope || 'main'}|${p.fieldName}`] =
-            p.visible == null && p.editable == null && p.required == null
-              ? permToTriple(p.perm)
-              : { visible: !!p.visible, editable: !!p.editable, required: !!p.required };
+        (bpmnExt.fieldPerm || []).forEach((f: WfFieldPerm) => {
+          map[`${f.scope ?? 'main'}|${f.field}`] = permToTriple(parseInt(f.perm ?? '2', 10));
         });
-        // 未配置过的字段默认「显示 + 可编辑」，与升级前 perm=2 的行为保持一致
         formFields.forEach((f) => {
           const k = `${f.scope}|${f.fieldName}`;
           if (map[k] == null) map[k] = permToTriple(2);
         });
         setPermMap(map);
-      })
-      .catch(() => setPermMap({}));
+      } else {
+        getFieldPerm(defId, nodeKey)
+          .then((r: any) => {
+            const map: Record<string, PermTriple> = {};
+            (r?.data || []).forEach((p: any) => {
+              // 三维度为权威值；仅当三维度全部缺省（老数据）才回退到 perm 兼容列
+              map[`${p.scope || 'main'}|${p.fieldName}`] =
+                p.visible == null && p.editable == null && p.required == null
+                  ? permToTriple(p.perm)
+                  : { visible: !!p.visible, editable: !!p.editable, required: !!p.required };
+            });
+            // 未配置过的字段默认「显示 + 可编辑」，与升级前 perm=2 的行为保持一致
+            formFields.forEach((f) => {
+              const k = `${f.scope}|${f.fieldName}`;
+              if (map[k] == null) map[k] = permToTriple(2);
+            });
+            setPermMap(map);
+          })
+          .catch(() => setPermMap({}));
+      }
+    } else {
+      // 画布未就绪：纯 REST 回填
+      getNodeOperators(defId, nodeKey)
+        .then((r: any) => setOperators((r?.data || []).map(toLocalOp)))
+        .catch(() => setOperators([]));
+      getFieldPerm(defId, nodeKey)
+        .then((r: any) => {
+          const map: Record<string, PermTriple> = {};
+          (r?.data || []).forEach((p: any) => {
+            map[`${p.scope || 'main'}|${p.fieldName}`] =
+              p.visible == null && p.editable == null && p.required == null
+                ? permToTriple(p.perm)
+                : { visible: !!p.visible, editable: !!p.editable, required: !!p.required };
+          });
+          formFields.forEach((f) => {
+            const k = `${f.scope}|${f.fieldName}`;
+            if (map[k] == null) map[k] = permToTriple(2);
+          });
+          setPermMap(map);
+        })
+        .catch(() => setPermMap({}));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeKey, defId]);
 
@@ -250,16 +341,28 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
 
   const saveOperators = async () => {
     if (!nodeKey) return;
+    const modeler = getActiveModeler();
+    const element = modeler?.get('elementRegistry')?.get(nodeKey);
+    if (!element) {
+      message.error('画布未就绪，无法保存');
+      return;
+    }
     setSavingOp(true);
     try {
-      const r: any = await configOperator(defId, nodeKey, operators);
-      if (r?.success === false) {
-        message.error('保存失败');
-        return;
-      }
-      message.success('操作者已保存');
-    } catch {
-      message.error('保存失败');
+      // 路线 B：直接写 BPMN 扩展；按索引合并，保留既有操作者的 groupName / 条件等字段
+      const ext = getWfNodeExt(element) || {};
+      const existing: WfOperator[] = ext.operator || [];
+      const merged: WfOperator[] = operators.map((r, i) => ({
+        ...(existing[i] || {}),
+        opType: String(r.opType ?? 3),
+        objId: r.objId ?? undefined,
+        bhxj: String(r.bhxj ?? 0),
+        batchNo: String(r.batchNo ?? 0),
+      }));
+      setWfNodeExt(modeler!, element, { ...ext, operator: merged });
+      message.success('操作者已保存到流程定义');
+    } catch (e: any) {
+      message.error(e?.message || '保存失败');
     } finally {
       setSavingOp(false);
     }
@@ -267,28 +370,28 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
 
   const savePerms = async () => {
     if (!nodeKey) return;
+    const modeler = getActiveModeler();
+    const element = modeler?.get('elementRegistry')?.get(nodeKey);
+    if (!element) {
+      message.error('画布未就绪，无法保存');
+      return;
+    }
     setSavingPerm(true);
     try {
-      const perms: FieldPermItem[] = formFields.map((f) => {
+      // 路线 B：主表 + 明细表字段权限统一写 wf:fieldPerm（scope=main / dt{idx}）
+      const perms: WfFieldPerm[] = formFields.map((f) => {
         const t = permMap[`${f.scope}|${f.fieldName}`] || permToTriple(2);
         return {
           scope: f.scope,
-          fieldName: f.fieldName,
-          visible: t.visible,
-          editable: t.editable,
-          required: t.required,
-          // perm 一并下发（后端会按三维度再派生一次），便于与老消费方口径对比排查
-          perm: tripleToPerm(t),
+          field: f.fieldName,
+          perm: String(tripleToPerm(t)),
         };
       });
-      const r: any = await saveFieldPerm(defId, nodeKey, perms);
-      if (r?.success === false) {
-        message.error('保存失败');
-        return;
-      }
-      message.success('字段权限已保存');
-    } catch {
-      message.error('保存失败');
+      const ext = getWfNodeExt(element) || {};
+      setWfNodeExt(modeler!, element, { ...ext, fieldPerm: perms });
+      message.success('字段权限已保存到流程定义');
+    } catch (e: any) {
+      message.error(e?.message || '保存失败');
     } finally {
       setSavingPerm(false);
     }

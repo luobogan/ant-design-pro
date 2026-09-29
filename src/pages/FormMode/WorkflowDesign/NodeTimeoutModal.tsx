@@ -118,7 +118,7 @@ const NodeTimeoutModal: React.FC<NodeTimeoutModalProps> = ({ open, nodeKey, node
     setLoading(true);
     try {
       const ext = getWfNodeExt(element);
-      setRules((ext?.timeouts ?? []).map(fromExt));
+      setRules((ext?.timeout ?? []).map(fromExt));
     } catch {
       setRules([]);
     } finally {
@@ -143,7 +143,7 @@ const NodeTimeoutModal: React.FC<NodeTimeoutModalProps> = ({ open, nodeKey, node
     setSaving(true);
     try {
       const ext = getWfNodeExt(element) || {};
-      setWfNodeExt(modeler, element, { ...ext, timeouts: payload });
+      setWfNodeExt(modeler, element, { ...ext, timeout: payload });
       message.success('超时规则已保存到流程定义');
       onClose();
     } catch (e: any) {

@@ -11,7 +11,7 @@
  *   setWfNodeExt(modeler, el, nextExt);         // 写回（经 modeling.updateModdleProperties，可撤销）
  *
  * 设计要点：
- * - 只动 `extensionElements.values` 中 `$type === 'wf:NodeExtension' / 'wf:LinkExtension' / 'wf:ProcessMeta'`，
+ * - 只动 `extensionElements.values` 中 `$type === 'wf:node' / 'wf:link' / 'wf:processMeta'`，
  *   不影响 camunda 等其它扩展。
  * - 标量属性一律以字符串落扩展（与后端 String 类型对齐），面板按需 parse。
  * - `extJson` / `extraOperations` 走文本体（`isBody`），可承载任意 JSON / 多行文本。
@@ -37,8 +37,9 @@ export interface WfOperator {
   signType?: string;
 }
 
-/** 主表字段权限（wf:fieldPerm） */
+/** 字段权限（wf:fieldPerm，主表 scope=main / 明细表 scope=dt{idx}） */
 export interface WfFieldPerm {
+  scope?: string;
   field: string;
   perm: string; // 0隐藏 1只读 2可编辑 3必填
 }
@@ -111,13 +112,13 @@ export interface WfNodeExt {
   testStatus?: string;
   multiInstance?: string;
   formKey?: string;
-  operators?: WfOperator[];
-  fieldPerms?: WfFieldPerm[];
-  detailPerms?: WfDetailPerm[];
-  detailFilters?: WfDetailFilter[];
-  timeouts?: WfTimeout[];
-  customActions?: WfCustomAction[];
-  operations?: WfOperation[];
+  operator?: WfOperator[];
+  fieldPerm?: WfFieldPerm[];
+  detailPerm?: WfDetailPerm[];
+  detailFilter?: WfDetailFilter[];
+  timeout?: WfTimeout[];
+  customAction?: WfCustomAction[];
+  operation?: WfOperation[];
   /** 原 WfProcessNode.extJson 保全（含明细表级权限等 schema 外字段） */
   extJson?: string;
   /** 原始 moddle 元素（高级读写用，勿直接持有过久） */
@@ -165,11 +166,21 @@ const str = (v: any): string | undefined => (v == null ? undefined : String(v));
 // ───────────────────────────────── 读 ─────────────────────────────────
 
 export const getWfNodeExt = (element: any): WfNodeExt | null => {
-  const node = firstWfChild(element, 'NodeExtension');
+  const node = firstWfChild(element, 'node');
   if (!node) return null;
   const arr = (name: string): any[] =>
     (node.get?.(name) ?? (node as any)[name] ?? []).filter(Boolean);
-  const ops: WfOperator[] = arr('operators').map((o) => ({
+  // 契约（doc/md/wf_BPMN扩展schema定稿.md §4）统一为单数元素名：operator/fieldPerm/...，
+  // 旧技能模板的复数容器（operators/fieldPerms/customOperations）与顶层容器（Operators/...）已作废。
+  const operatorEls: any[] = arr('operator');
+  const fieldPermEls: any[] = arr('fieldPerm');
+  const detailPermEls: any[] = arr('detailPerm');
+  const detailFilterEls: any[] = arr('detailFilter');
+  const timeoutEls: any[] = arr('timeout');
+  const customActionEls: any[] = arr('customAction');
+  const operationEls: any[] = arr('operation');
+
+  const ops: WfOperator[] = operatorEls.map((o) => ({
     groupNo: str(o.groupNo),
     opType: str(o.opType),
     objId: str(o.objId),
@@ -187,20 +198,21 @@ export const getWfNodeExt = (element: any): WfNodeExt | null => {
     isModify: str(o.isModify),
     signType: str(o.signType),
   }));
-  const fieldPerms: WfFieldPerm[] = arr('fieldPerms').map((f) => ({
+  const fieldPerms: WfFieldPerm[] = fieldPermEls.map((f) => ({
+    scope: str(f.scope) ?? 'main',
     field: str(f.field) || '',
     perm: str(f.perm) ?? '2',
   }));
-  const detailPerms: WfDetailPerm[] = arr('detailPerms').map((f) => ({
+  const detailPerms: WfDetailPerm[] = detailPermEls.map((f) => ({
     dtKey: str(f.dtKey) || '',
     field: str(f.field) || '',
     perm: str(f.perm) ?? '2',
   }));
-  const detailFilters: WfDetailFilter[] = arr('detailFilters').map((f) => ({
+  const detailFilters: WfDetailFilter[] = detailFilterEls.map((f) => ({
     dtKey: str(f.dtKey) || '',
     rowFilter: str(f.rowFilter),
   }));
-  const timeouts: WfTimeout[] = arr('timeouts').map((t) => ({
+  const timeouts: WfTimeout[] = timeoutEls.map((t) => ({
     seq: str(t.seq),
     enabled: str(t.enabled),
     startType: str(t.startType),
@@ -216,14 +228,14 @@ export const getWfNodeExt = (element: any): WfNodeExt | null => {
     remindTypes: str(t.remindTypes),
     remindPersons: str(t.remindPersons),
   }));
-  const customActions: WfCustomAction[] = arr('customActions').map((a) => ({
+  const customActions: WfCustomAction[] = customActionEls.map((a) => ({
     actionKey: str(a.actionKey),
     name: str(a.name),
     type: str(a.type),
     url: str(a.url),
     expression: str(a.expression),
   }));
-  const operations: WfOperation[] = arr('operations').map((o) => ({
+  const operations: WfOperation[] = operationEls.map((o) => ({
     btnName: str(o.btnName),
     btnOrder: str(o.btnOrder),
     actionType: str(o.actionType),
@@ -233,7 +245,7 @@ export const getWfNodeExt = (element: any): WfNodeExt | null => {
       rightValue: str(r.rightValue),
     })),
   }));
-  const extJsonEl = firstWfChild(node, 'ExtJson');
+  const extJsonEl = firstWfChild(node, 'extJson');
   return {
     nodeType: str(node.nodeType),
     signOrder: str(node.signOrder),
@@ -246,22 +258,22 @@ export const getWfNodeExt = (element: any): WfNodeExt | null => {
     testStatus: str(node.testStatus),
     multiInstance: str(node.multiInstance),
     formKey: str(node.formKey),
-    operators: ops,
-    fieldPerms,
-    detailPerms,
-    detailFilters,
-    timeouts,
-    customActions,
-    operations,
+    operator: ops,
+    fieldPerm: fieldPerms,
+    detailPerm: detailPerms,
+    detailFilter: detailFilters,
+    timeout: timeouts,
+    customAction: customActions,
+    operation: operations,
     extJson: extJsonEl?.body ?? undefined,
     raw: node,
   };
 };
 
 export const getWfLinkExt = (element: any): WfLinkExt | null => {
-  const link = firstWfChild(element, 'LinkExtension');
+  const link = firstWfChild(element, 'link');
   if (!link) return null;
-  const extraEl = firstWfChild(link, 'ExtraOperations');
+  const extraEl = firstWfChild(link, 'extraOperations');
   return {
     isReject: str(link.isReject),
     isMustPass: str(link.isMustPass),
@@ -274,7 +286,7 @@ export const getWfLinkExt = (element: any): WfLinkExt | null => {
 };
 
 export const getWfProcessMeta = (processElement: any): WfProcessMeta | null => {
-  const meta = firstWfChild(processElement, 'ProcessMeta');
+  const meta = firstWfChild(processElement, 'processMeta');
   if (!meta) return null;
   return {
     defKey: str(meta.defKey),
@@ -314,7 +326,7 @@ const replaceWfChild = (modeler: any, element: any, local: string, newChild: any
 
 const buildOperators = (moddle: any, ops?: WfOperator[]) =>
   (ops || []).map((o) =>
-    moddle.create('wf:Operator', {
+    moddle.create('wf:operator', {
       groupNo: o.groupNo,
       opType: o.opType,
       objId: o.objId,
@@ -335,17 +347,17 @@ const buildOperators = (moddle: any, ops?: WfOperator[]) =>
   );
 
 const buildFieldPerms = (moddle: any, list?: WfFieldPerm[]) =>
-  (list || []).map((f) => moddle.create('wf:FieldPerm', { field: f.field, perm: f.perm }));
+  (list || []).map((f) => moddle.create('wf:fieldPerm', { scope: f.scope ?? 'main', field: f.field, perm: f.perm }));
 
 const buildDetailPerms = (moddle: any, list?: WfDetailPerm[]) =>
-  (list || []).map((f) => moddle.create('wf:DetailPerm', { dtKey: f.dtKey, field: f.field, perm: f.perm }));
+  (list || []).map((f) => moddle.create('wf:detailPerm', { dtKey: f.dtKey, field: f.field, perm: f.perm }));
 
 const buildDetailFilters = (moddle: any, list?: WfDetailFilter[]) =>
-  (list || []).map((f) => moddle.create('wf:DetailFilter', { dtKey: f.dtKey, rowFilter: f.rowFilter }));
+  (list || []).map((f) => moddle.create('wf:detailFilter', { dtKey: f.dtKey, rowFilter: f.rowFilter }));
 
 const buildTimeouts = (moddle: any, list?: WfTimeout[]) =>
   (list || []).map((t) =>
-    moddle.create('wf:Timeout', {
+    moddle.create('wf:timeout', {
       seq: t.seq,
       enabled: t.enabled,
       startType: t.startType,
@@ -365,7 +377,7 @@ const buildTimeouts = (moddle: any, list?: WfTimeout[]) =>
 
 const buildCustomActions = (moddle: any, list?: WfCustomAction[]) =>
   (list || []).map((a) =>
-    moddle.create('wf:CustomAction', {
+    moddle.create('wf:customAction', {
       actionKey: a.actionKey,
       name: a.name,
       type: a.type,
@@ -376,13 +388,13 @@ const buildCustomActions = (moddle: any, list?: WfCustomAction[]) =>
 
 const buildOperations = (moddle: any, list?: WfOperation[]) =>
   (list || []).map((o) =>
-    moddle.create('wf:Operation', {
+    moddle.create('wf:operation', {
       btnName: o.btnName,
       btnOrder: o.btnOrder,
       actionType: o.actionType,
       enabled: o.enabled,
       rights: (o.rights || []).map((r) =>
-        moddle.create('wf:Right', { rightType: r.rightType, rightValue: r.rightValue }),
+        moddle.create('wf:right', { rightType: r.rightType, rightValue: r.rightValue }),
       ),
     }),
   );
@@ -391,10 +403,10 @@ const buildOperations = (moddle: any, list?: WfOperation[]) =>
 export const setWfNodeExt = (modeler: any, element: any, ext: WfNodeExt | null) => {
   const { moddle } = ensureExtensionElements(modeler, element);
   if (!ext) {
-    replaceWfChild(modeler, element, 'NodeExtension', null);
+    replaceWfChild(modeler, element, 'node', null);
     return;
   }
-  const node = moddle.create('wf:NodeExtension', {
+  const node = moddle.create('wf:node', {
     nodeType: ext.nodeType,
     signOrder: ext.signOrder,
     mergeType: ext.mergeType,
@@ -406,26 +418,26 @@ export const setWfNodeExt = (modeler: any, element: any, ext: WfNodeExt | null) 
     testStatus: ext.testStatus,
     multiInstance: ext.multiInstance,
     formKey: ext.formKey,
-    operators: buildOperators(moddle, ext.operators),
-    fieldPerms: buildFieldPerms(moddle, ext.fieldPerms),
-    detailPerms: buildDetailPerms(moddle, ext.detailPerms),
-    detailFilters: buildDetailFilters(moddle, ext.detailFilters),
-    timeouts: buildTimeouts(moddle, ext.timeouts),
-    customActions: buildCustomActions(moddle, ext.customActions),
-    operations: buildOperations(moddle, ext.operations),
-    extJson: ext.extJson && ext.extJson.trim() ? moddle.create('wf:ExtJson', { body: ext.extJson }) : undefined,
+    operator: buildOperators(moddle, ext.operator),
+    fieldPerm: buildFieldPerms(moddle, ext.fieldPerm),
+    detailPerm: buildDetailPerms(moddle, ext.detailPerm),
+    detailFilter: buildDetailFilters(moddle, ext.detailFilter),
+    timeout: buildTimeouts(moddle, ext.timeout),
+    customAction: buildCustomActions(moddle, ext.customAction),
+    operation: buildOperations(moddle, ext.operation),
+    extJson: ext.extJson && ext.extJson.trim() ? moddle.create('wf:extJson', { body: ext.extJson }) : undefined,
   });
-  replaceWfChild(modeler, element, 'NodeExtension', node);
+  replaceWfChild(modeler, element, 'node', node);
 };
 
 /** 写（覆盖）出口扩展。ext 为 null 时删除。 */
 export const setWfLinkExt = (modeler: any, element: any, ext: WfLinkExt | null) => {
   const { moddle } = ensureExtensionElements(modeler, element);
   if (!ext) {
-    replaceWfChild(modeler, element, 'LinkExtension', null);
+    replaceWfChild(modeler, element, 'link', null);
     return;
   }
-  const link = moddle.create('wf:LinkExtension', {
+  const link = moddle.create('wf:link', {
     isReject: ext.isReject,
     isMustPass: ext.isMustPass,
     conditionCn: ext.conditionCn,
@@ -433,20 +445,20 @@ export const setWfLinkExt = (modeler: any, element: any, ext: WfLinkExt | null) 
     viaGateway: ext.viaGateway,
     extraOperations:
       ext.extraOperations && ext.extraOperations.trim()
-        ? moddle.create('wf:ExtraOperations', { body: ext.extraOperations })
+        ? moddle.create('wf:extraOperations', { body: ext.extraOperations })
         : undefined,
   });
-  replaceWfChild(modeler, element, 'LinkExtension', link);
+  replaceWfChild(modeler, element, 'link', link);
 };
 
 /** 写（覆盖）流程级元信息。ext 为 null 时删除。 */
 export const setWfProcessMeta = (modeler: any, processElement: any, ext: WfProcessMeta | null) => {
   const { moddle } = ensureExtensionElements(modeler, processElement);
   if (!ext) {
-    replaceWfChild(modeler, processElement, 'ProcessMeta', null);
+    replaceWfChild(modeler, processElement, 'processMeta', null);
     return;
   }
-  const meta = moddle.create('wf:ProcessMeta', {
+  const meta = moddle.create('wf:processMeta', {
     defKey: ext.defKey,
     workflowType: ext.workflowType,
     formId: ext.formId,
@@ -454,7 +466,7 @@ export const setWfProcessMeta = (modeler: any, processElement: any, ext: WfProce
     grayEnabled: ext.grayEnabled,
     grayRule: ext.grayRule,
   });
-  replaceWfChild(modeler, processElement, 'ProcessMeta', meta);
+  replaceWfChild(modeler, processElement, 'processMeta', meta);
 };
 
 export { WF_NS };
