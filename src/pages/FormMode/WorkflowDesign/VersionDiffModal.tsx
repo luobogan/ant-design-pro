@@ -21,6 +21,9 @@ interface VersionDiffModalProps {
 const dictLabel = (dict: { value: any; label: string }[], v: any) =>
   dict.find((d) => String(d.value) === String(v))?.label ?? (v ?? '-');
 
+/** 操作者摘要（opType#objId@groupNo,...）→ 数量 */
+const opCount = (s?: string) => (s ? s.split(',').filter(Boolean).length : 0);
+
 const DIFF_TAG: Record<string, { color: string; text: string }> = {
   added: { color: 'green', text: '新增' },
   removed: { color: 'red', text: '删除' },
@@ -119,6 +122,11 @@ const VersionDiffModal: React.FC<VersionDiffModalProps> = ({
         ) : (
           <span>
             {r.sourceName || '-'}（{dictLabel(NODE_TYPES, r.sourceType)} · {dictLabel(SIGN_ORDERS, r.sourceSignOrder)}）
+            {r.kind === 'changed' && r.sourceOperators !== r.targetOperators && (
+              <div style={{ color: '#d46b08', fontSize: 12 }}>
+                操作者 {opCount(r.sourceOperators)} → {opCount(r.targetOperators)} 个
+              </div>
+            )}
           </span>
         ),
     },
@@ -130,6 +138,9 @@ const VersionDiffModal: React.FC<VersionDiffModalProps> = ({
         ) : (
           <span>
             {r.targetName || '-'}（{dictLabel(NODE_TYPES, r.targetType)} · {dictLabel(SIGN_ORDERS, r.targetSignOrder)}）
+            {r.kind === 'added' && opCount(r.targetOperators) > 0 && (
+              <div style={{ color: '#389e0d', fontSize: 12 }}>操作者 {opCount(r.targetOperators)} 个</div>
+            )}
           </span>
         ),
     },
@@ -156,6 +167,8 @@ const VersionDiffModal: React.FC<VersionDiffModalProps> = ({
           <span>
             {r.sourceConditionCn || '无条件'}
             {r.sourceIsReject === 1 ? '（退回线）' : ''}
+            {r.sourceIsMustPass === 1 ? '（必经）' : ''}
+            {r.sourceViaGatewayKey ? `（经网关 ${r.sourceViaGatewayKey}）` : ''}
           </span>
         ),
     },
@@ -168,6 +181,8 @@ const VersionDiffModal: React.FC<VersionDiffModalProps> = ({
           <span>
             {r.targetConditionCn || '无条件'}
             {r.targetIsReject === 1 ? '（退回线）' : ''}
+            {r.targetIsMustPass === 1 ? '（必经）' : ''}
+            {r.targetViaGatewayKey ? `（经网关 ${r.targetViaGatewayKey}）` : ''}
           </span>
         ),
     },

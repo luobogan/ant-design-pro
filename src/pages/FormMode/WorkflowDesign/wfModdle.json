@@ -7,157 +7,715 @@
   },
   "types": [
     {
-      "name": "node",
+      "name": "Node",
+      "superClass": [
+        "Element"
+      ],
       "properties": [
-        { "name": "nodeType", "type": "String" },
-        { "name": "signOrder", "type": "String" },
-        { "name": "mergeType", "type": "String" },
-        { "name": "passNum", "type": "String" },
-        { "name": "allowReject", "type": "String" },
-        { "name": "allowForward", "type": "String" },
-        { "name": "autoApprove", "type": "String" },
-        { "name": "sortOrder", "type": "String" },
-        { "name": "testStatus", "type": "String" },
-        { "name": "multiInstance", "type": "String" },
-        { "name": "formKey", "type": "String" },
-        { "name": "operator", "type": "operator", "isMany": true },
-        { "name": "fieldPerm", "type": "fieldPerm", "isMany": true },
-        { "name": "detailPerm", "type": "detailPerm", "isMany": true },
-        { "name": "detailFilter", "type": "detailFilter", "isMany": true },
-        { "name": "timeout", "type": "timeout", "isMany": true },
-        { "name": "customAction", "type": "customAction", "isMany": true },
-        { "name": "operation", "type": "operation", "isMany": true },
-        { "name": "extJson", "type": "extJson" }
+        {
+          "name": "nodeType",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "signOrder",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "mergeType",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "passNum",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "allowReject",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "allowForward",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "autoApprove",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "sortOrder",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "testStatus",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "multiInstance",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "formKey",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "operator",
+          "type": "Operator",
+          "isMany": true
+        },
+        {
+          "name": "fieldPerm",
+          "type": "FieldPerm",
+          "isMany": true
+        },
+        {
+          "name": "detailPerm",
+          "type": "DetailPerm",
+          "isMany": true
+        },
+        {
+          "name": "detailTablePerm",
+          "type": "DetailTablePerm",
+          "isMany": true
+        },
+        {
+          "name": "detailFilter",
+          "type": "DetailFilter",
+          "isMany": true
+        },
+        {
+          "name": "timeout",
+          "type": "Timeout",
+          "isMany": true
+        },
+        {
+          "name": "customAction",
+          "type": "CustomAction",
+          "isMany": true
+        },
+        {
+          "name": "operation",
+          "type": "Operation",
+          "isMany": true
+        },
+        {
+          "name": "extJson",
+          "type": "ExtJson"
+        }
       ]
     },
     {
-      "name": "link",
+      "name": "Link",
+      "superClass": [
+        "Element"
+      ],
       "properties": [
-        { "name": "isReject", "type": "String" },
-        { "name": "isMustPass", "type": "String" },
-        { "name": "conditionCn", "type": "String" },
-        { "name": "sortOrder", "type": "String" },
-        { "name": "viaGateway", "type": "String" },
-        { "name": "extraOperations", "type": "extraOperations" }
+        {
+          "name": "isReject",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "isMustPass",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "conditionCn",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "sortOrder",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "viaGateway",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "viaGatewayKey",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "extraOperations",
+          "type": "ExtraOperations"
+        }
       ]
     },
     {
-      "name": "processMeta",
+      "name": "ProcessMeta",
+      "superClass": [
+        "Element"
+      ],
       "properties": [
-        { "name": "defKey", "type": "String" },
-        { "name": "workflowType", "type": "String" },
-        { "name": "formId", "type": "String" },
-        { "name": "layoutId", "type": "String" },
-        { "name": "grayEnabled", "type": "String" },
-        { "name": "grayRule", "type": "String" }
+        {
+          "name": "defKey",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "workflowType",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "formId",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "layoutId",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "grayEnabled",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "grayRule",
+          "type": "String",
+          "isAttr": true
+        }
       ]
     },
     {
-      "name": "operator",
+      "name": "FoldedLink",
+      "superClass": [
+        "Element"
+      ],
       "properties": [
-        { "name": "groupNo", "type": "String" },
-        { "name": "opType", "type": "String" },
-        { "name": "objId", "type": "String" },
-        { "name": "bhxj", "type": "String" },
-        { "name": "levelMin", "type": "String" },
-        { "name": "levelMax", "type": "String" },
-        { "name": "signOrder", "type": "String" },
-        { "name": "batchNo", "type": "String" },
-        { "name": "groupName", "type": "String" },
-        { "name": "canView", "type": "String" },
-        { "name": "conditionJson", "type": "String" },
-        { "name": "isCoadjutant", "type": "String" },
-        { "name": "coadjutants", "type": "String" },
-        { "name": "isPending", "type": "String" },
-        { "name": "isModify", "type": "String" },
-        { "name": "signType", "type": "String" }
+        {
+          "name": "from",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "to",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "viaGatewayKey",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "isReject",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "isMustPass",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "conditionCn",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "sortOrder",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "extraOperations",
+          "type": "ExtraOperations"
+        }
       ]
     },
     {
-      "name": "fieldPerm",
+      "name": "Operator",
+      "superClass": [
+        "Element"
+      ],
       "properties": [
-        { "name": "scope", "type": "String" },
-        { "name": "field", "type": "String" },
-        { "name": "perm", "type": "String" }
+        {
+          "name": "groupNo",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "opType",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "objId",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "bhxj",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "levelMin",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "levelMax",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "signOrder",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "batchNo",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "groupName",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "canView",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "conditionJson",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "isCoadjutant",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "coadjutants",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "isPending",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "isModify",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "signType",
+          "type": "String",
+          "isAttr": true
+        }
       ]
     },
     {
-      "name": "detailPerm",
+      "name": "FieldPerm",
+      "superClass": [
+        "Element"
+      ],
       "properties": [
-        { "name": "dtKey", "type": "String" },
-        { "name": "field", "type": "String" },
-        { "name": "perm", "type": "String" }
+        {
+          "name": "scope",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "field",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "perm",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "visible",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "editable",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "required",
+          "type": "String",
+          "isAttr": true
+        }
       ]
     },
     {
-      "name": "detailFilter",
+      "name": "DetailPerm",
+      "superClass": [
+        "Element"
+      ],
       "properties": [
-        { "name": "dtKey", "type": "String" },
-        { "name": "rowFilter", "type": "String" }
+        {
+          "name": "dtKey",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "field",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "perm",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "visible",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "editable",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "required",
+          "type": "String",
+          "isAttr": true
+        }
       ]
     },
     {
-      "name": "timeout",
+      "name": "DetailTablePerm",
+      "superClass": [
+        "Element"
+      ],
       "properties": [
-        { "name": "seq", "type": "String" },
-        { "name": "enabled", "type": "String" },
-        { "name": "startType", "type": "String" },
-        { "name": "startField", "type": "String" },
-        { "name": "endType", "type": "String" },
-        { "name": "endFixedTime", "type": "String" },
-        { "name": "endField", "type": "String" },
-        { "name": "durationMin", "type": "String" },
-        { "name": "actionWay", "type": "String" },
-        { "name": "opinion", "type": "String" },
-        { "name": "operatorIds", "type": "String" },
-        { "name": "remindBeforeOperator", "type": "String" },
-        { "name": "remindTypes", "type": "String" },
-        { "name": "remindPersons", "type": "String" }
+        {
+          "name": "dtIndex",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "canAdd",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "canEdit",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "canDelete",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "hideEmpty",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "defaultRows",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "required",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "printSerial",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "allowScroll",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "openPaging",
+          "type": "String",
+          "isAttr": true
+        }
       ]
     },
     {
-      "name": "customAction",
+      "name": "DetailFilter",
+      "superClass": [
+        "Element"
+      ],
       "properties": [
-        { "name": "actionKey", "type": "String" },
-        { "name": "name", "type": "String" },
-        { "name": "type", "type": "String" },
-        { "name": "url", "type": "String" },
-        { "name": "expression", "type": "String" }
+        {
+          "name": "dtIndex",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "modeType",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "fieldName",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "compareType",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "compareValue",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "isRequired",
+          "type": "String",
+          "isAttr": true
+        }
       ]
     },
     {
-      "name": "operation",
+      "name": "Timeout",
+      "superClass": [
+        "Element"
+      ],
       "properties": [
-        { "name": "btnName", "type": "String" },
-        { "name": "btnOrder", "type": "String" },
-        { "name": "actionType", "type": "String" },
-        { "name": "enabled", "type": "String" },
-        { "name": "url", "type": "String" },
-        { "name": "httpMethod", "type": "String" },
-        { "name": "paramExpr", "type": "String" },
-        { "name": "flowOperation", "type": "String" },
-        { "name": "interfaceName", "type": "String" },
-        { "name": "opinion", "type": "String" },
-        { "name": "rights", "type": "right", "isMany": true }
+        {
+          "name": "seq",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "enabled",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "startType",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "startField",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "endType",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "endFixedTime",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "endField",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "durationMin",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "actionWay",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "opinion",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "operatorIds",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "remindBeforeOperator",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "remindTypes",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "remindPersons",
+          "type": "String",
+          "isAttr": true
+        }
       ]
     },
     {
-      "name": "right",
+      "name": "CustomAction",
+      "superClass": [
+        "Element"
+      ],
       "properties": [
-        { "name": "rightType", "type": "String" },
-        { "name": "rightValue", "type": "String" }
+        {
+          "name": "actionKey",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "name",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "type",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "url",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "expression",
+          "type": "String",
+          "isAttr": true
+        }
       ]
     },
     {
-      "name": "extJson",
+      "name": "Operation",
+      "superClass": [
+        "Element"
+      ],
       "properties": [
-        { "name": "body", "type": "String", "isBody": true }
+        {
+          "name": "btnName",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "btnOrder",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "actionType",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "enabled",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "url",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "httpMethod",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "paramExpr",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "flowOperation",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "interfaceName",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "opinion",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "rights",
+          "type": "Right",
+          "isMany": true
+        }
       ]
     },
     {
-      "name": "extraOperations",
+      "name": "Right",
+      "superClass": [
+        "Element"
+      ],
       "properties": [
-        { "name": "body", "type": "String", "isBody": true }
+        {
+          "name": "rightType",
+          "type": "String",
+          "isAttr": true
+        },
+        {
+          "name": "rightValue",
+          "type": "String",
+          "isAttr": true
+        }
+      ]
+    },
+    {
+      "name": "ExtJson",
+      "superClass": [
+        "Element"
+      ],
+      "properties": [
+        {
+          "name": "body",
+          "type": "String",
+          "isBody": true
+        }
+      ]
+    },
+    {
+      "name": "ExtraOperations",
+      "superClass": [
+        "Element"
+      ],
+      "properties": [
+        {
+          "name": "body",
+          "type": "String",
+          "isBody": true
+        }
       ]
     }
   ],

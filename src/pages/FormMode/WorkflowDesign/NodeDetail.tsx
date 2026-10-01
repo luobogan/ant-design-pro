@@ -136,7 +136,7 @@ export interface NodeDetailProps {
  *
  * 对齐 ecology「流转设置 → 节点信息」的内嵌面板形态：内容全部由**当前选中节点**驱动，
  * 分五个分区——基本属性 / 操作者 / 字段权限 / 节点设置（extJson.settings）/ 表单布局。
- * 所有保存都是「即改即存」（updateNode 是按 nodeKey 的局部 merge 更新），
+ * 所有保存都是「即改即存」（画布自动保存 saveBpmn 按 `wf:` 扩展整体覆盖写回），
  * 名称改动额外经 onSaved 回写画布节点标签。
  */
 const NodeDetail: React.FC<NodeDetailProps> = ({
@@ -224,7 +224,16 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
       if (bpmnExt?.fieldPerm && bpmnExt.fieldPerm.length) {
         const map: Record<string, PermTriple> = {};
         (bpmnExt.fieldPerm || []).forEach((f: WfFieldPerm) => {
-          map[`${f.scope ?? 'main'}|${f.field}`] = permToTriple(parseInt(f.perm ?? '2', 10));
+          // 三维度是权威值（P3-5 定稿）；仅当三维度齐备时使用，否则回退 perm 兼容派生列（老数据）
+          if (f.visible != null && f.editable != null) {
+            map[`${f.scope ?? 'main'}|${f.field}`] = {
+              visible: f.visible === '1',
+              editable: f.editable === '1',
+              required: f.required === '1',
+            };
+          } else {
+            map[`${f.scope ?? 'main'}|${f.field}`] = permToTriple(parseInt(f.perm ?? '2', 10));
+          }
         });
         formFields.forEach((f) => {
           const k = `${f.scope}|${f.fieldName}`;
@@ -404,6 +413,10 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
           scope: f.scope,
           field: f.fieldName,
           perm: String(tripleToPerm(t)),
+          // P3-5 三维度权威值随 wf:fieldPerm 一并落库（perm 仅为兼容派生列）
+          visible: t.visible ? '1' : '0',
+          editable: t.editable ? '1' : '0',
+          required: t.required ? '1' : '0',
         };
       });
       const ext = getWfNodeExt(element) || {};

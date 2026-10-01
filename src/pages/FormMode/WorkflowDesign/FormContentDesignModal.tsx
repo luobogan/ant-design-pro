@@ -15,7 +15,7 @@ import {
 import { PlusOutlined, QuestionCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import { WfProcessNode, DetailFilterItem } from '@/services/workflow';
 import { getActiveModeler } from './bpmnModelerHolder';
-import { getWfNodeExt, setWfNodeExt } from './bpmnExtension';
+import { getWfNodeExt, setWfNodeExt, WfDetailFilter } from './bpmnExtension';
 import { getFormLayout, saveFormLayout } from '@/services/formmode/formLayoutApi';
 import {
   FORM_CONTENT_OPTIONS,
@@ -92,14 +92,50 @@ const extJsonOf = (nodeKey?: string, node?: WfProcessNode | null): string | unde
   return element ? getWfNodeExt(element)?.extJson : node?.extJson;
 };
 
-/** 路线 B：把 extJson 写进目标节点的 BPMN `wf:node` 扩展（画布自动保存落库） */
-const writeExtJson = (nodeKey: string, extJson: string): boolean => {
+/** 路线 B：把 extJson 写进目标节点的 BPMN `wf:node` 扩展（画布自动保存落库）；
+ * detailFilter 传入时一并写 `wf:detailFilter` 元素（F-T6：明细筛选运行期权威源） */
+const writeExtJson = (nodeKey: string, extJson: string, detailFilter?: WfDetailFilter[]): boolean => {
   const modeler = getActiveModeler();
   const element = modeler?.get('elementRegistry')?.get(nodeKey);
   if (!element) return false;
   const ext = getWfNodeExt(element) || {};
-  setWfNodeExt(modeler, element, { ...ext, extJson });
+  setWfNodeExt(modeler, element, {
+    ...ext,
+    extJson,
+    ...(detailFilter ? { detailFilter } : {}),
+  });
   return true;
+};
+
+/** wf:detailFilter modeType 口径：1=显示模板 2=打印模板（对齐后端 wf_node_detail_filter.mode_type） */
+const MODE_SHOW = '1';
+const MODE_PRINT = '2';
+
+/** DetailFilterItem[]（UI 口径，number）→ wf:detailFilter 扩展行（schema 口径，string） */
+const toExtFilters = (items: DetailFilterItem[] | undefined, modeType: string): WfDetailFilter[] =>
+  (items || []).map((d) => ({
+    dtIndex: String(d.dtIndex ?? 1),
+    modeType,
+    fieldName: d.fieldName || '',
+    compareType: String(d.compareType ?? 1),
+    compareValue: d.compareValue,
+    isRequired: d.isRequired == null ? undefined : String(d.isRequired),
+  }));
+
+/** BPMN wf:detailFilter → DetailFilterItem[]（number 化；modeType 过滤） */
+const readDetailFilter = (nodeKey?: string, modeType?: string): DetailFilterItem[] => {
+  const modeler = getActiveModeler();
+  const element = nodeKey ? modeler?.get('elementRegistry')?.get(nodeKey) : undefined;
+  if (!element) return [];
+  return (getWfNodeExt(element)?.detailFilter || [])
+    .filter((d) => (modeType ? d.modeType === modeType : true))
+    .map((d) => ({
+      dtIndex: parseInt(d.dtIndex ?? '1', 10) || 1,
+      fieldName: d.fieldName || '',
+      compareType: parseInt(d.compareType ?? '1', 10) || 1,
+      compareValue: d.compareValue,
+      isRequired: d.isRequired == null ? undefined : parseInt(d.isRequired, 10),
+    }));
 };
 
 /** 取节点 ext_json.settings（坏数据按空处理） */
@@ -298,9 +334,20 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
   const mobile = fc.mobile || {};
   // 打印内容设置（对齐 ecology printflowcomment / printviewtype / printremarkcolumn / printstnull / printshowtype）
   const pSet = fc.printSet || {};
-  // 明细表字段筛选：按口径拆成「显示」与「打印」两套
-  const detailFilterShow: DetailFilterItem[] = Array.isArray(fc.detailFilterShow) ? fc.detailFilterShow : [];
-  const detailFilterPrint: DetailFilterItem[] = Array.isArray(fc.detailFilterPrint) ? fc.detailFilterPrint : [];
+  // 明细表字段筛选：F-T6 接线后以 BPMN wf:detailFilter 为权威（fc.detailFilterSynced 标记
+  // 已迁移过）；旧数据（标记缺失）回退 extJson 既有键，保证升级无感
+  const detailFilterShow: DetailFilterItem[] =
+    fc.detailFilterSynced === true
+      ? readDetailFilter(nodeKey, MODE_SHOW)
+      : Array.isArray(fc.detailFilterShow)
+        ? fc.detailFilterShow
+        : [];
+  const detailFilterPrint: DetailFilterItem[] =
+    fc.detailFilterSynced === true
+      ? readDetailFilter(nodeKey, MODE_PRINT)
+      : Array.isArray(fc.detailFilterPrint)
+        ? fc.detailFilterPrint
+        : [];
   // 签字意见显示设置（屏显口径）
   const od = fc.opinionDisplay || {};
 
@@ -311,11 +358,14 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
   /** 保存本节点 */
   const save = async () => {
     if (!defId || !nodeKey) return;
+    // F-T6：明细筛选双写——extJson 兜底 + wf:detailFilter 元素为运行期权威源（detail-filter-from-bpmn）
+    const nextFc = { ...fc, detailFilterSynced: true };
+    const filters = [...toExtFilters(nextFc.detailFilterShow, MODE_SHOW), ...toExtFilters(nextFc.detailFilterPrint, MODE_PRINT)];
     const settings = readSettings({ ...node, extJson: extJsonOf(nodeKey, node) });
-    const extJson = JSON.stringify({ settings: { ...settings, formContent: fc } });
+    const extJson = JSON.stringify({ settings: { ...settings, formContent: nextFc } });
     setSaving(true);
     try {
-      if (!writeExtJson(nodeKey, extJson)) {
+      if (!writeExtJson(nodeKey, extJson, filters)) {
         message.error('画布未就绪，无法保存');
         return;
       }
@@ -395,11 +445,20 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
         // ③ formContent 配置（显示模式 / 页边距 / 明细过滤等）一并同步
         // 路线 B：目标节点的 settings 也优先读 BPMN 扩展，避免覆盖画布上已有的配置
         const settings = readSettings({ ...target, extJson: extJsonOf(key, target) });
-        // 同步过去时清掉各自的「同步目标」自身，避免互相指向
-        const next = { ...fc, syncNodeKeys: undefined, mobile: { ...(fc.mobile || {}), nodeKeys: undefined } };
+        // 同步过去时清掉各自的「同步目标」自身，避免互相指向；明细筛选随 wf:detailFilter 一并同步
+        const next = {
+          ...fc,
+          detailFilterSynced: true,
+          syncNodeKeys: undefined,
+          mobile: { ...(fc.mobile || {}), nodeKeys: undefined },
+        };
         const extJson = JSON.stringify({ settings: { ...settings, formContent: next } });
+        const syncFilters = [
+          ...toExtFilters(next.detailFilterShow, MODE_SHOW),
+          ...toExtFilters(next.detailFilterPrint, MODE_PRINT),
+        ];
         try {
-          if (writeExtJson(key, extJson)) cfgOk++;
+          if (writeExtJson(key, extJson, syncFilters)) cfgOk++;
         } catch {
           /* 单个失败不阻断其余 */
         }

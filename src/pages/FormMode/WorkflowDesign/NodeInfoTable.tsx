@@ -61,7 +61,7 @@ export interface NodeInfoTableProps {
 /**
  * 草稿节点：尚未落库，但已在表格内填好的全部信息。
  * 列表「+ 新增节点」先建草稿行，用户把名称/操作者/表单内容/各项设置全部填好，
- * 点「保存新增」时连同这些信息一次性创建节点并落库（operators → configOperator、extJson → updateNode）。
+ * 点「保存新增」时画布建形状 → 自动保存（saveBpmn）落库：operators/extJson 随 BPMN `wf:` 扩展一并持久化。
  */
 interface DraftNode {
   nodeName: string;
@@ -89,7 +89,7 @@ const emptyExtJson = () => JSON.stringify({ settings: {} });
  * 对齐 ecology「流转设置 → 节点信息」的字段：节点名称 / 节点类型 / 操作者 / 表单内容 /
  * 操作菜单 / 节点前附加操作 / 节点后附加操作 / 子流程设置 / 标题显示设置 / 签字意见设置 /
  * 流程异常处理 / 表单日志查看范围 / 指定流转。
- * 一行一个节点，即改即存（updateNode 局部 merge）：
+ * 一行一个节点，即改即存（画布自动保存 saveBpmn 持久化 `wf:` 扩展）：
  * · 名称/类型 → wf_process_node 字段；
  * · 操作菜单 / 前后附加操作 / 表单内容 / 其余设置项 → ext_json.settings；
  * · 操作者 → 单独弹窗整体覆盖（wf_node_operator）。

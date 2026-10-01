@@ -36,7 +36,7 @@ import {
   ZoomInOutlined,
   ZoomOutOutlined,
 } from '@ant-design/icons';
-import { deployDefinition, saveBpmn, testDefinition } from '@/services/workflow';
+import { deployDefinition, getDefinition, saveBpmn, testDefinition } from '@/services/workflow';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import customTranslateModule from './bpmnZh';
 import './bpmnDesigner.css';
@@ -304,6 +304,10 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const modelerRef = useRef<any>(null);
+  // D15/R11 草稿乐观锁：undefined=未加载（首次保存懒拉取定义详情）；number=已知修订号；
+  // null=拉取失败 → 退化为不校验。conflict=true 后阻断自动保存，防止本端画布覆盖他人修改。
+  const draftRevisionRef = useRef<number | null | undefined>(undefined);
+  const conflictRef = useRef(false);
   const renderOverlaysRef = useRef<() => void>(() => {});
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
@@ -1302,23 +1306,58 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
       if (!silent) message.warning('请先选择流程定义');
       return false;
     }
+    // D15/R11：检出并发冲突后阻断后续保存——本端画布已过期，继续自动保存会静默覆盖他人修改
+    if (conflictRef.current) {
+      if (!silent) message.warning('定义已被他人修改，请刷新页面获取最新内容后再编辑');
+      return false;
+    }
     try {
       const { xml } = await modelerRef.current.saveXML({ format: true });
-      const r: any = await saveBpmn(defId, xml);
+      // 修订号懒加载：首次保存时拉一次定义详情；拉取失败（null）退化为不校验（兼容旧行为）
+      if (draftRevisionRef.current === undefined) {
+        try {
+          const d: any = await getDefinition(defId);
+          const rev = d?.data?.draftRevision ?? d?.draftRevision;
+          draftRevisionRef.current = rev == null ? null : Number(rev);
+        } catch {
+          draftRevisionRef.current = null;
+        }
+      }
+      const base = draftRevisionRef.current == null ? undefined : draftRevisionRef.current;
+      const r: any = await saveBpmn(defId, xml, base);
       if (r?.success) {
+        // 本地推进修订号：全局只有本链路递增；他人并发保存后本端下次保存必然冲突并提示刷新
+        draftRevisionRef.current = (base ?? 0) + 1;
         if (!silent) message.success('BPMN 已保存并解析节点/出口');
         onSaved?.();
         renderOverlaysRef.current();
         return true;
       }
+      if (String(r?.msg || r?.errorMsg || '').includes('已被他人修改')) {
+        conflictRef.current = true;
+        message.warning('定义已被他人修改，请刷新页面获取最新内容后再编辑');
+        return false;
+      }
       if (!silent) message.error('保存失败');
       return false;
     } catch (e: any) {
+      const msg = String(e?.message || e?.data?.msg || e);
+      if (msg.includes('已被他人修改')) {
+        conflictRef.current = true;
+        message.warning('定义已被他人修改，请刷新页面获取最新内容后再编辑');
+        return false;
+      }
       if (!silent) message.error('保存失败：' + (e?.message || e));
       return false;
     }
   };
   handleSaveRef.current = handleSave;
+
+  // 切换定义时重置乐观锁状态（修订号/冲突标记都属于当前 defId）
+  useEffect(() => {
+    draftRevisionRef.current = undefined;
+    conflictRef.current = false;
+  }, [defId]);
 
   const handleExport = async () => {
     if (!modelerRef.current) return;

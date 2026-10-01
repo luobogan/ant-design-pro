@@ -37,24 +37,49 @@ export interface WfOperator {
   signType?: string;
 }
 
-/** 字段权限（wf:fieldPerm，主表 scope=main / 明细表 scope=dt{idx}） */
+/** 字段权限（wf:fieldPerm，主表 scope=main / 明细表 scope=dt{idx}；含 P3-5 三维度细粒度） */
 export interface WfFieldPerm {
   scope?: string;
   field: string;
   perm: string; // 0隐藏 1只读 2可编辑 3必填
+  /** 三维度：1=是 0=否（后端 WfFieldPermExt 对齐；perm 为聚合口径，三维度为细粒度口径） */
+  visible?: string;
+  editable?: string;
+  required?: string;
 }
 
-/** 明细表字段权限（wf:detailPerm） */
+/** 明细表字段权限（wf:detailPerm，含 P3-5 三维度细粒度） */
 export interface WfDetailPerm {
   dtKey: string; // dt1/dt2...
   field: string;
   perm: string;
+  visible?: string;
+  editable?: string;
+  required?: string;
 }
 
-/** 明细表字段过滤（wf:detailFilter） */
+/** 明细表字段过滤（wf:detailFilter，对齐后端 WfDetailFilterExt：逐字段比较规则） */
 export interface WfDetailFilter {
-  dtKey: string;
-  rowFilter?: string; // 原 WfNodeDetailFilter 整行 JSON
+  dtIndex?: string; // 明细表序号（1 起）
+  modeType?: string;
+  fieldName?: string;
+  compareType?: string;
+  compareValue?: string;
+  isRequired?: string;
+}
+
+/** 节点级明细表整表权限（wf:detailTablePerm，对齐后端 WfDetailTablePermExt） */
+export interface WfDetailTablePerm {
+  dtIndex?: string;
+  canAdd?: string;
+  canEdit?: string;
+  canDelete?: string;
+  hideEmpty?: string;
+  defaultRows?: string;
+  required?: string;
+  printSerial?: string;
+  allowScroll?: string;
+  openPaging?: string;
 }
 
 /** 超时规则（wf:timeout，对齐 wf_node_timeout） */
@@ -122,6 +147,7 @@ export interface WfNodeExt {
   operator?: WfOperator[];
   fieldPerm?: WfFieldPerm[];
   detailPerm?: WfDetailPerm[];
+  detailTablePerm?: WfDetailTablePerm[];
   detailFilter?: WfDetailFilter[];
   timeout?: WfTimeout[];
   customAction?: WfCustomAction[];
@@ -139,9 +165,23 @@ export interface WfLinkExt {
   conditionCn?: string;
   sortOrder?: string;
   viaGateway?: string;
+  /** 折叠连线经过的网关 key（A→网关→B 折叠为 A→B 时记录） */
+  viaGatewayKey?: string;
   /** 出口附加操作（多行文本，原 wf_node_link.extra_operations） */
   extraOperations?: string;
   raw?: any;
+}
+
+/** 流程级折叠连线（wf:foldedLink，挂在 process 上；A→网关→B 合成出口的唯一载体） */
+export interface WfFoldedLink {
+  from?: string;
+  to?: string;
+  viaGatewayKey?: string;
+  isReject?: string;
+  isMustPass?: string;
+  conditionCn?: string;
+  sortOrder?: string;
+  extraOperations?: string;
 }
 
 /** 流程级元信息（wf:processMeta，挂在 process 上） */
@@ -157,7 +197,7 @@ export interface WfProcessMeta {
 
 const WF_NS = 'http://www.springblade.org/workflow';
 
-const isWf = (el: any, local: string) => !!el && el.$type === `wf:${local}`;
+const isWf = (el: any, local: string) => !!el && String(el.$type).toLowerCase() === `wf:${local.toLowerCase()}`;
 
 /** 取元素 extensionElements 下的首个 wf:<local> 子元素（原始 moddle） */
 const firstWfChild = (element: any, local: string): any => {
@@ -182,6 +222,7 @@ export const getWfNodeExt = (element: any): WfNodeExt | null => {
   const operatorEls: any[] = arr('operator');
   const fieldPermEls: any[] = arr('fieldPerm');
   const detailPermEls: any[] = arr('detailPerm');
+  const detailTablePermEls: any[] = arr('detailTablePerm');
   const detailFilterEls: any[] = arr('detailFilter');
   const timeoutEls: any[] = arr('timeout');
   const customActionEls: any[] = arr('customAction');
@@ -209,15 +250,37 @@ export const getWfNodeExt = (element: any): WfNodeExt | null => {
     scope: str(f.scope) ?? 'main',
     field: str(f.field) || '',
     perm: str(f.perm) ?? '2',
+    visible: str(f.visible),
+    editable: str(f.editable),
+    required: str(f.required),
   }));
   const detailPerms: WfDetailPerm[] = detailPermEls.map((f) => ({
     dtKey: str(f.dtKey) || '',
     field: str(f.field) || '',
     perm: str(f.perm) ?? '2',
+    visible: str(f.visible),
+    editable: str(f.editable),
+    required: str(f.required),
+  }));
+  const detailTablePerms: WfDetailTablePerm[] = detailTablePermEls.map((d) => ({
+    dtIndex: str(d.dtIndex),
+    canAdd: str(d.canAdd),
+    canEdit: str(d.canEdit),
+    canDelete: str(d.canDelete),
+    hideEmpty: str(d.hideEmpty),
+    defaultRows: str(d.defaultRows),
+    required: str(d.required),
+    printSerial: str(d.printSerial),
+    allowScroll: str(d.allowScroll),
+    openPaging: str(d.openPaging),
   }));
   const detailFilters: WfDetailFilter[] = detailFilterEls.map((f) => ({
-    dtKey: str(f.dtKey) || '',
-    rowFilter: str(f.rowFilter),
+    dtIndex: str(f.dtIndex),
+    modeType: str(f.modeType),
+    fieldName: str(f.fieldName),
+    compareType: str(f.compareType),
+    compareValue: str(f.compareValue),
+    isRequired: str(f.isRequired),
   }));
   const timeouts: WfTimeout[] = timeoutEls.map((t) => ({
     seq: str(t.seq),
@@ -258,7 +321,9 @@ export const getWfNodeExt = (element: any): WfNodeExt | null => {
       rightValue: str(r.rightValue),
     })),
   }));
-  const extJsonEl = firstWfChild(node, 'extJson');
+  // extJson 是 wf:node 的【子元素属性】（moddle child），不在 extensionElements 下；
+  // 旧实现误用 firstWfChild（查 extensionElements）导致恒取不到 → 静默丢数据，已修正。
+  const extJsonEl = (node.get?.('extJson') ?? node.extJson) as any;
   return {
     nodeType: str(node.nodeType),
     signOrder: str(node.signOrder),
@@ -274,6 +339,7 @@ export const getWfNodeExt = (element: any): WfNodeExt | null => {
     operator: ops,
     fieldPerm: fieldPerms,
     detailPerm: detailPerms,
+    detailTablePerm: detailTablePerms,
     detailFilter: detailFilters,
     timeout: timeouts,
     customAction: customActions,
@@ -286,13 +352,15 @@ export const getWfNodeExt = (element: any): WfNodeExt | null => {
 export const getWfLinkExt = (element: any): WfLinkExt | null => {
   const link = firstWfChild(element, 'link');
   if (!link) return null;
-  const extraEl = firstWfChild(link, 'extraOperations');
+  // extraOperations 同为 wf:link 的子元素属性（非 extensionElements 子级）
+  const extraEl = (link.get?.('extraOperations') ?? link.extraOperations) as any;
   return {
     isReject: str(link.isReject),
     isMustPass: str(link.isMustPass),
     conditionCn: str(link.conditionCn),
     sortOrder: str(link.sortOrder),
     viaGateway: str(link.viaGateway),
+    viaGatewayKey: str(link.viaGatewayKey),
     extraOperations: extraEl?.body ?? undefined,
     raw: link,
   };
@@ -382,7 +450,7 @@ const replaceWfChild = (modeler: any, element: any, local: string, newChild: any
 
 const buildOperators = (moddle: any, ops?: WfOperator[]) =>
   (ops || []).map((o) =>
-    moddle.create('wf:operator', {
+    moddle.create('wf:Operator', {
       groupNo: o.groupNo,
       opType: o.opType,
       objId: o.objId,
@@ -403,17 +471,60 @@ const buildOperators = (moddle: any, ops?: WfOperator[]) =>
   );
 
 const buildFieldPerms = (moddle: any, list?: WfFieldPerm[]) =>
-  (list || []).map((f) => moddle.create('wf:fieldPerm', { scope: f.scope ?? 'main', field: f.field, perm: f.perm }));
+  (list || []).map((f) =>
+    moddle.create('wf:FieldPerm', {
+      scope: f.scope ?? 'main',
+      field: f.field,
+      perm: f.perm,
+      visible: f.visible,
+      editable: f.editable,
+      required: f.required,
+    }),
+  );
 
 const buildDetailPerms = (moddle: any, list?: WfDetailPerm[]) =>
-  (list || []).map((f) => moddle.create('wf:detailPerm', { dtKey: f.dtKey, field: f.field, perm: f.perm }));
+  (list || []).map((f) =>
+    moddle.create('wf:DetailPerm', {
+      dtKey: f.dtKey,
+      field: f.field,
+      perm: f.perm,
+      visible: f.visible,
+      editable: f.editable,
+      required: f.required,
+    }),
+  );
+
+const buildDetailTablePerms = (moddle: any, list?: WfDetailTablePerm[]) =>
+  (list || []).map((d) =>
+    moddle.create('wf:DetailTablePerm', {
+      dtIndex: d.dtIndex,
+      canAdd: d.canAdd,
+      canEdit: d.canEdit,
+      canDelete: d.canDelete,
+      hideEmpty: d.hideEmpty,
+      defaultRows: d.defaultRows,
+      required: d.required,
+      printSerial: d.printSerial,
+      allowScroll: d.allowScroll,
+      openPaging: d.openPaging,
+    }),
+  );
 
 const buildDetailFilters = (moddle: any, list?: WfDetailFilter[]) =>
-  (list || []).map((f) => moddle.create('wf:detailFilter', { dtKey: f.dtKey, rowFilter: f.rowFilter }));
+  (list || []).map((f) =>
+    moddle.create('wf:DetailFilter', {
+      dtIndex: f.dtIndex,
+      modeType: f.modeType,
+      fieldName: f.fieldName,
+      compareType: f.compareType,
+      compareValue: f.compareValue,
+      isRequired: f.isRequired,
+    }),
+  );
 
 const buildTimeouts = (moddle: any, list?: WfTimeout[]) =>
   (list || []).map((t) =>
-    moddle.create('wf:timeout', {
+    moddle.create('wf:Timeout', {
       seq: t.seq,
       enabled: t.enabled,
       startType: t.startType,
@@ -433,7 +544,7 @@ const buildTimeouts = (moddle: any, list?: WfTimeout[]) =>
 
 const buildCustomActions = (moddle: any, list?: WfCustomAction[]) =>
   (list || []).map((a) =>
-    moddle.create('wf:customAction', {
+    moddle.create('wf:CustomAction', {
       actionKey: a.actionKey,
       name: a.name,
       type: a.type,
@@ -444,7 +555,7 @@ const buildCustomActions = (moddle: any, list?: WfCustomAction[]) =>
 
 const buildOperations = (moddle: any, list?: WfOperation[]) =>
   (list || []).map((o) =>
-    moddle.create('wf:operation', {
+    moddle.create('wf:Operation', {
       btnName: o.btnName,
       btnOrder: o.btnOrder,
       actionType: o.actionType,
@@ -456,7 +567,7 @@ const buildOperations = (moddle: any, list?: WfOperation[]) =>
       interfaceName: o.interfaceName,
       opinion: o.opinion,
       rights: (o.rights || []).map((r) =>
-        moddle.create('wf:right', { rightType: r.rightType, rightValue: r.rightValue }),
+        moddle.create('wf:Right', { rightType: r.rightType, rightValue: r.rightValue }),
       ),
     }),
   );
@@ -468,7 +579,7 @@ export const setWfNodeExt = (modeler: any, element: any, ext: WfNodeExt | null) 
     replaceWfChild(modeler, element, 'node', null);
     return;
   }
-  const node = moddle.create('wf:node', {
+  const node = moddle.create('wf:Node', {
     nodeType: ext.nodeType,
     signOrder: ext.signOrder,
     mergeType: ext.mergeType,
@@ -483,11 +594,12 @@ export const setWfNodeExt = (modeler: any, element: any, ext: WfNodeExt | null) 
     operator: buildOperators(moddle, ext.operator),
     fieldPerm: buildFieldPerms(moddle, ext.fieldPerm),
     detailPerm: buildDetailPerms(moddle, ext.detailPerm),
+    detailTablePerm: buildDetailTablePerms(moddle, ext.detailTablePerm),
     detailFilter: buildDetailFilters(moddle, ext.detailFilter),
     timeout: buildTimeouts(moddle, ext.timeout),
     customAction: buildCustomActions(moddle, ext.customAction),
     operation: buildOperations(moddle, ext.operation),
-    extJson: ext.extJson && ext.extJson.trim() ? moddle.create('wf:extJson', { body: ext.extJson }) : undefined,
+    extJson: ext.extJson && ext.extJson.trim() ? moddle.create('wf:ExtJson', { body: ext.extJson }) : undefined,
   });
   replaceWfChild(modeler, element, 'node', node);
 };
@@ -499,15 +611,16 @@ export const setWfLinkExt = (modeler: any, element: any, ext: WfLinkExt | null) 
     replaceWfChild(modeler, element, 'link', null);
     return;
   }
-  const link = moddle.create('wf:link', {
+  const link = moddle.create('wf:Link', {
     isReject: ext.isReject,
     isMustPass: ext.isMustPass,
     conditionCn: ext.conditionCn,
     sortOrder: ext.sortOrder,
     viaGateway: ext.viaGateway,
+    viaGatewayKey: ext.viaGatewayKey,
     extraOperations:
       ext.extraOperations && ext.extraOperations.trim()
-        ? moddle.create('wf:extraOperations', { body: ext.extraOperations })
+        ? moddle.create('wf:ExtraOperations', { body: ext.extraOperations })
         : undefined,
   });
   replaceWfChild(modeler, element, 'link', link);
@@ -520,7 +633,7 @@ export const setWfProcessMeta = (modeler: any, processElement: any, ext: WfProce
     replaceWfChild(modeler, processElement, 'processMeta', null);
     return;
   }
-  const meta = moddle.create('wf:processMeta', {
+  const meta = moddle.create('wf:ProcessMeta', {
     defKey: ext.defKey,
     workflowType: ext.workflowType,
     formId: ext.formId,
@@ -529,6 +642,64 @@ export const setWfProcessMeta = (modeler: any, processElement: any, ext: WfProce
     grayRule: ext.grayRule,
   });
   replaceWfChild(modeler, processElement, 'processMeta', meta);
+};
+
+// ───────────────────────── 流程级折叠连线（wf:foldedLink） ─────────────────────────
+
+/** 读流程级全部折叠连线（processElement 取 rootElement 的 process，或画布任一元素的根） */
+export const getWfFoldedLinks = (processElement: any): WfFoldedLink[] => {
+  const bo = processElement?.businessObject ?? processElement;
+  const ext = bo?.extensionElements;
+  const list: any[] = ext?.get?.('values') ?? ext?.values ?? [];
+  return list
+    .filter((v) => isWf(v, 'foldedLink'))
+    .map((f) => {
+      const extraEl = (f.get?.('extraOperations') ?? f.extraOperations) as any;
+      return {
+        from: str(f.from),
+        to: str(f.to),
+        viaGatewayKey: str(f.viaGatewayKey),
+        isReject: str(f.isReject),
+        isMustPass: str(f.isMustPass),
+        conditionCn: str(f.conditionCn),
+        sortOrder: str(f.sortOrder),
+        extraOperations: extraEl?.body ?? undefined,
+      };
+    });
+};
+
+/** 写（覆盖）流程级全部折叠连线。list 为 null/[] 时清空，其余 wf:* 元素不受影响。 */
+export const setWfFoldedLinks = (modeler: any, processElement: any, list: WfFoldedLink[] | null) => {
+  const { moddle, bo, ext } = ensureExtensionElements(modeler, processElement);
+  const values: any[] = ext.get?.('values') ?? ext.values ?? [];
+  const kept = values.filter((v) => !isWf(v, 'foldedLink'));
+  const next = [
+    ...kept,
+    ...(list || []).map((f) =>
+      moddle.create('wf:FoldedLink', {
+        from: f.from,
+        to: f.to,
+        viaGatewayKey: f.viaGatewayKey,
+        isReject: f.isReject,
+        isMustPass: f.isMustPass,
+        conditionCn: f.conditionCn,
+        sortOrder: f.sortOrder,
+        extraOperations:
+          f.extraOperations && f.extraOperations.trim()
+            ? moddle.create('wf:ExtraOperations', { body: f.extraOperations })
+            : undefined,
+      }),
+    ),
+  ];
+  const modeling = modeler.get('modeling');
+  if (bo.extensionElements) {
+    modeling.updateModdleProperties(processElement, bo.extensionElements, { values: next });
+  } else {
+    modeling.updateProperties(
+      processElement,
+      { extensionElements: moddle.create('bpmn:ExtensionElements', { values: next }) },
+    );
+  }
 };
 
 export { WF_NS };

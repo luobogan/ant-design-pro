@@ -18,6 +18,8 @@ export interface WfProcessDefinition {
   formId?: number | string;
   name?: string;
   version?: number;
+  /** 草稿修订号（D15/R11）：saveBpmn 原子递增；保存时回传做乐观并发校验 */
+  draftRevision?: number;
   status?: number; // 0草稿 1已发布 3测试（2停用已废除，仅存量数据）
   isFree?: number;
   /** 路径类型（对齐 ecology path_type 字典 code） */
@@ -344,11 +346,18 @@ export async function deployDefinition(id: number) {
 // BPMN 画布（bpmn-js）保存 / 获取
 // 注意：bpmnXml 含大量 <bpmn:*> 标签，会被后端 SpringBlade XSS 过滤器当作非法 HTML 整段删掉，
 // 导致只剩文本而无法解析。故发送前做 UTF-8 安全的 base64 编码，后端 WfDefinitionServiceImpl 再解码还原。
-export async function saveBpmn(id: number, bpmnXml: string) {
+/**
+ * 保存 BPMN 画布（自动保存与手动保存共用）。
+ *
+ * @param baseRevision 草稿修订号基线（D15/R11 乐观锁）：传上一次读取/保存时的
+ *        `draftRevision`，后端原子条件递增校验，冲突返回「定义已被他人修改」错误；
+ *        不传则跳过并发校验（兼容旧调用）。
+ */
+export async function saveBpmn(id: number, bpmnXml: string, baseRevision?: number) {
   const encoded = utf8ToBase64(bpmnXml);
   return request<ApiResponse<number>>(`${WORKFLOW}/definition/${id}/bpmn`, {
     method: 'PUT',
-    data: { bpmnXml: encoded },
+    data: { bpmnXml: encoded, baseRevision: baseRevision ?? null },
   });
 }
 
@@ -393,6 +402,9 @@ export interface VersionNodeDiff {
   targetType?: number;
   sourceSignOrder?: number;
   targetSignOrder?: number;
+  /** 操作者摘要（opType#objId@groupNo 升序逗号拼接；空串=无操作者） */
+  sourceOperators?: string;
+  targetOperators?: string;
 }
 
 /** 版本差异行：出口（fromNodeKey→toNodeKey 维度） */
@@ -403,6 +415,12 @@ export interface VersionLinkDiff {
   targetConditionCn?: string;
   sourceIsReject?: number;
   targetIsReject?: number;
+  /** 是否必须经过 */
+  sourceIsMustPass?: number;
+  targetIsMustPass?: number;
+  /** 折叠连线经过的网关 key */
+  sourceViaGatewayKey?: string;
+  targetViaGatewayKey?: string;
 }
 
 /** 版本差异对比结果（source=当前版本，target=被对比版本） */
