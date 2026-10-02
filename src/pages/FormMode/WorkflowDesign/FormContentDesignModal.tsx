@@ -15,7 +15,7 @@ import {
 import { PlusOutlined, QuestionCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import { WfProcessNode, DetailFilterItem } from '@/services/workflow';
 import { getActiveModeler } from './bpmnModelerHolder';
-import { getWfNodeExt, setWfNodeExt, WfDetailFilter } from './bpmnExtension';
+import { getWfNodeExt, setWfNodeExt, WfDetailFilter, WfDetailTablePerm } from './bpmnExtension';
 import { getFormLayout, saveFormLayout } from '@/services/formmode/formLayoutApi';
 import {
   FORM_CONTENT_OPTIONS,
@@ -93,8 +93,13 @@ const extJsonOf = (nodeKey?: string, node?: WfProcessNode | null): string | unde
 };
 
 /** 路线 B：把 extJson 写进目标节点的 BPMN `wf:node` 扩展（画布自动保存落库）；
- * detailFilter 传入时一并写 `wf:detailFilter` 元素（F-T6：明细筛选运行期权威源） */
-const writeExtJson = (nodeKey: string, extJson: string, detailFilter?: WfDetailFilter[]): boolean => {
+ * detailFilter / detailTablePerm 传入时一并写对应 `wf:*` 元素（F-T6：明细筛选 / 明细整表权限运行期权威源） */
+const writeExtJson = (
+  nodeKey: string,
+  extJson: string,
+  detailFilter?: WfDetailFilter[],
+  detailTablePerm?: WfDetailTablePerm[],
+): boolean => {
   const modeler = getActiveModeler();
   const element = modeler?.get('elementRegistry')?.get(nodeKey);
   if (!element) return false;
@@ -103,6 +108,7 @@ const writeExtJson = (nodeKey: string, extJson: string, detailFilter?: WfDetailF
     ...ext,
     extJson,
     ...(detailFilter ? { detailFilter } : {}),
+    ...(detailTablePerm ? { detailTablePerm } : {}),
   });
   return true;
 };
@@ -136,6 +142,25 @@ const readDetailFilter = (nodeKey?: string, modeType?: string): DetailFilterItem
       compareValue: d.compareValue,
       isRequired: d.isRequired == null ? undefined : parseInt(d.isRequired, 10),
     }));
+};
+
+/** BPMN wf:detailTablePerm → WfDetailTablePerm[]（F-T6③：节点级明细表整表权限，按 dtIndex） */
+const readDetailTablePerm = (nodeKey?: string): WfDetailTablePerm[] => {
+  const modeler = getActiveModeler();
+  const element = nodeKey ? modeler?.get('elementRegistry')?.get(nodeKey) : undefined;
+  if (!element) return [];
+  const ext = getWfNodeExt(element);
+  // 优先取 BPMN 扩展 wf:detailTablePerm
+  if (ext?.detailTablePerm && ext.detailTablePerm.length) return ext.detailTablePerm;
+  // 旧数据回退：曾存于 extJson formContent.detailTablePerm（保证升级无感）
+  try {
+    const parsed = ext?.extJson ? JSON.parse(ext.extJson) : {};
+    const legacy = parsed?.settings?.formContent?.detailTablePerm;
+    if (Array.isArray(legacy) && legacy.length) return legacy;
+  } catch {
+    /* 坏数据按空处理 */
+  }
+  return [];
 };
 
 /** 取节点 ext_json.settings（坏数据按空处理） */
@@ -286,6 +311,86 @@ const DetailFilterEditor: React.FC<{
   );
 };
 
+/** 明细表整表权限布尔字段元数据（F-T6③：节点级明细表 增/删/改/必填/隐藏空表/打印序号/滚动/分页） */
+const DT_PERM_FIELDS: { key: keyof WfDetailTablePerm; label: string }[] = [
+  { key: 'canAdd', label: '可新增' },
+  { key: 'canEdit', label: '可编辑' },
+  { key: 'canDelete', label: '可删除' },
+  { key: 'hideEmpty', label: '隐藏空表' },
+  { key: 'required', label: '必填' },
+  { key: 'printSerial', label: '打印序号' },
+  { key: 'allowScroll', label: '允许滚动' },
+  { key: 'openPaging', label: '分页' },
+];
+
+/** 明细表整表权限编辑器（对齐 ecology「明细表权限设置」：按 dtIndex 控制整表行为，作用于节点操作者） */
+const DetailTablePermEditor: React.FC<{
+  title: string;
+  value: WfDetailTablePerm[];
+  onChange: (v: WfDetailTablePerm[]) => void;
+}> = ({ title, value, onChange }) => {
+  const update = (i: number, patch: Partial<WfDetailTablePerm>) =>
+    onChange(value.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const toggle = (i: number, key: keyof WfDetailTablePerm, v: boolean) =>
+    update(i, { [key]: v ? '1' : '0' } as Partial<WfDetailTablePerm>);
+  const add = () =>
+    onChange([
+      ...value,
+      { dtIndex: String((value.length || 0) + 1), canAdd: '1', canEdit: '1', canDelete: '1' },
+    ]);
+  const remove = (i: number) => onChange(value.filter((_, idx) => idx !== i));
+  return (
+    <Section title={title}>
+      <div style={{ marginBottom: 8, color: '#888', fontSize: 12 }}>
+        按明细表序号（dtIndex，1 起）分别设置该节点操作者对此明细表的整表行为；留空 / 不配置即沿用表单默认。
+      </div>
+      {value.map((r, i) => (
+        <div
+          key={i}
+          style={{ border: '1px solid #f0f0f0', borderRadius: 4, padding: 8, margin: '6px 0' }}
+        >
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ color: '#666' }}>明细表 dt</span>
+            <InputNumber
+              size="small"
+              min={1}
+              style={{ width: 64 }}
+              value={parseInt(r.dtIndex ?? '1', 10) || 1}
+              onChange={(v) => update(i, { dtIndex: String(v ?? 1) })}
+            />
+            <span style={{ color: '#666' }}>默认行数</span>
+            <InputNumber
+              size="small"
+              min={0}
+              style={{ width: 72 }}
+              value={r.defaultRows == null ? undefined : parseInt(r.defaultRows, 10)}
+              onChange={(v) => update(i, { defaultRows: v == null ? undefined : String(v) })}
+            />
+            <Button size="small" danger onClick={() => remove(i)}>
+              删除
+            </Button>
+          </div>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 8 }}>
+            {DT_PERM_FIELDS.map((f) => (
+              <span key={f.key as string} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <Switch
+                  size="small"
+                  checked={r[f.key] === '1'}
+                  onChange={(v) => toggle(i, f.key, v)}
+                />
+                <span style={{ fontSize: 12, color: '#666' }}>{f.label}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      ))}
+      <Button size="small" icon={<PlusOutlined />} onClick={add}>
+        添加明细表权限
+      </Button>
+    </Section>
+  );
+};
+
 const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
   open,
   defId,
@@ -306,6 +411,8 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
 
   // 整份 formContent 直接作为受控状态，保存时统一写回
   const [fc, setFc] = useState<Record<string, any>>({});
+  // F-T6③：节点级明细表整表权限（独立于 formContent，存于 wf:detailTablePerm）
+  const [dtPerm, setDtPerm] = useState<WfDetailTablePerm[]>([]);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [tab, setTab] = useState('show');
@@ -314,6 +421,7 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
     if (open) {
       const s = readSettings({ ...node, extJson: extJsonOf(nodeKey, node) });
       setFc({ ...(s.formContent || {}) });
+      setDtPerm(readDetailTablePerm(nodeKey));
       setTab('show');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -365,7 +473,8 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
     const extJson = JSON.stringify({ settings: { ...settings, formContent: nextFc } });
     setSaving(true);
     try {
-      if (!writeExtJson(nodeKey, extJson, filters)) {
+      // F-T6③：wf:detailTablePerm 一并写入（与 detailFilter 同属节点级运行期权威源）
+      if (!writeExtJson(nodeKey, extJson, filters, dtPerm)) {
         message.error('画布未就绪，无法保存');
         return;
       }
@@ -458,7 +567,8 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
           ...toExtFilters(next.detailFilterPrint, MODE_PRINT),
         ];
         try {
-          if (writeExtJson(key, extJson, syncFilters)) cfgOk++;
+          // F-T6③：明细整表权限随节点一并同步（wf:detailTablePerm）
+          if (writeExtJson(key, extJson, syncFilters, dtPerm)) cfgOk++;
         } catch {
           /* 单个失败不阻断其余 */
         }
@@ -640,6 +750,12 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
         title="明细表数据根据操作者筛选显示"
         value={detailFilterShow}
         onChange={(v) => patch({ detailFilterShow: v })}
+      />
+
+      <DetailTablePermEditor
+        title="明细表整表权限（按操作者，F-T6③）"
+        value={dtPerm}
+        onChange={setDtPerm}
       />
 
       <Section title="节点意见">
