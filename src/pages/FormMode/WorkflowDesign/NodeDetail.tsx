@@ -15,14 +15,10 @@ import {
   Tabs,
 } from 'antd';
 import { CheckCircleFilled, SettingOutlined } from '@ant-design/icons';
-import {
-  getFieldPerm,
-  getNodeOperators,
-  WfNodeOperator,
-  WfProcessNode,
-} from '@/services/workflow';
+import { getFieldPerm, WfNodeOperator, WfProcessNode } from '@/services/workflow';
 import { getActiveModeler } from './bpmnModelerHolder';
 import { getWfNodeExt, setWfNodeExt, WfOperator, WfFieldPerm } from './bpmnExtension';
+import { readNodeOperators } from './nodeOperatorIO';
 import NodeOperateMenuModal from './NodeOperateMenuModal';
 import NodeExtraOperateModal from './NodeExtraOperateModal';
 import { FormFieldBrief } from './LinkInfoPanel';
@@ -58,46 +54,8 @@ const permToTriple = (p?: number): PermTriple => {
 const tripleToPerm = (t: PermTriple): 0 | 1 | 2 | 3 =>
   !t.visible ? 0 : t.required ? 3 : t.editable ? 2 : 1;
 
-/** BPMN/REST 操作者 → 本地编辑模型（数字字段统一 parse，缺省保留为 null） */
-const toLocalOp = (o: any): WfNodeOperator => ({
-  id: o?.id,
-  opType: parseInt(o?.opType ?? '3', 10),
-  objId: o?.objId ?? null,
-  bhxj: parseInt(o?.bhxj ?? '0', 10),
-  batchNo: parseInt(o?.batchNo ?? '0', 10),
-  groupNo: parseInt(o?.groupNo ?? '1', 10),
-  groupName: o?.groupName ?? null,
-  levelMin: o?.levelMin != null ? parseInt(o.levelMin, 10) : null,
-  levelMax: o?.levelMax != null ? parseInt(o.levelMax, 10) : null,
-  signOrder: o?.signOrder != null ? parseInt(o.signOrder, 10) : null,
-  canView: o?.canView != null ? parseInt(o.canView, 10) : null,
-  conditionJson: o?.conditionJson ?? null,
-  isCoadjutant: o?.isCoadjutant != null ? parseInt(o.isCoadjutant, 10) : null,
-  coadjutants: o?.coadjutants ?? null,
-  isPending: o?.isPending != null ? parseInt(o.isPending, 10) : null,
-  isModify: o?.isModify != null ? parseInt(o.isModify, 10) : null,
-  signType: o?.signType != null ? parseInt(o.signType, 10) : null,
-});
-
-/** 本地编辑模型 → BPMN 扩展字符串型操作者（保留完整字段，迁移时不错损） */
-const toExtOp = (r: WfNodeOperator): WfOperator => ({
-  groupNo: r.groupNo != null ? String(r.groupNo) : undefined,
-  opType: r.opType != null ? String(r.opType) : undefined,
-  objId: r.objId ?? undefined,
-  bhxj: r.bhxj != null ? String(r.bhxj) : undefined,
-  levelMin: r.levelMin != null ? String(r.levelMin) : undefined,
-  levelMax: r.levelMax != null ? String(r.levelMax) : undefined,
-  signOrder: r.signOrder != null ? String(r.signOrder) : undefined,
-  batchNo: r.batchNo != null ? String(r.batchNo) : undefined,
-  groupName: r.groupName ?? undefined,
-  canView: r.canView != null ? String(r.canView) : undefined,
-  conditionJson: r.conditionJson ?? undefined,
-  isCoadjutant: r.isCoadjutant != null ? String(r.isCoadjutant) : undefined,
-  coadjutants: r.coadjutants ?? undefined,
-  isPending: r.isPending != null ? String(r.isPending) : undefined,
-  isModify: r.isModify != null ? String(r.isModify) : undefined,
-  signType: r.signType != null ? String(r.signType) : undefined,
-});
+// 操作者双向映射（BPMN 扩展 ↔ 本地编辑模型）已收口到 `nodeOperatorIO.ts`，
+// 与「节点信息」列表共用同一实现，避免两处读源/映射漂移。
 
 // E9 风格「节点设置」项的 schema 已抽到 `nodeSettings.ts`（与「节点信息」可编辑列表共用），
 // 这里只负责纵向面板形态的渲染；统一存到 wf_process_node.ext_json.settings。
@@ -205,21 +163,11 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
     const modeler = getActiveModeler();
     const element = modeler?.get('elementRegistry')?.get(nodeKey);
     if (element) {
+      // 操作者：BPMN 优先；缺失时回退 REST 并就地迁移写回 BPMN（共享实现见 nodeOperatorIO）
+      readNodeOperators(defId, nodeKey)
+        .then(setOperators)
+        .catch(() => setOperators([]));
       const bpmnExt = getWfNodeExt(element);
-      if (bpmnExt?.operator && bpmnExt.operator.length) {
-        setOperators(bpmnExt.operator.map(toLocalOp));
-      } else {
-        getNodeOperators(defId, nodeKey)
-          .then((r: any) => {
-            const ops: WfNodeOperator[] = (r?.data || []).map(toLocalOp);
-            setOperators(ops);
-            // 迁移：把 REST 操作者写入 BPMN（保留完整字段，避免后续保存清空）
-            if (ops.length) {
-              setWfNodeExt(modeler!, element, { ...(bpmnExt || {}), operator: ops.map(toExtOp) });
-            }
-          })
-          .catch(() => setOperators([]));
-      }
       // 字段权限：BPMN 优先（含明细表 scope=dt{idx}），缺失时回退 REST
       if (bpmnExt?.fieldPerm && bpmnExt.fieldPerm.length) {
         const map: Record<string, PermTriple> = {};
@@ -261,9 +209,9 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
           .catch(() => setPermMap({}));
       }
     } else {
-      // 画布未就绪：纯 REST 回填
-      getNodeOperators(defId, nodeKey)
-        .then((r: any) => setOperators((r?.data || []).map(toLocalOp)))
+      // 画布未就绪：纯 REST 回填（共享实现内无元素时自动走 REST）
+      readNodeOperators(defId, nodeKey)
+        .then(setOperators)
         .catch(() => setOperators([]));
       getFieldPerm(defId, nodeKey)
         .then((r: any) => {

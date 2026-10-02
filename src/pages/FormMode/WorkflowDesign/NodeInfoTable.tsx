@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Popconfirm, Select, Space, Table, Tag, message } from 'antd';
 import { CheckCircleFilled, HolderOutlined, PlusOutlined } from '@ant-design/icons';
-import { getNodeOperators, WfNodeOperator, WfProcessNode } from '@/services/workflow';
+import { WfNodeOperator, WfProcessNode } from '@/services/workflow';
 import { getActiveModeler } from './bpmnModelerHolder';
 import { getWfNodeExt, setWfNodeExt } from './bpmnExtension';
+import { readOperatorsBatch } from './nodeOperatorIO';
 import NodeOperatorModal from './NodeOperatorModal';
 import NodeSettingModal from './NodeSettingModal';
 import NodeOperateMenuModal from './NodeOperateMenuModal';
@@ -173,7 +174,8 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
 
   const keysKey = useMemo(() => (nodes || []).map((n) => n.nodeKey).join(','), [nodes]);
 
-  // 加载所有节点的操作者（节点数很少，一次并发取回即可）
+  // 加载所有节点的操作者：路线 B —— BPMN `wf:node.operator` 优先，BPMN 无数据的节点才回退
+  // REST（wf_node_operator）并就地迁移写回 BPMN，保证与「操作者」弹窗的写入同源。
   useEffect(() => {
     if (!defId) {
       setOperatorsMap({});
@@ -184,19 +186,9 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
       setOperatorsMap({});
       return;
     }
-    Promise.all(
-      keys.map((k) =>
-        getNodeOperators(defId, k)
-          .then((r: any) => [k, r?.data || []] as [string, WfNodeOperator[]])
-          .catch(() => [k, []] as [string, WfNodeOperator[]]),
-      ),
-    ).then((list) => {
-      const m: Record<string, WfNodeOperator[]> = {};
-      list.forEach(([k, v]) => {
-        m[k] = v;
-      });
-      setOperatorsMap(m);
-    });
+    readOperatorsBatch(defId, keys)
+      .then(setOperatorsMap)
+      .catch(() => setOperatorsMap({}));
     // 只在节点集合变化时加载，编辑单元格导致的 nodes 刷新不重复请求
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defId, keysKey]);

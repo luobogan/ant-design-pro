@@ -352,6 +352,17 @@ export function render(oldRender: () => void) {
   setTimeout(async () => {
     try {
       const menuData = await dynamicRoutes();
+      // ⚠️ 按钮型组件页（category=2 + isComponent=1 + path，如流程设计器 /formmode/workflowdesign）
+      // 的路由注册依赖按钮数据（getButtons() 读 localStorage）。而按钮数据在 getInitialState
+      // 里才拉取，晚于本 render ⇒ 首次进入（sword-buttons 无缓存）路由会漏注册，进入即 404。
+      // 故此处若缓存为空先拉一次按钮并落盘，再构建路由，保证按钮组件页首次即可用。
+      if (!(getButtons() || []).length) {
+        try {
+          setButtons(pickPayload(await dynamicButtons()) || []);
+        } catch (e) {
+          console.warn('按钮数据预加载失败，按钮型组件页可能不可用：', e);
+        }
+      }
       // 兼容两种形态：拦截器已拆包时 menuData.data 就是路由数组；
       // 未拆包（umi 包装对象）时 menuData.data 是 ApiResponse，由 formatRoutes 内部再取 .data。
       extraRoutes = formatRoutes(pickPayload(menuData));
