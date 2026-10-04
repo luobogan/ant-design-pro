@@ -13,12 +13,15 @@ import {
   Switch,
   Table,
   Tabs,
+  Tag,
 } from 'antd';
 import { CheckCircleFilled, SettingOutlined } from '@ant-design/icons';
 import { WfNodeOperator, WfProcessNode } from '@/services/workflow';
 import { getActiveModeler } from './bpmnModelerHolder';
-import { getWfNodeExt, setWfNodeExt, WfOperator, WfFieldPerm } from './bpmnExtension';
+import { getWfNodeExt, setWfNodeExt, WfFieldPerm } from './bpmnExtension';
 import { readNodeOperators } from './nodeOperatorIO';
+import { PersonOrgValueText } from '@/components/FormMode/PersonOrgPicker';
+import NodeOperatorModal, { describeOperatorCondition } from './NodeOperatorModal';
 import NodeOperateMenuModal from './NodeOperateMenuModal';
 import NodeExtraOperateModal from './NodeExtraOperateModal';
 import { FormFieldBrief } from './LinkInfoPanel';
@@ -53,6 +56,14 @@ const permToTriple = (p?: number): PermTriple => {
 /** 三维度 → perm 兼容列（提交时一并发，保证老消费方继续可用） */
 const tripleToPerm = (t: PermTriple): 0 | 1 | 2 | 3 =>
   !t.visible ? 0 : t.required ? 3 : t.editable ? 2 : 1;
+
+/** 操作者 opType（落库值）→ 人员组织选择器的 browserType；无对象型（所有人/创建人本人/上级/本部门）返回 null。 */
+const OP_PICKER_BT: Record<number, number | null> = {
+  3: 1, // 人员
+  1: 2, // 部门
+  2: 3, // 角色
+  58: 4, // 岗位
+};
 
 // 操作者双向映射（BPMN 扩展 ↔ 本地编辑模型）已收口到 `nodeOperatorIO.ts`，
 // 与「节点信息」列表共用同一实现，避免两处读源/映射漂移。
@@ -96,6 +107,10 @@ export interface NodeDetailProps {
  * 分五个分区——基本属性 / 操作者 / 字段权限 / 节点设置（extJson.settings）/ 表单布局。
  * 所有保存都是「即改即存」（画布自动保存 saveBpmn 按 `wf:` 扩展整体覆盖写回），
  * 名称改动额外经 onSaved 回写画布节点标签。
+ *
+ * 「操作者」分区为**只读摘要**：其编辑（组名 / 可见性 / 类型 / 对象 / 安全级别 / 会签 /
+ * 生效条件 / 协办 / 同步到其它节点）全部由 `NodeOperatorModal` 承担——与「节点信息」列表
+ * 共用同一实现，避免两套 UI 各自演进导致能力漂移或写坏组内数据。
  */
 const NodeDetail: React.FC<NodeDetailProps> = ({
   defId,
@@ -115,7 +130,8 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
   const [settingForm] = Form.useForm();
   const [savingBase, setSavingBase] = useState(false);
   const [operators, setOperators] = useState<WfNodeOperator[]>([]);
-  const [savingOp, setSavingOp] = useState(false);
+  /** 「编辑操作组」弹窗（复用 NodeOperatorModal，单一实现） */
+  const [opOpen, setOpOpen] = useState(false);
   const [permMap, setPermMap] = useState<Record<string, PermTriple>>({});
   const [savingPerm, setSavingPerm] = useState(false);
   /** 节点扩展属性（原样保存，只改其中的 sign / settings） */
@@ -303,33 +319,21 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
     }
   };
 
-  const saveOperators = async () => {
+  /**
+   * 操作者不再在本面板内自行编辑：统一交由 `NodeOperatorModal`（「编辑操作组」）维护，本面板只读。
+   *
+   * 背景：这里曾用一份扁平行表格编辑 opType/objId/bhxj/batchNo 四个标量，保存时按 **数组下标**
+   * 去继承 `wf:node.operator` 里其余字段（groupName / conditionJson / canView / coadjutants /
+   * levelMin / levelMax …）。一旦发生行的增删就会错位——删除中间一行会让后续行整体前移，
+   * 从而静默继承上一行的组名与生效条件；新增行则因下标越界丢掉全部组级属性。
+   * 改为复用同一套「操作组」实现后，写回由 NodeOperatorModal 全量覆盖（buildFinalOps），
+   * 本面板只负责读取展示，从而从根上消除该隐患。
+   */
+  const reloadOperators = () => {
     if (!nodeKey) return;
-    const modeler = getActiveModeler();
-    const element = modeler?.get('elementRegistry')?.get(nodeKey);
-    if (!element) {
-      message.error('画布未就绪，无法保存');
-      return;
-    }
-    setSavingOp(true);
-    try {
-      // 路线 B：直接写 BPMN 扩展；按索引合并，保留既有操作者的 groupName / 条件等字段
-      const ext = getWfNodeExt(element) || {};
-      const existing: WfOperator[] = ext.operator || [];
-      const merged: WfOperator[] = operators.map((r, i) => ({
-        ...(existing[i] || {}),
-        opType: String(r.opType ?? 3),
-        objId: r.objId ?? undefined,
-        bhxj: String(r.bhxj ?? 0),
-        batchNo: String(r.batchNo ?? 0),
-      }));
-      setWfNodeExt(modeler!, element, { ...ext, operator: merged });
-      message.success('操作者已保存到流程定义');
-    } catch (e: any) {
-      message.error(e?.message || '保存失败');
-    } finally {
-      setSavingOp(false);
-    }
+    readNodeOperators(defId, nodeKey)
+      .then(setOperators)
+      .catch(() => setOperators([]));
   };
 
   const savePerms = async () => {
@@ -437,7 +441,16 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
 
   const baseTab = (
     <>
-      <Form form={baseForm} layout="vertical" size="small">
+      {/*
+        注意：Form 必须显式带上 `name`。
+        antd 会用 `${formName}_${fieldName}` 生成控件 id；若 Form 没有 name，控件的 id 会直接取
+        Form.Item 的 name（如 `id="nodeName"`）。而 HTML 规范里「带 id 的元素会成为 window 的
+        命名属性」，于是 `window.nodeName` 会被该 <input> 顶替（变成一个元素对象而非 undefined）。
+        react-dom 的 ChangeEventPlugin 在事件 target 不在 React 树内时会用 `window` 兜底再读
+        `.nodeName.toLowerCase()`，从而抛出 TypeError —— 表现为打开弹窗时的
+        `reactName.nodeName.toLowerCase is not a function`。请勿移除 `name`。
+      */}
+      <Form form={baseForm} layout="vertical" size="small" name="wfNodeBase">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
           <Form.Item name="nodeName" label="节点名称" rules={[{ required: true, message: '请输入节点名称' }]}>
             <Input />
@@ -476,106 +489,110 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
     </>
   );
 
+  /** 操作者类型显示名（OP_TYPES 未覆盖的历史/字段型回退「类型N」） */
+  const opTypeLabel = (t?: number) => OP_TYPES.find((o) => o.value === t)?.label ?? `类型${t}`;
+
+  /**
+   * 组级摘要：组名 / 可见性 / 生效条件由 NodeOperatorModal 统一回写到**每一行**上，
+   * 故任取一行即可代表本组（与 NodeOperatorModal 打开时的还原逻辑保持一致）。
+   */
+  const groupMeta = useMemo(() => {
+    const named = operators.find((o) => o.groupName);
+    const visible = operators.find((o) => o.canView != null);
+    const cj = operators.map((o) => o.conditionJson).find((c) => c);
+    return {
+      name: named?.groupName,
+      canView: visible?.canView,
+      cond: cj ? describeOperatorCondition(cj) : undefined,
+    };
+  }, [operators]);
+  const hasCoadjutant = operators.some((o) => o.isCoadjutant === 1);
+
   const operatorTab = (
     <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <Space size={8} wrap>
+          <span style={{ color: '#666' }}>操作组：</span>
+          <span>{groupMeta.name || <span style={{ color: '#bbb' }}>未命名</span>}</span>
+          {groupMeta.canView != null && (
+            <Tag color={groupMeta.canView === 1 ? 'blue' : 'default'}>
+              {groupMeta.canView === 1 ? '表单可见' : '表单不可见'}
+            </Tag>
+          )}
+          {hasCoadjutant && <Tag color="purple">协办 / 征询</Tag>}
+        </Space>
+        <Button
+          type="primary"
+          size="small"
+          icon={<SettingOutlined />}
+          disabled={!nodeKey}
+          onClick={() => setOpOpen(true)}
+        >
+          编辑操作组
+        </Button>
+      </div>
       <Table
-        rowKey={(r, i) => String(r.id ?? i)}
+        rowKey={(r, i) => `${i}-${r.opType ?? ''}-${r.objId ?? ''}`}
         size="small"
         dataSource={operators}
         pagination={false}
         scroll={{ x: 'max-content' }}
-        locale={{ emptyText: '暂无操作者' }}
+        locale={{ emptyText: '暂无操作者，请点「编辑操作组」配置' }}
         columns={[
           {
             title: '类型',
-            width: 120,
-            render: (_, r, i) => (
-              <Select
-                size="small"
-                style={{ width: 100 }}
-                value={r.opType ?? 3}
-                options={OP_TYPES}
-                onChange={(v) =>
-                  setOperators((prev) => prev.map((x, idx) => (idx === i ? { ...x, opType: v } : x)))
-                }
-              />
-            ),
+            width: 140,
+            render: (_: any, r: WfNodeOperator) => opTypeLabel(r.opType),
           },
           {
             title: '对象 / 字段',
-            render: (_, r, i) => (
-              <Input
-                size="small"
-                value={r.objId}
-                placeholder="人员/部门ID或表单字段名"
-                onChange={(e) =>
-                  setOperators((prev) =>
-                    prev.map((x, idx) => (idx === i ? { ...x, objId: e.target.value } : x)),
-                  )
-                }
-              />
-            ),
+            render: (_: any, r: WfNodeOperator) => {
+              const bt = OP_PICKER_BT[r.opType ?? -1];
+              // 有对应人员/组织类型的走只读名称解析（id 串 → 名称串）
+              if (bt != null) return <PersonOrgValueText browserType={bt} value={r.objId} />;
+              // 字段型（5/6/42/43）：objId 存的是表单字段名；无对象型（所有人 / 创建人…）显示占位
+              return r.objId ? <span>字段：{r.objId}</span> : <span style={{ color: '#bbb' }}>—</span>;
+            },
           },
           {
             title: '范围',
+            width: 90,
+            render: (_: any, r: WfNodeOperator) =>
+              r.bhxj != null ? (
+                BHXJ.find((o) => o.value === r.bhxj)?.label ?? String(r.bhxj)
+              ) : (
+                <span style={{ color: '#bbb' }}>—</span>
+              ),
+          },
+          {
+            title: '安全级别',
+            width: 100,
+            render: (_: any, r: WfNodeOperator) =>
+              r.levelMin != null && r.levelMax != null ? (
+                `${r.levelMin} - ${r.levelMax}`
+              ) : (
+                <span style={{ color: '#bbb' }}>—</span>
+              ),
+          },
+          {
+            title: '会签',
             width: 110,
-            render: (_, r, i) => (
-              <Select
-                size="small"
-                style={{ width: 90 }}
-                value={r.bhxj ?? 0}
-                options={BHXJ}
-                onChange={(v) =>
-                  setOperators((prev) => prev.map((x, idx) => (idx === i ? { ...x, bhxj: v } : x)))
-                }
-              />
-            ),
+            render: (_: any, r: WfNodeOperator) =>
+              r.signOrder != null ? (
+                SIGN_ORDERS.find((o) => o.value === r.signOrder)?.label ?? String(r.signOrder)
+              ) : (
+                <span style={{ color: '#bbb' }}>—</span>
+              ),
           },
           {
             title: '批次',
-            width: 80,
-            render: (_, r, i) => (
-              <InputNumber
-                size="small"
-                style={{ width: 64 }}
-                min={0}
-                value={r.batchNo ?? 0}
-                onChange={(v) =>
-                  setOperators((prev) =>
-                    prev.map((x, idx) => (idx === i ? { ...x, batchNo: v ?? 0 } : x)),
-                  )
-                }
-              />
-            ),
-          },
-          {
-            title: '操作',
-            width: 64,
-            render: (_, _r, i) => (
-              <Button
-                type="link"
-                danger
-                size="small"
-                onClick={() => setOperators((prev) => prev.filter((_, idx) => idx !== i))}
-              >
-                删除
-              </Button>
-            ),
+            width: 70,
+            render: (_: any, r: WfNodeOperator) => r.batchNo ?? 0,
           },
         ]}
       />
-      <div style={{ marginTop: 8, textAlign: 'right' }}>
-        <Space>
-          <Button
-            size="small"
-            onClick={() => setOperators((prev) => [...prev, { opType: 3, objId: '', bhxj: 0, batchNo: 0 }])}
-          >
-            新增操作者
-          </Button>
-          <Button type="primary" size="small" loading={savingOp} onClick={saveOperators}>
-            保存操作者
-          </Button>
-        </Space>
+      <div style={{ marginTop: 8, color: '#999', fontSize: 12 }}>
+        生效条件：{groupMeta.cond || '未设置'}　·　组级属性（名称 / 可见性 / 生效条件 / 协办）在「编辑操作组」中统一维护，与「节点信息」共用同一实现。
       </div>
     </>
   );
@@ -753,7 +770,8 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
         width={440}
       >
         {activeDef && (
-          <Form form={settingForm} layout="vertical">
+          {/* 同上：必须带 name，否则字段 id 会污染 window 的命名属性 */}
+          <Form form={settingForm} layout="vertical" name="wfNodeSetting">
             {activeDef.fields.map((f) => (
               <Form.Item
                 key={f.name}
@@ -767,6 +785,19 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
           </Form>
         )}
       </Modal>
+
+      {/* 操作者：与「节点信息」列表共用同一个 NodeOperatorModal（操作组形态），避免两套实现漂移 */}
+      <NodeOperatorModal
+        open={opOpen}
+        nodeKey={nodeKey}
+        nodeName={node?.nodeName}
+        onSaved={() => {
+          setOpOpen(false);
+          // 弹窗内已全量覆盖写回 BPMN 扩展，这里按单一事实源重读，确保面板与画布一致
+          reloadOperators();
+        }}
+        onClose={() => setOpOpen(false)}
+      />
 
       <NodeOperateMenuModal
         open={menuOpen}

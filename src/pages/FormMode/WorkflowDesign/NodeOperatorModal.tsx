@@ -117,6 +117,16 @@ const condDesc = (logic?: 'AND' | 'OR', rules?: CondRule[], expr?: string): stri
   return '始终生效（无生效条件）';
 };
 
+/**
+ * 对外暴露：把一行操作者的 `conditionJson` 渲染为中文描述。
+ *
+ * 供画布侧（NodeDetail 操作者摘要）等其它面板复用，避免出现第二份条件渲染实现。
+ */
+export const describeOperatorCondition = (cj?: string | null): string => {
+  const meta = parseCondMeta(cj);
+  return condDesc(meta.logic, meta.rules, meta.expr);
+};
+
 type OpKind =
   | 'user'
   | 'dept'
