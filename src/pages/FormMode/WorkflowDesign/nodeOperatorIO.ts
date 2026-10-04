@@ -13,9 +13,9 @@
  *
  * 写策略：由各面板经 `setWfNodeExt` 直接覆盖 `wf:node.operator`（本模块只提供双向映射）。
  */
-import { getNodeOperators, WfNodeOperator } from '@/services/workflow';
+import { WfNodeOperator } from '@/services/workflow';
 import { getActiveModeler } from './bpmnModelerHolder';
-import { getWfNodeExt, setWfNodeExt, WfOperator } from './bpmnExtension';
+import { getWfNodeExt } from './bpmnExtension';
 
 /** 按 nodeKey 取画布元素（路线 B：元素 id 即 wf_process_node.node_key） */
 const elementOf = (nodeKey?: string) =>
@@ -42,104 +42,32 @@ export const toLocalOp = (o: any): WfNodeOperator => ({
   signType: o?.signType != null ? parseInt(o.signType, 10) : null,
 });
 
-/** 本地编辑模型 → BPMN 扩展字符串型操作者（保留完整字段，迁移时不错损） */
-export const toExtOp = (r: WfNodeOperator): WfOperator => ({
-  groupNo: r.groupNo != null ? String(r.groupNo) : undefined,
-  opType: r.opType != null ? String(r.opType) : undefined,
-  objId: r.objId ?? undefined,
-  bhxj: r.bhxj != null ? String(r.bhxj) : undefined,
-  levelMin: r.levelMin != null ? String(r.levelMin) : undefined,
-  levelMax: r.levelMax != null ? String(r.levelMax) : undefined,
-  signOrder: r.signOrder != null ? String(r.signOrder) : undefined,
-  batchNo: r.batchNo != null ? String(r.batchNo) : undefined,
-  groupName: r.groupName ?? undefined,
-  canView: r.canView != null ? String(r.canView) : undefined,
-  conditionJson: r.conditionJson ?? undefined,
-  isCoadjutant: r.isCoadjutant != null ? String(r.isCoadjutant) : undefined,
-  coadjutants: r.coadjutants ?? undefined,
-  isPending: r.isPending != null ? String(r.isPending) : undefined,
-  isModify: r.isModify != null ? String(r.isModify) : undefined,
-  signType: r.signType != null ? String(r.signType) : undefined,
-});
-
-/** REST 读单个节点操作者（失败降级为空数组，不抛） */
-const fetchRest = async (defId: any, nodeKey: string): Promise<WfNodeOperator[]> => {
-  if (defId == null) return [];
-  try {
-    const r: any = await getNodeOperators(defId, nodeKey);
-    return ((r?.data || []) as any[]).map(toLocalOp);
-  } catch {
-    return [];
-  }
-};
-
 /**
- * 读取单个节点的操作者：BPMN 优先 → REST 回退并迁移写回 BPMN。
+ * 读取单个节点的操作者：仅读 BPMN `wf:node.operator`（路线 B 唯一事实源）。
+ * 不再回退 REST（wf_node_operator 随 P6 停写；存量经回填作业迁入 BPMN）。缺数据返回空数组，不抛。
  */
 export const readNodeOperators = async (
-  defId: any,
+  _defId: any,
   nodeKey: string,
 ): Promise<WfNodeOperator[]> => {
-  const modeler = getActiveModeler();
   const element = elementOf(nodeKey);
-  if (!element) return fetchRest(defId, nodeKey);
-
+  if (!element) return [];
   const ext = getWfNodeExt(element);
-  if (ext?.operator && ext.operator.length) return ext.operator.map(toLocalOp);
-
-  // BPMN 尚无操作者：回退 REST，并把结果迁移进 BPMN（避免后续保存把老数据冲掉）
-  const ops = await fetchRest(defId, nodeKey);
-  if (ops.length && modeler) {
-    try {
-      setWfNodeExt(modeler, element, { ...(ext || {}), operator: ops.map(toExtOp) });
-    } catch {
-      /* 迁移失败不阻塞读取 */
-    }
-  }
-  return ops;
+  return ext?.operator && ext.operator.length ? ext.operator.map(toLocalOp) : [];
 };
 
 /**
- * 批量读取（按 nodeKey 汇总）：同为 BPMN 优先 + REST 回退迁移，
- * 只对「BPMN 无数据」的节点打 REST，避免每个节点都请求。
+ * 批量读取（按 nodeKey 汇总）：仅读 BPMN `wf:node.operator`，缺数据返回空数组。
  */
 export const readOperatorsBatch = async (
-  defId: any,
+  _defId: any,
   nodeKeys: string[],
 ): Promise<Record<string, WfNodeOperator[]>> => {
-  const modeler = getActiveModeler();
   const result: Record<string, WfNodeOperator[]> = {};
-  const missed: string[] = [];
-
   nodeKeys.forEach((k) => {
     const element = elementOf(k);
     const ext = element ? getWfNodeExt(element) : null;
-    if (ext?.operator && ext.operator.length) {
-      result[k] = ext.operator.map(toLocalOp);
-    } else {
-      result[k] = [];
-      missed.push(k);
-    }
+    result[k] = ext?.operator && ext.operator.length ? ext.operator.map(toLocalOp) : [];
   });
-
-  if (!missed.length) return result;
-
-  await Promise.all(
-    missed.map(async (k) => {
-      const ops = await fetchRest(defId, k);
-      result[k] = ops;
-      const element = elementOf(k);
-      if (ops.length && element && modeler) {
-        try {
-          setWfNodeExt(modeler, element, {
-            ...(getWfNodeExt(element) || {}),
-            operator: ops.map(toExtOp),
-          });
-        } catch {
-          /* 迁移失败不阻塞读取 */
-        }
-      }
-    }),
-  );
   return result;
 };

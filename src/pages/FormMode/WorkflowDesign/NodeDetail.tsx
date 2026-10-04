@@ -15,7 +15,7 @@ import {
   Tabs,
 } from 'antd';
 import { CheckCircleFilled, SettingOutlined } from '@ant-design/icons';
-import { getFieldPerm, WfNodeOperator, WfProcessNode } from '@/services/workflow';
+import { WfNodeOperator, WfProcessNode } from '@/services/workflow';
 import { getActiveModeler } from './bpmnModelerHolder';
 import { getWfNodeExt, setWfNodeExt, WfOperator, WfFieldPerm } from './bpmnExtension';
 import { readNodeOperators } from './nodeOperatorIO';
@@ -127,6 +127,23 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
     [ext],
   );
 
+  /**
+   * 字段权限用的字段清单：按 `scope|fieldName` 去重（防御性）。
+   *
+   * 说明：同一 `fieldName` 会按作用域各出现一条（main + dt{n}，明细表字段权限），**这不是重复**，
+   * 去重不会合并它们；只有后端真的吐回完全相同的 `scope|fieldName` 行时才会被折叠，
+   * 避免权限矩阵出现重复行、并把重复条目写进 `wf:fieldPerm`（同键多条、后者覆盖前者）。
+   */
+  const permFields = useMemo(() => {
+    const seen = new Set<string>();
+    return (formFields || []).filter((f) => {
+      const k = `${f.scope}|${f.fieldName}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }, [formFields]);
+
   // 切换节点：回填基本属性、解析 extJson、加载操作者与字段权限
   useEffect(() => {
     if (!nodeKey) return;
@@ -168,9 +185,9 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
         .then(setOperators)
         .catch(() => setOperators([]));
       const bpmnExt = getWfNodeExt(element);
-      // 字段权限：BPMN 优先（含明细表 scope=dt{idx}），缺失时回退 REST
+      // 字段权限：仅读 BPMN wf:node.fieldPerm（路线 B 唯一事实源，P6 停写后不再回退 REST）
+      const map: Record<string, PermTriple> = {};
       if (bpmnExt?.fieldPerm && bpmnExt.fieldPerm.length) {
-        const map: Record<string, PermTriple> = {};
         (bpmnExt.fieldPerm || []).forEach((f: WfFieldPerm) => {
           // 三维度是权威值（P3-5 定稿）；仅当三维度齐备时使用，否则回退 perm 兼容派生列（老数据）
           if (f.visible != null && f.editable != null) {
@@ -183,52 +200,23 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
             map[`${f.scope ?? 'main'}|${f.field}`] = permToTriple(parseInt(f.perm ?? '2', 10));
           }
         });
-        formFields.forEach((f) => {
-          const k = `${f.scope}|${f.fieldName}`;
-          if (map[k] == null) map[k] = permToTriple(2);
-        });
-        setPermMap(map);
-      } else {
-        getFieldPerm(defId, nodeKey)
-          .then((r: any) => {
-            const map: Record<string, PermTriple> = {};
-            (r?.data || []).forEach((p: any) => {
-              // 三维度为权威值；仅当三维度全部缺省（老数据）才回退到 perm 兼容列
-              map[`${p.scope || 'main'}|${p.fieldName}`] =
-                p.visible == null && p.editable == null && p.required == null
-                  ? permToTriple(p.perm)
-                  : { visible: !!p.visible, editable: !!p.editable, required: !!p.required };
-            });
-            // 未配置过的字段默认「显示 + 可编辑」，与升级前 perm=2 的行为保持一致
-            formFields.forEach((f) => {
-              const k = `${f.scope}|${f.fieldName}`;
-              if (map[k] == null) map[k] = permToTriple(2);
-            });
-            setPermMap(map);
-          })
-          .catch(() => setPermMap({}));
       }
+      // 未配置过的字段默认「显示 + 可编辑」（与升级前 perm=2 行为一致）
+      permFields.forEach((f) => {
+        const k = `${f.scope}|${f.fieldName}`;
+        if (map[k] == null) map[k] = permToTriple(2);
+      });
+      setPermMap(map);
     } else {
-      // 画布未就绪：纯 REST 回填（共享实现内无元素时自动走 REST）
+      // 画布未就绪：操作者按 BPMN 读（nodeOperatorIO 已 BPMN-only，无元素时返回空）；字段权限默认可见可编辑
       readNodeOperators(defId, nodeKey)
         .then(setOperators)
         .catch(() => setOperators([]));
-      getFieldPerm(defId, nodeKey)
-        .then((r: any) => {
-          const map: Record<string, PermTriple> = {};
-          (r?.data || []).forEach((p: any) => {
-            map[`${p.scope || 'main'}|${p.fieldName}`] =
-              p.visible == null && p.editable == null && p.required == null
-                ? permToTriple(p.perm)
-                : { visible: !!p.visible, editable: !!p.editable, required: !!p.required };
-          });
-          formFields.forEach((f) => {
-            const k = `${f.scope}|${f.fieldName}`;
-            if (map[k] == null) map[k] = permToTriple(2);
-          });
-          setPermMap(map);
-        })
-        .catch(() => setPermMap({}));
+      const map: Record<string, PermTriple> = {};
+      permFields.forEach((f) => {
+        map[`${f.scope}|${f.fieldName}`] = permToTriple(2);
+      });
+      setPermMap(map);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeKey, defId]);
@@ -354,8 +342,8 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
     }
     setSavingPerm(true);
     try {
-      // 路线 B：主表 + 明细表字段权限统一写 wf:fieldPerm（scope=main / dt{idx}）
-      const perms: WfFieldPerm[] = formFields.map((f) => {
+      // 路线 B：主表 + 明细表字段权限统一写 wf:fieldPerm（scope=main / dt{idx}）；按去重后的清单写，避免重复条目
+      const perms: WfFieldPerm[] = permFields.map((f) => {
         const t = permMap[`${f.scope}|${f.fieldName}`] || permToTriple(2);
         return {
           scope: f.scope,
@@ -597,7 +585,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
       <Table
         rowKey={(r: FormFieldBrief) => `${r.scope}|${r.fieldName}`}
         size="small"
-        dataSource={formFields}
+        dataSource={permFields}
         pagination={false}
         scroll={{ x: 'max-content' }}
         locale={{ emptyText: '当前流程未绑定表单或无字段' }}

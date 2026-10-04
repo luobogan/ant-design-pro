@@ -217,7 +217,7 @@ export const getWfNodeExt = (element: any): WfNodeExt | null => {
   if (!node) return null;
   const arr = (name: string): any[] =>
     (node.get?.(name) ?? (node as any)[name] ?? []).filter(Boolean);
-  // 契约（doc/md/wf_BPMN扩展schema定稿.md §4）统一为单数元素名：operator/fieldPerm/...，
+  // 契约（doc/md/Flowable8承接台账模块-去wf_表改造分析.md §20.4）统一为单数元素名：operator/fieldPerm/...，
   // 旧技能模板的复数容器（operators/fieldPerms/customOperations）与顶层容器（Operators/...）已作废。
   const operatorEls: any[] = arr('operator');
   const fieldPermEls: any[] = arr('fieldPerm');
