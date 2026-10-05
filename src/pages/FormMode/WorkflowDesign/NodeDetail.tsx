@@ -92,8 +92,14 @@ export interface NodeDetailProps {
   onSaved?: (nodeKey: string, name: string) => void;
   /** 节点属性写库成功后通知父级，就地更新 nodes */
   onPatch?: (nodeKey: string, patch: Partial<WfProcessNode>) => void;
-  /** 打开「生成表单布局」 */
+  /** 打开「生成表单布局」（Excel 布局设计器） */
   onOpenLayout?: (nodeKey: string) => void;
+  /**
+   * 打开「设置表单内容」弹框（显示模式 / 显示模板设置）。
+   * 提供时「表单布局」tab 优先弹此框（与「节点信息 → 设计」保持一致），
+   * 由框内「初始化 / 显示模板」再进入 Excel 布局设计器。
+   */
+  onDesignFormContent?: (node: WfProcessNode) => void;
   /** 受控激活的页签 key（如 'perm' 字段权限）；由「设置表单内容」弹框跳转用 */
   activeTab?: string;
   /** 页签切换回调（配合 activeTab 受控） */
@@ -122,6 +128,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
   onSaved,
   onPatch,
   onOpenLayout,
+  onDesignFormContent,
   activeTab,
   onTabChange,
 }) => {
@@ -733,9 +740,16 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
         type="primary"
         size="small"
         disabled={!formId || !nodeKey}
-        onClick={() => nodeKey && onOpenLayout?.(nodeKey)}
+        onClick={() => {
+          if (!nodeKey) return;
+          // 与「节点信息 → 设计」保持一致：先弹「设置表单内容」弹框（显示模式 / 显示模板设置），
+          // 再由框内「初始化 / 显示模板」进入 Excel 布局设计器。未接线时才回退为直接进设计器。
+          if (onDesignFormContent && node) onDesignFormContent(node);
+          else onOpenLayout?.(nodeKey);
+        }}
       >
-        生成表单布局{node ? `（${node.nodeName}）` : ''}
+        {onDesignFormContent ? '设置表单内容' : '生成表单布局'}
+        {node ? `（${node.nodeName}）` : ''}
       </Button>
       {!formId && (
         <div style={{ color: '#999', marginTop: 8, fontSize: 12 }}>

@@ -786,6 +786,11 @@ const WorkflowDesignPage: React.FC = () => {
                   setExcelDesignNodeKey(nk);
                   setExcelDesignOpen(true);
                 }}
+                // 「表单布局」tab 与「节点信息 → 设计」保持一致：先弹「设置表单内容」弹框
+                onDesignFormContent={(n) => {
+                  setFormContentNodeKey(n.nodeKey);
+                  setFormContentOpen(true);
+                }}
                 activeTab={nodeDetailTab}
                 onTabChange={setNodeDetailTab}
               />
