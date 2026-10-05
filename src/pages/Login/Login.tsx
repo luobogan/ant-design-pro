@@ -23,6 +23,7 @@ import {
 } from 'antd';
 import React, { useEffect, useState } from 'react';
 import { getBasicAuth, isCaptchaEnabled } from '@/utils/auth';
+import { loadCaptchaMode, DEFAULT_TENANT_ID } from '@/utils/captchaSetting';
 import {
   setAccessToken,
   setButtons,
@@ -99,6 +100,8 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [loginLoading, setLoginLoading] = useState<boolean>(false);
   const [form] = Form.useForm();
+  // 当前租户对应的「是否开启验证码」状态（响应式，随租户选择变化）
+  const [captchaEnabled, setCaptchaEnabled] = useState<boolean>(isCaptchaEnabled());
 
   const fetchCaptcha = async () => {
     try {
@@ -154,12 +157,22 @@ const Login: React.FC = () => {
     }
 
     // form.setFieldsValue({ tenantId: '000000', account: 'admin', password: 'admin' });
-
-    // 只有在启用验证码时才获取验证码
-    if (isCaptchaEnabled()) {
-      fetchCaptcha();
-    }
   }, []);
+
+  // 根据当前选中的租户加载该租户的验证码开关，并联动验证码图片
+  const applyTenantCaptcha = async (tenantId?: string) => {
+    const enabled = await loadCaptchaMode(tenantId || DEFAULT_TENANT_ID);
+    setCaptchaEnabled(enabled);
+  };
+
+  useEffect(() => {
+    if (captchaEnabled) {
+      fetchCaptcha();
+    } else {
+      setCaptchaImage('');
+      setCaptchaKey('');
+    }
+  }, [captchaEnabled]);
 
   const handleSubmit = async (values: any) => {
     setLoginError('');
@@ -176,15 +189,15 @@ const Login: React.FC = () => {
 
       // 构建请求体
       const formData = new URLSearchParams();
-      // 根据验证码模式决定 grant_type
-      const grantType = isCaptchaEnabled() ? 'captcha' : 'password';
+      // 统一使用 captcha 授权类型；后端按租户读取 captcha_mode，关闭时跳过验证码校验
+      const grantType = 'captcha';
       formData.append('grantType', grantType);
       formData.append('tenantId', values.tenantId);
       formData.append('account', values.account);
       formData.append('password', encryptedPassword);
       formData.append('scope', 'all');
       // 验证码参数（如果启用了验证码）
-      if (isCaptchaEnabled() && captchaKey && values.code) {
+      if (captchaEnabled && captchaKey && values.code) {
         formData.append('key', captchaKey);
         formData.append('code', values.code);
         console.log('Captcha key:', captchaKey);
@@ -209,7 +222,7 @@ const Login: React.FC = () => {
       };
 
       // 如果启用验证码，添加验证码相关的 headers
-      if (isCaptchaEnabled()) {
+      if (captchaEnabled) {
         if (captchaKey) {
           requestConfig.headers['Captcha-Key'] = captchaKey;
         }
@@ -381,6 +394,12 @@ const Login: React.FC = () => {
             <Form
               form={form}
               onFinish={handleSubmit}
+              onValuesChange={(changed) => {
+                // 租户变化时，按该租户重新加载验证码开关
+                if (changed.tenantId !== undefined) {
+                  applyTenantCaptcha(changed.tenantId);
+                }
+              }}
               layout="vertical"
               initialValues={{ tenantId: '000000' }}
             >
@@ -440,7 +459,7 @@ const Login: React.FC = () => {
               />
             </Form.Item>
 
-            {isCaptchaEnabled() && (
+            {captchaEnabled && (
               <Form.Item
                 name="code"
                 label="验证码"

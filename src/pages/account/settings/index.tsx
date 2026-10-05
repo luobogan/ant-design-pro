@@ -5,9 +5,10 @@ import BaseView from './components/base';
 import BindingView from './components/binding';
 import NotificationView from './components/notification';
 import SecurityView from './components/security';
+import SystemConfigView from './components/systemConfig';
 import useStyles from './style.style';
 
-type SettingsStateKeys = 'base' | 'security' | 'binding' | 'notification';
+type SettingsStateKeys = 'base' | 'security' | 'binding' | 'notification' | 'systemcfg';
 type SettingsState = {
   mode: 'inline' | 'horizontal';
   selectKey: SettingsStateKeys;
@@ -18,6 +19,7 @@ const menuMap: Record<string, React.ReactNode> = {
   security: '安全设置',
   binding: '账号绑定',
   notification: '新消息通知',
+  systemcfg: '系统设置',
 };
 const menuItems = Object.keys(menuMap).map((item) => ({
   key: item,
@@ -36,6 +38,8 @@ const SettingsContent: React.FC<{ selectKey: SettingsStateKeys }> = ({
       return <BindingView />;
     case 'notification':
       return <NotificationView />;
+    case 'systemcfg':
+      return <SystemConfigView />;
     default:
       return null;
   }

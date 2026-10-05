@@ -10,7 +10,7 @@ const Settings: ProLayoutProps & {
   clientSecret?: string;
   // 租户模式
   tenantMode?: boolean;
-  // 验证码模式
+  // 验证码模式（兜底默认值；运行时由数据库参数「captcha_mode」覆盖，见 src/utils/captchaSetting.ts）
   captchaMode?: boolean;
   // SM2加密公钥
   auth?: {
@@ -43,7 +43,7 @@ const Settings: ProLayoutProps & {
   clientSecret: 'sword_secret',
   // 租户模式
   tenantMode: true,
-  // 验证码模式
+  // 验证码模式：兜底默认值（true=开启）；实际以数据库参数「captcha_mode」为准
   captchaMode: true,
   // SM2加密公钥配置
   auth: {
