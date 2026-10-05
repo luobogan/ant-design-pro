@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import dayjs from 'dayjs';
 import { Modal, Button, Space, Typography, Form, Input, Select, DatePicker, Checkbox, Radio, InputNumber, Tag, message, Table, Segmented } from 'antd';
 import {
   PrinterOutlined,
@@ -394,6 +395,33 @@ const cellBorderToCss = (bd: any): React.CSSProperties => {
   };
 };
 
+/**
+ * 表单值 → antd DatePicker 需要的 dayjs 对象（空值/非法值统一给 null，交给控件显示空）。
+ *
+ * <p><b>为什么必须有这一层</b>：表单值在本工程一直以**字符串**形态存取（提交时
+ * `collectFieldValues` 直接带走快照里的值），而 antd `DatePicker` 的 `value` 只接受
+ * dayjs 对象。直接把字符串喂进去会在 rc-picker 内部抛
+ * `TypeError: getUDayjs(...).isValid is not a function`，进而让整个办理页被
+ * ErrorBoundary 接管（白屏）。历史数据里还存过 `JSON.stringify(dayjs)` 产生的
+ * ISO 串（如 `2026-09-30T16:00:00.000Z`），此处一并兼容。</p>
+ */
+const toDayjsValue = (v: any) => {
+  if (v === undefined || v === null || v === '') {
+    return null;
+  }
+  const d = dayjs(v);
+  return d.isValid() ? d : null;
+};
+
+/**
+ * DatePicker 选值 → 回写表单的字符串形态。
+ *
+ * <p>与上面的读取侧成对：统一存 `'YYYY-MM-DD'` / `'YYYY-MM-DD HH:mm:ss'` 字符串，
+ * 避免把 dayjs 对象序列化进表单快照（会变成 ISO 串，跨时区还会偏移一天）。</p>
+ */
+const fromDayjsValue = (d: any, withTime?: boolean) =>
+  d ? dayjs(d).format(withTime ? 'YYYY-MM-DD HH:mm:ss' : 'YYYY-MM-DD') : null;
+
 const FieldCell: React.FC<{
   cell: CellDataItem;
   row: number;
@@ -531,8 +559,8 @@ const FieldCell: React.FC<{
             {...commonProps}
             style={{ width: '100%' }}
             format="YYYY-MM-DD"
-            value={value || null}
-            onChange={(d) => onChange(d)}
+            value={toDayjsValue(value)}
+            onChange={(d) => onChange(fromDayjsValue(d))}
           />
         );
 
@@ -543,8 +571,8 @@ const FieldCell: React.FC<{
             showTime
             style={{ width: '100%' }}
             format="YYYY-MM-DD HH:mm:ss"
-            value={value || null}
-            onChange={(d) => onChange(d)}
+            value={toDayjsValue(value)}
+            onChange={(d) => onChange(fromDayjsValue(d, true))}
           />
         );
 
