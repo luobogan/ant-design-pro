@@ -769,8 +769,8 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
         destroyOnClose
         width={440}
       >
+        {/* 同上：必须带 name，否则字段 id 会污染 window 的命名属性 */}
         {activeDef && (
-          {/* 同上：必须带 name，否则字段 id 会污染 window 的命名属性 */}
           <Form form={settingForm} layout="vertical" name="wfNodeSetting">
             {activeDef.fields.map((f) => (
               <Form.Item

@@ -247,22 +247,25 @@ export default defineConfig({
   ],
 
   //================ pro 插件配置 =================
-  plugins: ['@umijs/max-plugin-openapi'],
+  // 2026-10-05 临时禁用：dev server 启动卡死在 "Using openapi Plugin"（日志不再增长、端口持续 503）。
+  // 该插件只负责按 oneapi.json 生成 src/services 下的代码，禁用不影响已生成代码与运行时。
+  // 需要重新生成 services 时再启用。
+  plugins: [],
 
   /**
    * @name openAPI 插件的配置
    * @description 基于 openapi 的规范生成serve 和mock，能减少很多样板代码
    * @doc https://pro.ant.design/zh-cn/docs/openapi/
    */
-  openAPI: [
-    {
-      requestLibPath: "import { request } from '@umijs/max'",
-      // 或者使用在线的版本
-      // schemaPath: "https://gw.alipayobjects.com/os/antfincdn/M%24jrzTTYJN/oneapi.json"
-      schemaPath: join(__dirname, 'oneapi.json'),
-      mock: false,
-    },
-  ],
+  // 与上方 plugins 配套：插件已禁用，openAPI 配置项必须一并移除，否则 umi 报
+  // "Invalid config keys: openAPI"。重新启用插件时把这段一并放开。
+  // openAPI: [
+  //   {
+  //     requestLibPath: "import { request } from '@umijs/max'",
+  //     schemaPath: join(__dirname, 'oneapi.json'),
+  //     mock: false,
+  //   },
+  // ],
 
   tailwindcss: {},
 
@@ -294,7 +297,15 @@ export default defineConfig({
     'process.env.COMMIT_HASH': commitHash,
     __APP_VERSION__: require('./../package.json').version,
     __UMI_VERSION__: require('@umijs/max/package.json').version,
-    __UTOO_VERSION__: require('@utoo/pack/package.json').version,
+    // @utoo/pack 只是 pnpm.overrides 里的条目、并非本项目的直接依赖，
+    // node_modules 中可能没有顶层包；此处仅用于注入 footer 版本号，缺失时不应让 dev server 起不来。
+    __UTOO_VERSION__: (() => {
+      try {
+        return require('@utoo/pack/package.json').version;
+      } catch {
+        return '';
+      }
+    })(),
   },
   esbuildMinifyIIFE: true,
 });
