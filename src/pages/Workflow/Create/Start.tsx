@@ -30,6 +30,7 @@ import {
   getBpmn,
   getDefinition,
   getInstance,
+  getInstanceProgress,
   getSnapshot,
   listNodes,
   renderFormPreview,
@@ -38,7 +39,7 @@ import {
   startWorkflowTest,
   validateForm,
 } from '@/services/workflow';
-import type { WfProcessDefinition, WfProcessNode } from '@/services/workflow';
+import type { WfProcessDefinition, WfProcessNode, WfProgressView } from '@/services/workflow';
 import { pickPayload } from '@/utils/utils';
 
 /** 节点类型 0创建 1审批 2提交 3归档 5等待 6自动处理 7网关 */
@@ -166,6 +167,8 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
   /** 由「单据」发起时带上的业务数据ID（formtable_main_{formId}.id）；
    *  「表单直发」不带 → 后端自造唯一占位 dataId（data_id 列 NOT NULL + uk_biz_key 唯一） */
   const dataId = new URLSearchParams(window.location.search).get('dataId');
+  /** 实例态生效的实例ID：内嵌由 props 带入，独立路由由 URL ?instanceId= 带入 */
+  const effectiveInstanceId = props.instanceId ?? (instanceId || undefined);
   // defId 为 state：草稿续填时由实例详情回填（URL 可能不带 defId）
   const [defId, setDefId] = useState<string | undefined>(props.defId || urlDefId || undefined);
   /** 当前草稿实例ID（保存草稿后回填；提交时作为 draftInstId 原地提升） */
@@ -206,6 +209,14 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
   /** 草稿续填时由快照回填的表单值（合并到初始值之上） */
   const [snapshotValues, setSnapshotValues] = useState<Record<string, any> | null>(null);
   const [saving, setSaving] = useState<boolean>(false);
+  /**
+   * 实例态进度图四色（纯 ACT_HI）：流程图「节点 + 已走连线」着色的数据源。
+   * 本页（独立路由 /workflow/create/start?mode=instance）此前没有取，导致 progress 恒空、
+   * 退回/流转后流程图与连线都不变色 —— 与正式办理页 ApprovalPage 口径不一致。
+   */
+  const [progress, setProgress] = useState<WfProgressView | undefined>(undefined);
+  /** 每次办理（提交 / 退回 / 转办…）成功 +1：触发重拉进度图等运行态数据 */
+  const [flowRefreshKey, setFlowRefreshKey] = useState<number>(0);
 
   /** 草稿续填：从实例详情回填 defId / dataId / 草稿实例ID（URL 可能只带 instanceId） */
   useEffect(() => {
@@ -235,6 +246,27 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
       }
     })();
   }, [instanceId]);
+
+  /** 实例态：拉取进度图四色（纯 ACT_HI）——流程图节点与「已走连线」着色的唯一数据源。
+   *  连线只有 activityColors 能着色（二色 nodeStatus 只管节点），故本页必须取到 progress
+   *  才会出现「流转到下一节点的线条变色」；flowRefreshKey 自增即在办理成功后重拉。 */
+  useEffect(() => {
+    if (!isInstance || !effectiveInstanceId) {
+      setProgress(undefined);
+      return;
+    }
+    let alive = true;
+    getInstanceProgress(effectiveInstanceId)
+      .then((r: any) => {
+        if (alive) setProgress(pickPayload(r) || undefined);
+      })
+      .catch(() => {
+        if (alive) setProgress(undefined);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isInstance, effectiveInstanceId, flowRefreshKey]);
 
   /** 草稿续填：拉取草稿表单快照回填到表单初始值 */
   useEffect(() => {
@@ -703,16 +735,21 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
     <Card styles={{ body: { padding: 16 } }}>
       {isInstance ? (
         <InstanceFlow
-          instanceId={props.instanceId ?? (instanceId || undefined)}
+          instanceId={effectiveInstanceId}
           nodeKey={props.nodeKey ?? (urlNodeKey || undefined)}
           defName={props.defName}
           bpmnXml={props.bpmnXml ?? bpmnXml}
           nodes={props.resultNodes}
           links={props.links}
+          progress={progress}
           currentNodeKey={props.currentNodeKey ?? viewNodeKey ?? instanceCurrentNodeKey}
           currentNodeName={props.currentNodeName}
           onSelectNode={props.onSelectNode}
-          onOperated={props.onOperated}
+          onOperated={() => {
+            // 办理成功（提交/退回/转办…）后自增：重拉进度图，令流程图与连线颜色即时更新
+            setFlowRefreshKey((k) => k + 1);
+            props.onOperated?.();
+          }}
           testMode={props.testMode}
           instanceStatus={props.instanceStatus}
           hasPending={props.hasPending}
@@ -720,6 +757,7 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
           onStep={props.onStep}
           onValuesChange={props.onValuesChange}
           embedded={embedded}
+          refreshKey={flowRefreshKey}
         />
       ) : loading ? (
             <div style={{ padding: 48, textAlign: 'center' }}>

@@ -1,5 +1,7 @@
-import React from 'react';
-import { Editor } from '@tinymce/tinymce-react';
+import React, { useEffect, useRef } from 'react';
+import FluentEditor from '@opentiny/fluent-editor';
+import '@opentiny/fluent-editor/style.css';
+import { message } from 'antd';
 import { getTenantId } from '@/utils/authority';
 
 interface RichTextEditorProps {
@@ -7,11 +9,11 @@ interface RichTextEditorProps {
   onChange?: (value: string) => void;
   placeholder?: string;
   height?: number;
-  /** 紧凑模式：隐藏菜单栏、精简工具栏（审批意见 / 批注等小输入框用） */
+  /** 紧凑模式：精简工具栏（审批意见 / 批注等小输入框用） */
   compact?: boolean;
 }
 
-/** 富文本是否为空：TinyMCE 的「空」是 `<p><br></p>` / `<p>&nbsp;</p>`，不能直接 trim 判断 */
+/** 富文本是否为空：Quill 的「空」是 `<p><br></p>`，不能直接 trim 判断 */
 export const isRichTextEmpty = (html?: string): boolean => {
   if (!html) return true;
   return (
@@ -34,15 +36,45 @@ export const RichTextView: React.FC<{ html?: string; style?: React.CSSProperties
   return <div style={style} dangerouslySetInnerHTML={{ __html: html || '' }} />;
 };
 
-/** 把焦点交给指定容器里的富文本编辑器（TinyMCE 渲染成 iframe，需定位到内部编辑区） */
+/** 把焦点交给指定容器里的富文本编辑器（Quill/FluentEditor 渲染 .ql-editor 为 contenteditable 区域） */
 export const focusRichText = (containerId: string) => {
-  const iframe = document.querySelector<HTMLIFrameElement>(`#${containerId} iframe`);
-  if (iframe?.contentWindow) {
-    iframe.contentWindow.focus();
+  const container = document.getElementById(containerId);
+  const editable = container?.querySelector<HTMLElement>(
+    '.ql-editor[contenteditable="true"], .w-e-text-container [contenteditable="true"]',
+  );
+  if (editable) {
+    editable.focus();
     return;
   }
-  document.getElementById(containerId)?.scrollIntoView({ block: 'center' });
+  container?.scrollIntoView({ block: 'center' });
 };
+
+// 完整（snow 默认）工具栏
+const FULL_TOOLBAR: string[] = [
+  'bold',
+  'italic',
+  'underline',
+  'strike',
+  'blockquote',
+  'code-block',
+  'link',
+  'image',
+  'clean',
+];
+
+// 紧凑工具栏（审批意见等小输入框）
+const COMPACT_TOOLBAR: string[] = [
+  'undo',
+  'redo',
+  'bold',
+  'italic',
+  'underline',
+  'color',
+  'list',
+  'bullet',
+  'image',
+  'clean',
+];
 
 const RichTextEditor: React.FC<RichTextEditorProps> = ({
   value = '',
@@ -51,103 +83,114 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   height = 400,
   compact = false,
 }) => {
-  const handleImageUpload = (...args: any[]) => {
-    const [blobInfo, success, failure] = args;
-    return new Promise((resolve, reject) => {
-      const formData = new FormData();
-      formData.append('file', blobInfo.blob(), blobInfo.filename());
+  const containerRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<FluentEditor | null>(null);
+  const lastValueRef = useRef<string>(value || '');
+  // 程序化 setHTML 时置位，避免触发多余 onChange（防止受控回环）
+  const syncingRef = useRef<boolean>(false);
 
-      const token = localStorage.getItem('sword-token') || '';
-      const tenantId = getTenantId() || '000000';
+  useEffect(() => {
+    if (!containerRef.current) return;
+    let editor: FluentEditor;
 
-      fetch('/api/blade-mall/admin/upload/image', {
-        method: 'POST',
-        headers: {
-          'Blade-Auth': `bearer ${token}`,
-          'Tenant-Id': tenantId,
-        },
-        body: formData,
-      })
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error('网络请求失败');
-          }
-          return response.json();
-        })
-        .then((result) => {
+    // 图片上传：复用现有 /api/blade-mall/admin/upload/image + 鉴权头
+    const imageHandler = () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('file', file);
+        const token = localStorage.getItem('sword-token') || '';
+        const tenantId = getTenantId() || '000000';
+        try {
+          const res = await fetch('/api/blade-mall/admin/upload/image', {
+            method: 'POST',
+            headers: {
+              'Blade-Auth': `bearer ${token}`,
+              'Tenant-Id': tenantId,
+            },
+            body: formData,
+          });
+          const result = await res.json();
           if (result.success && result.data) {
             const fileUrl = result.data.trim().replace(/[`]/g, '');
-            success(fileUrl);
-            resolve(fileUrl);
+            const range = editor.getSelection(true) ?? { index: editor.getLength(), length: 0 };
+            editor.insertEmbed(range.index, 'image', fileUrl, 'user');
+            editor.setSelection(range.index + 1, 'user');
           } else {
-            const errorMessage = '上传失败: ' + (result.msg || '未知错误');
-            if (typeof failure === 'function') {
-              failure(errorMessage);
-            } else {
-              console.error(errorMessage);
-            }
-            reject(new Error(errorMessage));
+            message.error(result.msg || '上传失败');
           }
-        })
-        .catch((error) => {
-          const errorMessage = '上传失败: ' + error.message;
-          if (typeof failure === 'function') {
-            failure(errorMessage);
-          } else {
-            console.error(errorMessage);
-          }
-          reject(error);
-        });
-    });
-  };
+        } catch {
+          message.error('上传失败');
+        }
+      };
+      input.click();
+    };
 
-  return (
-    <div>
-      <Editor
-        apiKey="7u3oicom9m74gc15p90ipnp1ibke4a84yxigrsejqyxe052y"
-        value={value}
-        onEditorChange={(content) => onChange?.(content)}
-        init={{
-          height: height,
-          // 界面中文化：TinyMCE 8 官方简体中文包，自托管在 public/tinymce/langs/zh_CN.js。
-          // 注意代码必须是 'zh-CN'（连字符）：包里注册的就是 zh-CN，zh_CN 写法在 TinyMCE 8 已废弃。
-          language: 'zh-CN',
-          language_url: '/tinymce/langs/zh_CN.js',
-          menubar: !compact,
-          plugins: compact
-            ? ['lists', 'link', 'charmap', 'wordcount']
-            : [
-                'advlist',
-                'autolink',
-                'lists',
-                'link',
-                'image',
-                'charmap',
-                'preview',
-                'anchor',
-                'searchreplace',
-                'visualblocks',
-                'code',
-                'fullscreen',
-                'insertdatetime',
-                'media',
-                'table',
-                'help',
-                'wordcount',
-              ],
-          toolbar: compact
-            ? 'undo redo | bold italic underline forecolor | bullist numlist | removeformat'
-            : 'undo redo | formatselect | bold italic backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | removeformat | help',
-          placeholder: placeholder,
-          content_style: 'body { font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5; }',
-          images_upload_url: '/api/blade-mall/admin/upload/image',
-          images_upload_handler: handleImageUpload,
-          verify_html: false,
-          extended_valid_elements: 'div[*],span[*],p[*],b[*],i[*],u[*],strong[*],em[*],a[*],ul[*],ol[*],li[*],table[*],tr[*],td[*],th[*],h1[*],h2[*],h3[*],h4[*],h5[*],h6[*]',
-        }}
-      />
-    </div>
-  );
+    const toolbar = compact ? COMPACT_TOOLBAR : FULL_TOOLBAR;
+
+    editor = new FluentEditor(containerRef.current, {
+      theme: 'snow',
+      placeholder,
+      modules: {
+        toolbar: {
+          container: toolbar,
+          handlers: { image: imageHandler },
+        },
+      },
+    });
+    editorRef.current = editor;
+
+    // 初始内容（仅挂载时写入一次）
+    syncingRef.current = true;
+    if (value) {
+      editor.clipboard.dangerouslyPasteHTML(value);
+    }
+    syncingRef.current = false;
+    lastValueRef.current = value || '';
+
+    editor.on('text-change', () => {
+      if (syncingRef.current) return;
+      const next = editor.root.innerHTML;
+      lastValueRef.current = next;
+      onChange?.(next);
+    });
+
+    return () => {
+      editor.off('text-change');
+      // React 18/19 StrictMode 会双调用 effect（创建→清理→再创建），
+      // 必须还原 Quill 注入的 DOM，否则同一容器二次 new FluentEditor 会抛「已初始化」
+      const el = containerRef.current;
+      if (el) {
+        const toolbar = el.previousElementSibling;
+        if (toolbar && (toolbar as HTMLElement).classList?.contains('ql-toolbar')) {
+          toolbar.remove();
+        }
+        el.classList.remove('ql-container');
+        el.innerHTML = '';
+        delete (el as unknown as Record<string, unknown>).__quill;
+      }
+      editorRef.current = null;
+    };
+    // 仅在挂载时创建一次编辑器；后续内容同步由下方受控 effect 负责
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 外部受控：value 变化时同步进编辑器（父组件重置意见 / 切换节点）
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (editor && value !== lastValueRef.current) {
+      syncingRef.current = true;
+      editor.clipboard.dangerouslyPasteHTML(value || '');
+      lastValueRef.current = value || '';
+      syncingRef.current = false;
+    }
+  }, [value]);
+
+  return <div ref={containerRef} style={{ height }} />;
 };
 
 export default RichTextEditor;

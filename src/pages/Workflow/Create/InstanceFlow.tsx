@@ -28,6 +28,7 @@ import { MENUS_OPTIONS } from '@/pages/FormMode/WorkflowDesign/wfDict';
 import {
   addSignTask,
   approveTask,
+  buildActivityColors,
   circulateTask,
   executeCustomOperation,
   forwardTask,
@@ -44,6 +45,7 @@ import {
   saveFormData,
   urgeTask,
   validateForm,
+  WfProgressView,
 } from '@/services/workflow';
 import { pickPayload } from '@/utils/utils';
 import FlowDiagram from '@/pages/FormMode/Test/components/FlowDiagram';
@@ -178,6 +180,12 @@ export interface InstanceFlowProps {
   /** 流程出口清单（result.links / designLinks）：用于推导「当前节点的下一个节点」及其操作者 */
   links?: any[];
   /**
+   * 流程实例进度图（四色，纯 ACT_HI）：后端 `GET /instance/{id}/progress` 返回。
+   * 一旦传入，流程图页签即按四色（进行中/已完成/已走连线/拒绝点）渲染，覆盖测试态二色。
+   * 后端接口待补，契约见 `@/services/workflow` 的 `WfProgressView` / `buildActivityColors`。
+   */
+  progress?: WfProgressView;
+  /**
    * 实例「当前所在节点」Key（流程此刻流转到的节点），与「查看节点」`nodeKey` 解耦。
    *
    * <p>头部「节点审批情况」与流程图高亮都跟随它，不随用户点开查看历史节点而变：
@@ -232,6 +240,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   bpmnXml,
   nodes,
   links,
+  progress,
   currentNodeKey,
   currentNodeName,
   onSelectNode,
@@ -1460,11 +1469,13 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
               label: '流程图',
               children: (
                 <div style={{ padding: '4px 0 8px' }}>
-                  {bpmnXml ? (
+                  {bpmnXml || progress?.bpmnXml ? (
                     <FlowDiagram
-                      bpmnXml={bpmnXml}
-                      nodeStatus={nodeStatusMap}
+                      bpmnXml={progress?.bpmnXml ?? bpmnXml}
+                      nodeStatus={progress ? undefined : nodeStatusMap}
                       currentNodeKey={currentNodeKey ?? nodeKey}
+                      activityColors={progress ? buildActivityColors(progress) : undefined}
+                      instanceStatus={progress?.instanceStatus}
                       nodeOperators={nodeOps}
                       resolveUserName={resolveUserName}
                       onSelectNode={onSelectNode}

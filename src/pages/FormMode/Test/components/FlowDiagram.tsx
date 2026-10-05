@@ -6,13 +6,24 @@ import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css';
 import './flowDiagram.css';
 
 /**
- * 只读流程图画布（流程测试右侧「流程图」页签 / 流程预览）。
+ * 只读流程图画布（流程测试右侧「流程图」页签 / 流程预览 / 流程实例进度图）。
  *
  * 用 bpmn-js 的 NavigatedViewer（无建模能力、无工具栏）渲染流程定义的 BPMN，
  * 并按测试结果 / 实例轨迹在节点上叠加信息：
+ *
+ *  测试/审批态（nodeStatus + currentNodeKey）：
  *   - wf-test-pass    走通（绿）
  *   - wf-test-fail    走不通（红）
  *   - wf-test-current 当前查看节点（蓝虚线）
+ *
+ *  生产实例进度图（activityColors，纯 ACT_HI 四色，与文章「BPMN Viewer」口径一致）：
+ *   - wf-act-success  已完成活动 / 已走连线（绿）
+ *   - wf-act-primary  进行中（蓝，含当前节点）
+ *   - wf-act-danger   拒绝点（红）
+ *   - wf-act-cancel   取消态 EndEvent（灰）
+ *   （四套 marker 互斥：生产实例不传 nodeStatus，测试态不传 activityColors）
+ *
+ *  公共：
  *   - 节点标签正下方叠加「已操作」办理人姓名（谁批的，一格一行，对齐 ecology）
  *   - 悬浮节点弹出「操作者」分组面板：未操作 / 已查看 / 已操作
  * 点击节点回调 onSelectNode，与左侧节点列表 / 表单页签联动。
@@ -62,10 +73,21 @@ export interface WfNodeOperators {
 
 export interface FlowDiagramProps {
   bpmnXml?: string;
-  /** nodeKey -> 节点状态：1走通 2走不通 */
+  /** nodeKey -> 节点状态：1走通 2走不通（测试/审批态口径） */
   nodeStatus?: Record<string, number>;
-  /** 当前查看节点（高亮为蓝虚线） */
+  /** 当前查看节点（高亮为蓝虚线，仅测试/审批态用） */
   currentNodeKey?: string;
+  /**
+   * 生产实例进度图四色映射：activityId -> 颜色（纯 ACT_HI 计算，前端只 addMarker）。
+   *  - success 已完成活动 / 已走连线（绿）
+   *  - primary 进行中 / 当前节点（蓝）
+   *  - danger  拒绝点（红）
+   *  - cancel  取消态 EndEvent（灰）
+   * 与 nodeStatus 互斥：生产实例传本字段、不传 nodeStatus。
+   */
+  activityColors?: Record<string, 'success' | 'primary' | 'danger' | 'cancel'>;
+  /** 实例状态（0运行中 1通过 2不通过 3撤销 4暂停）：为 2/3 时纠偏 EndEvent 去绿改灰 */
+  instanceStatus?: number;
   /** nodeKey -> 操作者分组：节点下方显示已操作人姓名；悬浮显示分组面板 */
   nodeOperators?: Record<string, WfNodeOperators>;
   /** 用户ID -> 姓名（复用页面人员字典，与「操作人」姓名同源） */
@@ -79,6 +101,8 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({
   bpmnXml,
   nodeStatus,
   currentNodeKey,
+  activityColors,
+  instanceStatus,
   nodeOperators,
   resolveUserName,
   onSelectNode,
@@ -95,16 +119,18 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({
   const cbRef = useRef(onSelectNode);
   cbRef.current = onSelectNode;
 
-  const propsRef = useRef({ nodeStatus, currentNodeKey, nodeOperators, resolveUserName });
-  propsRef.current = { nodeStatus, currentNodeKey, nodeOperators, resolveUserName };
+  const propsRef = useRef({ nodeStatus, currentNodeKey, activityColors, instanceStatus, nodeOperators, resolveUserName });
+  propsRef.current = { nodeStatus, currentNodeKey, activityColors, instanceStatus, nodeOperators, resolveUserName };
 
   /** 清掉旧标记再按最新结果叠加 */
   const applyMarkers = () => {
     const viewer = viewerRef.current;
     if (!viewer) return;
     let canvas: any;
+    let registry: any;
     try {
       canvas = viewer.get('canvas');
+      registry = viewer.get('elementRegistry');
     } catch {
       return;
     }
@@ -124,12 +150,47 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({
         /* 元素不存在则忽略 */
       }
     };
-    const { nodeStatus: ns, currentNodeKey: cur } = propsRef.current;
+    const { nodeStatus: ns, currentNodeKey: cur, activityColors: ac, instanceStatus: instStatus } =
+      propsRef.current;
+
+    // —— 生产实例进度图四色（纯 ACT_HI，前端只 addMarker） ——
+    // 优先级已由 buildActivityColors 收敛：danger > primary > success，cancel 不覆盖 danger。
+    Object.entries(ac || {}).forEach(([key, color]) => add(key, `wf-act-${color}`));
+
+    // —— 测试/审批态二色（与四色互斥：生产实例不传 nodeStatus） ——
     Object.entries(ns || {}).forEach(([key, v]) => {
+      if (ac && ac[key]) return; // 四色已覆盖则跳过，避免重复描边
       if (v === 1) add(key, 'wf-test-pass');
       else if (v === 2) add(key, 'wf-test-fail');
     });
-    if (cur) add(cur, 'wf-test-current');
+
+    // —— 当前查看节点（蓝虚线）：仅四色未覆盖时（测试态 / 未纳入四色的节点） ——
+    if (cur && !(ac && ac[cur])) add(cur, 'wf-test-current');
+
+    // —— 前端纠偏：实例为「不通过(2)/撤销(3)」时，EndEvent 不能显绿（文章规则） ——
+    // 后端可能把 EndEvent 算进 finished（活动确实结束），但取消/拒绝不能看起来像正常办结，
+    // 故此处按元素类型强制把 EndEvent 的绿色改为 cancel 灰。
+    if (instStatus === 2 || instStatus === 3) {
+      try {
+        registry.forEach((el: any) => {
+          const t = el?.businessObject?.$type || '';
+          if (/EndEvent$/.test(t)) {
+            try {
+              canvas.removeMarker(el.id, 'wf-act-success');
+            } catch {
+              /* ignore */
+            }
+            markedRef.current = markedRef.current.filter(
+              (r) => !(r.id === el.id && r.cls === 'wf-act-success'),
+            );
+            // 仅当该 EndEvent 未被显式标为拒绝点时改灰（红优先于灰）
+            if (!(ac && ac[el.id] === 'danger')) add(el.id, 'wf-act-cancel');
+          }
+        });
+      } catch {
+        /* ignore */
+      }
+    }
   };
 
   /**
@@ -297,11 +358,11 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bpmnXml]);
 
-  // 结果 / 当前节点变化时重刷标记
+  // 结果 / 当前节点 / 四色 / 实例状态变化时重刷标记
   useEffect(() => {
     applyMarkers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodeStatus, currentNodeKey]);
+  }, [nodeStatus, currentNodeKey, activityColors, instanceStatus]);
 
   // 操作者 / 人员字典变化时重刷节点下方姓名
   useEffect(() => {

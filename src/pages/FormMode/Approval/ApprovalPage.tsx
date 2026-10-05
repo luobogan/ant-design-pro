@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Empty, Spin } from 'antd';
-import { getBpmn, getInstance, listLinks, listNodes } from '@/services/workflow';
+import { getBpmn, getInstance, getInstanceProgress, listLinks, listNodes } from '@/services/workflow';
 import { pickPayload } from '@/utils/utils';
 import InstanceFlow from '@/pages/Workflow/Create/InstanceFlow';
 
@@ -33,6 +33,8 @@ const ApprovalPage: React.FC = () => {
     nodes: any[];
     links: any[];
     currentNodeKey?: string;
+    /** 流程实例进度图（四色，纯 ACT_HI）；拉取失败时保持 undefined，流程图回落测试态二色 */
+    progress?: any;
   }>({ defName: '', bpmnXml: '', nodes: [], links: [], currentNodeKey: undefined });
 
   useEffect(() => {
@@ -46,10 +48,12 @@ const ApprovalPage: React.FC = () => {
       try {
         const inst: any = pickPayload(await getInstance(instanceId));
         const defId = inst?.defId;
-        const [bpmnRes, nodesRes, linksRes] = await Promise.all([
+        const [bpmnRes, nodesRes, linksRes, progressRes] = await Promise.all([
           defId ? getBpmn(defId).catch(() => null) : Promise.resolve(null),
           defId ? listNodes(defId).catch(() => null) : Promise.resolve(null),
           defId ? listLinks(defId as any).catch(() => null) : Promise.resolve(null),
+          // 进度图四色（纯 ACT_HI）：失败由调用方 skipErrorHandler 兜底，不影响主流程
+          getInstanceProgress(instanceId).then((r: any) => pickPayload(r)).catch(() => null),
         ]);
         if (!alive) return;
         setCtx({
@@ -58,6 +62,7 @@ const ApprovalPage: React.FC = () => {
           nodes: (nodesRes as any)?.data || [],
           links: (linksRes as any)?.data || [],
           currentNodeKey: inst?.currentNodeKey || undefined,
+          progress: progressRes || undefined,
         });
       } catch {
         if (alive) {
@@ -96,6 +101,7 @@ const ApprovalPage: React.FC = () => {
         bpmnXml={ctx.bpmnXml}
         nodes={ctx.nodes}
         links={ctx.links}
+        progress={ctx.progress}
         currentNodeKey={ctx.currentNodeKey}
         embedded={false}
       />

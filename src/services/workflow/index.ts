@@ -843,6 +843,78 @@ export async function cancelInstance(id: string | number, opinion?: string) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/instance/${id}/cancel`, { method: 'POST', params: { opinion } });
 }
 
+// ───────────── 流程实例进度图（四色，纯 ACT_HI） ─────────────
+/**
+ * 流程实例进度图契约（对齐「ACT_HI 四色节点落到 BPMN/SIMPLE 双 Viewer」方案）。
+ *
+ * <p>后端只读 Flowable 历史表（HistoricActivityInstance / HistoricTaskInstance / HistoricProcessInstance），
+ * 一次返回 BPMN XML（必须用实例绑定的 processDefinitionId，而非 key 取最新，避免改图后老单高亮错位）
+ * 与四个 activityId 集合 + 实例状态。**前端只 addMarker，不自行猜测**。</p>
+ *
+ * <p>四个集合语义：
+ *  - unfinishedActivityIds   进行中（蓝/primary）：ACT_HI 中 endTime == null 的活动；
+ *  - finishedActivityIds     已完成活动（绿/success）；
+ *  - finishedSequenceFlowIds 已走连线（绿/success）：条件网关实际走的分支；
+ *  - rejectedActivityIds     拒绝点（红/danger）：仅实例当前为拒绝态时取最后一条 REJECT 的 taskDefinitionKey；
+ *  - cancelledActivityIds    取消态 EndEvent（灰/cancel）：实例为撤销/取消时标记。</p>
+ *
+ * <p>会签边界：后端先收集 unfinished，再从 finished 中 removeAll(unfinished)（同一 activityId 会同时存在
+ * 已结束与未结束记录），确保「当前审」优先于「有人已同意」。驳回去重同理：仅当实例为拒绝态才计算红节点，
+ * 并从 finished 移除，避免又绿又红。</p>
+ */
+export interface WfProgressView {
+  /** 实例绑定的 BPMN XML（按 processDefinitionId 取，非 key 取最新） */
+  bpmnXml?: string;
+  /** 进行中节点 activityId（蓝/primary） */
+  unfinishedActivityIds?: string[];
+  /** 已完成活动 activityId（绿/success） */
+  finishedActivityIds?: string[];
+  /** 已走连线 activityId（绿/success） */
+  finishedSequenceFlowIds?: string[];
+  /** 拒绝点 activityId（红/danger） */
+  rejectedActivityIds?: string[];
+  /** 取消态 EndEvent activityId（灰/cancel） */
+  cancelledActivityIds?: string[];
+  /** 实例状态 0运行中 1通过 2不通过 3撤销 4暂停（前端据其纠偏 EndEvent 去绿） */
+  instanceStatus?: number;
+}
+
+/** 实例进度图取数：后端纯 ACT_HI 计算（blade-workflow 待补，契约已定） */
+export async function getInstanceProgress(id: string | number) {
+  return request<ApiResponse<WfProgressView>>(`${WORKFLOW}/instance/${id}/progress`, {
+    method: 'GET',
+    skipErrorHandler: true,
+  });
+}
+
+/** 进度图节点颜色（与 FlowDiagram 的 wf-act-* marker 一一对应） */
+export type WfActColor = 'success' | 'primary' | 'danger' | 'cancel';
+
+/**
+ * 把后端四集合合并成「activityId → 颜色」映射，供 FlowDiagram 直接 addMarker。
+ *
+ * <p>优先级（对齐文章）：拒绝(danger) > 进行中(primary) > 已完成(success)。
+ * 会签/并行下同一 activityId 可能同时落在多个集合，靠这个优先级消解「又绿又红」。</p>
+ *
+ * <p>注意：EndEvent 的「取消/拒绝态去绿」纠偏在 FlowDiagram 内部按 instanceStatus 完成
+ * （前端据元素类型 EndEvent 把其绿色强制改为 cancel），本函数只负责四集合→颜色。</p>
+ */
+export function buildActivityColors(view?: WfProgressView): Record<string, WfActColor> {
+  const map: Record<string, WfActColor> = {};
+  // 已完成（活动 + 连线）→ 绿
+  (view?.finishedActivityIds || []).forEach((id) => (map[id] = 'success'));
+  (view?.finishedSequenceFlowIds || []).forEach((id) => (map[id] = 'success'));
+  // 进行中 → 蓝（覆盖绿，保证「当前审」优先）
+  (view?.unfinishedActivityIds || []).forEach((id) => (map[id] = 'primary'));
+  // 拒绝点 → 红（覆盖绿/蓝，保证红最高优先）
+  (view?.rejectedActivityIds || []).forEach((id) => (map[id] = 'danger'));
+  // 取消态 → 灰（覆盖绿/蓝；红优先于灰，因为 rejectedActivityIds 已显式给出拒绝点）
+  (view?.cancelledActivityIds || []).forEach((id) => {
+    if (map[id] !== 'danger') map[id] = 'cancel';
+  });
+  return map;
+}
+
 // ───────────── 审批态渲染包 / 校验 ─────────────
 export interface FormRenderPackage {
   instanceId?: number;

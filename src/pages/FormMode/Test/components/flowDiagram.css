@@ -35,6 +35,37 @@
   stroke-dasharray: 6 4;
 }
 
+/* ---- 生产实例进度图四色（纯 ACT_HI，与文章 BPMN Viewer 口径一致） ----
+   与测试态二色互斥：生产实例走 wf-act-*，测试态走 wf-test-*。
+   着色作用在元素首个视觉子节点（图形描边 / 连线）。 */
+.wf-test-diagram .djs-element.wf-act-success .djs-visual > :nth-child(1) {
+  stroke: #52c41a !important;
+  stroke-width: 3px !important;
+}
+
+.wf-test-diagram .djs-element.wf-act-success .djs-visual > :nth-child(1) {
+  fill: rgba(82, 196, 26, 0.12) !important;
+}
+
+.wf-test-diagram .djs-element.wf-act-primary .djs-visual > :nth-child(1) {
+  stroke: #1677ff !important;
+  stroke-width: 3px !important;
+  stroke-dasharray: 6 4;
+}
+
+.wf-test-diagram .djs-element.wf-act-danger .djs-visual > :nth-child(1) {
+  stroke: #ff4d4f !important;
+  stroke-width: 3px !important;
+}
+
+.wf-test-diagram .djs-element.wf-act-cancel .djs-visual > :nth-child(1) {
+  stroke: #bfbfbf !important;
+  stroke-width: 2px !important;
+  stroke-dasharray: 4 3;
+}
+
+/* 连线（sequenceFlow）四色：连接线的视觉节点是 path，复用同一套描边规则即可 */
+
 /* ---- 节点叠加的「已操作」办理人姓名（谁批的） ----
    由 FlowDiagram 以行内 width（= 节点宽度）挂到节点标签正下方：
    审批节点表现为「节点名 + 办理人」两行（对齐 ecology），事件/网关在图形下方。
