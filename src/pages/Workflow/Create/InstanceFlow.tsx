@@ -685,6 +685,11 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   //   - 渲染包未回来（pkg 为空）→ 一个都不给（否则会退化成"未配置=全量"，闪出一堆按钮）；
   //   - allowMenus 为 null/未配置 → 不限制（按 MENUS_OPTIONS 全量）；
   //   - 配置过 → 只给集合内的动作（空数组 = 全部禁用）。
+  // ⚠️ 「未配置」的判定必须用 allowMenusUnset，不能用 allowMenus==null：
+  //    blade 全局 HTTP 转换器 nullToEmpty=true（默认开）会把响应里的 null List 序列化成 []，
+  //    导致「未配置（不限制）」在线上永远表现为 []，被误判成「配置过但全部禁用」——
+  //    测试页手动提交开始节点后，首个审批节点只剩「保存」，提交/退回按钮全部消失（dev 实测踩坑）。
+  //    后端在渲染包里显式下发 allowMenusUnset=true（Boolean 不受空值序列化影响），以它为准。
   // 测试态**不再过滤菜单**（改为置灰）：集合与正式完全一致，隔离动作在渲染时禁用并给悬浮说明。
   // 「保存」是固有能力（与发起页 `canSave = !!def.formId` 口径一致，不看节点「操作菜单」开关）：
   // 只要当前可编辑就补上，否则节点菜单没勾「保存」时办理/测试页会缺「保存」按钮。
@@ -692,8 +697,9 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     if (!pkg) return [];
     const all = MENUS_OPTIONS.map((o) => String(o.value));
     // 'custom' 不渲染成通用按钮（点了只会提示"暂未接入"），改由下方 customOps 渲染真实按钮
+    const menusUnset = pkg.allowMenusUnset === true || pkg.allowMenus == null;
     let allowed = (
-      pkg.allowMenus == null ? all : all.filter((c) => (pkg.allowMenus || []).map(String).includes(c))
+      menusUnset ? all : all.filter((c) => (pkg.allowMenus || []).map(String).includes(c))
     ).filter((c) => c !== 'custom');
     // 创建节点(nodeType=0)：对齐「正式发起页」开始节点的操作集 —— 仅 提交/保存/打印/填写意见/附件。
     // 退回/转发/转办/加签/传阅/征询/催办等在第一个节点无意义（无上游可退回，且发起页本就不给这些），
