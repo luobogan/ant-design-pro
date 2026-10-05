@@ -7,9 +7,15 @@ import { API_BASE_PATH, APPLICATION_SYSTEM_NAME } from '@/constants';
 
 const MENU_BASE_URL = `${API_BASE_PATH}/${APPLICATION_SYSTEM_NAME}/menu`;
 
-// 获取动态路由
-export async function dynamicRoutes() {
-  return request(`${MENU_BASE_URL}/routes`);
+// 获取动态路由（可按顶部菜单过滤）
+export async function dynamicRoutes(params?: any) {
+  const query = params ? `?${stringify(params)}` : '';
+  return request(`${MENU_BASE_URL}/routes${query}`);
+}
+
+// 获取顶部菜单列表（后端 /menu/top-menu，未登录时响应体为 null）
+export async function topMenuList() {
+  return request(`${MENU_BASE_URL}/top-menu`);
 }
 
 // 获取动态按钮

@@ -13,7 +13,7 @@ function extractList(res: any): any[] {
 import * as userApi from '@/services/system/user';
 import * as deptApi from '@/services/system/dept';
 import * as roleApi from '@/services/authority/role';
-import * as positionApi from '@/services/system/position';
+import * as postApi from '@/pages/System/Post/service';
 
 /**
  * 统一「人员与组织」浏览框数据层（对齐 ecology BrowserBean）。
@@ -214,7 +214,7 @@ async function fetchAll(): Promise<OrgData> {
     fetchAllUsers(),
     deptApi.tree({}).then((r: any) => extractList(r)),
     roleApi.list({}).then((r: any) => extractList(r)),
-    positionApi.list({}).then((r: any) => extractList(r)),
+    postApi.list({}).then((r: any) => extractList(r)),
   ]);
 
   let users: PersonOrgItem[] = [];

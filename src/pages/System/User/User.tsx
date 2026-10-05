@@ -36,7 +36,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import * as roleApi from '@/services/authority/role';
 import * as deptApi from '@/services/system/dept';
-import * as positionApi from '@/services/system/position';
+import * as postApi from '@/pages/System/Post/service';
 import * as userApi from '@/services/system/user';
 import UserAdd from './UserAdd';
 import UserEdit from './UserEdit';
@@ -96,7 +96,7 @@ const UserPage: React.FC = () => {
   const { data: roleTreeData } = useRequest(roleApi.tree);
 
   // 获取岗位列表数据
-  const { data: positionListData } = useRequest(positionApi.list);
+  const { data: positionListData } = useRequest(postApi.list);
 
   // 获取用户数据
   const {

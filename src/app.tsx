@@ -20,6 +20,7 @@ import {
   OfflineBanner,
   VersionDropdown,
 } from '@/components';
+import TopNavMenu from '@/components/TopNavMenu';
 import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
 import defaultSettings from '../config/defaultSettings';
 import { errorConfig, getSavedFormData } from '@/requestErrorConfig';
@@ -138,6 +139,48 @@ const toPascalCase = (str: string): string => {
   return result.charAt(0).toUpperCase() + result.slice(1);
 };
 
+/**
+ * 少数目录名无法从菜单 path 推导出来（复合词的内部大写推不出来），在此显式登记。
+ * key 为「模块/目录」的小写且忽略连字符形式，value 为磁盘上的真实目录名。
+ */
+const PAGE_DIR_ALIAS: Record<string, string> = {
+  // /system/tenantpackage、/system/tenant-package 都会被推导成 Tenantpackage，
+  // 但磁盘目录是 TenantPackage —— 复合词大小写无法从 path 还原，只能登记。
+  'system/tenantpackage': 'TenantPackage',
+};
+
+const normalizeDirKey = (p: string): string => p.toLowerCase().replace(/[-_]/g, '');
+
+/**
+ * 生成页面组件的加载器候选（大小写兜底）。
+ *
+ * ⚠️ 必须保持「带静态前缀的模板字符串」写法：utoo/turbopack 只能从模板字符串
+ * 里推断出动态 import 的目录上下文。若先把路径拼进数组再 `import(arr[i])`，
+ * 打包器推断不出前缀，会导致**所有**动态页面组件都加载失败（2026-10-05 踩坑）。
+ *
+ * 候选顺序：别名登记的真实目录 → Pascal 推导值 → 原始路径分段（大小写不同）。
+ * 典型场景：菜单 /system/topmenu 推导出 TopMenu，磁盘目录却是 Topmenu。
+ */
+const buildComponentLoaders = (
+  module: string,
+  page: string,
+  rawPage: string,
+): Array<() => Promise<any>> => {
+  const loaders: Array<() => Promise<any>> = [];
+  const aliasDir = PAGE_DIR_ALIAS[normalizeDirKey(`${module}/${page}`)];
+  if (aliasDir) {
+    loaders.push(() => import(`./pages/${module}/${aliasDir}/${aliasDir}.tsx`));
+    loaders.push(() => import(`./pages/${module}/${aliasDir}/index.tsx`));
+  }
+  loaders.push(() => import(`./pages/${module}/${page}/${page}.tsx`));
+  loaders.push(() => import(`./pages/${module}/${page}/index.tsx`));
+  if (rawPage && rawPage !== page) {
+    loaders.push(() => import(`./pages/${module}/${rawPage}/${rawPage}.tsx`));
+    loaders.push(() => import(`./pages/${module}/${rawPage}/index.tsx`));
+  }
+  return loaders;
+};
+
 const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
   return menus.flatMap((item) => {
     let Component: React.ComponentType<any> | null = null;
@@ -152,7 +195,8 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
       const pathParts = formattedPath.split('/').filter(Boolean);
 
       if (pathParts.length >= 2) {
-          const [module, page] = [toPascalCase(pathParts[0]), toPascalCase(pathParts[pathParts.length - 1])];
+          const rawPage = pathParts[pathParts.length - 1];
+          const [module, page] = [toPascalCase(pathParts[0]), toPascalCase(rawPage)];
 
         const buttonsData = getButtons();
         console.log('从 localStorage 获取按钮数据:', buttonsData);
@@ -263,26 +307,33 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
               }
         });
 
-        const pageComponentName = toPascalCase(page);
-        const componentPath = `./pages/${module}/${page}/${pageComponentName}.tsx`;
-        // 目录入口回退：如 /account/settings → ./pages/Account/Settings/index.tsx
+        // 组件加载候选（按命中概率排序）：
+        // ① ./pages/{Module}/{Page}/{Page}.tsx   常规：/system/user → ./pages/System/User/User.tsx
+        // ② ./pages/{Module}/{Page}/index.tsx     目录入口：/account/settings → ./pages/Account/Settings/index.tsx
+        // ③ 大小写变体：菜单 path 经 toPascalCase 推导出的目录名可能与磁盘实际大小写不一致
+        //    （如 /system/topmenu → TopMenu，而目录实际是 Topmenu；打包器按精确路径匹配，大小写不符即失败）
+        const componentPath = `./pages/${module}/${page}/${page}.tsx`;
         const componentIndexPath = `./pages/${module}/${page}/index.tsx`;
-        console.log(`组件路径：${componentPath}（回退：${componentIndexPath}）`);
+        const loaders = buildComponentLoaders(module, page, rawPage);
+        console.log(
+          `组件路径：${componentPath}（兜底：${rawPage !== page ? `./pages/${module}/${rawPage}/${rawPage}.tsx | ` : ''}index）`,
+        );
 
         Component = React.lazy(
           () =>
             new Promise((resolve, _reject) => {
-              import(componentPath)
-                .then((mod) => resolve(mod))
-                .catch(() =>
-                  import(componentIndexPath)
-                    .then((mod) => resolve(mod))
-                    .catch((error) => {
-                      console.error('组件导入错误:', componentPath, componentIndexPath, error);
-                      message.error(`页面组件加载失败：${componentPath} / ${componentIndexPath}（详见控制台）`);
-                      import('./pages/exception/404').then((mod) => resolve(mod));
-                    }),
-                );
+              const tryImport = (index: number) => {
+                if (index >= loaders.length) {
+                  console.error('组件导入失败，已尝试候选数：', loaders.length, componentPath, componentIndexPath);
+                  message.error(`页面组件加载失败：${componentPath} / ${componentIndexPath}（详见控制台）`);
+                  import('./pages/exception/404').then((mod) => resolve(mod));
+                  return;
+                }
+                loaders[index]()
+                  .then((mod) => resolve(mod))
+                  .catch(() => tryImport(index + 1));
+              };
+              tryImport(0);
             }),
         );
       }
@@ -491,6 +542,10 @@ export const layout: RunTimeLayoutConfig = ({
       image:
         'https://gw.alipayobjects.com/zos/bmw-prod/59a18171-ae17-4fc5-93a0-2645f64a3aca.svg',
     },
+    // 顶部导航栏：数据取自后端 /menu/top-menu + /menu/routes?topMenuId=xx，
+    // 支持多级下拉、路由跳转，且已按角色/租户权限过滤。
+    splitMenus: false,
+    headerContentRender: () => <TopNavMenu />,
     menu: {
       params: {
         userId: initialState?.currentUser?.userid,
