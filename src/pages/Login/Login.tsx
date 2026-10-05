@@ -159,6 +159,14 @@ const Login: React.FC = () => {
     // form.setFieldsValue({ tenantId: '000000', account: 'admin', password: 'admin' });
   }, []);
 
+  // 挂载时主动按默认租户拉取验证码开关，保证 SPA 内从设置页切回登录页（不刷新）也能即时反映最新配置。
+  // 不依赖 app.tsx 启动期的一次性加载，避免切页后显示的是过期值。
+  useEffect(() => {
+    loadCaptchaMode(DEFAULT_TENANT_ID).then(setCaptchaEnabled);
+    // 仅挂载时执行一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // 根据当前选中的租户加载该租户的验证码开关，并联动验证码图片
   const applyTenantCaptcha = async (tenantId?: string) => {
     const enabled = await loadCaptchaMode(tenantId || DEFAULT_TENANT_ID);
