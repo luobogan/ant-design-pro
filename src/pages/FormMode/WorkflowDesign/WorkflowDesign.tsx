@@ -324,10 +324,20 @@ const WorkflowDesignPage: React.FC = () => {
       ]);
       let nodesList: WfProcessNode[] = pickPayload(nodeRes) || [];
       let linksList: WfNodeLink[] = pickPayload(linkRes) || [];
-      let bpmnXml: string = pickPayload(bpmnRes) || '';
-      // 新建 / 从未保存画布的流程：默认初始化「开始 → 结束」，节点信息列表即带这两个节点，
-      // 不必等用户点保存才由 saveBpmn 从画布反推生成。
-      if (!bpmnXml && nodesList.length === 0) {
+      const rawBpmn: any = pickPayload(bpmnRes);
+      let bpmnXml: string = typeof rawBpmn === 'string' ? rawBpmn : '';
+      /**
+       * 是否「从未保存过画布」。
+       *
+       * ⚠️ 不能只写 `!bpmnXml`：后端对没有 BPMN 的定义返回的是 **`{}`（空对象）而非空串**，
+       * 对象是 truthy，`!bpmnXml` 恒为 false → 默认模板永不初始化，表现为「新建流程打开设计器
+       * 画布空白、节点信息列表为空」，用户只能手工一个个建节点、补配置。
+       * 故改为按「内容里是否真的含 BPMN 元素」判定（`{}` / `""` / 任意非 XML 内容都算缺失）。
+       */
+      const bpmnMissing = !bpmnXml || !bpmnXml.trim() || !bpmnXml.includes('<bpmn');
+      // 新建 / 从未保存画布的流程：默认初始化「开始 → 创建(UserTask) → 结束」，
+      // 节点信息列表即带「创建」「结束」节点，不必等用户点保存才由 saveBpmn 从画布反推生成。
+      if (bpmnMissing && nodesList.length === 0) {
         bpmnXml = buildDefaultBpmn(def);
         await saveBpmn(def.id as any, bpmnXml);
         const [nr, lr, br] = await Promise.all([

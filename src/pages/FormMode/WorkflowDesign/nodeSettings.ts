@@ -5,6 +5,7 @@ import {
   EXTRA_OPERATE_TYPES,
   FAIL_MODES,
   MENUS_OPTIONS,
+  REQUIRED_MENUS,
   SELECT_NEXT_FLOW_MODES,
 } from './wfDict';
 
@@ -294,6 +295,16 @@ export interface OperateMenuItem {
  * 有 items 时以 items 的顺序/名称/启用为准，字典里新增的项补在后面（默认不启用）；
  * 只有旧 menus 时，启用项按 menus 顺序排前，其余按字典顺序。
  */
+/**
+ * 强制补回必填项（{@link REQUIRED_MENUS}：提交 / 保存）。
+ *
+ * <p>节点要能工作必须有「提交」（唯一写操作与推进入口）与「保存」（存草稿的固有能力）。
+ * 存量数据里可能存在未勾这两项的配置（历史遗留 / 手工改 JSON），归一化时一律补回，
+ * 保证任何节点都不会出现「没有提交按钮、流程卡死」。</p>
+ */
+const withRequiredMenus = (items: OperateMenuItem[]): OperateMenuItem[] =>
+  items.map((i) => (REQUIRED_MENUS.includes(i.key) ? { ...i, enabled: true } : i));
+
 export const normalizeOperateMenu = (val: any): OperateMenuItem[] => {
   const base: OperateMenuItem[] = MENUS_OPTIONS.map((o) => ({
     key: String(o.value),
@@ -318,7 +329,7 @@ export const normalizeOperateMenu = (val: any): OperateMenuItem[] => {
       byKey.delete(k);
     });
     byKey.forEach((b) => out.push(b));
-    return out;
+    return withRequiredMenus(out);
   }
 
   // 未配置过（没有 items 也没有旧 menus）时：按 DEFAULT_MENUS 预勾选，
@@ -328,7 +339,7 @@ export const normalizeOperateMenu = (val: any): OperateMenuItem[] => {
       (k) => base.find((b) => b.key === k)!,
     ).filter(Boolean);
     const rest = base.filter((b) => !DEFAULT_MENUS.includes(b.key));
-    return [...picked.map((b) => ({ ...b, enabled: true })), ...rest];
+    return withRequiredMenus([...picked.map((b) => ({ ...b, enabled: true })), ...rest]);
   }
 
   base.forEach((b) => {
@@ -338,7 +349,19 @@ export const normalizeOperateMenu = (val: any): OperateMenuItem[] => {
     .map((k) => base.find((b) => b.key === k))
     .filter((b): b is OperateMenuItem => !!b);
   const rest = base.filter((b) => !legacy.includes(b.key));
-  return [...enabled, ...rest];
+  return withRequiredMenus([...enabled, ...rest]);
+};
+
+/**
+ * 新建节点的**默认操作菜单配置**（落 ext_json 用）。
+ *
+ * <p>「生成新流程时自动默认添加必填按钮」的落库入口：新建节点直接带上
+ * {@link DEFAULT_MENUS}（提交/保存/退回/转发，其中提交与保存为 {@link REQUIRED_MENUS} 必填项），
+ * 默认操作 = submit。这样新建流程<b>开箱即可发起与保存草稿</b>，不必先去「操作菜单」里手工勾一遍。</p>
+ */
+export const defaultOperateMenu = () => {
+  const items = normalizeOperateMenu(null);
+  return { items, default: 'submit', menus: menusFromItems(items) };
 };
 
 /** 由明细派生旧字段 menus（启用项按显示顺序） */

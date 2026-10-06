@@ -113,6 +113,24 @@ export const MENUS_OPTIONS: DictItem[] = [
  */
 export const DEFAULT_MENUS: string[] = ['submit', 'save', 'reject', 'forward'];
 
+/**
+ * 节点「操作菜单」的**必填（不可取消）项**。
+ *
+ * <p>这两项是节点能正常工作的<b>最低动作集</b>，缺任一项该节点就不可用，因此在菜单设置里
+ * 不可取消勾选，且在生成新流程 / 新建节点时<b>自动默认添加</b>：</p>
+ * <ul>
+ *   <li><b>submit 提交</b>：唯一的写操作与推进入口。没有它，发起页会只剩「返回」，
+ *       流程无法发起、审批人无法流转（正式发起页曾因菜单判定问题整排按钮消失）。</li>
+ *   <li><b>save 保存</b>：存草稿的固有能力。没有它，用户填到一半无法留存，只能一次填完。</li>
+ * </ul>
+ *
+ * <p>其余操作（退回/转发/转办…）均为可选增强，按需勾选即可。</p>
+ *
+ * ⚠️ 与 {@link DEFAULT_MENUS} 的区别：DEFAULT_MENUS 是「默认勾选建议」（可取消，含退回/转发），
+ * 本集合是「强制保留项」（不可取消）。二者都参与新建节点的默认值生成。
+ */
+export const REQUIRED_MENUS: string[] = ['submit', 'save'];
+
 /** 节点「前/后附加操作」类型（对齐 ecology 节点前后附加操作） */
 export const EXTRA_OPERATE_TYPES: DictItem[] = [
   { value: 'none', label: '无' },

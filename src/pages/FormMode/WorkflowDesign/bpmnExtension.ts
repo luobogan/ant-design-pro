@@ -572,6 +572,21 @@ const buildOperations = (moddle: any, list?: WfOperation[]) =>
     }),
   );
 
+/**
+ * 创建节点（nodeType=0）缺省办理人兜底。
+ *
+ * <p>「申请人填单」的办理人语义上恒等于创建人本人（opType=17，后端解析为实例 starter），因此
+ * 用户把某个节点改成「创建」类型时无需再手工配一次操作者。仅在<b>一个操作者都没配</b>时补默认值，
+ * 已配则原样尊重（可能指定人/按角色/按部门等）。非创建节点一律不干预。</p>
+ */
+const withCreateNodeDefaultOperator = (ext: WfNodeExt): WfOperator[] | undefined => {
+  const ops = ext.operator;
+  if (String(ext.nodeType) !== '0' || (ops && ops.length > 0)) {
+    return ops;
+  }
+  return [{ groupNo: '1', opType: '17', objId: '', signOrder: '0' }];
+};
+
 /** 写（覆盖）节点扩展。ext 为 null 时删除该扩展。 */
 export const setWfNodeExt = (modeler: any, element: any, ext: WfNodeExt | null) => {
   const { moddle } = ensureExtensionElements(modeler, element);
@@ -591,7 +606,12 @@ export const setWfNodeExt = (modeler: any, element: any, ext: WfNodeExt | null) 
     testStatus: ext.testStatus,
     multiInstance: ext.multiInstance,
     formKey: ext.formKey,
-    operator: buildOperators(moddle, ext.operator),
+    // 【自动补默认办理人】创建节点(nodeType=0)「申请人填单」的办理人语义上就是创建人本人
+    //   （opType=17，后端 WfOperatorResolver 解析为实例 starter）。若不在这里兜底，手工新建的
+    //   创建节点会因「未设置操作者」被流程测试预校验拦下（且「退回发起人」没有目标办理人），
+    //   迫使用户为每个创建节点手工配一次操作者——本属产品该兜的底。
+    //   仅在「一个操作者都没配」时补；用户已配则完全尊重其配置（可能是指定人/按角色等）。
+    operator: buildOperators(moddle, withCreateNodeDefaultOperator(ext)),
     fieldPerm: buildFieldPerms(moddle, ext.fieldPerm),
     detailPerm: buildDetailPerms(moddle, ext.detailPerm),
     detailTablePerm: buildDetailTablePerms(moddle, ext.detailTablePerm),

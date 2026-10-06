@@ -72,6 +72,17 @@ const NODE_TYPE: Record<number, string> = {
 /** 流程定义状态：0草稿 1已发布 2停用 3测试 */
 const DEF_STATUS: Record<number, string> = { 0: '草稿', 1: '已发布', 2: '停用', 3: '测试' };
 
+/**
+ * 有效测试实例 ID 判定（模块级，供各回调复用）。
+ *
+ * <p>⚠️ 后端在「预校验未过 / 未真正发起」时，会把 `instId` 填成 **-1**（Long 空值占位）。
+ * 而 <b>-1 是 truthy 的数字</b>，所以 `if (instId)` / `if (data?.instId)` 这类判断会误判为
+ * 「已发起」，于是：用 -1 去调 `/test/**` → 打出误导性的「测试实例不存在」，
+ * 同时把后端真正返回的预校验问题（`summary`：缺操作者 / 缺表单内容…）吞掉，用户无从得知要改什么。
+ * 故所有「是否已发起」的判断必须走本函数（<b>数值 &gt; 0</b>），不可用真值判断。</p>
+ */
+const isRealInstId = (v: any): boolean => v != null && v !== '' && Number(v) > 0;
+
 const statusTag = (s?: number) => {
   switch (s) {
     case 1:
@@ -129,8 +140,21 @@ const WorkflowTestPage: React.FC = () => {
   const [defs, setDefs] = useState<any[]>([]);
   /** 路径类型（流程分类）字典：value=类型id，label=类型名称（对齐 ecology path_type） */
   const [wfTypes, setWfTypes] = useState<any[]>([]);
-  const [defId, setDefId] = useState<any>(undefined);
-  const [testUserId, setTestUserId] = useState<any>(undefined);
+  /**
+   * 支持 URL 直达：?defId=xxx&testUserId=yyy
+   *
+   * <p>调试时手上通常只有 defId（甚至连测试发起人都已知），走页面要「点流程 → 选人 → 才进测试界面」，
+   * 绕路。带上这两个 query 即可直达并自动发起（下方自动发起 effect 依赖 [defId, testUserId]）。</p>
+   *
+   * <p>⚠️ defId / testUserId 都是 19 位雪花 ID：<b>必须按字符串取</b>，经 Number 会丢精度
+   * （超过 2^53）导致查不到定义/用户。缺失时给 undefined，走原有空状态。</p>
+   */
+  const [defId, setDefId] = useState<any>(() =>
+    new URLSearchParams(window.location.search).get('defId') || undefined,
+  );
+  const [testUserId, setTestUserId] = useState<any>(() =>
+    new URLSearchParams(window.location.search).get('testUserId') || undefined,
+  );
   const [coverBranches, setCoverBranches] = useState<boolean>(true);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<WfTestResult | null>(null);
@@ -171,8 +195,7 @@ const WorkflowTestPage: React.FC = () => {
    * 有效测试实例ID：失败/未发起时后端可能给 null 或异常值（如 `-1`），
    * 不能当作真实例去调 `/test/**`（否则会打出一串「测试实例不存在」）。
    */
-  const validInstId =
-    result?.instId != null && Number(result.instId) > 0 ? result.instId : undefined;
+  const validInstId = isRealInstId(result?.instId) ? result!.instId : undefined;
 
   /** 「开始自动测试」因必填被拦截而暂停时的提示（非空即展示暂停提示条） */
   const [startBlockMsg, setStartBlockMsg] = useState<string | null>(null);
@@ -450,10 +473,12 @@ const WorkflowTestPage: React.FC = () => {
       // 对齐真实发起流程——先从申请人表单开始填写，提交后再自动跟随到新的当前节点。
       setViewNodeKey(undefined);
       loadHistory();
-      if (data?.instId) {
+      if (isRealInstId(data?.instId)) {
         if (!silent) message.success('测试实例已发起，可「开始自动测试」或手动提交');
       } else if (!silent) {
-        message.warning(data?.summary || '预校验未通过，无法发起测试');
+        // 预校验未过 → 后端未真正发起（instId=-1）。必须明确中止并展示后端给出的问题清单，
+        // 否则会带着 -1 去调 /test/step，报出误导性的「测试实例不存在」，把真正原因盖掉。
+        message.error(data?.summary || '预校验未通过，无法发起测试');
       }
       return data;
     } catch (e: any) {
@@ -476,7 +501,7 @@ const WorkflowTestPage: React.FC = () => {
     }
     if (autoRunning) return;
     const d = await startTest();
-    if (d?.instId) {
+    if (isRealInstId(d?.instId)) {
       message.success('已重新发起测试实例（停在首个待办，可手动提交）');
     }
   };
@@ -491,7 +516,7 @@ const WorkflowTestPage: React.FC = () => {
     if (entryStartRef.current === key) return;
     entryStartRef.current = key;
     startTest(true).then((d) => {
-      if (!d?.instId) {
+      if (!isRealInstId(d?.instId)) {
         // 失败原因已由 startTest 内的 message.error 提示（含后端 msg）；
         // 这里只解除防重标记，允许补齐后点「重新发起测试」重试。
         entryStartRef.current = '';
@@ -526,8 +551,10 @@ const WorkflowTestPage: React.FC = () => {
     /** 真人模式（方案 §6.4 C12 / F8）：以「本人身份」提交，走 /test/approve */
     realMode?: boolean,
   ) => {
+    // 兜底防线：即便调用方传入 -1（后端未发起时的占位值）也不得下发到 /test/**，
+    // 否则会换来一句误导性的「测试实例不存在」，盖住真正的预校验问题。
     const instId = instIdOverride ?? validInstId;
-    if (!instId) {
+    if (!isRealInstId(instId)) {
       message.warning('请先点「开始自动测试」发起并推进测试实例');
       return null;
     }
@@ -566,10 +593,17 @@ const WorkflowTestPage: React.FC = () => {
       return;
     }
     // 尚未发起实例，或上一次测试已结束 → 先发起全新测试态实例，再自动逐节点推进
-    let instId: any = result?.instId;
-    if (!instId || (result?.instanceStatus ?? 0) !== 0) {
+    // ⚠️ 判定必须用 isRealInstId（数值 > 0）而非真值：预校验未过时后端返回 instId=-1，
+    //    而 -1 是 truthy，会让「未真正发起」被当成「已发起」，随后用 -1 调 /test/step，
+    //    报出误导性的「测试实例不存在」，并把真正的预校验问题（summary）吞掉。
+    let instId: any = validInstId;
+    if (!isRealInstId(instId) || (result?.instanceStatus ?? 0) !== 0) {
       const started = await startTest();
-      if (!started?.instId) {
+      if (!isRealInstId(started?.instId)) {
+        // 未真正发起（预校验未过 / 已被清理）：展示后端问题清单并中止，绝不进入推进循环
+        message.error(
+          started?.summary || '预校验未通过，无法发起测试实例，请按「节点信息」补齐配置后重试',
+        );
         return;
       }
       instId = started.instId;
@@ -599,14 +633,16 @@ const WorkflowTestPage: React.FC = () => {
           break;
         }
         setStartBlockMsg(null);
-        if (!data?.instId) break;
+        // 同上：-1 不是有效实例（预校验未过/实例被清理），必须用 isRealInstId 判定
+        if (!isRealInstId(data?.instId)) {
+          message.error(data?.summary || '测试实例已失效，请重新发起测试');
+          break;
+        }
         if (data.instanceStatus != null && data.instanceStatus !== 0) {
           message.success(`自动测试结束：${data.summary || ''}`);
           break;
         }
-        if (data.instId) {
-          instId = data.instId;
-        }
+        instId = data.instId;
         if (!data.hasPending) break;
         // 稍作停顿，便于观察逐节点推进
         await new Promise((r) => setTimeout(r, 300));
@@ -923,6 +959,17 @@ const WorkflowTestPage: React.FC = () => {
         {currentDef
           ? `：${currentDef.name || currentDef.procKey}（v${currentDef.version ?? '-'}）`
           : ''}
+        {/* 追加 defId：测试/调试时需频繁按 defId 拼接口或切页面，标题上直接可见省去翻查。
+            刻意用 String() 渲染 —— defId 是 19 位雪花 ID，按数字渲染会被 JS 精度截断
+            （2^53 位以上丢精度，出现「查不到实例」）。样式弱化，不与流程名争视觉。 */}
+        {currentDef?.id ? (
+          <Typography.Text
+            type="secondary"
+            style={{ fontSize: 13, fontWeight: 400, marginLeft: 8, userSelect: 'all' }}
+          >
+            defId：{String(currentDef.id)}
+          </Typography.Text>
+        ) : null}
       </Typography.Title>
       <Alert
         type="info"
@@ -1310,11 +1357,15 @@ const WorkflowTestPage: React.FC = () => {
                 onSubmitted={(data: any) => {
                   // 发起测试实例后交给测试页接管：切到「测试实例」分支，
                   // 之后即可「开始自动测试」逐节点推进，或手动逐步提交
-                  if (data?.instId) {
+                  // ⚠️ 用 isRealInstId 判定：预校验未过时后端 instId=-1（truthy），
+                  //    若按真值判断会把「未发起」当成「已发起」，后续推进必然报「测试实例不存在」。
+                  if (isRealInstId(data?.instId)) {
                     setResult(data);
                     followRef.current = true;
                     syncViewNode(data);
                     loadHistory();
+                  } else {
+                    message.error(data?.summary || '预校验未通过，测试实例未发起');
                   }
                 }}
               />

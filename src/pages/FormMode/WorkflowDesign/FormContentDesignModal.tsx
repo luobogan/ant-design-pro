@@ -467,7 +467,14 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
   const save = async () => {
     if (!defId || !nodeKey) return;
     // F-T6：明细筛选双写——extJson 兜底 + wf:detailFilter 元素为运行期权威源（detail-filter-from-bpmn）
-    const nextFc = { ...fc, detailFilterSynced: true };
+    //
+    // 【联动】保存表单内容即视为「已采用节点布局」，把 mode 收敛为 custom：
+    //   · 「设计布局」与「表单内容=节点布局」原本是两个独立动作，用户常只做前者，
+    //     导致 formContent.mode 一直缺失 → 流程测试/模拟运行预校验判「未设置表单内容」失败，
+    //     且「节点信息」列表里下拉框一直显示「未设置」，看起来像布局没生效（其实布局已存 form_layout）。
+    //   · 「普通模式(normal)」早已屏蔽（选项 disabled、运行期不消费），保留它只会让预校验恒失败，
+    //     故此处一并归一为 custom；下拉框仍保留，便于用户查看/手动切换。
+    const nextFc = { ...fc, detailFilterSynced: true, mode: 'custom' as const };
     const filters = [...toExtFilters(nextFc.detailFilterShow, MODE_SHOW), ...toExtFilters(nextFc.detailFilterPrint, MODE_PRINT)];
     const settings = readSettings({ ...node, extJson: extJsonOf(nodeKey, node) });
     const extJson = JSON.stringify({ settings: { ...settings, formContent: nextFc } });
@@ -479,7 +486,7 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
         return;
       }
       onPatch?.(nodeKey, { extJson });
-      message.success('表单内容已保存（已写入 BPMN 扩展）');
+      message.success('表单内容已保存（已写入 BPMN 扩展，表单内容=节点布局）');
       onClose();
     } catch {
       message.error('保存失败');
@@ -555,9 +562,12 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
         // 路线 B：目标节点的 settings 也优先读 BPMN 扩展，避免覆盖画布上已有的配置
         const settings = readSettings({ ...target, extJson: extJsonOf(key, target) });
         // 同步过去时清掉各自的「同步目标」自身，避免互相指向；明细筛选随 wf:detailFilter 一并同步
+        // 【联动】同 save()：同步（含节点布局本体）意味着目标节点也采用节点布局，故 mode 一并归一为 custom，
+        //   否则目标节点会因 formContent.mode 缺失被预校验判「未设置表单内容」。
         const next = {
           ...fc,
           detailFilterSynced: true,
+          mode: 'custom' as const,
           syncNodeKeys: undefined,
           mobile: { ...(fc.mobile || {}), nodeKeys: undefined },
         };

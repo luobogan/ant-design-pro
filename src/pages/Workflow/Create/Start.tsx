@@ -160,8 +160,18 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
   const isPreview = mode === 'preview';
   /** 实例态：渲染已有实例的办理视图（替代原 FlowFormPanel），与新建页统一为同一入口 */
   const isInstance = mode === 'instance';
-  /** 由「草稿」续填进入时带上的草稿实例ID（表单直发无） */
-  const instanceId = new URLSearchParams(window.location.search).get('instanceId');
+  /**
+   * 由「草稿」续填进入时带上的草稿实例ID（表单直发无）。
+   *
+   * <p>⚠️ 必须是<b>首次挂载时的快照</b>（useState 惰性初始化），<b>不能</b>每次渲染实时读 URL：
+   * 保存草稿成功后会把 instanceId 回写到地址栏，若实时读取，该值会在保存引发的重渲染中变化，
+   * 从而触发下方「草稿续填」effect 重新去查这条<b>刚刚创建</b>的草稿；一旦该次查询未命中
+   * （时序/解析差异），就会把它误判成「该草稿已不存在」—— 表现为<b>保存成功却弹出草稿不存在</b>，
+   * 并连带把保存/提交按钮停用。快照后地址栏回写不再影响本页状态。</p>
+   */
+  const [instanceId] = useState<string | null>(() =>
+    new URLSearchParams(window.location.search).get('instanceId'),
+  );
   /** 独立路由（从待办/我的请求/已办点进来）时 nodeKey 由 URL 带入；内嵌时由 props 带入 */
   const urlNodeKey = new URLSearchParams(window.location.search).get('nodeKey');
   /** 由「单据」发起时带上的业务数据ID（formtable_main_{formId}.id）；
@@ -185,6 +195,13 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
    * 而本页仍按草稿在编辑。非空即禁止保存/提交并提示用户改从「待办 / 我的请求」继续处理。</p>
    */
   const [staleReason, setStaleReason] = useState<string>('');
+  /**
+   * 已「提升为正式实例」的实例ID（即本页的草稿已在别处发起成功）。
+   *
+   * <p>用于把「草稿不存在」与「草稿已发起」区分开：后者实例仍在、只是状态变了，
+   * 横幅据此给出「前往办理」入口，让已发布流程能继续流转，而不是死在「本页已过期」上。</p>
+   */
+  const [promotedInstId, setPromotedInstId] = useState<string>('');
 
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string>('');
@@ -225,8 +242,12 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
       try {
         const inst: any = pickPayload(await getInstance(instanceId));
         if (inst && inst.id) {
-          // 实例已不再是草稿态（别处提交过 / 已归档 / 已终止）→ 本页按草稿编辑的状态已过期
+          // 实例已不再是草稿态（别处提交过 / 已归档 / 已终止）→ 本页按草稿编辑的状态已过期。
+          // ⚠️ 这**不是**「草稿不存在」：实例仍在，只是已提升为正式实例。必须区分二者，
+          //    否则用户会看到「流程明明发起了，却提示草稿已不存在」这类自相矛盾的报错。
+          //    记录 promotedInstId → 横幅上给出「前往办理」入口，让已发布流程能继续流转。
           if (Number(inst.status) !== 5) {
+            setPromotedInstId(String(inst.id));
             setStaleReason(
               '该流程已发起（当前状态已不是草稿），本页的保存/提交已失效，请在「待办」或「我的请求」中继续处理',
             );
@@ -398,16 +419,22 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
   }, [pkg, snapshotValues]);
 
   /**
-   * 节点操作菜单（allowMenus）口径与「办理页」ApprovalPage 完全一致：
+   * 节点操作菜单（allowMenus）口径与「办理页」InstanceFlow **完全一致**：
    *   - 渲染包未回来（pkg 为空）→ 不渲染操作按钮，避免闪出不该有的按钮；
-   *   - allowMenus 为 null/undefined（节点未配置操作菜单）→ **不限制**，按全量动作走；
+   *   - 未配置操作菜单 → **不限制**，按全量动作走；
    *   - 配置过 → 只给集合内的动作（空数组 = 全部禁用）。
    * 这样同一份节点配置在「测试流程」与「正式流程」表现一致。
+   *
+   * ⚠️ 「未配置」必须用 allowMenusUnset 判定，**不能**用 allowMenus == null：
+   *    blade 全局 HTTP 转换器 nullToEmpty=true（默认开）会把响应里的 null List 序列化成 []，
+   *    使「未配置（不限制）」与「配置过但全部禁用」在响应中无法区分 —— 未配置的节点会被误判成
+   *    全部禁用，导致「提交」等写操作按钮整体消失（正式发起页曾因此只有返回、没有提交）。
+   *    后端在渲染包中显式下发 allowMenusUnset=true（Boolean 不受空值序列化影响），以它为准。
    */
   const menuAllowed = useCallback(
     (code: string): boolean => {
       if (!pkg) return false;
-      if (pkg.allowMenus == null) return true;
+      if (pkg.allowMenusUnset === true || pkg.allowMenus == null) return true;
       return (pkg.allowMenus || []).map(String).includes(code);
     },
     [pkg],
@@ -499,6 +526,29 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
     message.error(text);
   };
 
+  /**
+   * 清掉地址栏里的草稿标识（instanceId / dataId）。
+   *
+   * <p>用于「草稿已提升为正式实例」之后：URL 上的 {@code instanceId} 是保存草稿时回写的
+   * （方便刷新后续填），一旦提交成功它就指向一条<b>已发起</b>的实例。留在地址栏会让本页
+   * 再次以「草稿续填」身份加载并被状态校验拦下，表现为「流程已发布却提示草稿不存在」。
+   * 清掉即回到干净的发起态，用户可继续新建下一条流程。</p>
+   *
+   * <p>内嵌（测试页右侧）不动地址栏：宿主页 URL 由父组件掌控。</p>
+   */
+  const clearDraftFromUrl = () => {
+    if (embedded) return;
+    try {
+      const url = new URL(window.location.href);
+      if (!url.searchParams.has('instanceId') && !url.searchParams.has('dataId')) return;
+      url.searchParams.delete('instanceId');
+      url.searchParams.delete('dataId');
+      window.history.replaceState({}, '', url.toString());
+    } catch {
+      // 地址栏改写失败不影响发起结果，静默降级
+    }
+  };
+
   const doStart = async (values: Record<string, any>) => {
     // 写操作门禁：草稿可能已被删除或在别处提交（界面未刷新），过期则绝不发起
     if (!(await guardDraft())) return;
@@ -548,6 +598,13 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
         }
       }
       setDone(true);
+      // 草稿已「原地提升」为正式运行实例（status 5→0，仍是同一条 wf_instance 行）。
+      // ⚠️ 必须清掉 URL 里滞留的草稿 instanceId：保存草稿时它被回写到地址栏（见 handleSaveClick），
+      //    若发起后不清，用户刷新 / 重开该链接会再次以「草稿续填」身份去查这个已发起的实例，
+      //    status 已不是草稿 → 被判成不一致，出现「该草稿已不存在 / 本页已过期」的误报
+      //    （流程明明已发布成功，却提示草稿不存在）。清空后本页回到干净的发起态。
+      clearDraftFromUrl();
+      setDraftInstId('');
     } catch (e: any) {
       notifyDraftFail(e?.msg, '发起失败');
     } finally {
@@ -816,9 +873,26 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
                       : `${staleReason}。为避免把过期数据写回，本页的保存/提交已停用，请关闭本页后在「待办」或「我的请求」中打开最新状态。`
                   }
                   action={
-                    <Button size="small" onClick={() => window.location.reload()}>
-                      刷新页面
-                    </Button>
+                    <Space size={4}>
+                      {/* 已发起：直接去办理页继续流转（实例仍在，只是不再是草稿） */}
+                      {promotedInstId ? (
+                        <Button
+                          type="primary"
+                          size="small"
+                          onClick={() =>
+                            window.open(
+                              `/workflow/create/start?defId=${defId}&mode=instance&instanceId=${promotedInstId}`,
+                              '_blank',
+                            )
+                          }
+                        >
+                          前往办理
+                        </Button>
+                      ) : null}
+                      <Button size="small" onClick={() => window.location.reload()}>
+                        刷新页面
+                      </Button>
+                    </Space>
                   }
                 />
               )}

@@ -13,6 +13,7 @@ import NodeTimeoutModal from './NodeTimeoutModal';
 import CustomOperationModal from './CustomOperationModal';
 import {
   buildExtJson,
+  defaultOperateMenu,
   extraOperateSummary,
   isSettingConfigured,
   nodeSettings,
@@ -82,7 +83,14 @@ const SETTING_COLUMN_KEYS = [
   'reject',
 ];
 
-const emptyExtJson = () => JSON.stringify({ settings: {} });
+/**
+ * 新建节点的初始 ext_json：**自动带上默认操作菜单**（含必填项 提交/保存）。
+ *
+ * <p>这样「生成新流程」时节点开箱即可发起与保存草稿，不必先去「操作菜单」里手工勾一遍
+ * （此前默认 `settings:{}` 会让节点在配置落库前没有菜单，用户需手工补配置）。</p>
+ */
+const emptyExtJson = () =>
+  JSON.stringify({ settings: { operateMenu: defaultOperateMenu() } });
 
 /**
  * 节点信息列表（可编辑）。

@@ -88,8 +88,16 @@ const TestFlowPicker: React.FC<TestFlowPickerProps> = ({
     }
     if (keyword.trim()) {
       const kw = keyword.trim().toLowerCase();
+      // 关键字可命中「流程名 / procKey / 版本 / defId」——测试时手上往往只有 defId，
+      // 支持直接粘贴定位，省去在列表里逐个辨认同名/多版本流程。
       arr = arr.filter((d: any) =>
-        (String(d.name || d.procKey) + ' v' + (d.version ?? '')).toLowerCase().includes(kw),
+        (
+          String(d.name || d.procKey) +
+          ' v' +
+          (d.version ?? '') +
+          ' ' +
+          String(d.id ?? '')
+        ).toLowerCase().includes(kw),
       );
     }
     return [...arr].sort((a: any, b: any) =>
@@ -152,6 +160,8 @@ const TestFlowPicker: React.FC<TestFlowPickerProps> = ({
                   >
                     {typeNameMap.get(String(d.type)) || '未分类'} · 使用激活版本 v{d.version ?? '-'}
                     · key：{d.procKey}
+                    {/* defId 一并展示：同名/多版本时便于确认要测的是哪一条（String() 避免雪花 ID 精度截断） */}
+                    {d.id ? ` · id：${String(d.id)}` : ''}
                   </div>
                 </div>
                 <Tag color={d.status === 1 ? 'green' : d.status === 3 ? 'blue' : 'default'} style={{ marginRight: 0 }}>

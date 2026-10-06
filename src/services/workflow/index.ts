@@ -934,6 +934,15 @@ export interface FormRenderPackage {
   readonly?: boolean;
   /** 当前节点「操作菜单」允许的操作码（submit/reject/forward/sign/opinion/attach/print/urge），驱动审批界面按钮栏 */
   allowMenus?: string[];
+  /**
+   * 操作菜单是否「未配置」（true=不限制，全部可用）。
+   *
+   * <p>⚠️ 判断「未配置」必须用本字段，<b>不能</b>用 `allowMenus == null`：blade 全局 HTTP 转换器
+   * {@code nullToEmpty} 默认开启，会把响应里的 null List 序列化成 {@code []}，导致「未配置（不限制）」
+   * 与「配置过但全部禁用」在 HTTP 响应里无法区分 —— 未配置节点会被误判为全部禁用，写操作按钮
+   * （提交/退回…）整体消失。后端在渲染包中显式下发本布尔字段以消除该歧义。</p>
+   */
+  allowMenusUnset?: boolean;
   /** 当前节点是否要求填写审批意见 */
   opinionRequired?: boolean;
   /** 节点「打印内容设置」（来自节点信息 → 表单内容 → 打印模板 → 打印内容设置） */

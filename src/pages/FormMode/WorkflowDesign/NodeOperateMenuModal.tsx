@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Input, Modal, Radio, Space, Switch, Table, Tag, message } from 'antd';
+import { Button, Input, Modal, Radio, Space, Switch, Table, Tag, Tooltip, message } from 'antd';
 import { ArrowDownOutlined, ArrowUpOutlined, HolderOutlined } from '@ant-design/icons';
 import { WfProcessNode } from '@/services/workflow';
-import { DEFAULT_MENUS, MENUS_OPTIONS } from './wfDict';
+import { DEFAULT_MENUS, MENUS_OPTIONS, REQUIRED_MENUS } from './wfDict';
 import {
   buildExtJson,
   menusFromItems,
@@ -107,8 +107,16 @@ const NodeOperateMenuModal: React.FC<NodeOperateMenuModalProps> = ({
     });
   };
 
-  /** 全选 / 清空 / 恢复默认（默认 = DEFAULT_MENUS：提交 + 转发 + 保存 + 退回，名称还原字典名） */
-  const setAll = (enabled: boolean) => setItems((prev) => prev.map((i) => ({ ...i, enabled })));
+  /**
+   * 全选 / 清空 / 恢复默认（默认 = DEFAULT_MENUS：提交 + 保存 + 退回 + 转发，名称还原字典名）。
+   *
+   * <p>「清空」也不会动 {@link REQUIRED_MENUS}（提交/保存）：这两项是节点能工作的最低动作集，
+   * 取消掉会让节点没有提交按钮、流程无法推进，属必填项、不可取消。</p>
+   */
+  const setAll = (enabled: boolean) =>
+    setItems((prev) =>
+      prev.map((i) => (REQUIRED_MENUS.includes(i.key) ? { ...i, enabled: true } : { ...i, enabled })),
+    );
   const resetDefault = () => {
     setItems((prev) => {
       // 默认项按 DEFAULT_MENUS 的顺序排前，其余按字典顺序跟后，全部恢复字典名
@@ -130,10 +138,12 @@ const NodeOperateMenuModal: React.FC<NodeOperateMenuModalProps> = ({
       message.warning('已启用的操作必须填写显示名称');
       return;
     }
+    // 落库前强制补回必填项（提交/保存）：即便本地 items 因旧数据/异常状态没勾上，
+    // 保存到定义里也一定是启用的，杜绝「节点没有提交按钮」的配置流入线上。
     const cleaned: OperateMenuItem[] = items.map((i) => ({
       key: i.key,
       name: (i.name || '').trim() || dictName(i.key),
-      enabled: !!i.enabled,
+      enabled: REQUIRED_MENUS.includes(i.key) ? true : !!i.enabled,
     }));
     // 默认操作必须处于启用状态
     const dk =
@@ -249,18 +259,32 @@ const NodeOperateMenuModal: React.FC<NodeOperateMenuModalProps> = ({
     {
       title: '启用',
       dataIndex: 'enabled',
-      width: 70,
-      render: (enabled: boolean, r: OperateMenuItem) => (
-        <Switch
-          size="small"
-          checked={enabled}
-          onChange={(v) => {
-            patch(r.key, { enabled: v });
-            // 停用项若为默认操作，则清掉默认，避免出现"默认了一个不显示的操作"
-            if (!v && defaultKey === r.key) setDefaultKey(undefined);
-          }}
-        />
-      ),
+      width: 110,
+      render: (enabled: boolean, r: OperateMenuItem) => {
+        // 必填项（提交/保存）：强制启用且不可取消 —— 缺了它们节点无法提交/保存，流程走不通
+        const required = REQUIRED_MENUS.includes(r.key);
+        return (
+          <Space size={4}>
+            <Switch
+              size="small"
+              checked={required || enabled}
+              disabled={required}
+              onChange={(v) => {
+                patch(r.key, { enabled: v });
+                // 停用项若为默认操作，则清掉默认，避免出现"默认了一个不显示的操作"
+                if (!v && defaultKey === r.key) setDefaultKey(undefined);
+              }}
+            />
+            {required && (
+              <Tooltip title="必填：节点能工作的最低动作集，不可取消">
+                <Tag color="red" style={{ marginInlineEnd: 0 }}>
+                  必填
+                </Tag>
+              </Tooltip>
+            )}
+          </Space>
+        );
+      },
     },
     {
       title: '默认',
