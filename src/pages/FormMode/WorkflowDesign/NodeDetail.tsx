@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Button,
   Checkbox,
   Form,
@@ -698,6 +699,22 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
 
   const settingsTab = (
     <>
+      {nodeType === 3 ? (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 8 }}
+          message="结束（归档）节点只用于触发流程归档"
+          description={
+            <>
+              引擎不会为结束事件生成任务，因此下面<strong>除「标题显示设置」外的设置项都不会被执行</strong>
+              （操作菜单 / 前后附加操作 / 签字意见 / 子流程 / 异常处理等仅在真实待办节点上生效）。
+              归档人请在「操作者」页签配置（默认解析规则见操作者说明）。此处保留既有配置仅为兼容，
+              不会影响流程运行。
+            </>
+          }
+        />
+      ) : null}
       <div style={{ border: '1px solid #f0f0f0', borderRadius: 6, overflow: 'hidden' }}>
         <div style={ROW_STYLE}>
           <span>表单内容</span>

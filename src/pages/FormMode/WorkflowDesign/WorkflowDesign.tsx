@@ -96,9 +96,15 @@ const SIGN_ORDER = ['或签', '会签', '依次', '抄送不需提交', '抄送�
 const NODE_TYPE = ['创建', '审批', '提交', '归档', '等待', '自动'];
 
 /**
- * 默认流程画布：开始 → 结束（带 BPMN DI 坐标，画布可直接渲染）。
- * 新建 / 从未保存画布的流程在打开设计器时自动初始化，节点信息列表即带「开始」「结束」两个节点，
- * 不必等用户点保存才由 saveBpmn 从画布反推生成。
+ * 默认流程画布：开始 → 创建(申请人填单) → 结束（带 BPMN DI 坐标，画布可直接渲染）。
+ *
+ * <p><b>新模型</b>：「申请人填单」是真正的 {@code bpmn:UserTask}（{@code wf:node nodeType="0"}），
+ * 引擎发起后停在该节点并为发起人生成真实任务；{@code bpmn:startEvent} 仅是 BPMN 必需的起点连接器
+ * （引擎自动完成、不承载业务、不入 {@code wf_process_node}）。创建节点默认办理人 =
+ * 创建人本人（opType=17），保证「退回发起人」时待办回到发起人手上。</p>
+ *
+ * <p>新建 / 从未保存画布的流程在打开设计器时自动初始化，节点信息列表即带「创建」「结束」节点，
+ * 不必等用户点保存才由 saveBpmn 从画布反推生成。</p>
  */
 const buildDefaultBpmn = (def: WfProcessDefinition): string => {
   const pid =
@@ -107,7 +113,15 @@ const buildDefaultBpmn = (def: WfProcessDefinition): string => {
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_${pid}" targetNamespace="http://bpmn.io/schema/bpmn">
   <bpmn:process id="${pid}" isExecutable="true">
     <bpmn:startEvent id="StartEvent_1" name="开始" />
-    <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="EndEvent_1" />
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="UserTask_1" />
+    <bpmn:userTask id="UserTask_1" name="创建">
+      <bpmn:extensionElements>
+        <wf:node xmlns:wf="http://www.springblade.org/workflow" nodeType="0" sortOrder="1">
+          <wf:operator opType="17" groupNo="1" />
+        </wf:node>
+      </bpmn:extensionElements>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="UserTask_1" targetRef="EndEvent_1" />
     <bpmn:endEvent id="EndEvent_1" name="结束" />
   </bpmn:process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
@@ -116,12 +130,19 @@ const buildDefaultBpmn = (def: WfProcessDefinition): string => {
         <dc:Bounds x="160" y="100" width="36" height="36" />
         <bpmndi:BPMNLabel><dc:Bounds x="160" y="140" width="36" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UserTask_1_di" bpmnElement="UserTask_1">
+        <dc:Bounds x="270" y="78" width="100" height="80" />
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="EndEvent_1_di" bpmnElement="EndEvent_1">
         <dc:Bounds x="460" y="100" width="36" height="36" />
         <bpmndi:BPMNLabel><dc:Bounds x="460" y="140" width="36" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
         <di:waypoint x="196" y="118" />
+        <di:waypoint x="270" y="118" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_2_di" bpmnElement="Flow_2">
+        <di:waypoint x="370" y="118" />
         <di:waypoint x="460" y="118" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>

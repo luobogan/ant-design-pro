@@ -1098,8 +1098,10 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
         };
 
         // 期望节点类型 → 画布形状类型（仅 Start/UserTask/End 能被 saveBpmn 解析；其余落到 UserTask，再回写真实类型）
+        // 创建节点(0) 一律建为 bpmn:UserTask：「申请人填单」是真实等待态，引擎为其生成任务并停住 token。
+        // StartEvent 仅作 BPMN 必需的起点连接器（引擎发起时自动完成、不承载业务），由 insertAfter
+        // 的兜底分支 / 默认模板保证存在，绝不当作创建节点。
         const shapeTypeFor = (nt: number): string => {
-          if (nt === 0 && !hasStart) return 'bpmn:StartEvent';
           if (nt === 3 && !hasEnd) return 'bpmn:EndEvent';
           return 'bpmn:UserTask';
         };
