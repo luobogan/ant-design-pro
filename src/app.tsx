@@ -28,7 +28,6 @@ import { dynamicRoutes, dynamicButtons } from '@/services/system/menu';
 import { setButtons, getButtons } from '@/utils/authority';
 import Func from '@/utils/Func';
 import { formatRoutes, pickPayload } from '@/utils/utils';
-import { loadCaptchaMode } from '@/utils/captchaSetting';
 
 dayjs.extend(relativeTime);
 
@@ -475,10 +474,6 @@ export async function getInitialState(): Promise<{
   };
 
   const { location } = history;
-
-  // 从数据库加载「登录验证码开关」，覆盖 defaultSettings 兜底默认值。
-  // 登录页也需读取，故在分支判断前执行（公开接口，匿名可访问）。
-  await loadCaptchaMode();
 
   const savedFormData = getSavedFormData();
   if (savedFormData) {

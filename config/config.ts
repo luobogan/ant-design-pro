@@ -39,6 +39,8 @@ const IS_DEV = UMI_ENV === 'dev';
 export default defineConfig({
   alias: {
     '@root': join(__dirname, '..'),
+    // node polyfill 兜底（utoo 自带的 polyfill 在 Windows 下会生成越界的绝对路径导入）
+    path: join(__dirname, '..', 'node_modules', 'path-browserify', 'index.js'),
     // ── Univer 本地构建产物（仅保留实际使用的包）──
     '@univerjs/core': join(UNIVER_LIB, 'core', 'lib', 'es', 'index.js'),
     '@univerjs/data-validation': join(UNIVER_LIB, 'data-validation', 'lib', 'es', 'index.js'),
@@ -274,6 +276,11 @@ export default defineConfig({
     exclude: ['mock/requestRecord.mock.js'],
   },
  utoopack: {
+    nodePolyfill: false,
+    // 避免 dev 启动时整目录清理 dist（增量构建产物较多，容易触发环境侧的批量删除拦截）
+    output: {
+      clean: false,
+    },
     module: {
       rules: {
         '*.md': {

@@ -19,6 +19,9 @@ export default {
       // 配置了这个可以从 http 代理到 https
       // 依赖 origin 的功能可能需要这个，比如 cookie
       changeOrigin: true,
+      // 转发 WebSocket 升级请求（消息中心 SockJS 的 websocket 传输依赖此项，
+      // 未开启时升级会被 dev server 拦下，表现为 "closed before the connection is established"）
+      ws: true,
       // 重写路径，移除 /api 前缀
       pathRewrite: { '^/api': '' },
     },

@@ -1,3 +1,11 @@
 @import "tailwindcss/index.css";
 
 @source "./src";
+
+/* 排除 vendored 的 Univer 库：
+   它自带预编译 CSS（见 UniverExcelGrid.tsx 中 import 的 @univerjs/.../lib/index.css），
+   无需被 Tailwind 扫描类名。
+   这两个目录约占 src 的 97%（约 7000 个文件 / 173MB），参与扫描会让
+   tailwindcss 的 loader 子进程超时崩溃（timeout while receiving message from process）。 */
+@source not "./src/univer-packages/**";
+@source not "./src/univer-lib/**";
