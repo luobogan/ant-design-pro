@@ -430,30 +430,58 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
 
 export function render(oldRender: () => void) {
   setTimeout(async () => {
-    try {
-      const menuData = await dynamicRoutes();
-      // ⚠️ 按钮型组件页（category=2 + isComponent=1 + path，如流程设计器 /formmode/workflowdesign）
-      // 的路由注册依赖按钮数据（getButtons() 读 localStorage）。而按钮数据在 getInitialState
-      // 里才拉取，晚于本 render ⇒ 首次进入（sword-buttons 无缓存）路由会漏注册，进入即 404。
-      // 故此处若缓存为空先拉一次按钮并落盘，再构建路由，保证按钮组件页首次即可用。
-      if (!(getButtons() || []).length) {
-        try {
-          setButtons(pickPayload(await dynamicButtons()) || []);
-        } catch (e) {
-          console.warn('按钮数据预加载失败，按钮型组件页可能不可用：', e);
-        }
+    // 动态路由拉取加重试：开发期 HMR 重编译、代理抖动、后端服务重启窗口都可能造成瞬时
+    // 超时/失败。此前一失败就跳登录页，会让「token 仍有效」的用户误以为掉线被踢出。
+    // 策略：最多 3 次（0.8s/1.6s 退避），仅 401 才认定登录态失效跳登录；
+    // 其余失败进应用并提示刷新（菜单可能为空，刷新即可恢复）。
+    const statusOf = (e: any) =>
+      e?.response?.status ?? e?.status ?? e?.response?.data?.code ?? e?.data?.code;
+    let menuData: any = null;
+    let lastErr: any = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        menuData = await dynamicRoutes();
+        lastErr = null;
+        break;
+      } catch (e: any) {
+        lastErr = e;
+        if (statusOf(e) === 401) break;
+        await new Promise((r) => setTimeout(r, attempt * 800));
       }
-      // 兼容两种形态：拦截器已拆包时 menuData.data 就是路由数组；
-      // 未拆包（umi 包装对象）时 menuData.data 是 ApiResponse，由 formatRoutes 内部再取 .data。
-      extraRoutes = formatRoutes(pickPayload(menuData));
-      const urlParams = new URL(window.location.href).searchParams;
-      const redirect = urlParams.get('redirect');
-      // ⚠️ 只有「确实拿到了菜单（=已登录）」才自动跳回 redirect。
-      // 未登录时后端返回空列表（不报错，走的是 try 分支），若此时直接 push(redirect)，
-      // 会被 onPageChange 以「无 currentUser」打回登录页，而打回时丢了 redirect 参数
-      // → 登录后只能去默认首页，回不到原页面（/user/login?redirect=xxx 失效的根因）。
-      if (redirect && extraRoutes.length > 0) {
-        history.push(redirect);
+    }
+    try {
+      if (lastErr) {
+        if (statusOf(lastErr) === 401) {
+          pushToLoginWithRedirect();
+        } else {
+          console.error('动态菜单拉取失败（已重试）：', lastErr);
+          message.error('菜单加载失败（网络/服务波动），请稍后刷新重试');
+          extraRoutes = [];
+        }
+      } else {
+        // ⚠️ 按钮型组件页（category=2 + isComponent=1 + path，如流程设计器 /formmode/workflowdesign）
+        // 的路由注册依赖按钮数据（getButtons() 读 localStorage）。而按钮数据在 getInitialState
+        // 里才拉取，晚于本 render ⇒ 首次进入（sword-buttons 无缓存）路由会漏注册，进入即 404。
+        // 故此处若缓存为空先拉一次按钮并落盘，再构建路由，保证按钮组件页首次即可用。
+        if (!(getButtons() || []).length) {
+          try {
+            setButtons(pickPayload(await dynamicButtons()) || []);
+          } catch (e) {
+            console.warn('按钮数据预加载失败，按钮型组件页可能不可用：', e);
+          }
+        }
+        // 兼容两种形态：拦截器已拆包时 menuData.data 就是路由数组；
+        // 未拆包（umi 包装对象）时 menuData.data 是 ApiResponse，由 formatRoutes 内部再取 .data。
+        extraRoutes = formatRoutes(pickPayload(menuData));
+        const urlParams = new URL(window.location.href).searchParams;
+        const redirect = urlParams.get('redirect');
+        // ⚠️ 只有「确实拿到了菜单（=已登录）」才自动跳回 redirect。
+        // 未登录时后端返回空列表（不报错，走的是 try 分支），若此时直接 push(redirect)，
+        // 会被 onPageChange 以「无 currentUser」打回登录页，而打回时丢了 redirect 参数
+        // → 登录后只能去默认首页，回不到原页面（/user/login?redirect=xxx 失效的根因）。
+        if (redirect && extraRoutes.length > 0) {
+          history.push(redirect);
+        }
       }
       oldRender();
     } catch (_e) {
