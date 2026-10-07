@@ -86,6 +86,34 @@ export function collectFieldValues(layoutData: any, values: AnyObj): AnyObj {
 }
 
 /**
+ * 只保留「字段名键」，剔除 Excel 坐标键（`{sheetId}__{row}__{col}` / `dt{i}__r{n}__...`）。
+ *
+ * <p>为什么需要：提交载荷历来是 `{ ...values, ...collectFieldValues(layout, values) }`。
+ * `collectFieldValues` 本身会把坐标键翻译成字段名键并过滤空值，但它前面那个 `...values`
+ * 会把<b>原始坐标键整包</b>再摊进载荷 —— 而坐标键在后端一个都对不上业务列（被直接忽略），
+ * 却会被当作流程变量注入引擎（`Sheet1__0__2` 这类垃圾变量），并让 payload 体积膨胀。
+ * 这里给出「只保留字段名键」的收敛口径。注意：<b>不剔除空值</b> —— 清空字段后保存草稿
+ * 仍需把该列写成 null，否则旧值会被保留、字段永远清不掉。</p>
+ */
+export function pickFieldNameValues(values: AnyObj): AnyObj {
+  const out: AnyObj = {};
+  if (!values) return out;
+  Object.keys(values).forEach((k) => {
+    if (CELL_KEY_RE.test(k)) return; // 坐标键 → 交给 collectFieldValues 翻译成字段名键
+    out[k] = values[k];
+  });
+  return out;
+}
+
+/**
+ * 组装提交载荷：`{ 字段名键(直接来自 values) , 字段名键(由坐标键翻译) }`。
+ * 坐标键一律不进载荷。发起 / 测试发起 / 保存草稿 / 办理提交 统一用这个口径。
+ */
+export function buildSubmitValues(layoutData: any, values: AnyObj): AnyObj {
+  return { ...pickFieldNameValues(values), ...collectFieldValues(layoutData, values) };
+}
+
+/**
  * 反向补齐：把「字段名键」的值填到对应「坐标键」上，供 Excel 布局回显。
  *
  * <p>历史数据里两种键都可能存在：旧办理页（FieldRenderer）与测试页顶部场景表单

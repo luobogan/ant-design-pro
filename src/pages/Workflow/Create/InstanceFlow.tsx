@@ -21,7 +21,7 @@ import RichTextEditor, {
   isRichTextEmpty,
 } from '@/components/RichTextEditor';
 import ApprovalFormRender from '@/pages/FormMode/ExcelDesign/components/ApprovalFormRender';
-import { collectFieldValues } from '@/pages/FormMode/ExcelDesign/utils/collectFieldValues';
+import { buildSubmitValues } from '@/pages/FormMode/ExcelDesign/utils/collectFieldValues';
 import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
 import { loadPersonOrgData } from '@/components/FormMode/personOrg';
 import { MENUS_OPTIONS } from '@/pages/FormMode/WorkflowDesign/wfDict';
@@ -806,7 +806,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
       } catch {
         layout = null;
       }
-      onStep?.({ opinion, formData: { ...formValues, ...collectFieldValues(layout, formValues) } });
+      onStep?.({ opinion, formData: buildSubmitValues(layout, formValues) });
       return;
     }
     if (NEED_EXTRA.includes(code)) {
@@ -845,7 +845,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
           formId: inst?.formId,
           dataId: inst?.dataId,
           // 与提交同口径：坐标键（布局回显）+ 字段名键（出口条件）
-          fieldValues: { ...formValues, ...collectFieldValues(layout, formValues) },
+          fieldValues: buildSubmitValues(layout, formValues),
         });
         if (res?.success === false) {
           message.error(res?.msg || '保存失败');
@@ -917,8 +917,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     const submitValues = submitValuesRef.current || formValues;
     const variables: Record<string, any> = {
       ...(pkg?.dataJson || {}),
-      ...submitValues,
-      ...collectFieldValues(layout, submitValues),
+      ...buildSubmitValues(layout, submitValues),
     };
     // 提交前：服务端按节点必填矩阵复核（前端校验不可信，与「正式办理页」同口径）。
     // 布局级必填已由 ExcelPreview 提交时校验，这里补「字段权限=必填」那一层。
