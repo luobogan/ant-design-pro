@@ -1,6 +1,7 @@
 import { FileTextOutlined, LinkOutlined } from '@ant-design/icons';
 import { Avatar, Card, Flex, Tag, theme, Tooltip, Typography } from 'antd';
 import type { MessageAttachment, MessageVO } from '../data';
+import { formatBubbleTime, formatFullTime } from '../time';
 
 interface Props {
   message: MessageVO;
@@ -154,8 +155,8 @@ export default function MessageItem({
             textAlign: outgoing ? 'right' : 'left',
           }}
         >
-          <Tooltip title={message.createTime}>
-            {String(message.createTime || '').slice(11, 19) || '--:--'}
+          <Tooltip title={formatFullTime(message.createTime) || message.createTime}>
+            {formatBubbleTime(message.createTime)}
           </Tooltip>
           {renderReceipt()}
         </div>

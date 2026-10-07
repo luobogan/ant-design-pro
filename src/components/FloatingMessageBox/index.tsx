@@ -8,15 +8,15 @@ import { useModel } from '@umijs/max';
 import { Badge, Button, Flex, Spin, Tooltip, Typography, theme } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ChatPanel from '@/pages/Message/components/ChatPanel';
-import type { MessageSendDTO, MessageVO, SessionVO } from '@/pages/Message/data';
+import type { MessageSendDTO, SessionVO } from '@/pages/Message/data';
 import {
   createSession,
-  getMessages,
   getOnlineUsers,
   getUnreadCount,
   markSessionRead,
   sendMessage,
 } from '@/pages/Message/service';
+import { useMessageHistory } from '@/pages/Message/useMessageHistory';
 import {
   connectMessageSocket,
   onNewMessage,
@@ -46,8 +46,17 @@ export default function FloatingMessageBox() {
   const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
   const [session, setSession] = useState<SessionVO>();
   const [activeUserId, setActiveUserId] = useState<string>();
-  const [messages, setMessages] = useState<MessageVO[]>([]);
-  const [loadingMessages, setLoadingMessages] = useState(false);
+  // 消息历史分页（初始定位最新一页 + 向上滚动加载更早历史），与 /message 页共用
+  const {
+    messages,
+    loading: loadingMessages,
+    loadingMore,
+    hasMore,
+    loadInitial,
+    loadOlder,
+    refreshSilent,
+    appendLocal,
+  } = useMessageHistory();
 
   const sessionIdRef = useRef<string | undefined>(undefined);
   sessionIdRef.current = session ? String(session.id) : undefined;
@@ -64,19 +73,6 @@ export default function FloatingMessageBox() {
       .catch(() => {});
   }, []);
 
-  /** silent=true 由 WS 事件触发：不闪 loading，避免聊天区整屏刷新感 */
-  const fetchMessages = useCallback((id: string, silent = false) => {
-    if (!silent) setLoadingMessages(true);
-    getMessages(id, { current: 1, pageSize: 50 })
-      .then((res) => setMessages((res as any)?.data?.records ?? []))
-      .catch(() => {
-        if (!silent) setMessages([]);
-      })
-      .finally(() => {
-        if (!silent) setLoadingMessages(false);
-      });
-  }, []);
-
   // 全局初始化：WS 连接 + 未读红点
   useEffect(() => {
     if (!currentUserId) return;
@@ -91,10 +87,8 @@ export default function FloatingMessageBox() {
     });
     const offMsg = onNewMessage((msg: any) => {
       if (String(msg?.sessionId) === sessionIdRef.current) {
-        // 幂等追加：无论悬浮窗是否展开都先上屏，重新展开后仍可见
-        setMessages((prev) =>
-          prev.some((m) => String(m.id) === String(msg?.id)) ? prev : [...prev, msg],
-        );
+        // 幂等追加（hook 内按 id 去重 + 排序）：无论悬浮窗是否展开都先上屏
+        appendLocal(msg);
         // 仅当悬浮窗正在展开且浏览器页签可见时才自动置为已读。
         // 否则折叠/关闭/切页签状态下会"后台静默已读"，用户未点开消息却变已读
         if (expandedRef.current && document.visibilityState === 'visible') {
@@ -109,7 +103,7 @@ export default function FloatingMessageBox() {
     // 已读回执：对方读取后静默刷新当前会话，让「未读」变为「已读」（不闪屏）
     const offRead = onReadChange((evt: any) => {
       if (evt?.sessionId && String(evt.sessionId) === sessionIdRef.current) {
-        fetchMessages(String(evt.sessionId), true);
+        refreshSilent(String(evt.sessionId));
       }
     });
     return () => {
@@ -117,7 +111,7 @@ export default function FloatingMessageBox() {
       offUnread();
       offRead();
     };
-  }, [currentUserId, fetchMessages]);
+  }, [currentUserId, appendLocal, refreshSilent]);
 
   // 展开时才轮询在线状态，避免无谓请求
   useEffect(() => {
@@ -131,7 +125,7 @@ export default function FloatingMessageBox() {
     (s: SessionVO) => {
       setSession(s);
       if (s?.id) {
-        fetchMessages(String(s.id));
+        loadInitial(String(s.id));
         markSessionRead(String(s.id))
           .then(() =>
             getUnreadCount().then((r) =>
@@ -141,7 +135,7 @@ export default function FloatingMessageBox() {
           .catch(() => {});
       }
     },
-    [fetchMessages],
+    [loadInitial],
   );
 
   /** 手动展开悬浮窗时补一次已读：覆盖折叠/切页签期间收到、未置已读的消息 */
@@ -183,13 +177,13 @@ export default function FloatingMessageBox() {
   const handleSend = (dto: MessageSendDTO) => {
     sendMessage(dto)
       .then(() => {
-        // 消息本体由 WS 自推实时追加（onNewMessage 已按 id 去重），
+        // 消息本体由 WS 自推实时追加（appendLocal 已按 id 去重），
         // 此处仅静默兜底同步已读计数，不再触发整屏 loading
-        if (sessionIdRef.current) fetchMessages(sessionIdRef.current, true);
+        refreshSilent();
       })
       .catch(() => {
-        // 发送失败：恢复一次带 loading 的完整刷新以保持一致
-        if (sessionIdRef.current) fetchMessages(sessionIdRef.current);
+        // 发送失败：静默重取一次当前页保持一致
+        refreshSilent();
       });
   };
 
@@ -341,6 +335,9 @@ export default function FloatingMessageBox() {
               messages={messages}
               currentUserId={currentUserId}
               loading={loadingMessages}
+              hasMore={hasMore}
+              loadingMore={loadingMore}
+              onLoadMore={loadOlder}
               onSend={handleSend}
               onOpenBiz={(type, id) => {
                 if (type === 'WF_TASK') window.open(`/workflow/task/${id}`, '_blank');

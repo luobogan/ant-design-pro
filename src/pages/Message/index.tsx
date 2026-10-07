@@ -10,14 +10,14 @@ import {
 } from '@/utils/messageSocket';
 import ChatPanel from './components/ChatPanel';
 import SessionList from './components/SessionList';
-import type { MessageSendDTO, MessageVO, SessionVO } from './data';
+import type { MessageSendDTO, SessionVO } from './data';
 import {
   createSession,
-  getMessages,
   getSessions,
   markSessionRead,
   sendMessage,
 } from './service';
+import { useMessageHistory } from './useMessageHistory';
 
 export default function MessageCenterPage() {
   const { token } = theme.useToken();
@@ -26,9 +26,18 @@ export default function MessageCenterPage() {
 
   const [sessions, setSessions] = useState<SessionVO[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
-  const [messages, setMessages] = useState<MessageVO[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
-  const [loadingMessages, setLoadingMessages] = useState(false);
+  // 消息历史分页（初始定位最新一页 + 向上滚动加载更早历史），与悬浮消息框共用
+  const {
+    messages,
+    loading: loadingMessages,
+    loadingMore,
+    hasMore,
+    loadInitial,
+    loadOlder,
+    refreshSilent,
+    appendLocal,
+  } = useMessageHistory();
   const [newOpen, setNewOpen] = useState(false);
   const [members, setMembers] = useState<string[]>([]);
   const [newName, setNewName] = useState('');
@@ -49,25 +58,13 @@ export default function MessageCenterPage() {
       });
   }, []);
 
-  const fetchMessages = useCallback((id: string, silent = false) => {
-    if (!silent) setLoadingMessages(true);
-    getMessages(id, { current: 1, pageSize: 50 })
-      .then((res) => setMessages((res as any)?.data?.records ?? []))
-      .catch(() => {
-        if (!silent) setMessages([]);
-      })
-      .finally(() => {
-        if (!silent) setLoadingMessages(false);
-      });
-  }, []);
-
   const selectSession = useCallback(
     (id: string) => {
       setSelectedId(id);
-      fetchMessages(id);
+      loadInitial(id);
       markSessionRead(id).finally(() => fetchSessions(true));
     },
-    [fetchMessages, fetchSessions],
+    [loadInitial, fetchSessions],
   );
 
   useEffect(() => {
@@ -76,10 +73,8 @@ export default function MessageCenterPage() {
     const offMsg = onNewMessage((msg: any) => {
       const isCurrent = String(msg?.sessionId) === String(selectedId);
       if (isCurrent) {
-        // 幂等追加：REST 兜底刷新与 WS 自推可能竞态，按 id 去重防重复上屏
-        setMessages((prev) =>
-          prev.some((m) => String(m.id) === String(msg?.id)) ? prev : [...prev, msg],
-        );
+        // 幂等追加（hook 内按 id 去重 + 排序）：REST 兜底刷新与 WS 自推可能竞态
+        appendLocal(msg);
         // 正在查看的会话收到新消息：仅当浏览器页签可见时才自动置为已读，
         // 否则切走页签时会被"后台静默已读"。① 清自己侧红点；② 触发 publishRead 回执
         if (document.visibilityState === 'visible') {
@@ -111,7 +106,7 @@ export default function MessageCenterPage() {
     // 已读回执：对方读取后静默刷新当前会话消息，让「未读」变「已读」（不闪屏）
     const offRead = onReadChange((evt: any) => {
       if (selectedId && String(evt?.sessionId) === String(selectedId)) {
-        fetchMessages(selectedId, true);
+        refreshSilent(selectedId);
       }
     });
     return () => {
@@ -120,19 +115,19 @@ export default function MessageCenterPage() {
       offRead();
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [fetchSessions, fetchMessages, selectedId]);
+  }, [fetchSessions, appendLocal, refreshSilent, selectedId]);
 
   const handleSend = (dto: MessageSendDTO) => {
     sendMessage(dto)
       .then(() => {
-        // 消息本体由 WS 自推实时追加（onNewMessage 已按 id 去重），
+        // 消息本体由 WS 自推实时追加（appendLocal 已按 id 去重），
         // 此处仅静默兜底同步（已读计数/最后消息），不再触发整屏 loading
-        if (selectedId) fetchMessages(selectedId, true);
+        if (selectedId) refreshSilent(selectedId);
         fetchSessions(true);
       })
       .catch(() => {
-        // 发送失败：恢复一次带 loading 的完整刷新以保持一致
-        if (selectedId) fetchMessages(selectedId);
+        // 发送失败：静默重取一次当前页保持一致
+        if (selectedId) refreshSilent(selectedId);
       });
   };
 
@@ -170,6 +165,9 @@ export default function MessageCenterPage() {
           messages={messages}
           currentUserId={currentUserId}
           loading={loadingMessages}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={loadOlder}
           onSend={handleSend}
           onOpenBiz={(type, id) => {
             if (type === 'WF_TASK')
