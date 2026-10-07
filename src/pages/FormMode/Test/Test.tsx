@@ -565,10 +565,10 @@ const WorkflowTestPage: React.FC = () => {
     const res: any = realMode
       ? await approveWorkflowTest({ instId, opinion, formData, formNodeKey })
       : await stepWorkflowTest({ instId, opinion, formData, formNodeKey });
-    if (res?.success === false) {
-      throw new Error(res?.msg || '推进失败');
+    if ((res?.success ?? res?.data?.success) === false) {
+      throw new Error(res?.data?.msg || res?.msg || '推进失败');
     }
-    const data: WfTestResult | null = res?.data || null;
+    const data: WfTestResult | null = pickPayload(res) || null;
     setResult(data);
     // 提交成功＝流程已推进：恢复「自动跟随」并切到「当前节点 / 归档节点」
     // （从开始节点提交 → 跳到首个待办节点；最后一个节点办结 → 跳到归档节点）
@@ -666,7 +666,7 @@ const WorkflowTestPage: React.FC = () => {
       let realMode = false;
       try {
         const mine: any = await getMyWorkflowTestTodo();
-        realMode = (mine?.data || []).some(
+        realMode = (pickPayload(mine) || []).some(
           (t: any) => String(t.instId) === String(result?.instId),
         );
       } catch {
