@@ -17,6 +17,8 @@ interface Props {
   onlineIds: Set<string>;
   /** 当前正在聊天的人员ID */
   activeUserId?: string;
+  /** 人员 → 未读消息数（两人私聊会话未读映射到对方人员），>0 时头像右上角显示红色角标 */
+  unreadByUser?: Record<string, number>;
   /** 点击某人员：发起/打开两人会话 */
   onSelect: (user: RosterUser) => void;
 }
@@ -24,7 +26,12 @@ interface Props {
 /**
  * 人员列表：展示本租户全公司人员，头像 + 快捷聊天小图标，角标标识在线状态。
  */
-export default function StaffRoster({ onlineIds, activeUserId, onSelect }: Props) {
+export default function StaffRoster({
+  onlineIds,
+  activeUserId,
+  unreadByUser,
+  onSelect,
+}: Props) {
   const { token } = theme.useToken();
   const [users, setUsers] = useState<RosterUser[]>([]);
   const [loading, setLoading] = useState(false);
@@ -118,14 +125,22 @@ export default function StaffRoster({ onlineIds, activeUserId, onSelect }: Props
                   }}
                 >
                   <Flex align="center" gap={10} style={{ width: '100%' }}>
+                    {/* 两层 Badge：外层未读数（右上角，0 时自动隐藏），内层在线状态点（右下角） */}
                     <Badge
-                      dot
-                      color={online ? token.colorSuccess : token.colorTextTertiary}
-                      offset={[-2, 30]}
+                      count={unreadByUser?.[u.id] || 0}
+                      size="small"
+                      offset={[-2, 2]}
+                      style={{ boxShadow: `0 0 0 2px ${token.colorBgContainer}` }}
                     >
-                      <Avatar src={u.avatar} style={{ background: token.colorPrimary }}>
-                        {displayName(u).slice(0, 1)}
-                      </Avatar>
+                      <Badge
+                        dot
+                        color={online ? token.colorSuccess : token.colorTextTertiary}
+                        offset={[-2, 30]}
+                      >
+                        <Avatar src={u.avatar} style={{ background: token.colorPrimary }}>
+                          {displayName(u).slice(0, 1)}
+                        </Avatar>
+                      </Badge>
                     </Badge>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <Typography.Text

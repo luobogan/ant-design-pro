@@ -6,12 +6,13 @@ import {
 } from '@ant-design/icons';
 import { useModel } from '@umijs/max';
 import { Badge, Button, Flex, Spin, Tooltip, Typography, theme } from 'antd';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ChatPanel from '@/pages/Message/components/ChatPanel';
 import type { MessageSendDTO, SessionVO } from '@/pages/Message/data';
 import {
   createSession,
   getOnlineUsers,
+  getSessions,
   getUnreadCount,
   markSessionRead,
   sendMessage,
@@ -46,6 +47,11 @@ export default function FloatingMessageBox() {
   const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
   const [session, setSession] = useState<SessionVO>();
   const [activeUserId, setActiveUserId] = useState<string>();
+  // 会话列表 + 每会话未读数（服务端值与 WS 推送合并），用于把两人会话未读映射到人员角标
+  const [sessionList, setSessionList] = useState<SessionVO[]>([]);
+  const [unreadBySession, setUnreadBySession] = useState<
+    Record<string, number>
+  >({});
   // 消息历史分页（初始定位最新一页 + 向上滚动加载更早历史），与 /message 页共用
   const {
     messages,
@@ -73,6 +79,23 @@ export default function FloatingMessageBox() {
       .catch(() => {});
   }, []);
 
+  /** 拉取会话列表：初始化「人员 → 未读数」映射（两人私聊的未读显示到对方头像角标） */
+  const loadSessions = useCallback(() => {
+    getSessions({ current: 1, pageSize: 50 })
+      .then((res: any) => {
+        const records: SessionVO[] = res?.data?.records ?? [];
+        setSessionList(records);
+        setUnreadBySession((prev) => {
+          const next = { ...prev };
+          records.forEach((s) => {
+            if (s?.id) next[String(s.id)] = s.unreadCount ?? 0;
+          });
+          return next;
+        });
+      })
+      .catch(() => {});
+  }, []);
+
   // 全局初始化：WS 连接 + 未读红点
   useEffect(() => {
     if (!currentUserId) return;
@@ -83,6 +106,17 @@ export default function FloatingMessageBox() {
     const offUnread = onUnreadChange((payload: any) => {
       if (payload && typeof payload.totalUnread === 'number') {
         setTotal(payload.totalUnread);
+      }
+      // 逐会话未读：WS 全量推送，合并进本地映射（人员角标数据源）
+      const list = payload?.sessionUnread;
+      if (Array.isArray(list) && list.length > 0) {
+        setUnreadBySession((prev) => {
+          const next = { ...prev };
+          list.forEach((u: any) => {
+            if (u?.sessionId) next[String(u.sessionId)] = u.unreadCount ?? 0;
+          });
+          return next;
+        });
       }
     });
     const offMsg = onNewMessage((msg: any) => {
@@ -113,19 +147,24 @@ export default function FloatingMessageBox() {
     };
   }, [currentUserId, appendLocal, refreshSilent]);
 
-  // 展开时才轮询在线状态，避免无谓请求
+  // 展开时才轮询在线状态 + 刷新会话未读，避免无谓请求
   useEffect(() => {
     if (!currentUserId || collapsed || closed) return;
     loadOnline();
+    loadSessions();
     const timer = setInterval(loadOnline, ONLINE_POLL_MS);
     return () => clearInterval(timer);
-  }, [currentUserId, collapsed, closed, loadOnline]);
+  }, [currentUserId, collapsed, closed, loadOnline, loadSessions]);
 
   const openSession = useCallback(
     (s: SessionVO) => {
       setSession(s);
       if (s?.id) {
         loadInitial(String(s.id));
+        // 本地立即清零该会话未读（人员角标即时消失），服务端随后确认
+        setUnreadBySession((prev) =>
+          prev[String(s.id)] ? { ...prev, [String(s.id)]: 0 } : prev,
+        );
         markSessionRead(String(s.id))
           .then(() =>
             getUnreadCount().then((r) =>
@@ -142,6 +181,7 @@ export default function FloatingMessageBox() {
   const markOpenSessionRead = useCallback(() => {
     const sid = sessionIdRef.current;
     if (!sid) return;
+    setUnreadBySession((prev) => (prev[sid] ? { ...prev, [sid]: 0 } : prev));
     markSessionRead(sid)
       .then(() =>
         getUnreadCount().then((r) => setTotal((r as any)?.data?.totalUnread ?? 0)),
@@ -159,6 +199,23 @@ export default function FloatingMessageBox() {
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
   }, [markOpenSessionRead]);
+
+  /** 人员 → 未读数：把两人私聊会话的未读映射到对方人员（群聊未读不映射到个人） */
+  const unreadByUser = useMemo(() => {
+    const map: Record<string, number> = {};
+    sessionList.forEach((s) => {
+      if (s.type !== 1 || (s.memberCount ?? 2) > 2) return;
+      const other = (s.memberIds || []).find(
+        (id) => String(id) !== String(currentUserId),
+      );
+      if (!other) return;
+      const unread = unreadBySession[String(s.id)] ?? s.unreadCount ?? 0;
+      if (unread > 0) {
+        map[String(other)] = Math.max(map[String(other)] || 0, unread);
+      }
+    });
+    return map;
+  }, [sessionList, unreadBySession, currentUserId]);
 
   /** 点击人员：两人会话幂等创建/复用，然后打开 */
   const handleSelectUser = useCallback(
@@ -352,6 +409,7 @@ export default function FloatingMessageBox() {
             <StaffRoster
               onlineIds={onlineIds}
               activeUserId={activeUserId}
+              unreadByUser={unreadByUser}
               onSelect={handleSelectUser}
             />
           </div>

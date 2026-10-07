@@ -171,7 +171,7 @@ export default function ChatPanel({
           borderBottom: `1px solid ${token.colorBorderSecondary}`,
         }}
       >
-        <Avatar style={{ background: token.colorPrimary }}>
+        <Avatar src={session.avatar || undefined} style={{ background: token.colorPrimary }}>
           {(session.name || '会话').slice(0, 1)}
         </Avatar>
         <div>

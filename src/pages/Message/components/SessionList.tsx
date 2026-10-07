@@ -87,7 +87,7 @@ export default function SessionList({
                       size="small"
                       offset={[-4, 28]}
                     >
-                      <Avatar style={{ background: token.colorPrimary }}>
+                      <Avatar src={s.avatar || undefined} style={{ background: token.colorPrimary }}>
                         {titleOf(s).slice(0, 1)}
                       </Avatar>
                     </Badge>

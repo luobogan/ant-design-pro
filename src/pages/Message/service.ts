@@ -57,12 +57,23 @@ export async function sendMessage(data: MessageSendDTO) {
   });
 }
 
-/** 标记会话已读 */
+/**
+ * 标记会话已读。
+ * 前端多处几乎同时触发（打开会话 / WS 新消息自动已读 / 展开补已读 / 页签切回），
+ * 同一会话的在途请求复用同一个 Promise，避免并发重复调用后端标记接口
+ * （后端已做 INSERT IGNORE 幂等，这里进一步减少无谓请求）。
+ */
+const markReadInflight = new Map<string, Promise<ApiResponse<boolean>>>();
+
 export async function markSessionRead(sessionId: string) {
-  return request<ApiResponse<boolean>>(`${BASE}/message/message/read`, {
+  const inflight = markReadInflight.get(sessionId);
+  if (inflight) return inflight;
+  const p = request<ApiResponse<boolean>>(`${BASE}/message/message/read`, {
     method: 'POST',
     params: { sessionId },
-  });
+  }).finally(() => markReadInflight.delete(sessionId));
+  markReadInflight.set(sessionId, p);
+  return p;
 }
 
 /** 全局未读红点 */

@@ -53,6 +53,8 @@ export interface Session {
   id?: string;
   tenantId?: string;
   name?: string;
+  /** 会话展示头像（私聊 = 对方成员头像，后端回填） */
+  avatar?: string;
   type?: number;
   lastMessage?: string;
   lastTime?: string;
