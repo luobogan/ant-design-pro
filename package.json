@@ -48,11 +48,13 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@monaco-editor/react": "^4.7.0",
+    "@opentiny/fluent-editor": "^3.25.12",
     "@radix-ui/react-dropdown-menu": "^2.0.6",
     "@radix-ui/react-hover-card": "^1.0.7",
     "@radix-ui/react-separator": "^1.0.3",
     "@radix-ui/react-slot": "^1.0.2",
     "@rc-component/util": "^1.10.1",
+    "@stomp/stompjs": "^7.3.0",
     "@tanstack/react-query": "^5.101.2",
     "@types/jszip": "^3.4.1",
     "@univerjs/core": "link:../univer/packages/core",
@@ -112,11 +114,11 @@
     "recharts": "^3.8.0",
     "rxjs": "^7.8.1",
     "sm-crypto": "^0.3.13",
+    "sockjs-client": "^1.6.1",
     "sonner": "^1.4.0",
     "swagger-ui-dist": "^5.31.0",
     "tailwind-merge": "^2.2.0",
-    "topojson-client": "^3.1.0",
-    "@opentiny/fluent-editor": "^3.25.12"
+    "topojson-client": "^3.1.0"
   },
   "devDependencies": {
     "@ant-design/cli": "^6.6.0",

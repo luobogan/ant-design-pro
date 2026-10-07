@@ -20,6 +20,8 @@ import {
   OfflineBanner,
   VersionDropdown,
 } from '@/components';
+import FloatingMessageBox from '@/components/FloatingMessageBox';
+import MessageBell from '@/components/MessageBell';
 import TopNavMenu from '@/components/TopNavMenu';
 import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
 import defaultSettings from '../config/defaultSettings';
@@ -447,7 +449,14 @@ export async function getInitialState(): Promise<{
       const res = await queryCurrentUser();
       console.log('用户信息响应:', res);
       // 响应可能直接就是用户对象，也可能是 {data: 用户对象}，统一剥取
-      return pickPayload(res);
+      const user = pickPayload(res) as API.CurrentUser & { id?: string | number };
+      // ⚠️ 后端 /blade-system/user/info 返回的用户主键是 id（没有 userid 字段），
+      // 而全项目（消息中心、工作流、头像下拉等）统一读 currentUser?.userid。
+      // 此处归一化 id → userid，避免下游静默取空（如 FloatingMessageBox 拿不到用户 ID 直接不渲染）。
+      if (user && user.userid === undefined && user.id !== undefined) {
+        user.userid = String(user.id);
+      }
+      return user;
     } catch (_error) {
       console.error('获取用户信息失败:', _error);
       // 保留来源地址，登录后跳回（而非落到默认首页）
@@ -523,11 +532,9 @@ export const layout: RunTimeLayoutConfig = ({
   console.log(initialState?.currentUser?.name);
   console.log(initialState?.currentUser?.userid);
   return {
-    // actionsRender: () => [
-    //   <DocLink key="doc" />,
-    //   <VersionDropdown key="version" />,
-    //   <LangDropdown key="lang" />,
-    // ],
+    // 顶部消息铃铛：全局未读红点（WS 实时更新），点击进入 /message 消息中心。
+    // /message 路由由后端菜单驱动注册（见 formatRoutes），不在 config/routes.ts 静态声明。
+    actionsRender: () => [<MessageBell key="message-bell" />],
     avatarProps: {
       src: initialState?.currentUser?.avatar,
       title: initialState?.currentUser?.name || '用户',
@@ -597,6 +604,7 @@ export const layout: RunTimeLayoutConfig = ({
     ErrorBoundary,
     menuHeaderRender: undefined,
     childrenRender: (children) => {
+      console.log('[MSG-DIAG] childrenRender 执行, currentUser?.userid =', initialState?.currentUser?.userid);
       // 保存当前用户的主题设置到后端（按用户持久化，登录时随用户信息返回并加载）
       const handleSaveTheme = async () => {
         const theme = initialState?.settings;
@@ -668,6 +676,10 @@ export const layout: RunTimeLayoutConfig = ({
               }));
             }}
           />
+          {/* 全局消息中心（右下角悬浮聊天框 + 未读红点），见提交 8f473e9b。
+              放在 childrenRender 内（Umi Context 作用域中），useModel 才能取到 initialState；
+              组件用 position:fixed，不受 DOM 位置影响。未登录时内部返回 null。 */}
+          <FloatingMessageBox />
         </>
       );
     },

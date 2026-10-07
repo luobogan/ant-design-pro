@@ -51,6 +51,9 @@ export default function FloatingMessageBox() {
 
   const sessionIdRef = useRef<string | undefined>(undefined);
   sessionIdRef.current = session ? String(session.id) : undefined;
+  /** 悬浮窗展开状态镜像：WS 事件回调是长闭包，直接读 state 会拿到过期值 */
+  const expandedRef = useRef(false);
+  expandedRef.current = !collapsed && !closed;
 
   const loadOnline = useCallback(() => {
     getOnlineUsers()
@@ -88,17 +91,19 @@ export default function FloatingMessageBox() {
     });
     const offMsg = onNewMessage((msg: any) => {
       if (String(msg?.sessionId) === sessionIdRef.current) {
-        // 幂等追加：REST 兜底刷新与 WS 自推可能竞态，按 id 去重防重复上屏
+        // 幂等追加：无论悬浮窗是否展开都先上屏，重新展开后仍可见
         setMessages((prev) =>
           prev.some((m) => String(m.id) === String(msg?.id)) ? prev : [...prev, msg],
         );
-        // 正在查看的会话收到新消息：立即置为已读。
-        // ① 清掉悬浮窗红点；② 触发后端 publishRead，让对方界面即时变「已读」
-        markSessionRead(String(msg.sessionId))
-          .then(() =>
-            getUnreadCount().then((r) => setTotal((r as any)?.data?.totalUnread ?? 0)),
-          )
-          .catch(() => {});
+        // 仅当悬浮窗正在展开且浏览器页签可见时才自动置为已读。
+        // 否则折叠/关闭/切页签状态下会"后台静默已读"，用户未点开消息却变已读
+        if (expandedRef.current && document.visibilityState === 'visible') {
+          markSessionRead(String(msg.sessionId))
+            .then(() =>
+              getUnreadCount().then((r) => setTotal((r as any)?.data?.totalUnread ?? 0)),
+            )
+            .catch(() => {});
+        }
       }
     });
     // 已读回执：对方读取后静默刷新当前会话，让「未读」变为「已读」（不闪屏）
@@ -139,6 +144,28 @@ export default function FloatingMessageBox() {
     [fetchMessages],
   );
 
+  /** 手动展开悬浮窗时补一次已读：覆盖折叠/切页签期间收到、未置已读的消息 */
+  const markOpenSessionRead = useCallback(() => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    markSessionRead(sid)
+      .then(() =>
+        getUnreadCount().then((r) => setTotal((r as any)?.data?.totalUnread ?? 0)),
+      )
+      .catch(() => {});
+  }, []);
+
+  // 页签切回且悬浮窗展开时，补已读（处理页签隐藏期间到达的消息）
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'visible' && expandedRef.current) {
+        markOpenSessionRead();
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [markOpenSessionRead]);
+
   /** 点击人员：两人会话幂等创建/复用，然后打开 */
   const handleSelectUser = useCallback(
     (user: RosterUser) => {
@@ -167,6 +194,7 @@ export default function FloatingMessageBox() {
   };
 
   // 未登录不渲染
+  console.log('[MSG-DIAG] FloatingMessageBox 渲染, currentUserId =', currentUserId, ', total =', total);
   if (!currentUserId) return null;
 
   if (closed) {
@@ -180,6 +208,7 @@ export default function FloatingMessageBox() {
             onClick={() => {
               setClosed(false);
               setCollapsed(false);
+              markOpenSessionRead();
             }}
             style={{
               position: 'fixed',
@@ -202,7 +231,10 @@ export default function FloatingMessageBox() {
         <Button
           type="primary"
           icon={<CommentOutlined />}
-          onClick={() => setCollapsed(false)}
+          onClick={() => {
+            setCollapsed(false);
+            markOpenSessionRead();
+          }}
           style={{
             position: 'fixed',
             right: 24,

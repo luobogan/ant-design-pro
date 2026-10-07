@@ -80,12 +80,21 @@ export default function MessageCenterPage() {
         setMessages((prev) =>
           prev.some((m) => String(m.id) === String(msg?.id)) ? prev : [...prev, msg],
         );
-        // 正在查看的会话收到新消息：立即置为已读。
-        // ① 清掉自己侧红点；② 触发后端 publishRead，让对方界面即时变「已读」
-        markSessionRead(String(msg.sessionId)).finally(() => fetchSessions(true));
+        // 正在查看的会话收到新消息：仅当浏览器页签可见时才自动置为已读，
+        // 否则切走页签时会被"后台静默已读"。① 清自己侧红点；② 触发 publishRead 回执
+        if (document.visibilityState === 'visible') {
+          markSessionRead(String(msg.sessionId)).finally(() => fetchSessions(true));
+        }
       }
       fetchSessions(true);
     });
+    // 页签切回且正停留在某会话时，补一次已读（覆盖页签隐藏期间到达的消息）
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && selectedId) {
+        markSessionRead(selectedId).finally(() => fetchSessions(true));
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
     // 未读红点：用推送 payload 在本地精准合并，避免全量刷新闪烁；再静默兜底同步最后消息/排序
     const offUnread = onUnreadChange((evt: any) => {
       const list = evt?.sessionUnread;
@@ -109,6 +118,7 @@ export default function MessageCenterPage() {
       offMsg();
       offUnread();
       offRead();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [fetchSessions, fetchMessages, selectedId]);
 
