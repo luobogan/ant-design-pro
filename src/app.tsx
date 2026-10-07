@@ -338,6 +338,33 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
               tryImport(0);
             }),
         );
+      } else if (pathParts.length === 1) {
+        // 单段顶级路径（如 /message → ./pages/Message/index.tsx）：
+        // 多段路径在上方按 module/page 两级推导组件，单段路径拆不出两级，
+        // 此前直接跳过导致 Component=null ⇒ 路由命中但页面空白（2026-10-07 消息中心踩坑）。
+        // 约定单段路径解析模块级页面：./pages/{Module}/index.tsx 或 ./pages/{Module}/{Module}.tsx。
+        const module = toPascalCase(pathParts[0]);
+        const loaders: Array<() => Promise<any>> = [
+          () => import(`./pages/${module}/index.tsx`),
+          () => import(`./pages/${module}/${module}.tsx`),
+        ];
+        Component = React.lazy(
+          () =>
+            new Promise((resolve, _reject) => {
+              const tryImport = (index: number) => {
+                if (index >= loaders.length) {
+                  console.error('组件导入失败（单段路径）：', `./pages/${module}/index.tsx`);
+                  message.error(`页面组件加载失败：./pages/${module}/index.tsx（详见控制台）`);
+                  import('./pages/exception/404').then((mod) => resolve(mod));
+                  return;
+                }
+                loaders[index]()
+                  .then((mod) => resolve(mod))
+                  .catch(() => tryImport(index + 1));
+              };
+              tryImport(0);
+            }),
+        );
       }
     }
 
