@@ -46,6 +46,7 @@ import {
 import { dataApi } from '@/services/formmode';
 import type { FieldDefinition } from '@/services/formmode';
 import FieldRenderer from '@/pages/FormMode/FormView/components/FieldRenderer';
+import { pickPayload } from '@/utils/utils';
 
 /**
  * 流程测试 / 调试（独立菜单页）
@@ -286,7 +287,7 @@ const WorkflowTestPage: React.FC = () => {
   const loadDefs = async () => {
     try {
       const res: any = await listDefinitions();
-      setDefs(res?.data || []);
+      setDefs(pickPayload(res) || []);
     } catch {
       setDefs([]);
     }
@@ -311,7 +312,7 @@ const WorkflowTestPage: React.FC = () => {
   const loadHistory = async () => {
     try {
       const res: any = await listWorkflowTest(defId);
-      setHistory(res?.data || []);
+      setHistory(pickPayload(res) || []);
     } catch {
       /* 历史加载失败不阻塞使用 */
     }
@@ -320,7 +321,7 @@ const WorkflowTestPage: React.FC = () => {
   const loadTypes = async () => {
     try {
       const res: any = await workflowBrowserApi.list('wftype');
-      setWfTypes(res?.data || []);
+      setWfTypes(pickPayload(res) || []);
     } catch {
       setWfTypes([]);
     }
@@ -334,7 +335,7 @@ const WorkflowTestPage: React.FC = () => {
     }
     try {
       const res: any = await getBpmn(id);
-      setBpmnXml(res?.data || undefined);
+      setBpmnXml(pickPayload(res) || undefined);
     } catch {
       setBpmnXml(undefined);
     }
@@ -372,10 +373,10 @@ const WorkflowTestPage: React.FC = () => {
       loadBpmn(defId);
       // 设计态节点/出口：选流程即加载，无需测试实例即可渲染面板与表单预览
       listNodes(defId as any)
-        .then((r: any) => setDesignNodes(r?.data || []))
+        .then((r: any) => setDesignNodes(pickPayload(r) || []))
         .catch(() => setDesignNodes([]));
       listLinks(defId as any)
-        .then((r: any) => setDesignLinks(r?.data || []))
+        .then((r: any) => setDesignLinks(pickPayload(r) || []))
         .catch(() => setDesignLinks([]));
     } else {
       setBpmnXml(undefined);
@@ -409,11 +410,11 @@ const WorkflowTestPage: React.FC = () => {
     setLoading(true);
     try {
       const res: any = await runWorkflowTest({ defId, testUserId, formData, coverBranches });
-      if (res?.success === false) {
+      if ((res?.success ?? res?.data?.success) === false) {
         message.error(res?.msg || '流程测试失败');
         return;
       }
-      const d: WfTestResult | null = res?.data || null;
+      const d: WfTestResult | null = pickPayload(res) || null;
       setResult(d);
       // 一键测试跑完即到归档：面板切到归档节点，便于查看最终状态与流转意见
       followRef.current = true;
@@ -461,12 +462,12 @@ const WorkflowTestPage: React.FC = () => {
     setLoading(true);
     try {
       const res: any = await startWorkflowTest({ defId, testUserId, formData });
-      if (res?.success === false) {
+      if ((res?.success ?? res?.data?.success) === false) {
         // 失败一律提示（含入口静默发起）：否则用户只看到请求失败、不知道原因（如开始节点必填缺失）
         message.error(res?.msg || '发起测试失败');
         return null;
       }
-      const data: WfTestResult | null = res?.data || null;
+      const data: WfTestResult | null = pickPayload(res) || null;
       followRef.current = true;
       setResult(data);
       // 发起/重新发起后回到「开始节点（申请人）」表单（defaultNodeKey），不直接跳到当前待办节点：
@@ -720,11 +721,11 @@ const WorkflowTestPage: React.FC = () => {
       onOk: async () => {
         try {
           const res: any = await cleanupWorkflowTest(defId);
-          if (res?.success === false) {
+          if ((res?.success ?? res?.data?.success) === false) {
             message.error('清理失败');
             return;
           }
-          message.success(`已清理 ${res?.data ?? 0} 条测试实例`);
+          message.success(`已清理 ${pickPayload(res) ?? 0} 条测试实例`);
           setResult(null);
         } catch (e: any) {
           message.error(e?.msg || '清理失败');
@@ -745,12 +746,12 @@ const WorkflowTestPage: React.FC = () => {
     setShadowOpen(true);
     try {
       const res: any = await shadowWorkflowTest({ defId, baseDefId: base?.id, testUserId });
-      if (res?.success === false) {
+      if ((res?.success ?? res?.data?.success) === false) {
         message.error(res?.msg || '影子比对失败');
         setShadowData(null);
         return;
       }
-      setShadowData(res?.data || null);
+      setShadowData(pickPayload(res) || null);
     } catch (e: any) {
       message.error(e?.msg || '影子比对失败');
       setShadowData(null);
@@ -762,7 +763,7 @@ const WorkflowTestPage: React.FC = () => {
   const viewHistory = async (id: any) => {
     try {
       const res: any = await getWorkflowTest(id);
-      const d = res?.data;
+      const d = pickPayload(res);
       if (!d) {
         message.error('记录不存在');
         return;

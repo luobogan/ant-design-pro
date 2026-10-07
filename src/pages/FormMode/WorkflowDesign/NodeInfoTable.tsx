@@ -84,13 +84,20 @@ const SETTING_COLUMN_KEYS = [
 ];
 
 /**
- * 新建节点的初始 ext_json：**自动带上默认操作菜单**（含必填项 提交/保存）。
+ * 新建节点的初始 ext_json：**自动带上默认操作菜单**（含必填项 提交/保存）与**默认表单内容模式**。
  *
- * <p>这样「生成新流程」时节点开箱即可发起与保存草稿，不必先去「操作菜单」里手工勾一遍
- * （此前默认 `settings:{}` 会让节点在配置落库前没有菜单，用户需手工补配置）。</p>
+ * <p>这样「生成新流程」时节点开箱即可发起、保存草稿并通过预校验，不必逐个去「操作菜单」/
+ * 「表单内容」里手工点一遍（此前默认 `settings:{}` 会让节点在配置落库前既没菜单也没表单模式，
+ * 用户必须手工补配置才能发起/测试）。</p>
+ *
+ * <p>表单内容默认 `custom`：本系统已屏蔽「普通模式」，`custom` 是<b>唯一可选模式</b>，
+ * 未设置即等于「取默认值」，不该让用户为一个没有第二种选择的配置挨个点一遍。
+ * 未配节点布局时表单仍会回退到表单级布局，功能不受影响。</p>
  */
 const emptyExtJson = () =>
-  JSON.stringify({ settings: { operateMenu: defaultOperateMenu() } });
+  JSON.stringify({
+    settings: { operateMenu: defaultOperateMenu(), formContent: { mode: 'custom' } },
+  });
 
 /**
  * 节点信息列表（可编辑）。
@@ -641,6 +648,22 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
       // 对齐 E9：点「设置」打开独立弹窗配置（改显示名 / 启停 / 顺序 / 默认），
       // 格子内只显示摘要，避免行内多选塞不下且无法配名称与顺序。
       render: (_: any, r: WfProcessNode) => {
+        /**
+         * 归档节点（nodeType=3，BPMN endEvent）：引擎**不为它生成任务**，操作菜单
+         * （提交/退回/转办…）对它没有任何意义。
+         *
+         * <p>由于「未配置=默认全量」的口径（normalizeOperateMenu），未配置的归档节点本会回退显示
+         * 「提交/保存/退回/转发」，看起来像"归档节点还能退回"，属明显误导。这里在<b>显示层</b>
+         * 收口为「不适用」并去掉设置入口 —— 相比直接改数据模型（把归档人/归档文案提级到流程定义、
+         * endEvent 退回纯连接器）风险低得多，后者仍待 D 组「结束节点配置收敛」单独排期。</p>
+         */
+        if (r.nodeType === 3) {
+          return (
+            <span style={{ color: '#bbb', fontSize: 12 }} title="归档（结束）事件不生成任务，操作菜单不适用">
+              —
+            </span>
+          );
+        }
         const labels = operateMenuLabels(nodeSettings(r).operateMenu);
         const onEdit = () =>
           isDraft(r) ? setMenuDraftIndex(r._draftIndex as number) : setMenuNodeKey(r.nodeKey!);
