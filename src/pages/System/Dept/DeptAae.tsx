@@ -1,29 +1,30 @@
 import { ArrowLeftOutlined, LoadingOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { history, useSearchParams } from '@umijs/max';
-import { Button, Card, Form, Input, InputNumber, message, TreeSelect, Spin } from 'antd';
+import { Button, Card, Form, Input, InputNumber, message, Select, TreeSelect, Spin } from 'antd';
 import React, { useEffect, useState } from 'react';
 import * as deptApi from '@/services/system/dept';
 const { TextArea } = Input;
 
 interface DeptFormData {
   id?: string;
-name: string;
-  code: string;
+  name: string;
+  deptCode: string;
+  deptType: number;
   parentId: string;
-sort: number;
-  status: string;
+  sort: number;
   remark?: string;
 }
 
 interface DeptData {
   id: string;
   deptName: string;
-  code: string;
+  deptCode: string;
+  deptType: number;
   parentId: string;
   parentName: string;
   sort: number;
-status: string;
+  canceled: number;
   remark: string;
 }
 
@@ -107,10 +108,10 @@ const [submitting, setSubmitting] = useState(false);
       form.setFieldsValue({
         id: data.id,
         name: data.deptName || data.name,
-        code: data.code,
+        deptCode: data.deptCode,
+        deptType: data.deptType ?? 2,
         parentId: String(data.parentId || '0'),
         sort: data.sort || 0,
-        status: data.status || '启用',
         remark: data.remark,
     });
     } catch (error: any) {
@@ -127,9 +128,14 @@ const [submitting, setSubmitting] = useState(false);
       const submitData = {
         ...values,
         deptName: values.name,
-    };
+      };
       delete submitData.name;
-      
+      // 兼容旧表单字段名：code → deptCode（此前 code 被后端丢弃）
+      if ((submitData as any).code && !submitData.deptCode) {
+        submitData.deptCode = (submitData as any).code;
+      }
+      delete (submitData as any).code;
+
       if (isEditMode && deptId) {
         await deptApi.submit({ ...submitData, id: deptId });
         message.success('部门更新成功');
@@ -210,11 +216,21 @@ const [submitting, setSubmitting] = useState(false);
           </Form.Item>
           
           <Form.Item<DeptFormData>
-            name="code"
-            label="部门编码"
-            rules={[{ required: true, message: '请输入部门编码' }]}
+            name="deptType"
+            label="组织类型"
+            rules={[{ required: true, message: '请选择组织类型' }]}
           >
-            <Input placeholder="请输入部门编码" />
+            <Select placeholder="请选择组织类型">
+              <Select.Option value={2}>部门</Select.Option>
+              <Select.Option value={1}>分部（子公司/分支机构）</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item<DeptFormData>
+            name="deptCode"
+            label="组织编号"
+          >
+            <Input placeholder="请输入组织编号（选填）" />
           </Form.Item>
           
           <Form.Item<DeptFormData>
@@ -234,17 +250,6 @@ const [submitting, setSubmitting] = useState(false);
             rules={[{ required: true, message: '请输入排序' }]}
           >
             <InputNumber placeholder="请输入排序" min={1} />
-          </Form.Item>
-          
-          <Form.Item<DeptFormData>
-            name="status"
-            label="状态"
-            rules={[{ required: true, message: '请选择状态' }]}
-          >
-            <Select placeholder="请选择状态">
-              <Option value="启用">启用</Option>
-              <Option value="禁用">禁用</Option>
-            </Select>
           </Form.Item>
           
           <Form.Item<DeptFormData>

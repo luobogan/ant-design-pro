@@ -8,7 +8,7 @@ import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { useRequest } from '@umijs/max';
 import { usePageButtons } from '@/hooks/usePageButtons';
-import { Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, TreeSelect, message, Tree } from 'antd';
+import { Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, TreeSelect, message, Tree, Tag } from 'antd';
 import React, { useState, useMemo } from 'react';
 import * as deptApi from '@/services/system/dept';
 import usePermission from '@/hooks/usePermission';
@@ -17,11 +17,13 @@ interface Dept {
   id: string;
   tenantId: string;
   name: string;
-  code: string;
+  deptCode: string;
+  deptType: number;
+  subcompanyId?: string;
   parentId: string;
   parentName: string;
   sort: number;
-  status: string;
+  canceled: number;
   remark: string;
   createTime: string;
   children?: Dept[];
@@ -65,11 +67,12 @@ const Dept: React.FC = () => {
       tenantId: dept.tenantId || '-',
       tenantName: dept.tenantName || '-',
       name: dept.deptName || dept.name || '',
-      code: dept.code || '-',
+      deptCode: dept.deptCode || '',
+      deptType: dept.deptType ?? 2,
+      canceled: dept.canceled ?? 0,
       parentId: String(dept.parentId || '0'),
       parentName: dept.parentName || '-',
       sort: dept.sort || 0,
-      status: dept.status !== undefined ? dept.status : '启用',
       remark: dept.remark || '',
       createTime: dept.createTime || '',
     }));
@@ -236,11 +239,12 @@ const Dept: React.FC = () => {
       width: 150,
     },
     {
-      title: '部门编码',
-      dataIndex: 'code',
-      key: 'code',
+      title: '组织编号',
+      dataIndex: 'deptCode',
+      key: 'deptCode',
       search: true,
-      width: 150,
+      width: 130,
+      render: (deptCode) => deptCode || '-',
     },
     {
       title: '上级部门',
@@ -256,19 +260,31 @@ const Dept: React.FC = () => {
       width: 80,
     },
     {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      filters: [
-        { text: '启用', value: '启用' },
-        { text: '禁用', value: '禁用' },
-      ],
-      render: (status) => (
-        <span style={{ color: status === '启用' ? '#52c41a' : '#ff4d4f' }}>
-          {status}
-        </span>
+      title: '组织类型',
+      dataIndex: 'deptType',
+      key: 'deptType',
+      width: 90,
+      render: (_, record: Dept) => (
+        <Tag color={record.deptType === 1 ? 'purple' : 'cyan'}>
+          {record.deptType === 1 ? '分部' : '部门'}
+        </Tag>
       ),
-      width: 80,
+    },
+    {
+      title: '封存状态',
+      dataIndex: 'canceled',
+      key: 'canceled',
+      filters: [
+        { text: '正常', value: 0 },
+        { text: '封存', value: 1 },
+      ],
+      onFilter: true,
+      render: (_, record: Dept) => (
+        <Tag color={record.canceled === 1 ? 'red' : 'green'}>
+          {record.canceled === 1 ? '封存' : '正常'}
+        </Tag>
+      ),
+      width: 90,
     },
     {
       title: '备注',
@@ -308,6 +324,23 @@ const Dept: React.FC = () => {
             >
               编辑
             </Button>
+          )}
+          {buttons.some(btn => btn.code === 'dept_edit') && (
+            <Popconfirm
+              title={record.canceled === 1 ? '确认解封' : '确认封存'}
+              description={
+                record.canceled === 1
+                  ? `确定要解封组织 ${record.name} 吗？`
+                  : `确定要封存组织 ${record.name} 吗？（封存后用户创建页不可选）`
+              }
+              onConfirm={() => handleToggleCanceled(record)}
+              okText="确认"
+              cancelText="取消"
+            >
+              <Button type="link" size="small">
+                {record.canceled === 1 ? '解封' : '封存'}
+              </Button>
+            </Popconfirm>
           )}
           {buttons.some(btn => btn.code === 'dept_delete') && (
             <Popconfirm
@@ -376,6 +409,23 @@ const Dept: React.FC = () => {
     }
   };
 
+  // 封存/解封组织（对齐 ecology canceled 机制：封存可解封，删除前置校验由后端承担）
+  const handleToggleCanceled = async (record: Dept) => {
+    const toCanceled = record.canceled === 1;
+    try {
+      if (toCanceled) {
+        await deptApi.isCanceled({ ids: [record.id] });
+        message.success('解封成功');
+      } else {
+        await deptApi.cancel({ ids: [record.id] });
+        message.success('封存成功');
+      }
+      refresh();
+    } catch (error: any) {
+      message.error(error?.message || (toCanceled ? '解封失败' : '封存失败'));
+    }
+  };
+
   const handleView = (record: Dept) => {
     setCurrentDept(record);
     setViewModalVisible(true);
@@ -386,10 +436,10 @@ const Dept: React.FC = () => {
     editForm.setFieldsValue({
       id: record.id,
       name: record.name,
-      code: record.code,
+      deptCode: record.deptCode,
+      deptType: record.deptType ?? 2,
       parentId: record.parentId || '0',
       sort: record.sort,
-      status: record.status,
       remark: record.remark,
     });
     setEditModalVisible(true);
@@ -462,7 +512,7 @@ const Dept: React.FC = () => {
         ]}
         width={600}
       >
-        <Form form={addForm} layout="vertical" style={{ padding: '24px' }}>
+        <Form form={addForm} layout="vertical" style={{ padding: '24px' }} initialValues={{ deptType: 2 }}>
           <Form.Item
             name="name"
             label="部门名称"
@@ -470,12 +520,17 @@ const Dept: React.FC = () => {
           >
             <Input placeholder="请输入部门名称" />
           </Form.Item>
+          <Form.Item name="deptType" label="组织类型">
+            <Select placeholder="请选择组织类型">
+              <Option value={2}>部门</Option>
+              <Option value={1}>分部（子公司/分支机构）</Option>
+            </Select>
+          </Form.Item>
           <Form.Item
-            name="code"
-            label="部门编码"
-            rules={[{ required: true, message: '请输入部门编码' }]}
+            name="deptCode"
+            label="组织编号"
           >
-            <Input placeholder="请输入部门编码" />
+            <Input placeholder="请输入组织编号（选填）" />
           </Form.Item>
           <Form.Item name="parentId" label="上级部门">
             <TreeSelect
@@ -490,16 +545,6 @@ const Dept: React.FC = () => {
             rules={[{ required: true, message: '请输入排序' }]}
           >
             <InputNumber placeholder="请输入排序" min={1} />
-          </Form.Item>
-          <Form.Item
-            name="status"
-            label="状态"
-            rules={[{ required: true, message: '请选择状态' }]}
-          >
-            <Select placeholder="请选择状态">
-              <Option value="启用">启用</Option>
-              <Option value="禁用">禁用</Option>
-            </Select>
           </Form.Item>
           <Form.Item name="remark" label="备注">
             <TextArea rows={3} placeholder="请输入备注" />
@@ -533,12 +578,17 @@ const Dept: React.FC = () => {
           >
             <Input placeholder="请输入部门名称" />
           </Form.Item>
+          <Form.Item name="deptType" label="组织类型">
+            <Select placeholder="请选择组织类型">
+              <Option value={2}>部门</Option>
+              <Option value={1}>分部（子公司/分支机构）</Option>
+            </Select>
+          </Form.Item>
           <Form.Item
-            name="code"
-            label="部门编码"
-            rules={[{ required: true, message: '请输入部门编码' }]}
+            name="deptCode"
+            label="组织编号"
           >
-            <Input placeholder="请输入部门编码" />
+            <Input placeholder="请输入组织编号（选填）" />
           </Form.Item>
           <Form.Item name="parentId" label="上级部门">
             <TreeSelect
@@ -553,16 +603,6 @@ const Dept: React.FC = () => {
             rules={[{ required: true, message: '请输入排序' }]}
           >
             <InputNumber placeholder="请输入排序" min={1} />
-          </Form.Item>
-          <Form.Item
-            name="status"
-            label="状态"
-            rules={[{ required: true, message: '请选择状态' }]}
-          >
-            <Select placeholder="请选择状态">
-              <Option value="启用">启用</Option>
-              <Option value="禁用">禁用</Option>
-            </Select>
           </Form.Item>
           <Form.Item name="remark" label="备注">
             <TextArea rows={3} placeholder="请输入备注" />
@@ -590,8 +630,12 @@ const Dept: React.FC = () => {
                 {currentDept.name}
               </p>
               <p>
-                <strong>部门编码：</strong>
-                {currentDept.code}
+                <strong>组织编号：</strong>
+                {currentDept.deptCode || '-'}
+              </p>
+              <p>
+                <strong>组织类型：</strong>
+                {currentDept.deptType === 1 ? '分部' : '部门'}
               </p>
               <p>
                 <strong>上级部门：</strong>
@@ -602,8 +646,8 @@ const Dept: React.FC = () => {
                 {currentDept.sort}
               </p>
               <p>
-                <strong>状态：</strong>
-                {currentDept.status}
+                <strong>封存状态：</strong>
+                {currentDept.canceled === 1 ? '封存' : '正常'}
               </p>
               <p>
                 <strong>备注：</strong>

@@ -118,3 +118,156 @@ export async function exportUser(params: any) {
 export async function importTemplate() {
   return request('/api/blade-system/user/import-template');
 }
+
+// =====================P0：工号/人员状态/字段预检=====================
+
+/** 人员状态选项（对齐 ecology hrmresource.status 经典枚举，新建默认"正式"） */
+export const PERSON_STATUS_OPTIONS = [
+  { label: '试用', value: 0 },
+  { label: '正式', value: 1 },
+  { label: '临时', value: 2 },
+  { label: '延期', value: 3 },
+  { label: '解聘', value: 4 },
+  { label: '退休', value: 5 },
+];
+
+/** 人员状态文案映射 */
+export const PERSON_STATUS_TEXT: Record<number, string> = {
+  0: '试用',
+  1: '正式',
+  2: '临时',
+  3: '延期',
+  4: '解聘',
+  5: '退休',
+};
+
+/**
+ * 字段唯一性预检（对齐 ecology HrmResourceCheck.jsp 提交前校验）
+ * @returns true=可用（未被占用）
+ */
+export async function checkFieldUnique(params: {
+  field: 'account' | 'workCode' | 'certificateNum';
+  value: string;
+  tenantId?: string;
+  excludeId?: string;
+}) {
+  return request(`${USER_BASE_URL}/check?${stringify(params)}`, {
+    method: 'POST',
+  });
+}
+
+/**
+ * 按编码规则生成下一个工号（prefix+日期+序列，对齐 ecology CodeRuleManager）
+ * @returns 工号；该租户未配置编码规则时返回 null
+ */
+export async function nextWorkCode(params: { tenantId?: string; deptId?: string } = {}) {
+  return request(`${USER_BASE_URL}/work-code/next?${stringify(params)}`);
+}
+
+// =====================P2：字段配置驱动 + 自定义字段=====================
+
+/** 用户新增表单 schema 字段（对齐 ecology HrmFieldManager：isUse/isMand/eleclazzname） */
+export interface FormSchemaField {
+  fieldId: string;
+  propName: string;
+  label: string;
+  eleType: string;
+  required: number;
+  sort: number;
+  extJson?: string;
+}
+
+/** 用户新增表单 schema 分组（对齐 ecology hrm_fieldgroup） */
+export interface FormSchemaGroup {
+  groupId: string;
+  groupCode: string;
+  groupName: string;
+  groupType: number;
+  sort: number;
+  fields: FormSchemaField[];
+}
+
+/**
+ * 获取用户新增表单 schema（对齐 ecology getHrmResourceAddForm）
+ * 修改字段配置（增/停/必填）后表单即时变化，无需改前端代码
+ */
+export async function addFormSchema(params: { tenantId?: string } = {}) {
+  return request(`${USER_BASE_URL}/add-form-schema?${stringify(params)}`);
+}
+
+/**
+ * 读取用户自定义字段值（对齐 ecology cus_fielddata 回显）
+ * @returns fieldId -> value
+ */
+export async function extData(params: { userId: string }) {
+  return request(`${USER_BASE_URL}/ext-data?${stringify(params)}`);
+}
+
+/** 归一化 schema 响应（兼容 R 包装与裸数组） */
+export function normalizeFormSchema(res: any): FormSchemaGroup[] {
+  const raw = Array.isArray(res) ? res : res?.data || [];
+  return Array.isArray(raw) ? raw : [];
+}
+
+// =====================P3：状态流转工作流化 + 伴生初始化=====================
+
+/** 状态流转配置（对齐 ecology hrm_state_proc_set） */
+export interface PersonStatusFlow {
+  id: string;
+  fromStatus: number;
+  toStatus: number;
+  flowName?: string;
+  /** 绑定的 Flowable procKey；为空表示直改不走审批 */
+  flowKey?: string;
+  callbackBean?: string;
+  remark?: string;
+}
+
+/** 状态流转记录 */
+export interface PersonStatusFlowRecord {
+  id: string;
+  userId: string;
+  fromStatus?: number;
+  toStatus: number;
+  flowKey?: string;
+  instanceId?: string;
+  /** 1 流程审批 2 直接变更 */
+  mode: number;
+  /** 0 审批中 1 通过 2 驳回 */
+  flowStatus: number;
+  opinion?: string;
+  createTime?: string;
+  finishTime?: string;
+}
+
+/** 发起人员状态变更 */
+export async function startStatusFlow(data: {
+  userId: string;
+  toStatus: number;
+  opinion?: string;
+}) {
+  return request(`${USER_BASE_URL}/status-flow/start`, { method: 'POST', data });
+}
+
+/** 某用户可用的状态流转（供「办理状态变更」渲染） */
+export async function statusFlowAvailable(params: { userId: string }) {
+  return request(`${USER_BASE_URL}/status-flow/available?${stringify(params)}`);
+}
+
+/** 某用户的状态流转记录（流转进度） */
+export async function statusFlowRecords(params: { userId: string }) {
+  return request(`${USER_BASE_URL}/status-flow/records?${stringify(params)}`);
+}
+
+/** 用户信息完善度（对齐 ecology HrmInfoStatus） */
+export async function completeStatus(params: { userId: string }) {
+  return request(`${USER_BASE_URL}/complete-status?${stringify(params)}`);
+}
+
+/** 完善度项：item -> 显示名 */
+export const COMPLETE_STATUS_TEXT: Record<string, string> = {
+  BASE: '基本信息',
+  PERSON: '个人信息',
+  WORK: '工作信息',
+  SYSTEM: '系统信息',
+};

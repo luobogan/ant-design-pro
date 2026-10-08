@@ -11,6 +11,7 @@ import {
   ReloadOutlined,
   SearchOutlined,
   SettingOutlined,
+  SwapOutlined,
   UnlockOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
@@ -40,8 +41,17 @@ import * as postApi from '@/pages/System/Post/service';
 import * as userApi from '@/services/system/user';
 import UserAdd from './UserAdd';
 import UserEdit from './UserEdit';
+import UserStatusFlowModal from './UserStatusFlowModal';
 
 const { Panel } = Collapse;
+
+/** 人员状态 Tag 配色：在职态(0试用/1正式)绿、临时/延期蓝、退休金、解聘(4)红（该账号登录会被拦截） */
+const personStatusColor = (status?: number) => {
+  if (status === undefined || status === null) return 'default';
+  if (status === 4) return 'red';
+  if (status === 5) return 'gold';
+  return status === 0 || status === 1 ? 'green' : 'blue';
+};
 
 interface User {
   id: string;
@@ -58,6 +68,10 @@ interface User {
   sex: number;
   sexName: string;
   birthday: string;
+  workCode: string;
+  personStatus: number;
+  personStatusName: string;
+  certificateNum: string;
   userCode: string;
   positionName: string;
   managerName: string;
@@ -79,6 +93,7 @@ const UserPage: React.FC = () => {
   const [addModalVisible, setAddModalVisible] = useState<boolean>(false);
   const [editModalVisible, setEditModalVisible] = useState<boolean>(false);
   const [viewModalVisible, setViewModalVisible] = useState<boolean>(false);
+  const [statusFlowModalVisible, setStatusFlowModalVisible] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [selectedDeptId, setSelectedDeptId] = useState<string>('');
   const [searchValue, setSearchValue] = useState<string>('');
@@ -145,6 +160,8 @@ const UserPage: React.FC = () => {
       deptName: user.deptName || '暂无分配',
       platform: user.platform || 'web',
       sexName: user.sex === 1 ? '男' : user.sex === 2 ? '女' : '未知',
+      personStatusName:
+        userApi.PERSON_STATUS_TEXT[user.personStatus as number] || '-',
     }));
   }, [userData]);
 
@@ -195,6 +212,26 @@ const UserPage: React.FC = () => {
       key: 'account',
       search: true,
       width: 120,
+    },
+    {
+      title: '工号',
+      dataIndex: 'workCode',
+      key: 'workCode',
+      search: true,
+      width: 110,
+      render: (workCode) => workCode || '-',
+    },
+    {
+      title: '人员状态',
+      dataIndex: 'personStatus',
+      key: 'personStatus',
+      width: 90,
+      render: (_, record: User) => (
+        // P3-5 口径：在职 = 0/1/2/3/5，解聘(4) 灰红（该账号登录将被拦截）
+        <Tag color={personStatusColor(record.personStatus)}>
+          {record.personStatusName || '-'}
+        </Tag>
+      ),
     },
     {
       title: '所属租户',
@@ -259,8 +296,15 @@ const UserPage: React.FC = () => {
           >
             编辑
           </Button>
-          <Button type="link" icon={<MoreOutlined />}>
-            更多
+          <Button
+            type="link"
+            icon={<SwapOutlined />}
+            onClick={() => {
+              setCurrentUser(record);
+              setStatusFlowModalVisible(true);
+            }}
+          >
+            办理
           </Button>
         </Space>
       ),
@@ -320,10 +364,27 @@ const UserPage: React.FC = () => {
             {user.platform?.toUpperCase()}
           </Descriptions.Item>
           <Descriptions.Item label="登录账号">{user.account}</Descriptions.Item>
+          <Descriptions.Item label="工号">{user.workCode || '-'}</Descriptions.Item>
           <Descriptions.Item label="用户状态">
             <Tag color={user.status === 1 ? 'green' : 'red'}>
               {user.status === 1 ? '启用' : '禁用'}
             </Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="人员状态">
+            <Tag
+              color={
+                user.personStatus === 0 || user.personStatus === 1
+                  ? 'green'
+                  : user.personStatus === 3 || user.personStatus === 2
+                    ? 'blue'
+                    : 'red'
+              }
+            >
+              {user.personStatusName || '-'}
+            </Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="证件号">
+            {user.certificateNum?.replace(/(\d{4})\d+(\d{3})/, '$1***********$2') || '-'}
           </Descriptions.Item>
         </Descriptions>
       </Panel>
@@ -464,6 +525,22 @@ const UserPage: React.FC = () => {
                   删除
                 </Button>
               ),
+              <Button
+                key="status-flow"
+                icon={<SwapOutlined />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => {
+                  const target = users.find((u: any) => String(u.id) === String(selectedRowKeys[0]));
+                  if (!target) {
+                    message.warning('请选择一条用户记录');
+                    return;
+                  }
+                  setCurrentUser(target);
+                  setStatusFlowModalVisible(true);
+                }}
+              >
+                办理状态变更
+              </Button>,
               pageButtons.some((btn) => btn.code === 'user_audit') && (
                 <Button key="audit" icon={<CheckCircleOutlined />}>
                   审核
@@ -519,6 +596,7 @@ const UserPage: React.FC = () => {
             setAddModalVisible(false);
             refresh();
           }}
+          onSaved={() => refresh()}
           onCancel={() => setAddModalVisible(false)}
           roleTree={roleTree}
           deptTree={deptTree}
@@ -548,6 +626,17 @@ const UserPage: React.FC = () => {
           />
         )}
       </Modal>
+
+      {/* 办理状态变更弹窗（P3-2） */}
+      <UserStatusFlowModal
+        open={statusFlowModalVisible}
+        user={currentUser}
+        onCancel={() => setStatusFlowModalVisible(false)}
+        onOk={() => {
+          setStatusFlowModalVisible(false);
+          refresh();
+        }}
+      />
 
       {/* 查看用户弹窗 */}
       <Modal
