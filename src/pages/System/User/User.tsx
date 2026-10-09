@@ -14,7 +14,7 @@ import {
   SwapOutlined,
   UnlockOutlined,
 } from '@ant-design/icons';
-import type { ProColumns } from '@ant-design/pro-components';
+import type { ProColumns, ActionType } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { useModel, useRequest } from '@umijs/max';
 import {
@@ -33,7 +33,7 @@ import {
   message,
 } from 'antd';
 import type { DataNode } from 'antd/es/tree';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import * as roleApi from '@/services/authority/role';
 import * as deptApi from '@/services/system/dept';
@@ -44,6 +44,9 @@ import UserEdit from './UserEdit';
 import UserStatusFlowModal from './UserStatusFlowModal';
 
 const { Panel } = Collapse;
+
+/** 组织树顶层「公司」虚拟根节点 key（点击=查看全部用户；真实公司/分部/部门节点在其下） */
+const COMPANY_ROOT_KEY = '__company__';
 
 /** 人员状态 Tag 配色：在职态(0试用/1正式)绿、临时/延期蓝、退休金、解聘(4)红（该账号登录会被拦截） */
 const personStatusColor = (status?: number) => {
@@ -113,22 +116,84 @@ const UserPage: React.FC = () => {
   // 获取岗位列表数据
   const { data: positionListData } = useRequest(postApi.list);
 
-  // 获取用户数据
-  const {
-    data: userData,
-    loading: userLoading,
-    refresh,
-  } = useRequest(() => userApi.list({ deptId: selectedDeptId || undefined }), {
-    refreshDeps: [selectedDeptId],
-  });
+  // 用户列表：服务端分页（ProTable request 模式）——current/size 传后端，
+  // 组织树子树过滤（deptId）+ 租户过滤（tenantId）均由后端完成
+  const tableRef = useRef<ActionType>();
+  const usersRef = useRef<User[]>([]);
+  const myTenantId = (initialState?.currentUser as any)?.tenantId as
+    | string
+    | undefined;
 
-  // 转换部门树数据
+  const fetchUsers = async (params: any) => {
+    const {
+      current = 1,
+      pageSize = 10,
+      account,
+      realName,
+      workCode,
+      deptId,
+      tenantId,
+    } = params || {};
+    const res = await userApi.list({
+      current: current ?? 1,
+      pageSize: pageSize ?? 10,
+      account: account || undefined,
+      realName: realName || undefined,
+      workCode: workCode || undefined,
+      deptId: deptId || undefined,
+      tenantId: tenantId || undefined,
+    });
+    const page = Array.isArray(res)
+      ? { records: res, total: res.length }
+      : res?.records
+        ? res
+        : res?.data || { records: [], total: 0 };
+    const records = (page.records || []).map((user: any) => ({
+      ...user,
+      account: user.account || user.username || '',
+      realName: user.realName || user.name || '',
+      tenantName: user.tenantName || '管理组',
+      roleName: user.roleName || user.role || '暂无分配',
+      deptName: user.deptName || '暂无分配',
+      platform: user.platform || 'web',
+      sexName: user.sex === 1 ? '男' : user.sex === 2 ? '女' : '未知',
+      personStatusName:
+        userApi.PERSON_STATUS_TEXT[user.personStatus as number] || '-',
+    }));
+    usersRef.current = records as User[];
+    return { data: records, total: page.total ?? records.length, success: true };
+  };
+
+  // 转换部门树数据，并在最顶层叠加「公司」节点（对齐 ecology 组织树根为公司档案；租户名缺失时仅显示「公司」）
+  const tenantName = (initialState?.currentUser as any)?.tenantName as
+    | string
+    | undefined;
   const deptTree = useMemo(() => {
     const data = Array.isArray(deptTreeData)
       ? deptTreeData
       : deptTreeData?.data || [];
-    return data;
-  }, [deptTreeData]);
+    return [
+      {
+        id: COMPANY_ROOT_KEY,
+        parentId: '-1',
+        key: COMPANY_ROOT_KEY,
+        title: tenantName ? `公司：${tenantName}` : '公司',
+        children: data,
+      },
+    ];
+  }, [deptTreeData, tenantName]);
+
+  // 树节点 id → title 映射（列表顶部过滤标签用）
+  const deptTitleMap = useMemo(() => {
+    const map = new Map<string, string>();
+    const walk = (nodes: DeptNode[]) =>
+      nodes.forEach((n) => {
+        map.set(n.id, n.title);
+        if (n.children) walk(n.children);
+      });
+    walk(deptTree);
+    return map;
+  }, [deptTree]);
 
   // 转换角色树数据
   const roleTree = useMemo(() => {
@@ -145,25 +210,6 @@ const UserPage: React.FC = () => {
       : positionListData?.records || positionListData?.data || [];
     return records;
   }, [positionListData]);
-
-  // 转换用户数据
-  const users = useMemo(() => {
-    const records = Array.isArray(userData)
-      ? userData
-      : userData?.records || userData?.data || [];
-    return records.map((user: any) => ({
-      ...user,
-      account: user.account || user.username || '',
-      realName: user.realName || user.name || '',
-      tenantName: user.tenantName || '管理组',
-      roleName: user.roleName || user.role || '暂无分配',
-      deptName: user.deptName || '暂无分配',
-      platform: user.platform || 'web',
-      sexName: user.sex === 1 ? '男' : user.sex === 2 ? '女' : '未知',
-      personStatusName:
-        userApi.PERSON_STATUS_TEXT[user.personStatus as number] || '-',
-    }));
-  }, [userData]);
 
   // 构建树形数据
   const buildTreeData = (data: DeptNode[]): DataNode[] => {
@@ -191,13 +237,10 @@ const UserPage: React.FC = () => {
     }
   }, [deptTree]);
 
-  // 处理部门选择
+  // 处理部门选择（公司根节点/取消选择 = 查看全部；其余节点由后端按子树过滤）
   const handleDeptSelect = (selectedKeys: React.Key[], _info: any) => {
-    if (selectedKeys.length > 0) {
-      setSelectedDeptId(selectedKeys[0] as string);
-    } else {
-      setSelectedDeptId('');
-    }
+    const key = selectedKeys[0] as string;
+    setSelectedDeptId(!key || key === COMPANY_ROOT_KEY ? '' : key);
   };
 
   // 处理展开/折叠
@@ -326,7 +369,7 @@ const UserPage: React.FC = () => {
           await userApi.remove({ ids: idList });
           message.success('删除成功');
           setSelectedRowKeys([]);
-          refresh();
+          tableRef.current?.reload();
         } catch (_error) {
           message.error('删除失败');
         }
@@ -464,7 +507,7 @@ const UserPage: React.FC = () => {
               <Button
                 type="text"
                 icon={<ReloadOutlined />}
-                onClick={() => refresh()}
+                onClick={() => tableRef.current?.reload()}
                 size="small"
               />
             }
@@ -493,12 +536,27 @@ const UserPage: React.FC = () => {
 
         {/* 右侧用户列表 */}
         <Col span={19}>
-          <ProTable
+          {selectedDeptId && (
+            <div style={{ marginBottom: 8 }}>
+              <Tag
+                closable
+                color="blue"
+                onClose={() => setSelectedDeptId('')}
+              >
+                组织过滤：{deptTitleMap.get(selectedDeptId) || selectedDeptId}
+              </Tag>
+            </div>
+          )}
+          <ProTable<User>
             columns={columns}
-            dataSource={users}
-            loading={userLoading}
+            actionRef={tableRef}
+            request={fetchUsers}
+            params={{
+              deptId: selectedDeptId || undefined,
+              tenantId: myTenantId || undefined,
+            }}
             rowKey="id"
-            pagination={{ pageSize: 10 }}
+            pagination={{ pageSize: 10, showSizeChanger: true }}
             rowSelection={{
               selectedRowKeys,
               onChange: (keys) => setSelectedRowKeys(keys),
@@ -530,7 +588,9 @@ const UserPage: React.FC = () => {
                 icon={<SwapOutlined />}
                 disabled={selectedRowKeys.length !== 1}
                 onClick={() => {
-                  const target = users.find((u: any) => String(u.id) === String(selectedRowKeys[0]));
+                  const target = usersRef.current.find(
+                    (u) => String(u.id) === String(selectedRowKeys[0]),
+                  );
                   if (!target) {
                     message.warning('请选择一条用户记录');
                     return;
@@ -594,9 +654,9 @@ const UserPage: React.FC = () => {
         <UserAdd
           onOk={() => {
             setAddModalVisible(false);
-            refresh();
+            tableRef.current?.reload();
           }}
-          onSaved={() => refresh()}
+          onSaved={() => tableRef.current?.reload()}
           onCancel={() => setAddModalVisible(false)}
           roleTree={roleTree}
           deptTree={deptTree}
@@ -617,7 +677,7 @@ const UserPage: React.FC = () => {
             user={currentUser}
             onOk={() => {
               setEditModalVisible(false);
-              refresh();
+              tableRef.current?.reload();
             }}
             onCancel={() => setEditModalVisible(false)}
             roleTree={roleTree}
@@ -634,7 +694,7 @@ const UserPage: React.FC = () => {
         onCancel={() => setStatusFlowModalVisible(false)}
         onOk={() => {
           setStatusFlowModalVisible(false);
-          refresh();
+          tableRef.current?.reload();
         }}
       />
 

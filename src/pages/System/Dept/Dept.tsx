@@ -32,9 +32,25 @@ interface Dept {
 const { Option } = Select;
 const { TextArea } = Input;
 
+/** 组织树顶层「公司」虚拟根节点 key（点击=查看全部组织；真实公司/分部/部门节点在其下） */
+const COMPANY_ROOT_KEY = '__company__';
+
+/** 在嵌套组织树中按 id 查找节点 */
+const findDeptNode = (nodes: Dept[], id: string): Dept | null => {
+  for (const n of nodes) {
+    if (n.id === id) return n;
+    if (n.children) {
+      const hit = findDeptNode(n.children, id);
+      if (hit) return hit;
+    }
+  }
+  return null;
+};
+
 const Dept: React.FC = () => {
   const { buttons } = usePageButtons();
-  const { isAdmin, currentUser } = usePermission();
+  const { currentUser } = usePermission();
+  const tenantName = (currentUser as any)?.tenantName as string | undefined;
 
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [addModalVisible, setAddModalVisible] = useState<boolean>(false);
@@ -45,13 +61,13 @@ const Dept: React.FC = () => {
   const [editForm] = Form.useForm();
   const [selectedDept, setSelectedDept] = useState<string>('');
 
-  // 获取部门列表
+  // 获取部门列表（显式带当前租户：admin 后端不做租户过滤，缺省会把全部租户的组织混进来）
   const {
     data: deptData,
     loading,
     refresh,
   } = useRequest(() => {
-    return deptApi.list({});
+    return deptApi.list({ tenantId: (currentUser as any)?.tenantId || undefined });
   });
 
   // 转换部门数据为树形结构
@@ -206,8 +222,21 @@ const Dept: React.FC = () => {
       });
     };
 
-    return removeEmptyChildren(rootNodes);
-  }, [deptData]);
+    return [
+      {
+        key: COMPANY_ROOT_KEY,
+        title: tenantName ? `公司：${tenantName}` : '公司',
+        children: removeEmptyChildren(rootNodes),
+      },
+    ];
+  }, [deptData, tenantName]);
+
+  // 左侧组织树选中 → 右侧仅显示该子树（公司根节点/未选 = 全量）
+  const tableDepts = useMemo(() => {
+    if (!selectedDept || selectedDept === COMPANY_ROOT_KEY) return depts;
+    const node = findDeptNode(depts, selectedDept);
+    return node ? [node] : [];
+  }, [depts, selectedDept]);
 
   const columns: ProColumns<Dept>[] = [
     {
@@ -445,11 +474,6 @@ const Dept: React.FC = () => {
     setEditModalVisible(true);
   };
 
-  // 检查是否为 00000 租户的高级管理员
-  const isRootAdmin = useMemo(() => {
-    return isAdmin && currentUser?.tenantId === '00000';
-  }, [isAdmin, currentUser]);
-
   return (
     <PageContainer
       title="部门管理"
@@ -465,24 +489,22 @@ const Dept: React.FC = () => {
       }
     >
       <div style={{ display: 'flex', gap: '16px' }}>
-        {/* 左侧部门树（仅 00000 租户的高级管理员可见） */}
-        {isRootAdmin && (
-          <Card title="部门树" style={{ width: '280px', flexShrink: 0 }}>
-            <Tree
-              treeData={treeData}
-              selectedKeys={selectedDept ? [selectedDept] : []}
-              onSelect={(keys) => setSelectedDept(keys[0] as string)}
-              defaultExpandAll
-              style={{ maxHeight: '600px', overflow: 'auto' }}
-            />
-          </Card>
-        )}
+        {/* 左侧组织架构树（公司 → 分部 → 部门；点击节点右侧仅显示该子树，再次点击取消） */}
+        <Card title="组织架构树" style={{ width: '280px', flexShrink: 0 }}>
+          <Tree
+            treeData={treeData}
+            selectedKeys={selectedDept ? [selectedDept] : []}
+            onSelect={(keys) => setSelectedDept((keys[0] as string) || '')}
+            defaultExpandAll
+            style={{ maxHeight: '600px', overflow: 'auto' }}
+          />
+        </Card>
 
         {/* 右侧部门列表 */}
         <Card title="部门列表" style={{ flex: 1 }}>
           <ProTable
             columns={columns}
-            dataSource={depts || []}
+            dataSource={tableDepts || []}
             loading={loading}
             rowKey="id"
             pagination={{ pageSize: 10 }}
