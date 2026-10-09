@@ -22,20 +22,12 @@ export default [
       },
     ],
   },
-  // Excel 表单预览「独立页面」：由设计器「预览」按钮在新标签页打开。
-  // layout: false 表示不套 ProLayout/菜单外壳，整页只渲染表单，对齐 ecology excelPreView。
-  {
-    path: '/formmode/exceldesign/ExcelPreviewPage',
-    layout: false,
-    component: './FormMode/ExcelDesign/ExcelPreviewPage',
-  },
-  // 流程审批界面「独立页面」：由待办列表（或 URL 直接带 instanceId+taskId）打开。
-  // layout: false 不套 ProLayout 外壳，整页渲染审批表单 + E9 风格操作按钮栏。
-  {
-    path: '/formmode/approval/ApprovalPage',
-    layout: false,
-    component: './FormMode/Approval/ApprovalPage',
-  },
+  // 两个「独立页」（Excel 表单预览 / 流程审批）已改为菜单驱动，不再在此静态声明：
+  //   * 后端 blade_menu 各有一行 category=2 + is_component=1 + is_open=2 的组件型菜单；
+  //   * MenuServiceImpl.buildRoutes() 已放行 category=2 && isComponent=1，故 /menu/routes 会下发；
+  //   * 前端 app.tsx 的 loopMenuItem 识别 is_component=1 && is_open=2 → 收集进 standaloneRoutes，
+  //     由 patchClientRoutes 挂到顶层（不套 ProLayout），等价原先的 layout: false；
+  //   * 同时 app.tsx 的菜单数据源已过滤 category=2，它们不会出现在左侧菜单里。
   {
     path: '/',
     routes: [
@@ -50,6 +42,10 @@ export default [
         name: 'welcome',
         component: './Welcome',
       },
+      // 消息中心：菜单驱动（blade_menu code='message'，path=/message），无需在此静态声明。
+      // 入口是顶部消息铃铛（MessageBell → navigate('/message')）。
+      // 注：此前访问 /message 报 404 并非缺菜单，而是 blade-system 宕机导致
+      // /menu/routes 取不到数据、动态路由为空，从而落到下面的 /* 兜底。
       // 通配符路由，直接指向404页面
       {
         path: '/*',

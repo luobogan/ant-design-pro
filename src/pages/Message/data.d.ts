@@ -57,10 +57,15 @@ export interface Session {
   avatar?: string;
   type?: number;
   lastMessage?: string;
+  /** 最近消息时间（格式 YYYY-MM-DD HH:mm:ss，字符串本身即可比较大小） */
   lastTime?: string;
   unreadCount?: number;
   memberCount?: number;
   memberIds?: string[];
+  /** 是否置顶（后端由会话成员表回填，仅当前用户维度） */
+  pinned?: number;
+  /** 是否免打扰 */
+  mute?: number;
 }
 
 export interface MessageVO extends Message {

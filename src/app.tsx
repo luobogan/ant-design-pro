@@ -613,7 +613,13 @@ export const layout: RunTimeLayoutConfig = ({
         userId: initialState?.currentUser?.userid,
       },
       request: async (_params, _defaultMenuData) => {
-        const menu1 = loopMenuItem1(formatRoutes(extraRoutes));
+        // 后端 /menu/routes 现会一并下发「组件型菜单」（category=2 && isComponent=1），
+        // 它们是 Excel 预览 / 流程审批等「独立页」的路由载体，但不应出现在左侧菜单里。
+        // 路由注册由 patchClientRoutes 负责，这里只把 category=2 从菜单数据中剔除。
+        const menuRoutes = formatRoutes(extraRoutes).filter(
+          (item: any) => Number(item?.category) !== 2,
+        );
+        const menu1 = loopMenuItem1(menuRoutes);
         console.log(`menuData 转换1：${menu1}`);
         return menu1;
       },

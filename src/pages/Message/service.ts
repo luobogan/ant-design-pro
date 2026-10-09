@@ -15,6 +15,13 @@ const BASE = '/api/blade-message';
 export async function getSessions(params?: {
   current?: number;
   pageSize?: number;
+  /**
+   * 按需加载开关（后端 lastMessage 是否为空的过滤）：
+   * true  = 只取「已有消息」的会话 —— 首屏优先加载，量小、装配快；
+   * false = 只取「还没有消息」的会话 —— 等用户滚动到可视区域时再拉取；
+   * 不传  = 不过滤（兼容旧调用）。
+   */
+  hasMessage?: boolean;
 }) {
   // 后端 Query 绑定的是 current/size，pageSize 不会被识别 → size 恒为 null。
   // 这里统一把 pageSize 转成 size，避免服务端对 null 的 size 拆箱报错。

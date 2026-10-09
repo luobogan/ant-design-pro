@@ -1,6 +1,6 @@
 import { useModel } from '@umijs/max';
 import { Flex, Input, Modal, Select, Typography, theme } from 'antd';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as userApi from '@/services/system/user';
 import {
   connectMessageSocket,
@@ -27,6 +27,13 @@ export default function MessageCenterPage() {
   const [sessions, setSessions] = useState<SessionVO[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
   const [loadingSessions, setLoadingSessions] = useState(false);
+  // 「还没有消息」的会话：首屏不加载，等滚动到可视区域时按需分页拉取并追加
+  const [emptySessions, setEmptySessions] = useState<SessionVO[]>([]);
+  const [emptyTotal, setEmptyTotal] = useState(0);
+  const [emptyLoaded, setEmptyLoaded] = useState(false);
+  const [loadingEmpty, setLoadingEmpty] = useState(false);
+  const emptyPageRef = useRef(0);
+  const emptyLoadingRef = useRef(false);
   // 消息历史分页（初始定位最新一页 + 向上滚动加载更早历史），与悬浮消息框共用
   const {
     messages,
@@ -48,13 +55,43 @@ export default function MessageCenterPage() {
   /** silent=true 表示由 WS 事件触发：不闪 loading，避免聊天界面出现"整页刷新"感 */
   const fetchSessions = useCallback((silent = false) => {
     if (!silent) setLoadingSessions(true);
-    getSessions({ current: 1, pageSize: 50 })
+    // 首屏只取「已有消息」的会话：全公司会话里绝大多数是还没有消息的空会话，
+    // 一次性全部装配是首屏耗时的主要来源；空会话改为滚动到可视区域时按需加载。
+    getSessions({ current: 1, pageSize: 50, hasMessage: true })
       .then((res) => setSessions((res as any)?.data?.records ?? []))
       .catch(() => {
         if (!silent) setSessions([]);
       })
       .finally(() => {
         if (!silent) setLoadingSessions(false);
+      });
+  }, []);
+
+  /**
+   * 无消息会话按需加载：由会话列表底部哨兵在进入可视区域时触发，按页追加。
+   * 用 ref 记录页码 / 在途状态，避免闭包读到旧值导致重复请求或漏页。
+   */
+  const loadEmptySessions = useCallback(() => {
+    if (emptyLoadingRef.current) return;
+    emptyLoadingRef.current = true;
+    setLoadingEmpty(true);
+    const next = emptyPageRef.current + 1;
+    getSessions({ current: next, pageSize: 20, hasMessage: false })
+      .then((res) => {
+        const data = (res as any)?.data;
+        const records: SessionVO[] = data?.records ?? [];
+        emptyPageRef.current = next;
+        setEmptySessions((prev) => {
+          const seen = new Set(prev.map((s) => String(s.id)));
+          return [...prev, ...records.filter((s) => !seen.has(String(s.id)))];
+        });
+        setEmptyTotal(Number(data?.total ?? 0));
+        setEmptyLoaded(true);
+      })
+      .catch(() => {})
+      .finally(() => {
+        emptyLoadingRef.current = false;
+        setLoadingEmpty(false);
       });
   }, []);
 
@@ -144,7 +181,17 @@ export default function MessageCenterPage() {
       .catch(() => {});
   };
 
-  const selectedSession = sessions.find(
+  // 展示顺序：已有消息的会话（后端按 lastTime 倒序）在前，按需加载的无消息会话追加在后。
+  // 若某个空会话期间收到了消息，它会同时出现在两个列表里 —— 以 sessions（有消息）为准去重。
+  const allSessions = useMemo(() => {
+    const ids = new Set(sessions.map((s) => String(s.id)));
+    return [...sessions, ...emptySessions.filter((s) => !ids.has(String(s.id)))];
+  }, [sessions, emptySessions]);
+
+  // 首次拉取完成前先显示哨兵；拉取后按总数判断是否还有下一页
+  const hasMoreEmpty = !emptyLoaded || emptySessions.length < emptyTotal;
+
+  const selectedSession = allSessions.find(
     (s) => String(s.id) === String(selectedId),
   );
 
@@ -152,11 +199,14 @@ export default function MessageCenterPage() {
     <Flex style={{ height: 'calc(100vh - 112px)', background: token.colorBgLayout }}>
       <div style={{ width: 320, flexShrink: 0 }}>
         <SessionList
-          sessions={sessions}
+          sessions={allSessions}
           selectedId={selectedId}
           loading={loadingSessions}
           onSelect={selectSession}
           onNew={() => setNewOpen(true)}
+          onLoadEmpty={loadEmptySessions}
+          loadingEmpty={loadingEmpty}
+          hasMoreEmpty={hasMoreEmpty}
         />
       </div>
       <div style={{ flex: 1 }}>
