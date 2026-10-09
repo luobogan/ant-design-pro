@@ -100,6 +100,9 @@ export default function EmojiPicker({ onSelect }: Props) {
       placement="topLeft"
       open={open}
       onOpenChange={setOpen}
+      // Popover 默认挂 body、z-index 1030；悬浮消息框容器 zIndex=1100，
+      // 不提层的话弹层会被整个盖住（表现为「点了表情没反应」）。附件/业务引用同理。
+      zIndex={1200}
     >
       <Tooltip title="表情符号">
         <Button type="text" size="small" icon={<SmileOutlined />} />

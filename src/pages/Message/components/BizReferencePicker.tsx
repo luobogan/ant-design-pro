@@ -72,6 +72,8 @@ export default function BizReferencePicker({ value, onChange }: Props) {
       <Modal
         title="选择关联流程"
         open={open}
+        // 悬浮消息框容器 zIndex=1100，Modal 默认 1000 会被其盖住，需提层
+        zIndex={1200}
         onCancel={() => setOpen(false)}
         footer={null}
         width={560}
