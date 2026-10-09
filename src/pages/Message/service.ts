@@ -43,16 +43,16 @@ export async function createSession(data: SessionCreateDTO) {
   });
 }
 
-/** 会话消息分页（按时间正序） */
+/** 会话消息分页（默认按时间正序；desc=true 按时间倒序，通知列表取最新一页用） */
 export async function getMessages(
   sessionId: string,
-  params?: { current?: number; pageSize?: number },
+  params?: { current?: number; pageSize?: number; desc?: boolean },
 ) {
   // 同 getSessions：后端识别的是 size，不是 pageSize
-  const { pageSize, ...rest } = params ?? {};
+  const { pageSize, desc, ...rest } = params ?? {};
   return request<ApiResponse<{ records: MessageVO[]; total: number }>>(
     `${BASE}/message/session/${sessionId}/messages`,
-    { method: 'GET', params: { ...rest, size: pageSize } },
+    { method: 'GET', params: { ...rest, size: pageSize, desc } },
   );
 }
 

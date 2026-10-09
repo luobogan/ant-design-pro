@@ -41,6 +41,8 @@ export interface Message {
   sessionId?: string;
   senderId?: string;
   contentType?: ContentType;
+  /** 消息分类：1=聊天 2=流程通知（流程通知固定进 type=3 系统通知会话） */
+  category?: number;
   content?: string;
   quoteMsgId?: string;
   bizRefType?: BizRefType;
@@ -55,6 +57,7 @@ export interface Session {
   name?: string;
   /** 会话展示头像（私聊 = 对方成员头像，后端回填） */
   avatar?: string;
+  /** 会话类型：1=两人 2=群 3=系统通知（流程消息，每人一条，不进聊天列表） */
   type?: number;
   lastMessage?: string;
   /** 最近消息时间（格式 YYYY-MM-DD HH:mm:ss，字符串本身即可比较大小） */

@@ -160,13 +160,18 @@ const normalizeDirKey = (p: string): string => p.toLowerCase().replace(/[-_]/g, 
  * 里推断出动态 import 的目录上下文。若先把路径拼进数组再 `import(arr[i])`，
  * 打包器推断不出前缀，会导致**所有**动态页面组件都加载失败（2026-10-05 踩坑）。
  *
- * 候选顺序：别名登记的真实目录 → Pascal 推导值 → 原始路径分段（大小写不同）。
+ * 候选顺序：别名登记的真实目录 → 嵌套目录（3 段以上路径）→ Pascal 推导值 → 原始路径分段（大小写不同）。
  * 典型场景：菜单 /system/topmenu 推导出 TopMenu，磁盘目录却是 Topmenu。
+ *
+ * @param midDirs 路径中间段（3 段以上时 = 第 2..n-1 段）。按「模块/中间目录/页面」嵌套约定
+ *   解析组件：/workflow/create/start → ./pages/Workflow/Create/Start.tsx（与按钮组件页
+ *   ./pages/{Module}/{Page}/{Component}.tsx 口径一致）。
  */
 const buildComponentLoaders = (
   module: string,
   page: string,
   rawPage: string,
+  midDirs: string[] = [],
 ): Array<() => Promise<any>> => {
   const loaders: Array<() => Promise<any>> = [];
   const aliasDir = PAGE_DIR_ALIAS[normalizeDirKey(`${module}/${page}`)];
@@ -174,6 +179,16 @@ const buildComponentLoaders = (
     loaders.push(() => import(`./pages/${module}/${aliasDir}/${aliasDir}.tsx`));
     loaders.push(() => import(`./pages/${module}/${aliasDir}/index.tsx`));
   }
+  midDirs.forEach((dir) => {
+    if (!dir) return;
+    const dirPascal = PAGE_DIR_ALIAS[normalizeDirKey(`${module}/${dir}`)] || toPascalCase(dir);
+    loaders.push(() => import(`./pages/${module}/${dirPascal}/${page}.tsx`));
+    loaders.push(() => import(`./pages/${module}/${dirPascal}/${page}/index.tsx`));
+    if (rawPage && rawPage !== page) {
+      loaders.push(() => import(`./pages/${module}/${dirPascal}/${rawPage}.tsx`));
+      loaders.push(() => import(`./pages/${module}/${dirPascal}/${rawPage}/index.tsx`));
+    }
+  });
   loaders.push(() => import(`./pages/${module}/${page}/${page}.tsx`));
   loaders.push(() => import(`./pages/${module}/${page}/index.tsx`));
   if (rawPage && rawPage !== page) {
@@ -191,6 +206,15 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
     // 无 path 的菜单（如仅用于按钮权限的菜单）不注册路由。
     // 路由扁平化后，它们若生成 path='' 的顶级路由会污染路由表并可能抢占 '/' 的匹配。
     if (!item.path) return [];
+
+    // 组件型菜单（category=2 && isComponent=1，如 /formmode/workflowdesign、
+    // /workflow/create/start）是路由载体而非导航页：路由由下方 componentButtons
+    // （按钮数据分支）注册——那里按 is_open 正确区分「布局内页 / 顶层独立页」。
+    // 若在此再按菜单页注册一份布局版路由，会与按钮分支的路由重复（独立页语义被
+    // 布局版抢占），还会把父菜单（如 /workflow/create）被 navChild 误判成分组。
+    if (Number(item.category) === 2 && Number(item.isComponent) === 1) {
+      return [...loopMenuItem(item.children || [], pId)];
+    }
 
     if (item.path) {
       const formattedPath = Func.formatRoutePath(item.path);
@@ -310,15 +334,20 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
         });
 
         // 组件加载候选（按命中概率排序）：
-        // ① ./pages/{Module}/{Page}/{Page}.tsx   常规：/system/user → ./pages/System/User/User.tsx
-        // ② ./pages/{Module}/{Page}/index.tsx     目录入口：/account/settings → ./pages/Account/Settings/index.tsx
-        // ③ 大小写变体：菜单 path 经 toPascalCase 推导出的目录名可能与磁盘实际大小写不一致
+        // ① ./pages/{Module}/{Mid}/{Page}.tsx    嵌套：/workflow/create/start → ./pages/Workflow/Create/Start.tsx
+        // ② ./pages/{Module}/{Page}/{Page}.tsx   常规：/system/user → ./pages/System/User/User.tsx
+        // ③ ./pages/{Module}/{Page}/index.tsx     目录入口：/account/settings → ./pages/Account/Settings/index.tsx
+        // ④ 大小写变体：菜单 path 经 toPascalCase 推导出的目录名可能与磁盘实际大小写不一致
         //    （如 /system/topmenu → TopMenu，而目录实际是 Topmenu；打包器按精确路径匹配，大小写不符即失败）
+        // 中间段（3 段以上路径的第 2..n-1 段）参与嵌套目录推导，例如 /workflow/create/start 的 create。
+        const midDirs = pathParts.length > 2 ? pathParts.slice(1, -1) : [];
         const componentPath = `./pages/${module}/${page}/${page}.tsx`;
         const componentIndexPath = `./pages/${module}/${page}/index.tsx`;
-        const loaders = buildComponentLoaders(module, page, rawPage);
+        const loaders = buildComponentLoaders(module, page, rawPage, midDirs);
         console.log(
-          `组件路径：${componentPath}（兜底：${rawPage !== page ? `./pages/${module}/${rawPage}/${rawPage}.tsx | ` : ''}index）`,
+          `组件路径：${componentPath}（嵌套：${midDirs.length > 0 ? `./pages/${module}/${midDirs.map(toPascalCase).join('/')}/${page}.tsx | ` : ''}兜底：${
+            rawPage !== page ? `./pages/${module}/${rawPage}/${rawPage}.tsx | ` : ''
+          }index）`,
         );
 
         Component = React.lazy(
@@ -373,8 +402,14 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
     // 否则（子项只是按钮权限无 path，或跨命名空间如 /system/workflow 下的
     // /formmode/workflowdesign）本菜单本身就是一个页面，必须渲染自己的组件，
     // 不然会被 <Navigate to="" /> 空转，表现为「打开了但是一片空白 / 404」。
+    // ⚠️ 组件型菜单（category=2，如 /workflow/create/start 挂在 /workflow/create 下）
+    // 只是路由载体，不算「子页面」——否则 /workflow/create 会被误判成分组、
+    // 一进菜单就重定向到发起页，「新建流程」的已发布流程列表永远打不开。
     const navChild = children.find(
-      (c: any) => c.path && String(c.path).startsWith(`${item.path}/`),
+      (c: any) =>
+        c.path &&
+        Number(c.category) !== 2 &&
+        String(c.path).startsWith(`${item.path}/`),
     );
 
     // 扁平化：本菜单与其子菜单都作为顶层兄弟路由挂到 '/' 下（不再嵌套 children），
@@ -580,6 +615,23 @@ const loopMenuItem1 = (menus: MenuDataItem[]): MenuDataItem[] =>
     routes: routes && loopMenuItem1(routes),
   }));
 
+/**
+ * 递归剔除菜单树中所有层级的「组件型菜单」（category=2 && isComponent=1，如
+ * /formmode/workflowdesign、/workflow/create/start）。它们只是路由载体，随
+ * /menu/rules 下发时挂在某个一级菜单之下（如 workflow_design 挂在 /system/workflow 下），
+ * 不能出现在左侧菜单；路由注册由 patchClientRoutes / loopMenuItem 的按钮分支负责。
+ * 此前只在顶层数组上 filter，嵌套子节点漏过滤，导致设计器/发起页显示进了侧边栏。
+ */
+const stripComponentMenus = (menus: MenuDataItem[] = []): MenuDataItem[] =>
+  menus
+    .filter((item: any) => Number(item?.category) !== 2)
+    .map((item: any) => {
+      const next = { ...item };
+      if (Array.isArray(next.routes)) next.routes = stripComponentMenus(next.routes);
+      if (Array.isArray(next.children)) next.children = stripComponentMenus(next.children);
+      return next;
+    });
+
 export const layout: RunTimeLayoutConfig = ({
   initialState,
   setInitialState,
@@ -615,10 +667,9 @@ export const layout: RunTimeLayoutConfig = ({
       request: async (_params, _defaultMenuData) => {
         // 后端 /menu/routes 现会一并下发「组件型菜单」（category=2 && isComponent=1），
         // 它们是 Excel 预览 / 流程审批等「独立页」的路由载体，但不应出现在左侧菜单里。
-        // 路由注册由 patchClientRoutes 负责，这里只把 category=2 从菜单数据中剔除。
-        const menuRoutes = formatRoutes(extraRoutes).filter(
-          (item: any) => Number(item?.category) !== 2,
-        );
+        // 路由注册由 patchClientRoutes 负责，这里递归剔除所有层级的 category=2
+        // （此前只 filter 顶层数组，挂在 /system/workflow 等菜单下的组件型菜单漏进了侧边栏）。
+        const menuRoutes = stripComponentMenus(formatRoutes(extraRoutes));
         const menu1 = loopMenuItem1(menuRoutes);
         console.log(`menuData 转换1：${menu1}`);
         return menu1;

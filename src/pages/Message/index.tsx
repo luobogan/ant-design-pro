@@ -1,6 +1,15 @@
 import { useModel } from '@umijs/max';
-import { Flex, Input, Modal, Select, Typography, theme } from 'antd';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Badge,
+  Flex,
+  Input,
+  Modal,
+  Select,
+  Tabs,
+  Typography,
+  theme,
+} from 'antd';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as userApi from '@/services/system/user';
 import {
   connectMessageSocket,
@@ -10,6 +19,7 @@ import {
 } from '@/utils/messageSocket';
 import ChatPanel from './components/ChatPanel';
 import ContactList from './components/ContactList';
+import NoticeList from './components/NoticeList';
 import type { MessageSendDTO, SessionVO } from './data';
 import {
   createSession,
@@ -21,6 +31,9 @@ import { useMessageHistory } from './useMessageHistory';
 
 /** 每页联系人数量：首屏只取一页，其余滚到可视区域再取 */
 const PAGE_SIZE = 20;
+
+/** 系统通知会话类型（流程消息，每人一条；对齐后端 MessageConstant.SESSION_TYPE_NOTICE） */
+const SESSION_TYPE_NOTICE = 3;
 
 /** 生成与后端同款的时间串（YYYY-MM-DD HH:mm:ss），供本地置顶排序使用 */
 function nowText() {
@@ -99,7 +112,10 @@ export default function MessageCenterPage() {
         const total = Number(data?.total ?? 0);
         const prev = contactsRef.current;
         const seen = new Set(prev.map((c) => String(c.id)));
-        const merged = [...prev, ...records.filter((c) => !seen.has(String(c.id)))];
+        const merged = [
+          ...prev,
+          ...records.filter((c) => !seen.has(String(c.id))),
+        ];
         setContacts(merged);
         setHasMore(merged.length < total);
         pageRef.current = page;
@@ -159,7 +175,10 @@ export default function MessageCenterPage() {
         const idx = next.findIndex((c) => String(c.id) === sid);
         if (idx < 0) return next;
         const inc = [...next];
-        inc[idx] = { ...inc[idx], unreadCount: (inc[idx].unreadCount ?? 0) + 1 };
+        inc[idx] = {
+          ...inc[idx],
+          unreadCount: (inc[idx].unreadCount ?? 0) + 1,
+        };
         return inc;
       });
     });
@@ -247,21 +266,87 @@ export default function MessageCenterPage() {
     (s) => String(s.id) === String(selectedId),
   );
 
+  // 消息中心分类层（§10.6）：
+  //   聊天 tab  = 人员会话（type≠3）；流程通知 tab = 系统通知会话（type=3，每人一条），
+  //   通知以卡片列表呈现，不进聊天气泡流。
+  const chatContacts = useMemo(
+    () => contacts.filter((c) => c.type !== SESSION_TYPE_NOTICE),
+    [contacts],
+  );
+  const noticeSession = useMemo(
+    () => contacts.find((c) => c.type === SESSION_TYPE_NOTICE),
+    [contacts],
+  );
+  const [activeTab, setActiveTab] = useState<'chat' | 'notice'>('chat');
+
+  // 切到「流程通知」即整会话已读：本地清零 + 调后端（红点经 /queue/unread 同步给铃铛）
+  useEffect(() => {
+    if (activeTab !== 'notice') return;
+    const sid = noticeSession?.id ? String(noticeSession.id) : undefined;
+    if (sid && (noticeSession?.unreadCount ?? 0) > 0) {
+      setContacts((prev) => patchContact(prev, sid, { unreadCount: 0 }));
+      markSessionRead(sid);
+    }
+  }, [activeTab, noticeSession?.id, noticeSession?.unreadCount]);
+
   return (
     <Flex
       style={{ height: 'calc(100vh - 112px)', background: token.colorBgLayout }}
     >
-      <div style={{ width: 320, flexShrink: 0 }}>
-        <ContactList
-          contacts={contacts}
-          selectedId={selectedId}
-          loading={loadingContacts}
-          hasMore={hasMore}
-          loadingMore={loadingMore}
-          onLoadMore={loadMoreContacts}
-          onSelect={selectSession}
-          onNew={() => setNewOpen(true)}
+      <div
+        style={{
+          width: 320,
+          flexShrink: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          background: token.colorBgContainer,
+        }}
+      >
+        <Tabs
+          activeKey={activeTab}
+          onChange={(k) => setActiveTab(k as 'chat' | 'notice')}
+          centered
+          style={{ marginBottom: 0 }}
+          items={[
+            { key: 'chat', label: '聊天' },
+            {
+              key: 'notice',
+              label: (
+                <Badge
+                  count={noticeSession?.unreadCount ?? 0}
+                  size="small"
+                  offset={[10, 0]}
+                >
+                  流程通知
+                </Badge>
+              ),
+            },
+          ]}
         />
+        <div style={{ flex: 1, minHeight: 0 }}>
+          {activeTab === 'chat' ? (
+            <ContactList
+              contacts={chatContacts}
+              selectedId={selectedId}
+              loading={loadingContacts}
+              hasMore={hasMore}
+              loadingMore={loadingMore}
+              onLoadMore={loadMoreContacts}
+              onSelect={selectSession}
+              onNew={() => setNewOpen(true)}
+            />
+          ) : (
+            <NoticeList
+              session={noticeSession}
+              onJump={(type, id) => {
+                if (type === 'WF_TASK')
+                  window.open(`/workflow/task/${id}`, '_blank');
+                else if (type === 'WF_INSTANCE')
+                  window.open(`/workflow/instance/${id}`, '_blank');
+              }}
+            />
+          )}
+        </div>
       </div>
       <div style={{ flex: 1 }}>
         <ChatPanel
