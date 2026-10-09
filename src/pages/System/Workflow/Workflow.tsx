@@ -1,6 +1,7 @@
 import { PlusOutlined, UploadOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 import { history, useRequest } from '@umijs/max';
 import { Button, message, Modal, Tag, Upload, Input, Space } from 'antd';
 import React, { useMemo, useState, useRef } from 'react';
@@ -299,13 +300,13 @@ const Workflow: React.FC = () => {
       title="流程设计"
       subTitle="流程定义管理（对接 blade-workflow：新建 / 部署 / 启用 / 停用 / 字段权限）"
     >
-      <ProTable
+      <StandardTable
         actionRef={actionRef}
         columns={columns}
         dataSource={defs}
         loading={loading}
         rowKey={(r) => String(r.id)}
-        pagination={{ pageSize: 10 }}
+        pagination={{ defaultPageSize: 10 }}
         search={{ labelWidth: 'auto' }}
         toolBarRender={() => [
           ...(hasPerm('workflow_add')

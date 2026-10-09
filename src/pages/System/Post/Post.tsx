@@ -5,7 +5,8 @@ import {
   PlusOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 import type { ProColumns } from '@ant-design/pro-components';
 import {
   App,
@@ -251,7 +252,7 @@ const Post: React.FC = () => {
       title={t('pages.system.post.title', '岗位管理')}
       subTitle={t('pages.system.post.subtitle', '维护岗位信息，可按名称/编号/分类查询')}
     >
-      <ProTable<PostItem>
+      <StandardTable<PostItem>
         rowKey="id"
         actionRef={actionRef}
         headerTitle={t('pages.system.post.listTitle', '岗位列表')}
@@ -323,7 +324,7 @@ const Post: React.FC = () => {
             total: Array.isArray(page) ? list.length : Number(page.total ?? 0),
           };
         }}
-        pagination={{ pageSize: 10, showSizeChanger: true }}
+        pagination={{ defaultPageSize: 10, showSizeChanger: true }}
         dateFormatter="string"
       />
 

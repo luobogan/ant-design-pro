@@ -529,7 +529,7 @@ const FormManageList: React.FC = () => {
           loading={ecologyLoading}
           size="small"
           scroll={{ x: 'max-content' }}
-          pagination={{ pageSize: 8, showTotal: (total) => `共 ${total} 个` }}
+          pagination={{ defaultPageSize: 8, showTotal: (total) => `共 ${total} 个` }}
           rowSelection={{ selectedRowKeys: ecologySelectedKeys, onChange: setEcologySelectedKeys }}
           columns={[
             { title: '表单名称', dataIndex: 'formName', key: 'formName', width: 240, ellipsis: true },

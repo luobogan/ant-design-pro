@@ -7,7 +7,8 @@ import {
   TeamOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
-import { PageContainer, ProTable, ProForm, ProFormSelect, ProFormText } from '@ant-design/pro-components';
+import { PageContainer, ProForm, ProFormSelect, ProFormText } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 import { useRequest } from '@umijs/max';
 import {
   Button,
@@ -385,12 +386,12 @@ const TopMenuPage: React.FC = () => {
           </Card>
         </Col>
         <Col span={18}>
-          <ProTable
+          <StandardTable
             columns={columns}
             dataSource={topMenus}
             loading={topMenuLoading}
             rowKey="id"
-            pagination={{ pageSize: 10 }}
+            pagination={{ defaultPageSize: 10 }}
             rowSelection={{
               selectedRowKeys,
               onChange: (keys) => setSelectedRowKeys(keys),

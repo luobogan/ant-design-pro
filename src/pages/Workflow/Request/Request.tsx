@@ -1,5 +1,6 @@
 import { useModel } from '@umijs/max';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { Alert, Badge, Button, Popconfirm, message } from 'antd';
 import { useRef, useState } from 'react';
@@ -132,13 +133,13 @@ const MyRequestList: React.FC = () => {
           description="请稍后重试；若持续失败，请联系管理员检查 blade-workflow 服务与登录态（GET /api/blade-workflow/instance/mine）。"
         />
       )}
-      <ProTable<MyRequestItem>
+      <StandardTable<MyRequestItem>
         actionRef={actionRef}
         rowKey={(r) => r.id || `${r.title}`}
         columns={columns}
         scroll={{ x: 1000 }}
         search={{ labelWidth: 'auto' }}
-        pagination={{ pageSize: 20 }}
+        pagination={{ defaultPageSize: 20 }}
         request={async (params) => {
           try {
             const res: any = await listMyRequests({

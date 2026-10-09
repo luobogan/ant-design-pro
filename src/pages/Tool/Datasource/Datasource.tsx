@@ -6,7 +6,8 @@ import {
   TestTubeOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 import { useRequest } from '@umijs/max';
 import { Button, Form, Input, Modal, message, Select, Switch } from 'antd';
 import React, { useState } from 'react';
@@ -269,12 +270,12 @@ const Datasource: React.FC = () => {
         </Button>,
       ]}
     >
-      <ProTable
+      <StandardTable
         columns={columns}
         dataSource={datasources}
         loading={loading}
         rowKey="id"
-        pagination={{ pageSize: 10 }}
+        pagination={{ defaultPageSize: 10 }}
         rowSelection={{
           selectedRowKeys,
           onChange: (keys) => setSelectedRowKeys(keys),

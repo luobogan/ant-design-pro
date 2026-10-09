@@ -1,5 +1,6 @@
 import { useModel } from '@umijs/max';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { Badge, Drawer, Tag, Timeline } from 'antd';
 import { useEffect, useRef, useState } from 'react';
@@ -102,13 +103,13 @@ const DoneList: React.FC = () => {
 
   return (
     <PageContainer header={{ title: '已办事宜' }}>
-      <ProTable<WfTaskItem>
+      <StandardTable<WfTaskItem>
         actionRef={actionRef}
         rowKey={(r) => r.id || `${r.instId}-${r.nodeKey}`}
         columns={columns}
         scroll={{ x: 1100 }}
         search={{ labelWidth: 'auto' }}
-        pagination={{ pageSize: 20 }}
+        pagination={{ defaultPageSize: 20 }}
         request={async (params) => {
           const res: any = await listDone(userId);
           let list: WfTaskItem[] = pickPayload(res) || [];

@@ -30,7 +30,8 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 // @ts-expect-error useRequest 由 @umijs/max 的 request 插件在运行时提供
 import { useRequest } from '@umijs/max';
 import {
@@ -596,7 +597,7 @@ const MenuPage: React.FC = () => {
             icon={<InfoCircleOutlined style={{ color: '#1890ff' }} />}
             style={{ marginBottom: 16, backgroundColor: '#f0f5ff', borderColor: '#adc6ff' }}
           />
-          <ProTable
+          <StandardTable
             columns={columns}
             dataSource={menus}
             loading={loading}

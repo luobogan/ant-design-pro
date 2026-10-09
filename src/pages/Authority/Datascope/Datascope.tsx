@@ -8,7 +8,8 @@ import {
   TeamOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 import { useRequest } from '@umijs/max';
 import {
   Button,
@@ -512,12 +513,12 @@ const DataPermissionPage: React.FC = () => {
         </Col>
         <Col span={18}>
           {/* 菜单列表 */}
-          <ProTable
+          <StandardTable
             columns={menuColumns}
             dataSource={menus}
             loading={menuLoading}
             rowKey="id"
-            pagination={{ pageSize: 10 }}
+            pagination={{ defaultPageSize: 10 }}
             search={{
               labelWidth: 'auto',
               defaultCollapsed: false,
@@ -542,12 +543,12 @@ const DataPermissionPage: React.FC = () => {
         footer={null}
         width={1000}
       >
-        <ProTable
+        <StandardTable
           columns={dataPermissionColumns}
           dataSource={dataPermissions}
           loading={dataPermissionLoading}
           rowKey="id"
-          pagination={{ pageSize: 10 }}
+          pagination={{ defaultPageSize: 10 }}
           rowSelection={{
             selectedRowKeys,
             onChange: (keys) => setSelectedRowKeys(keys),

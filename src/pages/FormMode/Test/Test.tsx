@@ -1255,7 +1255,7 @@ const WorkflowTestPage: React.FC = () => {
               rowKey="id"
               dataSource={history}
               columns={historyColumns}
-              pagination={{ pageSize: 5, size: 'small' }}
+              pagination={{ defaultPageSize: 5, size: 'small' }}
             />
           </Card>
         </Col>

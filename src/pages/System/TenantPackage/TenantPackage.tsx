@@ -196,7 +196,7 @@ const TenantPackage: React.FC = () => {
         columns={columns}
         dataSource={tableData}
         rowKey="id"
-        pagination={{ pageSize: 10 }}
+        pagination={{ defaultPageSize: 10 }}
       />
 
       <Modal

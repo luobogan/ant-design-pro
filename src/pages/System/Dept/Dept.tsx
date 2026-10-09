@@ -5,7 +5,8 @@ import {
   PlusOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 import { useRequest } from '@umijs/max';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import { Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, TreeSelect, message, Tree, Tag } from 'antd';
@@ -502,12 +503,12 @@ const Dept: React.FC = () => {
 
         {/* 右侧部门列表 */}
         <Card title="部门列表" style={{ flex: 1 }}>
-          <ProTable
+          <StandardTable
             columns={columns}
             dataSource={tableDepts || []}
             loading={loading}
             rowKey="id"
-            pagination={{ pageSize: 10 }}
+            pagination={{ defaultPageSize: 10 }}
             rowSelection={{
               selectedRowKeys,
               onChange: (keys) => setSelectedRowKeys(keys),

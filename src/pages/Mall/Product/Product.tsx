@@ -1035,7 +1035,7 @@ const ProductList: React.FC = () => {
           ]}
           dataSource={skuData}
           loading={false}
-          pagination={{ pageSize: 10 }}
+          pagination={{ defaultPageSize: 10 }}
           size="middle"
           scroll={{ y: 400 }}
           locale={{

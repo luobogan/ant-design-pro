@@ -5,7 +5,8 @@ import {
   PlusOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 import type { ProColumns } from '@ant-design/pro-components';
 import {
   App,
@@ -370,7 +371,7 @@ const Dict: React.FC = () => {
         </Col>
 
         <Col span={18}>
-          <ProTable<DictItem>
+          <StandardTable<DictItem>
             rowKey="id"
             headerTitle={
               selectedNode
@@ -388,8 +389,7 @@ const Dict: React.FC = () => {
               selectedRowKeys,
               onChange: (keys) => setSelectedRowKeys(keys),
             }}
-            pagination={{
-              pageSize: 10,
+            pagination={{ defaultPageSize: 10,
               showSizeChanger: true,
               showTotal: (total) =>
                 t('pages.system.common.total', '共 {total} 条', { total }),

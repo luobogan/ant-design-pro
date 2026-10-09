@@ -140,7 +140,7 @@ const FormSelectControl: React.FC<{
           size="small"
           loading={loading}
           dataSource={tableData}
-          pagination={{ pageSize: 8 }}
+          pagination={{ defaultPageSize: 8 }}
           locale={{
             emptyText: loading
               ? '加载中...'
@@ -272,7 +272,7 @@ const BrowserBox: React.FC<{
           size="small"
           loading={loading}
           dataSource={options}
-          pagination={{ pageSize: 8 }}
+          pagination={{ defaultPageSize: 8 }}
           columns={[
             { title: '名称', dataIndex: 'label' },
             {

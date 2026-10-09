@@ -8,7 +8,8 @@ import {
   SearchOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 // @ts-expect-error useRequest 由 @umijs/max 的 request 插件在运行时提供
 import { useRequest } from '@umijs/max';
 import React, { useMemo, useState } from 'react';
@@ -513,12 +514,12 @@ const RolePage: React.FC = () => {
       title="角色管理"
       subTitle="管理系统角色，包括添加、编辑、删除角色和权限配置等操作"
     >
-      <ProTable
+      <StandardTable
         columns={columns}
         dataSource={roles}
         loading={loading}
         rowKey="id"
-        pagination={{ pageSize: 10 }}
+        pagination={{ defaultPageSize: 10 }}
         rowSelection={{
           selectedRowKeys,
           onChange: (keys) => setSelectedRowKeys(keys),
@@ -839,7 +840,7 @@ const RolePage: React.FC = () => {
           dataSource={filteredUsers}
           rowKey="id"
           bordered
-          pagination={{ pageSize: 10 }}
+          pagination={{ defaultPageSize: 10 }}
           rowSelection={{
             type: 'checkbox',
             selectedRowKeys: selectedUsersToAdd,

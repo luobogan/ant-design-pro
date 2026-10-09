@@ -6,9 +6,8 @@ import type {
 import {
   FooterToolbar,
   PageContainer,
-  ProDescriptions,
-  ProTable,
-} from '@ant-design/pro-components';
+  ProDescriptions } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { FormattedMessage, useIntl } from '@umijs/max';
 import { Button, Drawer, type FormInstance, Input, message } from 'antd';
@@ -243,7 +242,7 @@ const TableList: React.FC = () => {
   return (
     <PageContainer>
       {contextHolder}
-      <ProTable<API.RuleListItem, API.PageParams>
+      <StandardTable<API.RuleListItem, API.PageParams>
         headerTitle={intl.formatMessage({
           id: 'pages.searchTable.title',
           defaultMessage: 'Enquiry form',

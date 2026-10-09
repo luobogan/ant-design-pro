@@ -9,7 +9,8 @@ import {
   ToolOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 // @ts-expect-error useRequest 由 @umijs/max 的 request 插件在运行时提供
 import { useRequest } from '@umijs/max';
 import { Button, Form, Input, Modal, message, Select, Space, Tag, DatePicker, Tree, Checkbox, Spin } from 'antd';
@@ -736,12 +737,12 @@ const TenantPage: React.FC = () => {
       title="租户管理"
       subTitle="管理系统租户，包括添加、编辑、删除租户等操作"
     >
-      <ProTable
+      <StandardTable
         columns={columns}
         dataSource={tenants}
         loading={loading}
         rowKey="id"
-        pagination={{ pageSize: 10 }}
+        pagination={{ defaultPageSize: 10 }}
         rowSelection={{
           selectedRowKeys,
           onChange: (keys) => setSelectedRowKeys(keys),
@@ -973,11 +974,11 @@ const TenantPage: React.FC = () => {
               </Button>
             </div>
           </div>
-          <ProTable
+          <StandardTable
             columns={packageColumns}
             dataSource={packages}
             rowKey="id"
-            pagination={{ pageSize: 10 }}
+            pagination={{ defaultPageSize: 10 }}
             rowSelection={{
               selectedRowKeys: selectedPackageIds,
               onChange: (keys) => setSelectedPackageIds(keys),

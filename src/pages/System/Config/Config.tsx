@@ -5,7 +5,8 @@ import {
   PlusOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 import { useRequest } from '@umijs/max';
 import { Button, Modal, message } from 'antd';
 import React, { useState } from 'react';
@@ -225,12 +226,12 @@ const Config: React.FC = () => {
         </Button>,
       ]}
     >
-      <ProTable
+      <StandardTable
         columns={columns}
         dataSource={configs}
         loading={loading}
         rowKey="id"
-        pagination={{ pageSize: 10 }}
+        pagination={{ defaultPageSize: 10 }}
         rowSelection={{
           selectedRowKeys,
           onChange: (keys) => setSelectedRowKeys(keys),

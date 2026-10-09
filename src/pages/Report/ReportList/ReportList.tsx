@@ -6,7 +6,7 @@ import {
   PlusOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
-import { ProTable } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 import { PageContainer } from '@ant-design/pro-components';
 import { useRequest } from '@umijs/max';
 import { Button, Modal, message } from 'antd';
@@ -230,12 +230,12 @@ const ReportList: React.FC = () => {
         </Button>,
       ]}
     >
-      <ProTable
+      <StandardTable
         columns={columns}
         dataSource={reports}
         loading={loading}
         rowKey="id"
-        pagination={{ pageSize: 10 }}
+        pagination={{ defaultPageSize: 10 }}
         rowSelection={{
           selectedRowKeys,
           onChange: (keys) => setSelectedRowKeys(keys),

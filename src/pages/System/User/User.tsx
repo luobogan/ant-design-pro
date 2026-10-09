@@ -15,7 +15,8 @@ import {
   UnlockOutlined,
 } from '@ant-design/icons';
 import type { ProColumns, ActionType } from '@ant-design/pro-components';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 import { useModel, useRequest } from '@umijs/max';
 import {
   Button,
@@ -547,7 +548,7 @@ const UserPage: React.FC = () => {
               </Tag>
             </div>
           )}
-          <ProTable<User>
+          <StandardTable<User>
             columns={columns}
             actionRef={tableRef}
             request={fetchUsers}
@@ -556,7 +557,7 @@ const UserPage: React.FC = () => {
               tenantId: myTenantId || undefined,
             }}
             rowKey="id"
-            pagination={{ pageSize: 10, showSizeChanger: true }}
+            pagination={{ defaultPageSize: 10, showSizeChanger: true }}
             rowSelection={{
               selectedRowKeys,
               onChange: (keys) => setSelectedRowKeys(keys),

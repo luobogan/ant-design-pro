@@ -1,5 +1,6 @@
 import type { ProColumns } from '@ant-design/pro-components';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer } from '@ant-design/pro-components';
+import StandardTable from '@/components/StandardTable';
 import { useQuery } from '@tanstack/react-query';
 import type { DescriptionsProps } from 'antd';
 import { Badge, Card, Descriptions, Divider, Table } from 'antd';
@@ -131,7 +132,7 @@ const Basic: FC = () => {
         <Divider size="large" />
         <Descriptions title="用户信息" items={Descriptions2} />
         <Divider size="large" />
-        <ProTable
+        <StandardTable
           headerTitle="退货商品"
           style={{
             marginBottom: 24,
@@ -166,7 +167,7 @@ const Basic: FC = () => {
             );
           }}
         />
-        <ProTable
+        <StandardTable
           headerTitle="退货进度"
           pagination={false}
           loading={loading}
