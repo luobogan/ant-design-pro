@@ -1,6 +1,6 @@
 import { useModel } from '@umijs/max';
 import { Flex, Input, Modal, Select, Typography, theme } from 'antd';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as userApi from '@/services/system/user';
 import {
   connectMessageSocket,
@@ -9,7 +9,7 @@ import {
   onUnreadChange,
 } from '@/utils/messageSocket';
 import ChatPanel from './components/ChatPanel';
-import SessionList from './components/SessionList';
+import ContactList from './components/ContactList';
 import type { MessageSendDTO, SessionVO } from './data';
 import {
   createSession,
@@ -19,27 +19,59 @@ import {
 } from './service';
 import { useMessageHistory } from './useMessageHistory';
 
+/** 每页联系人数量：首屏只取一页，其余滚到可视区域再取 */
+const PAGE_SIZE = 20;
+
+/** 生成与后端同款的时间串（YYYY-MM-DD HH:mm:ss），供本地置顶排序使用 */
+function nowText() {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(
+    d.getHours(),
+  )}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/**
+ * 就地更新（而非插入）一个联系人，返回新数组。
+ *
+ * <p>纯函数、不改原数组，让 React 能正确感知变化。若该联系人尚未被分页加载到，
+ * 则直接忽略 —— 后续翻页时服务端会带上它的最新摘要，不会因此产生错误顺序。</p>
+ */
+function patchContact(
+  list: SessionVO[],
+  id: string,
+  patch: Partial<SessionVO>,
+): SessionVO[] {
+  const idx = list.findIndex((c) => String(c.id) === id);
+  if (idx < 0) return list;
+  const next = [...list];
+  next[idx] = { ...next[idx], ...patch };
+  return next;
+}
+
 export default function MessageCenterPage() {
   const { token } = theme.useToken();
   const { initialState } = useModel('@@initialState');
   const currentUserId = initialState?.currentUser?.userid;
 
-  const [sessions, setSessions] = useState<SessionVO[]>([]);
+  // 联系人：分页累积，只保存「已加载」的部分
+  const [contacts, setContacts] = useState<SessionVO[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
-  const [loadingSessions, setLoadingSessions] = useState(false);
-  // 「还没有消息」的会话：首屏不加载，等滚动到可视区域时按需分页拉取并追加
-  const [emptySessions, setEmptySessions] = useState<SessionVO[]>([]);
-  const [emptyTotal, setEmptyTotal] = useState(0);
-  const [emptyLoaded, setEmptyLoaded] = useState(false);
-  const [loadingEmpty, setLoadingEmpty] = useState(false);
-  const emptyPageRef = useRef(0);
-  const emptyLoadingRef = useRef(false);
+  const [loadingContacts, setLoadingContacts] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  // 用 ref 镜像当前列表与页码：避免把 contacts 塞进 loadPage 依赖导致回调反复重建
+  const contactsRef = useRef<SessionVO[]>([]);
+  contactsRef.current = contacts;
+  const pageRef = useRef(0);
+  const inFlightRef = useRef(false);
+
   // 消息历史分页（初始定位最新一页 + 向上滚动加载更早历史），与悬浮消息框共用
   const {
     messages,
     loading: loadingMessages,
-    loadingMore,
-    hasMore,
+    loadingMore: loadingMoreMessages,
+    hasMore: hasMoreMessages,
     loadInitial,
     loadOlder,
     refreshSilent,
@@ -52,115 +84,138 @@ export default function MessageCenterPage() {
     { label: string; value: string }[]
   >([]);
 
-  /** silent=true 表示由 WS 事件触发：不闪 loading，避免聊天界面出现"整页刷新"感 */
-  const fetchSessions = useCallback((silent = false) => {
-    if (!silent) setLoadingSessions(true);
-    // 首屏只取「已有消息」的会话：全公司会话里绝大多数是还没有消息的空会话，
-    // 一次性全部装配是首屏耗时的主要来源；空会话改为滚动到可视区域时按需加载。
-    getSessions({ current: 1, pageSize: 50, hasMessage: true })
-      .then((res) => setSessions((res as any)?.data?.records ?? []))
-      .catch(() => {
-        if (!silent) setSessions([]);
-      })
-      .finally(() => {
-        if (!silent) setLoadingSessions(false);
-      });
-  }, []);
-
-  /**
-   * 无消息会话按需加载：由会话列表底部哨兵在进入可视区域时触发，按页追加。
-   * 用 ref 记录页码 / 在途状态，避免闭包读到旧值导致重复请求或漏页。
-   */
-  const loadEmptySessions = useCallback(() => {
-    if (emptyLoadingRef.current) return;
-    emptyLoadingRef.current = true;
-    setLoadingEmpty(true);
-    const next = emptyPageRef.current + 1;
-    getSessions({ current: next, pageSize: 20, hasMessage: false })
+  /** 按页拉取联系人；silent=true 表示后台同步，不闪 loading */
+  const loadContactsPage = useCallback((page: number, silent = false) => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    if (!silent) {
+      if (page === 1) setLoadingContacts(true);
+      else setLoadingMore(true);
+    }
+    getSessions({ current: page, pageSize: PAGE_SIZE })
       .then((res) => {
         const data = (res as any)?.data;
         const records: SessionVO[] = data?.records ?? [];
-        emptyPageRef.current = next;
-        setEmptySessions((prev) => {
-          const seen = new Set(prev.map((s) => String(s.id)));
-          return [...prev, ...records.filter((s) => !seen.has(String(s.id)))];
-        });
-        setEmptyTotal(Number(data?.total ?? 0));
-        setEmptyLoaded(true);
+        const total = Number(data?.total ?? 0);
+        const prev = contactsRef.current;
+        const seen = new Set(prev.map((c) => String(c.id)));
+        const merged = [...prev, ...records.filter((c) => !seen.has(String(c.id)))];
+        setContacts(merged);
+        setHasMore(merged.length < total);
+        pageRef.current = page;
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!silent && page === 1) setContacts([]);
+      })
       .finally(() => {
-        emptyLoadingRef.current = false;
-        setLoadingEmpty(false);
+        inFlightRef.current = false;
+        setLoadingContacts(false);
+        setLoadingMore(false);
       });
   }, []);
+
+  /** 滚动到可视区域底部时由 ContactList 回调，取下一页 */
+  const loadMoreContacts = useCallback(() => {
+    if (!hasMore || inFlightRef.current) return;
+    loadContactsPage(pageRef.current + 1);
+  }, [hasMore, loadContactsPage]);
 
   const selectSession = useCallback(
     (id: string) => {
       setSelectedId(id);
       loadInitial(id);
-      markSessionRead(id).finally(() => fetchSessions(true));
+      // 本地清零未读即可，不必重拉整个列表（此前每次点击都会整列表刷新）
+      setContacts((prev) => patchContact(prev, id, { unreadCount: 0 }));
+      markSessionRead(id);
     },
-    [loadInitial, fetchSessions],
+    [loadInitial],
   );
 
   useEffect(() => {
     connectMessageSocket();
-    fetchSessions();
+    loadContactsPage(1);
+
     const offMsg = onNewMessage((msg: any) => {
-      const isCurrent = String(msg?.sessionId) === String(selectedId);
+      const sid = String(msg?.sessionId);
+      const isCurrent = sid === String(selectedId);
       if (isCurrent) {
         // 幂等追加（hook 内按 id 去重 + 排序）：REST 兜底刷新与 WS 自推可能竞态
         appendLocal(msg);
         // 正在查看的会话收到新消息：仅当浏览器页签可见时才自动置为已读，
-        // 否则切走页签时会被"后台静默已读"。① 清自己侧红点；② 触发 publishRead 回执
+        // 否则切走页签时会被"后台静默已读"。
         if (document.visibilityState === 'visible') {
-          markSessionRead(String(msg.sessionId)).finally(() => fetchSessions(true));
+          markSessionRead(sid);
         }
       }
-      fetchSessions(true);
+      // 新消息 → 就地更新该联系人的摘要与时间：
+      // sortContacts 按 lastTime 倒序，更新后它会自动落到列表最前（活跃会话置顶），
+      // 全程不重拉列表，避免"收到一条消息就整列表刷新"。
+      setContacts((prev) => {
+        const next = patchContact(prev, sid, {
+          lastMessage: msg?.content ?? '',
+          lastTime: msg?.createTime ?? nowText(),
+        });
+        if (isCurrent) return next;
+        const idx = next.findIndex((c) => String(c.id) === sid);
+        if (idx < 0) return next;
+        const inc = [...next];
+        inc[idx] = { ...inc[idx], unreadCount: (inc[idx].unreadCount ?? 0) + 1 };
+        return inc;
+      });
     });
+
     // 页签切回且正停留在某会话时，补一次已读（覆盖页签隐藏期间到达的消息）
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible' && selectedId) {
-        markSessionRead(selectedId).finally(() => fetchSessions(true));
+        markSessionRead(selectedId);
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
-    // 未读红点：用推送 payload 在本地精准合并，避免全量刷新闪烁；再静默兜底同步最后消息/排序
+
+    // 未读红点：用推送 payload 在本地精准合并，不触发列表刷新
     const offUnread = onUnreadChange((evt: any) => {
       const list = evt?.sessionUnread;
       if (Array.isArray(list) && list.length > 0) {
-        setSessions((prev) =>
-          prev.map((s) => {
-            const hit = list.find((u: any) => String(u.sessionId) === String(s.id));
-            return hit ? { ...s, unreadCount: hit.unreadCount ?? 0 } : s;
+        setContacts((prev) =>
+          prev.map((c) => {
+            const hit = list.find(
+              (u: any) => String(u.sessionId) === String(c.id),
+            );
+            return hit ? { ...c, unreadCount: hit.unreadCount ?? 0 } : c;
           }),
         );
       }
-      fetchSessions(true);
     });
+
     // 已读回执：对方读取后静默刷新当前会话消息，让「未读」变「已读」（不闪屏）
     const offRead = onReadChange((evt: any) => {
       if (selectedId && String(evt?.sessionId) === String(selectedId)) {
         refreshSilent(selectedId);
       }
     });
+
     return () => {
       offMsg();
       offUnread();
       offRead();
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [fetchSessions, appendLocal, refreshSilent, selectedId]);
+  }, [appendLocal, refreshSilent, selectedId, loadContactsPage]);
 
   const handleSend = (dto: MessageSendDTO) => {
     sendMessage(dto)
       .then(() => {
         // 消息本体由 WS 自推实时追加（appendLocal 已按 id 去重），
-        // 此处仅静默兜底同步（已读计数/最后消息），不再触发整屏 loading
-        if (selectedId) refreshSilent(selectedId);
-        fetchSessions(true);
+        // 这里只同步会话摘要，让该联系人依 lastTime 排到最前
+        if (dto?.sessionId) {
+          setContacts((prev) =>
+            patchContact(prev, String(dto.sessionId), {
+              lastMessage: dto.content ?? '',
+              lastTime: nowText(),
+            }),
+          );
+          refreshSilent(String(dto.sessionId));
+        }
       })
       .catch(() => {
         // 发送失败：静默重取一次当前页保持一致
@@ -172,8 +227,15 @@ export default function MessageCenterPage() {
     if (members.length === 0) return;
     createSession({ memberIds: members, name: newName || undefined })
       .then((res) => {
-        const s = (res as any)?.data;
-        if (s?.id) selectSession(String(s.id));
+        const s = ((res as any)?.data ?? {}) as SessionVO;
+        if (s?.id) {
+          // 新会话直接并入列表（置顶由 sortContacts 依据 lastTime 决定）
+          setContacts((prev) => {
+            const seen = new Set(prev.map((c) => String(c.id)));
+            return seen.has(String(s.id)) ? prev : [s, ...prev];
+          });
+          selectSession(String(s.id));
+        }
         setNewOpen(false);
         setMembers([]);
         setNewName('');
@@ -181,32 +243,24 @@ export default function MessageCenterPage() {
       .catch(() => {});
   };
 
-  // 展示顺序：已有消息的会话（后端按 lastTime 倒序）在前，按需加载的无消息会话追加在后。
-  // 若某个空会话期间收到了消息，它会同时出现在两个列表里 —— 以 sessions（有消息）为准去重。
-  const allSessions = useMemo(() => {
-    const ids = new Set(sessions.map((s) => String(s.id)));
-    return [...sessions, ...emptySessions.filter((s) => !ids.has(String(s.id)))];
-  }, [sessions, emptySessions]);
-
-  // 首次拉取完成前先显示哨兵；拉取后按总数判断是否还有下一页
-  const hasMoreEmpty = !emptyLoaded || emptySessions.length < emptyTotal;
-
-  const selectedSession = allSessions.find(
+  const selectedSession = contacts.find(
     (s) => String(s.id) === String(selectedId),
   );
 
   return (
-    <Flex style={{ height: 'calc(100vh - 112px)', background: token.colorBgLayout }}>
+    <Flex
+      style={{ height: 'calc(100vh - 112px)', background: token.colorBgLayout }}
+    >
       <div style={{ width: 320, flexShrink: 0 }}>
-        <SessionList
-          sessions={allSessions}
+        <ContactList
+          contacts={contacts}
           selectedId={selectedId}
-          loading={loadingSessions}
+          loading={loadingContacts}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={loadMoreContacts}
           onSelect={selectSession}
           onNew={() => setNewOpen(true)}
-          onLoadEmpty={loadEmptySessions}
-          loadingEmpty={loadingEmpty}
-          hasMoreEmpty={hasMoreEmpty}
         />
       </div>
       <div style={{ flex: 1 }}>
@@ -215,8 +269,8 @@ export default function MessageCenterPage() {
           messages={messages}
           currentUserId={currentUserId}
           loading={loadingMessages}
-          hasMore={hasMore}
-          loadingMore={loadingMore}
+          hasMore={hasMoreMessages}
+          loadingMore={loadingMoreMessages}
           onLoadMore={loadOlder}
           onSend={handleSend}
           onOpenBiz={(type, id) => {
