@@ -6,6 +6,7 @@ import {
   Card,
   Spin,
   Divider,
+  Space,
   Tooltip,
   Modal,
   Dropdown,
@@ -21,6 +22,7 @@ import {
   EditOutlined,
   LockOutlined,
   TableOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from '@umijs/max';
 import { DndProvider } from 'react-dnd';
@@ -650,11 +652,11 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
   // 「表单结构」面板：字段属性三态 / 删除字段
   // ──────────────────────────────────────────────
   /**
-   * 操作某个字段前，确保「该字段所在画布」已激活。
+   * 删除某字段前，确保「该字段所在画布」已激活。
    *
    * <p>window.univerExcelGrid 始终指向**当前激活画布**（主画布或某个明细子画布，
-   * 子画布打开时会覆盖它、关闭时由 closeDetailCanvas 还原）。因此结构面板里对
-   * 明细表字段改属性/删除时，若当前不在对应明细画布，需先切过去。
+   * 子画布打开时会覆盖它、关闭时由 closeDetailCanvas 还原）。因此结构面板里删除
+   * 明细表字段时，若当前不在对应明细画布，需先切过去。
    *
    * @return true=可以继续操作；false=已切换画布，本次操作中止（提示用户再点一次）
    */
@@ -678,20 +680,6 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
       return true;
     },
     [editingDetail, openDetailCanvas, closeDetailCanvas, message],
-  );
-
-  /** 结构面板：切换字段属性（只读/编辑/必填） */
-  const handleStructureAttrChange = useCallback(
-    (f: StructField, attr: number) => {
-      if (!ensureActiveCanvas(f.scope)) return;
-      const grid: any = (window as any).univerExcelGrid;
-      if (!grid?.setFieldAttr) {
-        message.error('画布未就绪，请稍候再试');
-        return;
-      }
-      grid.setFieldAttr(f.row, f.col, attr);
-    },
-    [ensureActiveCanvas, message],
   );
 
   /** 结构面板：删除字段（整字段移除并把格子还原为初始状态） */
@@ -1559,7 +1547,6 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
                   detailIndexes={detailTableOptions.map((o) => o.idx)}
                   editingDetail={editingDetail}
                   onOpenDetail={openDetailCanvas}
-                  onAttrChange={handleStructureAttrChange}
                   onDeleteField={handleStructureDelete}
                 />
               </div>
