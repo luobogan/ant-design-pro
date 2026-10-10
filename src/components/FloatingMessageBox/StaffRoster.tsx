@@ -26,6 +26,11 @@ interface Props {
   activeUserId?: string;
   /** 人员 → 未读消息数（两人私聊会话未读映射到对方人员），>0 时头像右上角显示红色角标 */
   unreadByUser?: Record<string, number>;
+  /**
+   * 人员 → 最近聊天时间（'YYYY-MM-DD HH:mm:ss'，字符串即可比大小）。
+   * 有值说明「最近聊过天」，该人员会被排到在线/离线之前；同层级内按时间倒序（越近越靠前）。
+   */
+  lastTimeByUser?: Record<string, string>;
   /** 点击某人员：发起/打开两人会话 */
   onSelect: (user: RosterUser) => void;
 }
@@ -45,6 +50,7 @@ export default function StaffRoster({
   onlineIds,
   activeUserId,
   unreadByUser,
+  lastTimeByUser,
   onSelect,
 }: Props) {
   const { token } = theme.useToken();
@@ -139,24 +145,36 @@ export default function StaffRoster({
     u.name || u.realName || u.account || u.id;
 
   /**
-   * 排序（三级）：有未读消息 > 在线 > 离线；同组内保持服务端原序（JS sort 稳定）。
+   * 排序（四级）：有未读 > 最近聊过天 > 在线 > 离线；同层级内保持服务端原序（JS sort 稳定）。
    *  - 收到新消息 → unreadByUser 更新 → 该联系人自动置顶；
-   *  - 有人上线/下线 → onlineIds 更新 → 自动前移/后移，在线的人始终聚在列表上部，
-   *    不再需要滚动翻找。
+   *  - 聊过天的人 → lastTimeByUser 更新 → 按最近聊天时间倒序，不用翻找；
+   *  - 有人上线/下线 → onlineIds 更新 → 自动前移/后移。
    */
   const visible = useMemo(() => {
     const unreadOf = (id: string) => unreadByUser?.[id] ?? 0;
+    const lastTimeOf = (id: string) => lastTimeByUser?.[id] || '';
     const rank = (u: RosterUser) => {
       if (unreadOf(u.id) > 0) return 0; // 有未读 → 最前（活跃会话）
-      if (onlineIds.has(u.id)) return 1; // 在线 → 次之
-      return 2; // 离线 → 最后
+      if (lastTimeOf(u.id)) return 1; // 最近聊过天 → 次之
+      if (onlineIds.has(u.id)) return 2; // 在线 → 再次
+      return 3; // 从未聊过且离线 → 最后
     };
     return [...users].sort((a, b) => {
       const byRank = rank(a) - rank(b);
-      if (byRank !== 0) return byRank;
-      return unreadOf(b.id) - unreadOf(a.id); // 同组内按未读数倒序（多为 0，保持稳定）
+      if (byRank !== 0) {
+        return byRank;
+      }
+      // 有未读组：未读数多的靠前
+      if (byRank === 0) {
+        return unreadOf(b.id) - unreadOf(a.id);
+      }
+      // 最近聊过天组：聊天时间越近越靠前
+      if (byRank === 1) {
+        return lastTimeOf(b.id).localeCompare(lastTimeOf(a.id));
+      }
+      return 0; // 在线/离线组保持服务端原序
     });
-  }, [users, unreadByUser, onlineIds]);
+  }, [users, unreadByUser, lastTimeByUser, onlineIds]);
 
   const onlineCount = useMemo(
     () => users.filter((u) => onlineIds.has(u.id)).length,

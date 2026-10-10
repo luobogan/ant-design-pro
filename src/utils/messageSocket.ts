@@ -17,12 +17,42 @@ let client: Client | null = null;
 const messageHandlers = new Set<Handler>();
 const unreadHandlers = new Set<Handler>();
 const readHandlers = new Set<Handler>();
+/** 连接就绪事件（含自动重连）：供消费方在每次连上后补拉一次全量未读 */
+type ConnectHandler = () => void;
+const connectHandlers = new Set<ConnectHandler>();
 
 /**
- * 在线状态心跳：后端活跃窗口 90s，这里 60s 续期一次，避免长连接被误判离线。
+ * 建连重试：登录跳转期间 token 可能尚未写入 localStorage，
+ * 此时若无条件放弃，本次页面生命周期内都不会再连上（角标只剩首屏那一次拉取）。
+ * 故无 token 时按固定间隔重试，上限约 1 分钟，足以覆盖登录竞态。
+ */
+const CONNECT_RETRY_MS = 3000;
+const CONNECT_RETRY_MAX = 20;
+let connectRetryTimer: ReturnType<typeof setTimeout> | undefined;
+let connectRetryCount = 0;
+
+function clearConnectRetry() {
+  if (connectRetryTimer) {
+    clearTimeout(connectRetryTimer);
+    connectRetryTimer = undefined;
+  }
+  connectRetryCount = 0;
+}
+
+function scheduleConnectRetry() {
+  if (connectRetryTimer || connectRetryCount >= CONNECT_RETRY_MAX) return;
+  connectRetryTimer = setTimeout(() => {
+    connectRetryTimer = undefined;
+    connectRetryCount += 1;
+    connectMessageSocket();
+  }, CONNECT_RETRY_MS);
+}
+
+/**
+ * 在线状态心跳：后端活跃窗口 60s，这里 30s 续期一次，避免长连接被误判离线。
  * 服务端入口：@MessageMapping("presence/ping")，应用前缀 /app。
  */
-const PRESENCE_PING_MS = 60_000;
+const PRESENCE_PING_MS = 30_000;
 let presenceTimer: ReturnType<typeof setInterval> | undefined;
 
 function startPresencePing() {
@@ -53,7 +83,11 @@ function getToken(): string {
 
 export function connectMessageSocket() {
   const token = getToken();
-  if (!token) return;
+  // token 未就绪（登录竞态 / 未登录）：按间隔重试，不静默放弃
+  if (!token) {
+    scheduleConnectRetry();
+    return;
+  }
   if (client && (client.active || client.connected)) return;
 
   // 显式限定传输方式，排除 iframe-* 传输：跨域时 sockjs-client 会去加载
@@ -66,6 +100,7 @@ export function connectMessageSocket() {
     webSocketFactory: socketFactory,
     reconnectDelay: 3000,
     onConnect: () => {
+      clearConnectRetry();
       // 连接成功后开始在线心跳续期
       startPresencePing();
       client?.subscribe('/user/queue/message', (frame: IMessage) => {
@@ -93,6 +128,8 @@ export function connectMessageSocket() {
           // 忽略无法解析的帧
         }
       });
+      // 每次（重）连均通知消费方补拉一次全量未读：断线期间到达的消息不会漏掉角标
+      connectHandlers.forEach((h) => h());
     },
     onStompError: (frame) => {
       console.warn('[messageSocket] STOMP 错误', frame.body);
@@ -117,8 +154,18 @@ export function onReadChange(handler: Handler): () => void {
   return () => readHandlers.delete(handler);
 }
 
+/**
+ * 连接就绪回调（首次连接与每次自动重连都会触发）。
+ * 断线期间服务端累积的未读不会主动补推，必须由调用方重新拉一次全量未读。
+ */
+export function onConnectChange(handler: ConnectHandler): () => void {
+  connectHandlers.add(handler);
+  return () => connectHandlers.delete(handler);
+}
+
 export function disconnectMessageSocket() {
   stopPresencePing();
+  clearConnectRetry();
   if (client) {
     client.deactivate();
     client = null;

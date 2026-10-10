@@ -20,14 +20,19 @@ import {
 import { useMessageHistory } from '@/pages/Message/useMessageHistory';
 import {
   connectMessageSocket,
+  onConnectChange,
   onNewMessage,
   onReadChange,
   onUnreadChange,
 } from '@/utils/messageSocket';
 import StaffRoster, { type RosterUser } from './StaffRoster';
 
-/** 在线状态轮询间隔（后端活跃窗口 90s，30s 轮询足够及时） */
-const ONLINE_POLL_MS = 30_000;
+/**
+ * 在线状态轮询间隔。
+ * 后端活跃窗口 60s、客户端心跳 30s；这里 15s 轮询，
+ * 使「别人上线/下线」的感知延迟 ≤15s（原先 30s 偏迟）。
+ */
+const ONLINE_POLL_MS = 15_000;
 
 /**
  * 右下角消息对话框：支持折叠/展开，右侧展示本租户全公司人员与在线角标。
@@ -120,6 +125,18 @@ export default function FloatingMessageBox() {
       }
     });
     const offMsg = onNewMessage((msg: any) => {
+      // 最近聊天时间就地刷新：新消息一到，对方便按「最近聊过天」排到前面，
+      // 不必等下次重新拉会话列表（lastMessage 本身由 expand 时刷新即可）。
+      if (msg?.sessionId && msg?.createTime) {
+        setSessionList((prev) =>
+          prev.map((s) =>
+            String(s.id) === String(msg.sessionId) &&
+            String(s.lastTime || '') < String(msg.createTime)
+              ? { ...s, lastTime: String(msg.createTime) }
+              : s,
+          ),
+        );
+      }
       if (String(msg?.sessionId) === sessionIdRef.current) {
         // 幂等追加（hook 内按 id 去重 + 排序）：无论悬浮窗是否展开都先上屏
         appendLocal(msg);
@@ -155,6 +172,23 @@ export default function FloatingMessageBox() {
     const timer = setInterval(loadOnline, ONLINE_POLL_MS);
     return () => clearInterval(timer);
   }, [currentUserId, collapsed, closed, loadOnline, loadSessions]);
+
+  // 在线列表兜底补偿：WS 重连成功后、页面切回可见时立即刷新一次。
+  // 断线期间的上下线变化不会补推，若只靠 15s 轮询，感知延迟最大可达 15s。
+  useEffect(() => {
+    if (!currentUserId || collapsed || closed) return undefined;
+    const offConnect = onConnectChange(() => loadOnline());
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadOnline();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      offConnect();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [currentUserId, collapsed, closed, loadOnline]);
 
   const openSession = useCallback(
     (s: SessionVO) => {
@@ -216,6 +250,29 @@ export default function FloatingMessageBox() {
     });
     return map;
   }, [sessionList, unreadBySession, currentUserId]);
+
+  /**
+   * 人员 → 最近聊天时间：两人私聊会话的 lastTime 映射到对方人员。
+   * 用于人员列表「最近聊过天」置顶（聊过的人排在在线/离线之前，越近越靠前）。
+   * 同一人可能存在多条两人会话（历史遗留），取最近的一条。
+   */
+  const lastTimeByUser = useMemo(() => {
+    const map: Record<string, string> = {};
+    sessionList.forEach((s) => {
+      if (s.type !== 1 || (s.memberCount ?? 2) > 2) return;
+      if (!s.lastTime) return;
+      const other = (s.memberIds || []).find(
+        (id) => String(id) !== String(currentUserId),
+      );
+      if (!other) return;
+      const key = String(other);
+      const prev = map[key];
+      if (!prev || s.lastTime! > prev) {
+        map[key] = s.lastTime!;
+      }
+    });
+    return map;
+  }, [sessionList, currentUserId]);
 
   /** 点击人员：两人会话幂等创建/复用，然后打开 */
   const handleSelectUser = useCallback(
@@ -410,6 +467,7 @@ export default function FloatingMessageBox() {
               onlineIds={onlineIds}
               activeUserId={activeUserId}
               unreadByUser={unreadByUser}
+              lastTimeByUser={lastTimeByUser}
               onSelect={handleSelectUser}
             />
           </div>
