@@ -1,0 +1,257 @@
+#服务器配置
+server:
+  undertow:
+    # 以下的配置会影响buffer,这些buffer会用于服务器连接的IO操作,有点类似netty的池化内存管理
+    buffer-size: 1024
+    # 是否分配的直接内存
+    direct-buffers: true
+    # 线程配置
+    threads:
+      # 设置IO线程数, 它主要执行非阻塞的任务,它们会负责多个连接, 默认设置每个CPU核心一个线程
+      io: 16
+      # 阻塞任务线程池, 当执行类似servlet请求阻塞操作, undertow会从这个线程池中取得线程,它的值设置取决于系统的负载
+      worker: 400
+
+#spring配置
+spring:
+  cloud:
+    sentinel:
+      eager: true
+  gateway:
+    routes:
+      - id: blade-mall
+        uri: lb://blade-mall
+        predicates:
+          - Path=/blade-mall/**
+        filters:
+          - StripPrefix=1
+      - id: blade-auth
+        uri: lb://blade-auth
+        predicates:
+          - Path=/blade-auth/**
+        filters:
+          - StripPrefix=1
+      - id: blade-system
+        uri: lb://blade-system
+        predicates:
+          - Path=/blade-system/**
+        filters:
+          - StripPrefix=1
+      - id: blade-message
+        uri: lb://blade-message
+        predicates:
+          - Path=/blade-message/**
+        filters:
+          - StripPrefix=1
+      - id: blade-workflow
+        uri: lb://blade-workflow
+        predicates:
+          - Path=/blade-workflow/**
+        filters:
+          - StripPrefix=1
+      - id: blade-desk
+        uri: lb://blade-desk
+        predicates:
+          - Path=/blade-desk/**
+        filters:
+          - StripPrefix=1
+      - id: blade-log
+        uri: lb://blade-log
+        predicates:
+          - Path=/blade-log/**
+        filters:
+          - StripPrefix=1
+  devtools:
+    restart:
+      log-condition-evaluation-delta: false
+    livereload:
+      port: 23333
+
+#feign配置
+feign:
+  sentinel:
+    enabled: true
+  okhttp:
+    enabled: true
+  httpclient:
+    enabled: false
+
+#对外暴露端口
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    health:
+      show-details: always
+
+#springdoc-openapi配置
+springdoc:
+  default-flat-param-object: true
+
+#knife4j配置
+knife4j:
+  #启用
+  enable: true
+  #基础认证
+  basic:
+    enable: false
+    username: blade
+    password: blade
+  #增强配置
+  setting:
+    enableSwaggerModels: true
+    enableDocumentManage: true
+    enableHost: false
+    enableHostText: http://localhost
+    enableRequestCache: true
+    enableFilterMultipartApis: false
+    enableFilterMultipartApiMethodType: POST
+    language: zh_cn
+    enableFooter: false
+    enableFooterCustom: true
+    footerCustomContent: Copyright © 2026 SpringBlade All Rights Reserved
+
+#swagger配置信息
+swagger:
+  title: SpringBlade 接口文档系统
+  description: SpringBlade 接口文档系统
+  version: 4.8.0
+  license: Powered By SpringBlade
+  licenseUrl: https://bladex.cn
+  terms-of-service-url: https://bladex.cn
+  contact:
+    name: smallchill
+    email: bladejava@qq.com
+    url: https://gitee.com/smallc
+
+#blade配置
+blade:
+  # 账号默认初始密码（可配置；对齐ChgPasswdReminder）。重置密码 / Excel 导入用户时使用。
+  default-password: "123456"
+  datasource:
+    dev:
+      url: jdbc:mysql://localhost:3306/blade?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8mb4
+      username: root
+      password: 123456
+    order:
+      url: jdbc:mysql://localhost:3306/blade_order?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8mb4
+      username: root
+      password: 123456
+    pay:
+      url: jdbc:mysql://localhost:3306/blade_pay?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8mb4
+      username: root
+      password: 123456
+    workflow:
+      url: jdbc:mysql://localhost:3306/blade_workflow?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8mb4
+      username: root
+      password: 123456
+  upload-path: d:\workproject\springbladeandreact\springBlade\uploads
+
+  # =============================================
+  # 文件上传统一配置（所有服务共用）
+  # =============================================
+  file:
+    # 是否启用增强功能（加密、压缩、数据库存储）
+    enabled: true
+    # 统一上传目录
+    upload-dir: upload
+    # 是否ZIP压缩（true=所有上传的文件都会压缩成zip格式）
+    zip-enabled: true
+    # 是否AES加密（true=所有上传的文件都会AES加密）
+    encrypt-enabled: false
+    # 是否保存到ImageFile数据库表（true=所有文件元数据存入ImageFile表）
+    save-to-db: true
+    # 图片尺寸压缩（仅对图片生效，减小图片分辨率/质量）
+    image-compress: true
+
+  auth:
+    #使用 @org.springblade.test.Sm2KeyGenerator 获取,用于国密sm2验签,需和前端保持一致
+    public-key: 04ac02fe94f4cac62a57a2335cc96a075a1ee41cea3b211bd7acbb9cf579b7e601b9ece2b0cfab64dca268b6942bf556af67cfe226a5cf28d936039c43e4bb12c1
+    #使用 @org.springblade.test.Sm2KeyGenerator 获取,用于国密sm2解密,前端无需配置
+    private-key: 00ac7fde22ecf5a764ea69b7ca8205383d98e7459e765bc1bd092f62c5f85267f9
+  token:
+    #使用 @org.springblade.test.SignKeyGenerator 获取
+    sign-key: qHJlcyzQ7YoGmHA7wZzvioTKYzYMaugG
+    #使用 @org.springblade.test.SignKeyGenerator 获取
+    aes-key: hJtodEd1qzJX9UOB9RBFdWk9KrAb59fH
+  xss:
+    enabled: true
+    skip-url:
+      - /weixin
+      # 富文本（TinyMCE）表单值/审批意见经 POST body 下发，不能被 XSS 过滤器清洗
+      # （XssHtmlFilter 白名单仅 a/b/em/i/img/strong，<p>/<br>/<table> 等会被剥掉）
+      # blade-formmode：表单数据 / 业务数据写入（Feign 直连，无 /api 前缀）
+      - /form-data/**
+      # blade-workflow：发起(意见+表单值) / 审批(意见+变量) / 测试提交
+      - /instance/**
+      - /task/**
+      - /test/**
+      # blade-workflow：表单保存与校验（body 含布局字段值与富文本）
+      - /form/**
+      # blade-workflow：BPMN XML 与节点/出口/权限配置（含 XML 标签，被清洗会破坏定义）
+      - /definition/**
+      # blade-workflow：自定义操作（意见文本）
+      - /custom-operation/**
+      # blade-workflow：子流程操作（说明文本）
+      - /subflow/**
+  secure:
+    skip-url:
+      - /test/**
+      - /blade-mall/front/**
+      - /blade-mall/uploads/**
+      - /blade-mall/file/download/**
+      - /blade-mall/auth/**
+      - /blade-mall/upload/**
+      - /file/download/**
+      - /front/**
+      - /uploads/**
+      - /auth/**
+    client:
+      - client-id: sword
+        path-patterns:
+          - /sword/**
+      - client-id: saber
+        path-patterns:
+          - /saber/**
+      - client-id: sword
+        path-patterns:
+          - /blade-mall/front/**
+  tenant:
+    column: tenant_id
+    tables:
+      - blade_notice
+
+# 微信小程序配置
+wechat:
+  miniapp:
+    appid: wx3d4a76c14ed1683b  # 请替换为实际的小程序AppID
+    secret: b1f771b0d92b9dcca5b260d91de53c22  # 请替换为实际的小程序AppSecret
+
+  # 微信支付配置
+  pay:
+    enabled: false  # 是否启用微信支付（true: 启用，false: 禁用）
+    appid: wx3d4a76c14ed1683b  # 小程序 AppID
+    mch-id: 1900000000  # 商户号，请替换为实际的商户号
+    mch-serial-no: b1f771b0d92b9dcca5b260d91de53c22  # 商户证书序列号
+    api-v3-key: your_api_v3_key_here  # APIv3 密钥（32 位）
+    private-key-path: src/main/resources/certs/apiclient_key.pem  # 商户私钥路径（需从微信商户平台下载）
+    platform-cert-path: src/main/resources/certs/wechatpay_cert.pem  # 微信支付平台证书路径
+    notify-url: https://your-domain.com/api/pay/wechat/notify  # 支付结果通知地址
+    refund-notify-url: https://your-domain.com/api/pay/wechat/refund/notify  # 退款通知地址
+
+# 第三方平台配置
+third-party:
+  # 微信公众号/开放平台配置
+  wechat:
+    app-id: wxc771b90f4d13039e  # 请替换为实际的微信AppID
+    app-secret: 20be435da6771c5d86c4fd6eb097ad9b  # 请替换为实际的微信AppSecret
+    access-token-url: https://api.weixin.qq.com/sns/oauth2/access_token
+    user-info-url: https://api.weixin.qq.com/sns/userinfo
+  # 抖音配置
+  douyin:
+    client-key: your_douyin_client_key  # 请替换为实际的抖音Client Key
+    client-secret: your_douyin_client_secret  # 请替换为实际的抖音Client Secret
+    access-token-url: https://open.douyin.com/oauth/access_token/
+    user-info-url: https://open.douyin.com/oauth/userinfo/

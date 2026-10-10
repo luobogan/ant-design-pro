@@ -1,0 +1,5 @@
+{
+  "enabledPlugins": {
+    "codebuddy-md-management@codebuddy-plugins-official": true
+  }
+}

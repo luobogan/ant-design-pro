@@ -385,13 +385,27 @@ const borderSideToCss = (side: any): string => {
   if (!bs) return 'none';
   return `${bs[0]} ${bs[1]} ${side.cl?.rgb || '#000'}`;
 };
+// 预览默认网格线：与设计器（Univer）网格同款浅灰。
+// Univer 的默认网格线只是视觉辅助、不会序列化进布局 JSON（s 里没有 bd），
+// 若预览严格「无 bd 即无边框」，导出的表单预览会整表无边框、行列结构不可见，
+// 与设计器观感严重不符（E9 的 Excel 模板单元格本身带边框，故无此问题）。
+// 因此：某边未设置（side 缺失/无 s）→ 回退默认网格线；显式设置了该边（含显式 none）→ 以设置为准。
+const DEFAULT_GRID_LINE = '1px solid #e8e8e8';
 const cellBorderToCss = (bd: any): React.CSSProperties => {
-  if (!bd || typeof bd !== 'object') return { border: 'none' };
+  const sideCss = (side: any): string => (side && side.s ? borderSideToCss(side) : DEFAULT_GRID_LINE);
+  if (!bd || typeof bd !== 'object') {
+    return {
+      borderTop: DEFAULT_GRID_LINE,
+      borderRight: DEFAULT_GRID_LINE,
+      borderBottom: DEFAULT_GRID_LINE,
+      borderLeft: DEFAULT_GRID_LINE,
+    };
+  }
   return {
-    borderTop: borderSideToCss(bd.t),
-    borderRight: borderSideToCss(bd.r),
-    borderBottom: borderSideToCss(bd.b),
-    borderLeft: borderSideToCss(bd.l),
+    borderTop: sideCss(bd.t),
+    borderRight: sideCss(bd.r),
+    borderBottom: sideCss(bd.b),
+    borderLeft: sideCss(bd.l),
   };
 };
 
@@ -1085,13 +1099,17 @@ const SheetPreviewForm: React.FC<{
   }
 
   // ── 对齐 E9 excelMainTable：以 <table> 还原 Excel 网格布局（行列 + 合并单元格）──
-  // 卡片容器横向可滚动：大屏表格 width:100% 自适应铺满；窄屏（手机）minWidth 生效，整表按设计列宽横向滚动而非被压扁。
-  const tableMinWidth = model.colWidths.reduce((a: number, w: any) => a + (Number(w) || 60), 0);
+  // 对齐 ecology（cube/src/components/excel-layout/index.tsx）：
+  //   table 宽度 = Excel 真实列宽合计（tableStyle.width），margin:0 auto 居中；
+  //   外层 wrapper overflowX:auto —— 表格比容器宽时横向滚动，而不是把列压扁/拉伸。
+  // 此前用 width:'100%' 会把「只用了 2 列（真实宽 240px）」的表单拉伸到容器宽（1350px），
+  // 列宽失真 5 倍以上、标签列被撑到半屏，与 Excel 设计器观感完全不符。
+  const tableWidth = model.colWidths.reduce((a: number, w: any) => a + (Number(w) || 60), 0);
   return (
     <div style={{ background: '#fff', border: `1px solid ${E9_COLORS.cardBorder}`, borderRadius: 8, overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch' }}>
       <table
         className="excelMainTable"
-        style={{ borderCollapse: 'collapse', width: '100%', minWidth: tableMinWidth, tableLayout: 'fixed', background: '#fff' }}
+        style={{ borderCollapse: 'collapse', width: tableWidth, tableLayout: 'fixed', background: '#fff', margin: '0 auto' }}
       >
         <colgroup>
           {model.colWidths.map((w, i) => (

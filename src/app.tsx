@@ -126,7 +126,10 @@ const toPascalCase = (str: string): string => {
   if (!str) return '';
 
   // 定义常见的单词列表，用于智能分割
-  const commonWords = ['Form', 'Mode', 'Manage', 'Data', 'View', 'Field', 'Edit', 'Add', 'List', 'Detail', 'System', 'Mall', 'Product', 'Category', 'User', 'Role', 'Menu', 'Exception', 'Table', 'Design'];
+  // ⚠️ 收录原则：只收「磁盘目录/文件名里真实出现、且小写化后无法还原」的复合词。
+  // 缺词会导致复合词目录推导错误（tenantpackage → Tenantpackage ✗ → TenantPackage ✓），
+  // 此时优先补词典，而不是在 PAGE_DIR_ALIAS 打补丁。
+  const commonWords = ['Form', 'Mode', 'Manage', 'Data', 'View', 'Field', 'Edit', 'Add', 'List', 'Detail', 'System', 'Mall', 'Product', 'Category', 'User', 'Role', 'Menu', 'Exception', 'Table', 'Design', 'Tenant', 'Package', 'Preview', 'Page'];
 
   let result = str.toLowerCase();
 
@@ -145,11 +148,19 @@ const toPascalCase = (str: string): string => {
  * 少数目录名无法从菜单 path 推导出来（复合词的内部大写推不出来），在此显式登记。
  * key 为「模块/目录」的小写且忽略连字符形式，value 为磁盘上的真实目录名。
  */
-const PAGE_DIR_ALIAS: Record<string, string> = {
-  // /system/tenantpackage、/system/tenant-package 都会被推导成 Tenantpackage，
-  // 但磁盘目录是 TenantPackage —— 复合词大小写无法从 path 还原，只能登记。
-  'system/tenantpackage': 'TenantPackage',
-};
+/**
+ * 目录名兜底表（当前为空——刻意保持为空）。
+ *
+ * 复合词目录优先靠 toPascalCase 的 commonWords 分词还原
+ * （workflowdesign→WorkflowDesign、exceldesign→ExcelDesign、formmanage→FormManage、
+ * fieldmanage→FieldManage、tabledesign→TableDesign、tenantpackage→TenantPackage）；
+ * 组件文件名走「原始 path 末段」候选（ExcelPreviewPage / ExcelDesign 直接命中）。
+ * 二者结合已覆盖全部现有菜单，故无需在此登记任何条目。
+ *
+ * 若将来新增目录名含词典外的复合词（如 Preview/Page 之类），应**优先补 commonWords**，
+ * 只有在补词典会误伤其它路径时才登记到此表。
+ */
+const PAGE_DIR_ALIAS: Record<string, string> = {};
 
 const normalizeDirKey = (p: string): string => p.toLowerCase().replace(/[-_]/g, '');
 
@@ -184,6 +195,13 @@ const buildComponentLoaders = (
     const dirPascal = PAGE_DIR_ALIAS[normalizeDirKey(`${module}/${dir}`)] || toPascalCase(dir);
     loaders.push(() => import(`./pages/${module}/${dirPascal}/${page}.tsx`));
     loaders.push(() => import(`./pages/${module}/${dirPascal}/${page}/index.tsx`));
+    // 「新增/编辑合并页」约定（非历史遗留）：
+    //   末段 aae = Add And Edit，即新增与编辑共用的同一个表单页，
+    //   磁盘文件名 = {页面目录名}Aae.tsx → ProductAae.tsx / FormManageAae.tsx / DeptAae.tsx；
+    //   末段 add = 纯新增页 → ProductAdd.tsx。
+    // 目录内并不存在 Aae.tsx / Add.tsx，故此候选是这类页面的唯一命中路径。
+    // 新增页面时请沿用此约定：XxxAae.tsx = 新增+编辑复用，XxxAdd.tsx = 仅新增。
+    loaders.push(() => import(`./pages/${module}/${dirPascal}/${dirPascal}${page}.tsx`));
     if (rawPage && rawPage !== page) {
       loaders.push(() => import(`./pages/${module}/${dirPascal}/${rawPage}.tsx`));
       loaders.push(() => import(`./pages/${module}/${dirPascal}/${rawPage}/index.tsx`));
@@ -212,9 +230,11 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
     // （按钮数据分支）注册——那里按 is_open 正确区分「布局内页 / 顶层独立页」。
     // 若在此再按菜单页注册一份布局版路由，会与按钮分支的路由重复（独立页语义被
     // 布局版抢占），还会把父菜单（如 /workflow/create）被 navChild 误判成分组。
-    if (Number(item.category) === 2 && Number(item.isComponent) === 1) {
-      return [...loopMenuItem(item.children || [], pId)];
-    }
+    // 组件型菜单（category=2 && isComponent=1）：不注册自身的菜单页路由（见下方
+    // `const children` 之后的早退）。但**不能在此 return**——其名下可能还挂着子组件页
+    // （如 exceldesign 下挂 excel_preview_page），必须让下方的按钮收集逻辑执行到，
+    // 否则这类「嵌套组件页」永远注册不了 → 直接访问 404。
+    const isComponentMenu = Number(item.category) === 2 && Number(item.isComponent) === 1;
 
     if (item.path) {
       const formattedPath = Func.formatRoutePath(item.path);
@@ -253,39 +273,60 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
         });
 
         componentButtons.forEach(({ item: item1, standalone }) => {
-              const formattedPath1 = Func.formatRoutePath(item1.path);
-              const pathParts1 = formattedPath1.split('/').filter(Boolean);
-              const lastSegment = pathParts1[pathParts1.length - 1];
-              // 组件加载规则（与菜单页完全一致，嵌套）：./pages/{Module}/{Page}/{Component}.tsx
-              // 前两段为「模块/页面」目录，末段为组件文件名（PascalCase）。
-              //   /formmode/workflowdesign            → ./pages/FormMode/WorkflowDesign/WorkflowDesign.tsx
-              //   /formmode/workflowdesign/preview     → ./pages/FormMode/WorkflowDesign/Preview.tsx
-              const moduleSeg = toPascalCase(pathParts1[0]);
-              const pageSeg = toPascalCase(pathParts1[1] ?? lastSegment);
-              const componentSeg = toPascalCase(lastSegment);
-              const importPath = `./pages/${moduleSeg}/${pageSeg}/${componentSeg}.tsx`;
-              // 兼容「旧命名」回退：历史文件名为 {页面}{组件}.tsx
-              //   /mall/product/aae    → 主 ./pages/Mall/Product/Aae.tsx     → 回退 ./pages/Mall/Product/ProductAae.tsx
-              //   /formmode/formmanage/aae → 回退 ./pages/FormMode/FormManage/FormManageAae.tsx
-              // 主路径不存在时自动尝试回退路径，再不行才 404。
-              const importPathAlt = `./pages/${moduleSeg}/${pageSeg}/${pageSeg}${componentSeg}.tsx`;
-              //  debugger;
-              console.log(`按钮组件路径：${importPath}（回退：${importPathAlt}）`);
+              // ⚠️ 必须用「原始菜单 path」分段，不能用 Func.formatRoutePath：后者会把整条
+              // path 转小写（/formmode/exceldesign/ExcelPreviewPage → .../excelpreviewpage），
+              // 丢弃 PascalCase 词边界，与磁盘文件名（ExcelPreviewPage.tsx）不符 → 加载失败。
+              const rawParts = String(item1.path || '').split('/').filter(Boolean);
+              const lastSegment = rawParts[rawParts.length - 1];
+              const moduleSeg = toPascalCase(rawParts[0]);
+              // 组件名（末段）：走 toPascalCase 智能分词（ExcelPreviewPage 靠 commonWords 还原）
+              const componentName = toPascalCase(lastSegment);
+              // 中间目录段（3 段以上路径的第 2..n-1 段），
+              // 如 /formmode/exceldesign/ExcelDesign 的 exceldesign → 目录 ExcelDesign
+              const midDirs = rawParts.length > 2 ? rawParts.slice(1, -1) : [];
+              //
+              // ⚠️⚠️ 必须复用菜单页分支的 buildComponentLoaders，不要自己拼模板字符串：
+              // 实测（2026-10-10）自己写的 `import(\`./pages/${a}/${b}/${c}.tsx\`)` 会被
+              // utoopack 判定 "Cannot find module as expression is too dynamic" 而全部失败；
+              // 而 buildComponentLoaders 内同款模板在菜单页（/system/workflow）实测可用。
+              // 传参口径：module=模块目录，page=组件名，midDirs=中间目录（模块/中间目录/组件）。
+              // rawPage 传「原始末段」：buildComponentLoaders 会额外生成 rawPage 形态的候选，
+              // 用于 toPascalCase 推错的名字——ExcelPreviewPage 会被拆成 ExcelpreViewPage
+              // （词典里 View 先于 Preview 命中，preview → pre+View），只有原始形态才对得上；
+              // 而 aae/add 类反过来靠 toPascalCase + 旧命名候选命中（FormManageAae/ProductAdd）。
+              const componentLoaders = buildComponentLoaders(
+                moduleSeg,
+                componentName,
+                lastSegment,
+                midDirs,
+              );
+              console.log(
+                `按钮组件路径：${moduleSeg}/${midDirs.join('/')}${midDirs.length ? '/' : ''}${componentName}.tsx（path=${item1.path}）`,
+              );
 
               const ButtonComponent = React.lazy(
                 () =>
                   new Promise((resolve, _reject) => {
-                    import(importPath)
-                      .then((mod) => resolve(mod))
-                      .catch(() => {
-                        import(importPathAlt)
-                          .then((mod) => resolve(mod))
-                          .catch((error) => {
-                            console.error('组件导入错误:', importPath, importPathAlt, error);
-                            message.error(`按钮组件加载失败：${importPath} / ${importPathAlt}（详见控制台）`);
-                            import('./pages/exception/404').then((mod) => resolve(mod));
-                          });
-                      });
+                    const tryImport = (index: number) => {
+                      if (index >= componentLoaders.length) {
+                        console.error('按钮组件导入失败，全部候选未命中，path=', item1.path);
+                        message.error(`按钮组件加载失败：${item1.path}（详见控制台）`);
+                        import('./pages/exception/404').then((mod) => resolve(mod));
+                        return;
+                      }
+                      componentLoaders[index]()
+                        .then((mod) => resolve(mod))
+                        .catch((error) => {
+                          // 打印真实错误：此前 catch 直接吞掉异常，只能看到“候选全失败”
+                          // 却定位不到根因（模块不存在 / 打包器解析失败 / chunk 加载失败）。
+                          console.error(
+                            `按钮组件候选导入失败 [候选${index + 1}]（path=${item1.path}）：`,
+                            error,
+                          );
+                          tryImport(index + 1);
+                        });
+                    };
+                    tryImport(0);
                   }),
               );
 
@@ -402,6 +443,14 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
     }
 
     const children = item.children || [];
+
+    // 组件型菜单早退：自身不生成菜单页路由（避免与按钮分支重复注册、避免独立页语义
+    // 被布局版抢占），但要把它名下收集到的按钮组件页带出去——嵌套组件页
+    // （exceldesign → excel_preview_page）就靠这里注册。
+    if (isComponentMenu) {
+      return [...buttonRoutes, ...loopMenuItem(children, item.id)];
+    }
+
     // 仅当存在「位于本路径之下的子页面」时，本菜单才是纯分组，渲染成重定向；
     // 否则（子项只是按钮权限无 path，或跨命名空间如 /system/workflow 下的
     // /formmode/workflowdesign）本菜单本身就是一个页面，必须渲染自己的组件，
