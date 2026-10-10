@@ -137,6 +137,8 @@ const UserPage: React.FC = () => {
     } = params || {};
     const res = await userApi.list({
       current: current ?? 1,
+      // blade-tool Query 已新增 pageSize 字段兼容 ProTable 原生分页参数（getSize() 优先取 pageSize），
+      // 且 Condition.getQueryWrapper 已将 pageSize 从查询列排除，可直接透传
       pageSize: pageSize ?? 10,
       account: account || undefined,
       realName: realName || undefined,
