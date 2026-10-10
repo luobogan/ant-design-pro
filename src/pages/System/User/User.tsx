@@ -125,7 +125,20 @@ const UserPage: React.FC = () => {
     | string
     | undefined;
 
-  const fetchUsers = async (params: any) => {
+  /**
+   * ProTable 列头排序 → Blade 的 ascs/descs 信封参数。
+   * 值为**数据库列名**（Blade 直接拼进 ORDER BY，见 Condition.getPage）。
+   * ⚠️ 只能登记 blade_user 表里真实存在的列；managerName 是 UserWrapper 依据
+   * managerId 回填的计算字段（表里无 manager_name 列），登记进去会导致 SQL 报错，
+   * 故该列走前端排序（见 columns）。
+   */
+  const SORT_FIELD_MAP: Record<string, string> = {
+    realName: 'real_name',
+    account: 'account',
+    workCode: 'work_code',
+  };
+
+  const fetchUsers = async (params: any, sort?: any) => {
     const {
       current = 1,
       pageSize = 10,
@@ -135,6 +148,16 @@ const UserPage: React.FC = () => {
       deptId,
       tenantId,
     } = params || {};
+
+    // sort = { realName: 'ascend' | 'descend' }，取第一个生效的排序字段
+    let ascs: string | undefined;
+    let descs: string | undefined;
+    const sortKey = Object.keys(sort || {})[0];
+    if (sortKey && SORT_FIELD_MAP[sortKey]) {
+      if (sort[sortKey] === 'ascend') ascs = SORT_FIELD_MAP[sortKey];
+      else if (sort[sortKey] === 'descend') descs = SORT_FIELD_MAP[sortKey];
+    }
+
     const res = await userApi.list({
       current: current ?? 1,
       // blade-tool Query 已新增 pageSize 字段兼容 ProTable 原生分页参数（getSize() 优先取 pageSize），
@@ -145,6 +168,8 @@ const UserPage: React.FC = () => {
       workCode: workCode || undefined,
       deptId: deptId || undefined,
       tenantId: tenantId || undefined,
+      ascs,
+      descs,
     });
     const page = Array.isArray(res)
       ? { records: res, total: res.length }
@@ -291,6 +316,8 @@ const UserPage: React.FC = () => {
       dataIndex: 'realName',
       key: 'realName',
       search: true,
+      // 后端排序：走 ascs/descs = real_name（全量数据排序，分页也准确）
+      sorter: true,
       width: 120,
     },
     {
@@ -307,6 +334,23 @@ const UserPage: React.FC = () => {
       width: 150,
       render: (deptName) => (
         <span style={{ color: '#1890ff' }}>{deptName || '暂无分配'}</span>
+      ),
+    },
+    {
+      // 直属上级：后端 UserWrapper 依据 managerId 回填 managerName（DB 默认 -1 = 无主管）
+      title: '直属上级',
+      dataIndex: 'managerName',
+      key: 'managerName',
+      width: 120,
+      // ⚠️ 前端排序（仅当前页）：blade_user 表没有 manager_name 列（该值是 wrapper 计算回填），
+      // 无法走后端 ORDER BY。需要全量排序时得改后端 join 上级表，见 SORT_FIELD_MAP 注释。
+      // localeCompare + zh-Hans-CN 保证中文按拼音序而非 UTF-8 码点序。
+      sorter: (a: User, b: User) =>
+        (a.managerName || '').localeCompare(b.managerName || '', 'zh-Hans-CN'),
+      render: (managerName) => (
+        <span style={{ color: managerName ? '#52c41a' : '#999' }}>
+          {managerName || '无'}
+        </span>
       ),
     },
     {
