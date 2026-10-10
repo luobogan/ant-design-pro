@@ -83,6 +83,50 @@ export async function markSessionRead(sessionId: string) {
   return p;
 }
 
+/**
+ * 单条消息已读（流程通知卡片点击即已读）。
+ * 后端写单条回执（幂等）+ 会话未读 -1，并推送最新全局未读数（铃铛同步）。
+ */
+export async function markMessageRead(messageId: string) {
+  return request<ApiResponse<boolean>>(`${BASE}/message/message/read-one`, {
+    method: 'POST',
+    params: { messageId },
+  });
+}
+
+/** —— 流程通知用户级配置（三期 T11.1）—— */
+
+export interface NoticeConfigItem {
+  id?: string;
+  /** 流程定义 key；'*' = 全部流程 */
+  flowKey?: string;
+  /** 1=接收 0=屏蔽 */
+  enabled?: number;
+}
+
+/** 我的流程通知配置（只存偏离默认值的行；默认=全部接收） */
+export async function getMyNoticeConfig() {
+  return request<ApiResponse<NoticeConfigItem[]>>(`${BASE}/notice/config/my`, {
+    method: 'GET',
+  });
+}
+
+/** 屏蔽某流程的通知（upsert enabled=0） */
+export async function muteNoticeConfig(flowKey: string) {
+  return request<ApiResponse<boolean>>(`${BASE}/notice/config/mute`, {
+    method: 'POST',
+    params: { flowKey },
+  });
+}
+
+/** 恢复接收（删行 = 回到默认接收） */
+export async function resetNoticeConfig(flowKey: string) {
+  return request<ApiResponse<boolean>>(`${BASE}/notice/config/reset`, {
+    method: 'POST',
+    params: { flowKey },
+  });
+}
+
 /** 全局未读红点 */
 export async function getUnreadCount() {
   return request<ApiResponse<UnreadCountVO>>(

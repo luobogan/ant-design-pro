@@ -1,6 +1,8 @@
+import { SettingOutlined } from '@ant-design/icons';
 import { useModel } from '@umijs/max';
 import {
   Badge,
+  Button,
   Flex,
   Input,
   Modal,
@@ -19,6 +21,7 @@ import {
 } from '@/utils/messageSocket';
 import ChatPanel from './components/ChatPanel';
 import ContactList from './components/ContactList';
+import NoticeConfigModal from './components/NoticeConfigModal';
 import NoticeList from './components/NoticeList';
 import type { MessageSendDTO, SessionVO } from './data';
 import {
@@ -278,6 +281,8 @@ export default function MessageCenterPage() {
     [contacts],
   );
   const [activeTab, setActiveTab] = useState<'chat' | 'notice'>('chat');
+  // 三期 T11.1：流程通知设置入口（仅在流程通知 tab 显示）
+  const [configOpen, setConfigOpen] = useState(false);
 
   // 切到「流程通知」即整会话已读：本地清零 + 调后端（红点经 /queue/unread 同步给铃铛）
   useEffect(() => {
@@ -307,6 +312,16 @@ export default function MessageCenterPage() {
           onChange={(k) => setActiveTab(k as 'chat' | 'notice')}
           centered
           style={{ marginBottom: 0 }}
+          tabBarExtraContent={
+            activeTab === 'notice' ? (
+              <Button
+                type="text"
+                size="small"
+                icon={<SettingOutlined />}
+                onClick={() => setConfigOpen(true)}
+              />
+            ) : undefined
+          }
           items={[
             { key: 'chat', label: '聊天' },
             {
@@ -322,6 +337,10 @@ export default function MessageCenterPage() {
               ),
             },
           ]}
+        />
+        <NoticeConfigModal
+          open={configOpen}
+          onClose={() => setConfigOpen(false)}
         />
         <div style={{ flex: 1, minHeight: 0 }}>
           {activeTab === 'chat' ? (

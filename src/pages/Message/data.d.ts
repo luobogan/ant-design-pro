@@ -43,6 +43,8 @@ export interface Message {
   contentType?: ContentType;
   /** 消息分类：1=聊天 2=流程通知（流程通知固定进 type=3 系统通知会话） */
   category?: number;
+  /** 通知业务状态：undefined=待处理 1=已处理 2=已办结（审批同意/流程办结时后端回写） */
+  bizState?: number;
   content?: string;
   quoteMsgId?: string;
   bizRefType?: BizRefType;

@@ -5,12 +5,10 @@ import {
 } from '@ant-design/icons';
 import { history, useModel } from '@umijs/max';
 import type { MenuProps } from 'antd';
-import { Badge, Spin } from 'antd';
-import React, { startTransition, useEffect, useState } from 'react';
+import { Spin } from 'antd';
+import React, { startTransition } from 'react';
 import { outLogin } from '@/services/ant-design-pro/api';
 import { clearAuthority, getButton, hasButton } from '@/utils/authority';
-import { monitorCount } from '@/services/workflow';
-import { pickPayload } from '@/utils/utils';
 import HeaderDropdown from '../HeaderDropdown';
 
 type GlobalHeaderRightProps = {
@@ -49,12 +47,9 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({
 }) => {
   const { initialState, setInitialState } = useModel('@@initialState');
 
-  // 顶栏待办角标计数。
-  // 注意：hooks 必须无条件调用，不能放在下面的早退分支（return <Spin/>）之后！
-  // 否则 initialState / currentUser 由「有值」变成「无值」时（如退出登录、拉取失败），
-  // 后续渲染调用的 hooks 会比上一次少，React 直接抛
-  // "Rendered fewer hooks than expected"。
-  const [todoCount, setTodoCount] = useState(0);
+  // 顶部未读红点已统一收敛到「消息铃铛」（MessageBell，未读+流程通知），
+  // 头像不再挂任何角标：此前的 monitorCount 待办数语义易与未读混淆（产品决策移除）。
+  // 待办数量以「待办事宜」页面为准。
   const currentUser = initialState?.currentUser;
 
   const onMenuClick: MenuProps['onClick'] = (event) => {
@@ -73,33 +68,15 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({
     history.push(`/account/${key}`);
   };
 
-  useEffect(() => {
-    if (!currentUser?.userid) return;
-    let alive = true;
-    monitorCount(currentUser.userid)
-      .then((res: any) => {
-        if (!alive) return;
-        const m = pickPayload(res) || {};
-        const c =
-          typeof m.todo === 'number'
-            ? m.todo
-            : Object.values(m).reduce((a: number, b: any) => a + (Number(b) || 0), 0);
-        setTodoCount(c);
-      })
-      .catch(() => {
-        if (alive) setTodoCount(0);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [currentUser?.userid]);
-
   if (!initialState || !currentUser) {
     return <Spin size="small" />;
   }
 
   // 「个人设置」下拉项按按钮权限 account_setting 显隐：无权限则隐藏。
-  const accountSettingPerm = hasButton(getButton('account_settings'), 'account_setting');
+  const accountSettingPerm = hasButton(
+    getButton('account_settings'),
+    'account_setting',
+  );
   const menuItems: MenuProps['items'] = [];
   if (accountSettingPerm) {
     menuItems.push({
@@ -121,18 +98,16 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({
   });
 
   return (
-    <Badge count={todoCount} size="small" offset={[-2, 2]}>
-      <HeaderDropdown
-        placement="bottomRight"
-        menu={{
-          selectedKeys: [],
-          onClick: onMenuClick,
-          items: menuItems,
-        }}
-        arrow
-      >
-        {children}
-      </HeaderDropdown>
-    </Badge>
+    <HeaderDropdown
+      placement="bottomRight"
+      menu={{
+        selectedKeys: [],
+        onClick: onMenuClick,
+        items: menuItems,
+      }}
+      arrow
+    >
+      {children}
+    </HeaderDropdown>
   );
 };

@@ -2,7 +2,7 @@ import { Empty, Spin, Tag, theme } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { onNewMessage } from '@/utils/messageSocket';
 import type { MessageVO, SessionVO } from '../../data';
-import { getMessages } from '../../service';
+import { getMessages, markMessageRead } from '../../service';
 
 /** 每页通知数量 */
 const PAGE_SIZE = 20;
@@ -122,10 +122,35 @@ export default function NoticeList({ session, onJump }: NoticeListProps) {
         ) : (
           items.map((msg) => {
             const isTodo = msg.bizRefType === 'WF_TASK';
+            // 状态标签（§10.6 规则 3 + 二期 T9）：后端回写 bizState 后不再是永久"待办"
+            const stateLabel = isTodo
+              ? msg.bizState === 1
+                ? '已处理'
+                : '待办'
+              : msg.bizState === 2
+                ? '已办结'
+                : '办结';
+            const stateColor = isTodo
+              ? msg.bizState === 1
+                ? 'default'
+                : 'processing'
+              : 'success';
+            const unread = msg.read === false;
             return (
               <div
                 key={String(msg.id)}
                 onClick={() => {
+                  // 点击即单条已读（幂等；铃铛红点经 /queue/unread 自动同步）
+                  if (unread) {
+                    setItems((prev) =>
+                      prev.map((m) =>
+                        String(m.id) === String(msg.id)
+                          ? { ...m, read: true }
+                          : m,
+                      ),
+                    );
+                    markMessageRead(String(msg.id));
+                  }
                   if (msg.bizRefType && msg.bizRefId) {
                     onJump(msg.bizRefType, msg.bizRefId);
                   }
@@ -150,11 +175,8 @@ export default function NoticeList({ session, onJump }: NoticeListProps) {
                     marginBottom: 4,
                   }}
                 >
-                  <Tag
-                    color={isTodo ? 'processing' : 'success'}
-                    style={{ marginInlineEnd: 0 }}
-                  >
-                    {isTodo ? '待办' : '办结'}
+                  <Tag color={stateColor} style={{ marginInlineEnd: 0 }}>
+                    {stateLabel}
                   </Tag>
                   <span
                     style={{
@@ -166,7 +188,26 @@ export default function NoticeList({ session, onJump }: NoticeListProps) {
                     {(msg.createTime ?? '').slice(5, 16)}
                   </span>
                 </div>
-                <div style={{ fontSize: 14, lineHeight: '20px' }}>
+                <div
+                  style={{
+                    fontSize: 14,
+                    lineHeight: '20px',
+                    fontWeight: unread ? 600 : 400,
+                  }}
+                >
+                  {unread && (
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        background: token.colorPrimary,
+                        marginRight: 8,
+                        verticalAlign: 'middle',
+                      }}
+                    />
+                  )}
                   {msg.content}
                 </div>
               </div>
