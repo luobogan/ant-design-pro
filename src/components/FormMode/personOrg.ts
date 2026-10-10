@@ -139,8 +139,13 @@ export function joinIds(ids: string[]): string {
 // ==================== 数据源（模块级缓存 + 并发去重） ====================
 
 interface OrgData {
+  /**
+   * @deprecated 人员已改为懒加载（`queryUsers` 服务端分页），该字段恒为空数组
+   */
   users: PersonOrgItem[];
-  /** 全量人员（含已删除/离职/禁用），供历史流转意见的名字解析，不做「在职过滤」 */
+  /**
+   * @deprecated 同上；人员 id→姓名反查改走 `fetchUserNames`（/user/detail 精确查）
+   */
   allUsers: PersonOrgItem[];
   depts: PersonOrgItem[];
   deptTree: any[];
@@ -173,25 +178,99 @@ export function filterActiveUsers(items: PersonOrgItem[]): PersonOrgItem[] {
   });
 }
 
-/** 人员：分页拉全量（不做在职过滤，全量返回；在职过滤由 filterActiveUsers 在选人场景套用） */
-async function fetchAllUsers(): Promise<PersonOrgItem[]> {
-  const all: any[] = [];
-  for (let current = 1; current <= 10; current += 1) {
-    const res: any = await userApi.list({ current, size: PAGE_SIZE });
-    const payload = pickPayload(res);
-    const records: any[] = Array.isArray(payload) ? payload : payload?.records || [];
-    all.push(...records);
-    const total = Number(payload?.total ?? all.length);
-    if (records.length < PAGE_SIZE || all.length >= total) break;
-  }
-  return all.map((u) => ({
+/** 单页大小（服务端分页） */
+export const USER_PAGE_SIZE = 50;
+
+/** 人员记录 → 候选项 */
+function toPersonOrgItem(u: any): PersonOrgItem {
+  return {
     id: String(u.id),
     name: u.realName || u.name || u.account || String(u.id),
     code: u.account || '',
     desc: [u.deptName, u.roleName].filter(Boolean).join(' · '),
     deptId: u.deptId != null ? String(u.deptId) : '',
     raw: u,
-  }));
+  };
+}
+
+export interface UserQuery {
+  /** 关键字：按姓名（realName）或账号（account）服务端模糊匹配 */
+  keyword?: string;
+  /** 部门树节点 id：后端会自动展开子孙部门并匹配 CSV 多部门（见 UserServiceImpl.selectPage） */
+  deptId?: string;
+  current?: number;
+  size?: number;
+}
+
+export interface UserPage {
+  records: PersonOrgItem[];
+  /** 服务端返回的总数（在职过滤在客户端做，故可能略偏大） */
+  total: number;
+}
+
+/**
+ * 人员候选：**服务端搜索 + 服务端分页**（不再全量拉取）。
+ *
+ * 关键能力均已在后端验证可用：
+ *  · `name=关键字` → Condition.getQueryWrapper 生成 real_name LIKE（实测 name=倪 命中 2 人）
+ *  · `deptId=节点id` → UserServiceImpl 自动展开子孙 + FIND_IN_SET 匹配 CSV 多部门
+ *  · `current/size`  → 标准分页
+ *
+ * ⚠️ 离职/禁用人员由 `filterActiveUsers` 在客户端过滤（后端未按状态过滤），
+ *    故 total 为服务端值，可能略大于实际可选人数。
+ */
+export async function queryUsers(q: UserQuery = {}): Promise<UserPage> {
+  const current = q.current || 1;
+  const size = q.size || USER_PAGE_SIZE;
+  const params: Record<string, any> = { current, size };
+  const kw = (q.keyword || '').trim();
+  if (kw) params.name = kw;
+  if (q.deptId) params.deptId = q.deptId;
+
+  const res: any = await userApi.list(params);
+  const payload = pickPayload(res);
+  const records: any[] = Array.isArray(payload) ? payload : payload?.records || [];
+  const total = Number(payload?.total ?? records.length);
+  return { records: filterActiveUsers(records.map(toPersonOrgItem)), total };
+}
+
+/** id → 人员信息 的本地缓存（历史意见/已选值反查用，避免重复请求） */
+const userNameCache = new Map<string, PersonOrgItem>();
+
+/**
+ * 按 id 精确查人员信息（姓名 + 部门·角色描述）。
+ *
+ * 后端 `/user/list` 不支持 `id` 过滤、也不支持 `ids` 批量（实测 ids 传逗号串会 500），
+ * 因此反查走 `/user/detail?id=x` 逐条并发查询 + 本地缓存。
+ * 调用方传入的 id 通常只有个位数（一条审批意见一个人、已选人多 1-5 个），开销可接受。
+ */
+export async function fetchUserNames(ids: string[]): Promise<PersonOrgItem[]> {
+  const unique = Array.from(new Set((ids || []).map(String).filter(Boolean)));
+  const wanted = unique.filter((id) => !userNameCache.has(id));
+
+  await Promise.all(
+    wanted.map(async (id) => {
+      try {
+        const res: any = await userApi.detail({ id });
+        const u = pickPayload(res);
+        if (u && u.id != null) {
+          userNameCache.set(id, {
+            id,
+            name: u.realName || u.name || u.account || id,
+            code: u.account || '',
+            desc: [u.deptName, u.roleName].filter(Boolean).join(' · '),
+            raw: u,
+          });
+        } else {
+          userNameCache.set(id, { id, name: id });
+        }
+      } catch {
+        userNameCache.set(id, { id, name: id });
+      }
+    }),
+  );
+
+  return unique.map((id) => userNameCache.get(id) || { id, name: id });
 }
 
 /** 部门树 → 扁平列表（含完整树结构用于分类树） */
@@ -210,23 +289,14 @@ function normalizeDeptTree(list: any[]): { flat: PersonOrgItem[]; tree: any[] } 
 
 async function fetchAll(): Promise<OrgData> {
   const errors: string[] = [];
-  const [usersR, deptR, roleR, postR] = await Promise.allSettled([
-    fetchAllUsers(),
+  // ⚠️ 人员**不再全量预取**：原实现最多 10 页 × 1000 人串行拉全量（万人时首屏极慢）。
+  //    现改为按需分页查询 `queryUsers()`（服务端搜索 + 服务端分页 + 服务端部门树过滤）。
+  //    部门/角色/岗位数量级小（几十~几百），保持一次性全量。
+  const [deptR, roleR, postR] = await Promise.allSettled([
     deptApi.tree({}).then((r: any) => extractList(r)),
     roleApi.list({}).then((r: any) => extractList(r)),
     postApi.list({}).then((r: any) => extractList(r)),
   ]);
-
-  let users: PersonOrgItem[] = [];
-  let allUsers: PersonOrgItem[] = [];
-  if (usersR.status === 'fulfilled') {
-    // 选人用「在职过滤」后的；历史解析用全量（不过滤）
-    allUsers = usersR.value;
-    users = filterActiveUsers(allUsers);
-  } else {
-    errors.push('人员数据加载失败（用户列表接口需要管理员权限）');
-    console.warn('[personOrg] 人员数据加载失败:', usersR.reason);
-  }
 
   let depts: PersonOrgItem[] = [];
   let deptTree: any[] = [];
@@ -271,17 +341,31 @@ async function fetchAll(): Promise<OrgData> {
     console.warn('[personOrg] 岗位数据加载失败:', postR.reason);
   }
 
-  Object.assign(cache, { users, allUsers, depts, deptTree, roles, posts, errors } satisfies OrgData);
-  // 四类数据全部非空才标记已加载，否则下次打开重新拉取（不把失败缓存成空）
-  if (users.length && depts.length && roles.length && posts.length) {
+  // 人员改为懒加载（queryUsers），此处只缓存组织类数据
+  Object.assign(cache, {
+    users: [],
+    allUsers: [],
+    depts,
+    deptTree,
+    roles,
+    posts,
+    errors,
+  } satisfies OrgData);
+  // 部门/角色/岗位全部非空才标记已加载，否则下次打开重新拉取（不把失败缓存成空）
+  if (depts.length && roles.length && posts.length) {
     loaded = true;
   }
   return cache as OrgData;
 }
 
-/** 加载（或取缓存）全部人员与组织数据 */
+/**
+ * 加载（或取缓存）组织类数据：部门树 / 角色 / 岗位。
+ *
+ * ⚠️ **不再包含人员**：人员为懒加载（`queryUsers` 服务端分页搜索），
+ *    `data.users` 恒为空数组，人员候选请直接调用 `queryUsers()`。
+ */
 export function loadPersonOrgData(): Promise<OrgData> {
-  if (loaded && cache.users && cache.depts && cache.roles && cache.posts) {
+  if (loaded && cache.depts && cache.roles && cache.posts) {
     return Promise.resolve(cache as OrgData);
   }
   if (!inflight) {
@@ -295,6 +379,7 @@ export function loadPersonOrgData(): Promise<OrgData> {
 /** 清空缓存（如后台新增了用户/部门后可调用刷新） */
 export function clearPersonOrgCache() {
   (Object.keys(cache) as (keyof OrgData)[]).forEach((k) => delete cache[k]);
+  userNameCache.clear();
   loaded = false;
 }
 
@@ -302,6 +387,7 @@ export function clearPersonOrgCache() {
 export function itemsOfCategory(data: OrgData, category: PersonOrgCategory): PersonOrgItem[] {
   switch (category) {
     case 'hrm':
+      // 人员已懒加载（queryUsers 服务端分页），此处不再提供全量候选
       return data.users;
     case 'dept':
       return data.depts;
@@ -340,12 +426,24 @@ export function collectDeptIds(tree: any[], rootId: string, acc: Set<string> = n
   return acc;
 }
 
-/** 解析 id → 显示名（用于字段回显 / 只读展示） */
+/**
+ * 解析 id → 显示名（用于字段回显 / 只读展示）
+ *
+ * 人员（hrm）走 `fetchUserNames`（/user/detail 精确查 + 本地缓存），不再依赖全量人员；
+ * 部门/分部/角色/岗位数量级小，仍走内存字典。
+ */
 export async function resolveItemNames(
   category: PersonOrgCategory,
   ids: string[],
 ): Promise<{ id: string; name: string }[]> {
   if (!ids.length) return [];
+  if (category === 'hrm') {
+    try {
+      return await fetchUserNames(ids);
+    } catch {
+      return ids.map((id) => ({ id, name: id }));
+    }
+  }
   try {
     const data = await loadPersonOrgData();
     const list = itemsOfCategory(data, category);

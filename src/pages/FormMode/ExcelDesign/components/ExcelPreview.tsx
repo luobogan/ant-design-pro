@@ -23,14 +23,23 @@ import {
   installFieldDomApi,
   type FieldDomIds,
 } from '../utils/fieldDomId';
-// 浏览按钮字段（人力资源 / 多人力资源 / 部门 / 角色 / 岗位 …）的「选人/选组织」控件
-import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
-import { BROWSER_TYPE_META } from '@/components/FormMode/personOrg';
+// ★ 字段控件唯一渲染入口（共享层）：本页不再自行 switch 字段类型
+import FieldControl from '@/components/FormMode/FieldControl';
 // 字段类型编码 → 中文标签（单一来源，见 components/FormMode/fieldTypes.ts）
-import { getBrowserTypeLabel, getFieldTypeLabel, isBrowserTypeMultiple } from '@/components/FormMode/fieldTypes';
+import {
+  getBrowserTypeLabel,
+  getFieldTypeLabel,
+  type ControlType,
+} from '@/components/FormMode/fieldTypes';
 
 const { Text } = Typography;
 const { TextArea } = Input;
+
+/**
+ * 展示型字段类型：这些类型没有可编辑的表单值，渲染时沿用单元格原始文本
+ * （已剔除 "📝 ${xm}" 之类模板占位符）。
+ */
+const DISPLAY_ONLY_TYPES = ['richtext', 'group', 'custom', 'label'];
 
 // ──────────────────────────────────────────────
 // E9 预览样式常量
@@ -523,198 +532,26 @@ const FieldCell: React.FC<{
     style: fieldStyle,
   };
 
-  const body = (() => {
-    switch (meta.fieldType) {
-      case 'text':
-        return (
-          <Input
-            {...commonProps}
-            value={value}
-            placeholder={meta.placeholder || ''}
-            maxLength={meta.length || 200}
-            onChange={(e) => onChange(e.target.value)}
-          />
-        );
-
-      case 'textarea':
-        return (
-          <TextArea
-            {...commonProps}
-            rows={3}
-            value={value}
-            placeholder={meta.placeholder || ''}
-            onChange={(e) => onChange(e.target.value)}
-          />
-        );
-
-      case 'number':
-        return (
-          <InputNumber
-            {...commonProps}
-            step="any"
-            value={value === undefined ? undefined : value}
-            onChange={(v) => onChange(v)}
-          />
-        );
-
-      case 'wholeNumber':
-        return (
-          <InputNumber
-            {...commonProps}
-            step={1}
-            value={value === undefined ? undefined : value}
-            onChange={(v) => onChange(v)}
-          />
-        );
-
-      case 'date':
-        return (
-          <DatePicker
-            {...commonProps}
-            style={{ width: '100%' }}
-            format="YYYY-MM-DD"
-            value={toDayjsValue(value)}
-            onChange={(d) => onChange(fromDayjsValue(d))}
-          />
-        );
-
-      case 'datetime':
-        return (
-          <DatePicker
-            {...commonProps}
-            showTime
-            style={{ width: '100%' }}
-            format="YYYY-MM-DD HH:mm:ss"
-            value={toDayjsValue(value)}
-            onChange={(d) => onChange(fromDayjsValue(d, true))}
-          />
-        );
-
-      case 'select':
-        return (
-          <Select
-            {...commonProps}
-            placeholder="请选择"
-            value={value === undefined ? undefined : value}
-            onChange={(v) => onChange(v)}
-            options={(meta.options || []).map((o) => ({ label: o.label, value: o.value }))}
-          />
-        );
-
-      case 'radio':
-        return (
-          <Radio.Group
-            disabled={disabled}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            options={(meta.options || []).map((o) => ({ label: o.label, value: o.value }))}
-          />
-        );
-
-      case 'checkbox':
-        return <Checkbox disabled={disabled} checked={!!value} onChange={(e) => onChange(e.target.checked)}>同意</Checkbox>;
-
-      case 'browser': {
-        // 浏览按钮字段（人力资源 / 多人力资源 / 部门 / 分部 / 角色 / 岗位 …）：
-        // 必须展示出具体类型，否则在预览里就是一个「什么都看不出来」的空控件。
-        const bt = browserTypeOf(meta);
-        const typeLabel = fieldTypeLabelOf(meta) || '浏览按钮';
-        // 已实现数据选择的类型（人员/组织/角色/岗位）走 PersonOrgField；
-        // 其余（资产/文档/流程等）暂未接入数据，退化为带类型提示的输入框。
-        const supported = bt != null && !!BROWSER_TYPE_META[bt];
-        return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', minWidth: 0 }}>
-            <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-              {supported ? (
-                <PersonOrgField
-                  browserType={bt}
-                  // 单选/多选按类型语义：只有「多人力资源 / 多部门 / 多分部 …」才是多选，
-                  // 「人力资源 / 部门 / 分部」为单选（PersonOrgPicker 默认多选，必须显式传值）
-                  multiple={isBrowserTypeMultiple(bt)}
-                  value={value}
-                  onChange={(v: any) => onChange(v)}
-                  disabled={disabled}
-                  placeholder={`请选择${typeLabel}`}
-                />
-              ) : (
-                <Input
-                  {...commonProps}
-                  value={value}
-                  placeholder={`请选择${typeLabel}`}
-                  onChange={(e) => onChange(e.target.value)}
-                />
-              )}
-            </div>
-            <Tag
-              color="blue"
-              title={`字段类型：${typeLabel}`}
-              style={{ margin: 0, flexShrink: 0, fontSize: 11, lineHeight: '16px' }}
-            >
-              {typeLabel}
-            </Tag>
-          </div>
-        );
-      }
-
-      case 'attachment':
-        return (
-          <Button icon={<PaperClipOutlined />} disabled size="small">
-            上传附件
-          </Button>
-        );
-
-      case 'richtext':
-        return (
-          <div
-            contentEditable={false}
-            style={{
-              border: '1px solid #d9d9d9',
-              borderRadius: 4,
-              padding: '4px 8px',
-              minHeight: 50,
-              background: '#fff',
-              color: '#333',
-            }}
-          >
-            {displayValue || <Text type="secondary">（富文本内容）</Text>}
-          </div>
-        );
-
-      case 'group':
-        return (
-          <fieldset
-            style={{
-              border: '1px solid #d9d9d9',
-              borderRadius: 4,
-              padding: '8px 12px',
-              margin: 0,
-            }}
-          >
-            <legend style={{ fontWeight: 600, color: '#555', padding: '0 6px' }}>
-              {displayValue || meta.fieldLabel}
-            </legend>
-          </fieldset>
-        );
-
-      case 'custom':
-        return (
-          <Text strong style={{ color: '#1890ff' }}>
-            [自定义] {displayValue || meta.fieldLabel}
-          </Text>
-        );
-
-      default:
-        // 未知字段类型兜底为普通文本框，确保字段始终渲染为可交互控件（而非纯文本）
-        return (
-          <Input
-            {...commonProps}
-            value={value}
-            placeholder={meta.placeholder || ''}
-            onChange={(e) => onChange(e.target.value)}
-          />
-        );
-    }
-  })();
+  // ★ 字段控件统一走共享层 FieldControl（全项目唯一渲染入口）。
+  //   本组件退化为「容器适配层」：只负责 <td> 布局、Excel 单元格样式、节点权限与校验红框，
+  //   不再自行 switch 字段类型（新增/修改类型改共享层即可，所有页面生效）。
+  const body = (
+    <FieldControl
+      controlType={(meta.fieldType || 'text') as ControlType}
+      // 展示型类型（富文本 / 分组 / 自定义链接）沿用单元格原始值（已剔除模板占位符）
+      value={DISPLAY_ONLY_TYPES.includes(meta.fieldType) ? displayValue : value}
+      onChange={onChange}
+      options={(meta.options || []).map((o: any) => ({ label: o.label, value: o.value }))}
+      disabled={disabled}
+      readOnly={readOnly}
+      placeholder={meta.placeholder}
+      status={status}
+      browserType={browserTypeOf(meta)}
+      maxLength={meta.length || 200}
+      inputId={inputId}
+      style={fieldStyle}
+    />
+  );
 
   // 只返回控件本身：标签、必填 * 与错误提示统一由外层 Form.Item 渲染
   return <>{body}</>;

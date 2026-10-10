@@ -43,7 +43,7 @@ import {
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { formApi, fieldApi, fieldOptionApi } from '@/services/formmode';
 import type { WorkflowBill, FieldDefinitionFormData, FieldOption } from '@/services/formmode/typings';
-import BrowserButtonPreview from './components/BrowserButtonPreview';
+import BrowserTypePreview from './components/BrowserTypePreview';
 import BrowserTypePicker from './components/BrowserTypePicker';
 import FieldOptionManager from '../FieldManage/components/FieldOptionManager';
 // 浏览按钮类型映射：与 Excel 设计器 / 预览页共用同一份（components/FormMode/fieldTypes.ts）
@@ -2957,9 +2957,9 @@ const TableDesign: React.FC<TableDesignProps> = ({
 
       </Tabs>
 
-      {/* 浏览按钮预览弹窗 */}
-      <BrowserButtonPreview
-        visible={browserPreviewVisible}
+      {/* 浏览按钮预览弹窗（设计态）：内容走共享组件 + 真实数据，预览值不落库 */}
+      <BrowserTypePreview
+        open={browserPreviewVisible}
         fieldLabel={browserPreviewField?.label || ''}
         browserType={browserPreviewField?.type || 1}
         onClose={() => setBrowserPreviewVisible(false)}

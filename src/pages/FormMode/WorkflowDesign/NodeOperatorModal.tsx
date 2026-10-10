@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Button,
   Divider,
@@ -18,7 +18,7 @@ import {
   WfNodeOperator,
 } from '@/services/workflow';
 import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
-import { loadPersonOrgData } from '@/components/FormMode/personOrg';
+import { fetchUserNames, loadPersonOrgData } from '@/components/FormMode/personOrg';
 import { BHXJ, SIGN_ORDERS } from './wfDict';
 import { getActiveModeler } from './bpmnModelerHolder';
 import { getWfNodeExt, setWfNodeExt, WfOperator } from './bpmnExtension';
@@ -260,6 +260,8 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
 
   // ── 名称解析字典（id → 显示名，来自统一数据层） ─────────────────
   const [userMap, setUserMap] = useState<Record<string, string>>({});
+  /** 渲染时未命中的人员 id：下一轮 effect 统一精确查（/user/detail） */
+  const missedUserIds = useRef<Set<string>>(new Set());
   const [deptMap, setDeptMap] = useState<Record<string, string>>({});
   const [roleMap, setRoleMap] = useState<Record<string, string>>({});
   const [postMap, setPostMap] = useState<Record<string, string>>({});
@@ -304,26 +306,47 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
     setTargetKeys([]);
   }, [open, nodeKey, initialOperators]);
 
-  // 打开时加载一次人员/部门/角色/岗位字典（选择弹窗与表格名称解析共用，模块级缓存）
+  // 打开时加载部门/角色/岗位字典（数量小，一次性）；人员改为**按需精确查**
   useEffect(() => {
     if (!open || dictLoaded) return;
     setDictLoaded(true);
     (async () => {
       const data = await loadPersonOrgData();
-      setUserMap(Object.fromEntries(data.users.map((i) => [i.id, i.name])));
       setDeptMap(Object.fromEntries(data.depts.map((i) => [i.id, i.name])));
       setRoleMap(Object.fromEntries(data.roles.map((i) => [i.id, i.name])));
       setPostMap(Object.fromEntries(data.posts.map((i) => [i.id, i.name])));
     })();
   }, [open, dictLoaded]);
 
+  // 人员：渲染时未命中即补查（/user/detail + 模块级缓存），不再全量拉取
+  useEffect(() => {
+    if (!open || missedUserIds.current.size === 0) return;
+    const ids = Array.from(missedUserIds.current);
+    fetchUserNames(ids)
+      .then((items) => {
+        setUserMap((m) => {
+          const next = { ...m };
+          items.forEach((i) => {
+            next[i.id] = i.name;
+          });
+          return next;
+        });
+        ids.forEach((id) => missedUserIds.current.delete(id));
+      })
+      .catch(() => {});
+  });
+
   const scopeTag = (b?: number) => (b === 1 ? '（含下级）' : b === 2 ? '（含上级）' : b === 3 ? '（逐级向上）' : '（本部）');
 
-  /** 单值解析：按类型从字典取显示名（取不到时回退原 id） */
+  /** 单值解析：按类型从字典取显示名（人员未命中时登记到 missedUserIds，下一轮 effect 补查） */
   const resolveOne = (opType: number | undefined, id: string): string => {
     switch (opType) {
-      case 3:
-        return userMap[id] || id;
+      case 3: {
+        const hit = userMap[id];
+        if (hit) return hit;
+        if (id && id !== '0') missedUserIds.current.add(id);
+        return id;
+      }
       case 1:
         return deptMap[id] || id;
       case 2:

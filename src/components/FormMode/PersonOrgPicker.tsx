@@ -6,10 +6,12 @@ import {
   BrowserTypeMeta,
   PersonOrgCategory,
   PersonOrgItem,
+  USER_PAGE_SIZE,
   collectDeptIds,
   itemsOfCategory,
   joinIds,
   loadPersonOrgData,
+  queryUsers,
   resolveItemNames,
   splitIds,
 } from './personOrg';
@@ -114,6 +116,53 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
     [data, cat],
   );
 
+  // ★ 人员（hrm）：服务端搜索 + 服务端分页 + 服务端部门树过滤
+  //   （部门/角色/岗位数量级小，仍走客户端全量列表）
+  const isHrm = cat === 'hrm';
+  const [rows, setRows] = useState<PersonOrgItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [debouncedKw, setDebouncedKw] = useState('');
+  // 每页条数：默认 10（与服务端分页联���，切换后回到第 1 页）
+  const [pageSize, setPageSize] = useState(10);
+
+  // 关键字防抖：避免每次按键都打服务端
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedKw(keyword.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [keyword]);
+
+  useEffect(() => {
+    if (!open || !isHrm) return;
+    let alive = true;
+    setLoading(true);
+    queryUsers({
+      keyword: debouncedKw,
+      // 部门树选中节点：后端会自动展开子孙并匹配 CSV 多部门
+      deptId: treeKey,
+      current: page,
+      size: pageSize,
+    })
+      .then((r) => {
+        if (!alive) return;
+        setRows(r.records);
+        setTotal(r.total);
+        // 记录本页名称，供勾选/回显
+        setNameMap((m) => {
+          const next = { ...m };
+          r.records.forEach((i) => {
+            next[i.id] = i.name;
+          });
+          return next;
+        });
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [open, isHrm, debouncedKw, treeKey, page, pageSize]);
+
   // 分类树（人员/部门/分部）；分部只列根节点
   const treeData = useMemo(() => {
     if (!data || !['hrm', 'dept', 'branch'].includes(cat)) return [];
@@ -124,14 +173,12 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
   }, [data, cat]);
 
   const filtered = useMemo(() => {
+    // 人员由服务端返回当前页（rows），不再做客户端过滤/分页
+    if (isHrm) return rows;
     let list = allItems;
-    if (data && treeKey && ['hrm', 'dept', 'branch'].includes(cat)) {
+    if (data && treeKey && ['dept', 'branch'].includes(cat)) {
       const deptIds = collectDeptIds(data.deptTree, treeKey);
-      if (cat === 'hrm') {
-        list = list.filter((i) => splitIds(i.deptId).some((d) => deptIds.has(d)));
-      } else {
-        list = list.filter((i) => deptIds.has(i.id));
-      }
+      list = list.filter((i) => deptIds.has(i.id));
     }
     const kw = keyword.trim().toLowerCase();
     if (kw) {
@@ -143,7 +190,7 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
       );
     }
     return list;
-  }, [allItems, data, treeKey, keyword, cat]);
+  }, [allItems, data, treeKey, keyword, cat, isHrm, rows]);
 
   useEffect(() => {
     setPage(1);
@@ -162,7 +209,8 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
       const next = { ...m };
       ids.forEach((id) => {
         if (!next[id]) {
-          const hit = allItems.find((i) => i.id === id);
+          // 人员候选来自服务端当前页（rows），其余类别来自全量内存（allItems）
+          const hit = allItems.find((i) => i.id === id) || rows.find((i) => i.id === id);
           if (hit) next[id] = hit.name;
         }
       });
@@ -249,14 +297,39 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
               size="small"
               dataSource={filtered}
               loading={loading}
-              pagination={{
-                current: page,
-                pageSize: 10,
-                size: 'small',
-                showSizeChanger: false,
-                onChange: (p) => setPage(p),
-                showTotal: (t) => `共 ${t} 项`,
-              }}
+              pagination={
+                isHrm
+                  ? {
+                      // 人员：服务端分页（total 来自后端，pageSize 可选 10/20/50/100）
+                      current: page,
+                      pageSize,
+                      total,
+                      size: 'small',
+                      showSizeChanger: true,
+                      pageSizeOptions: ['10', '20', '50', '100'],
+                      onShowSizeChange: (_p, s) => {
+                        setPageSize(s);
+                        setPage(1);
+                      },
+                      onChange: (p) => setPage(p),
+                      showTotal: (t) => `共 ${t} 人`,
+                    }
+                  : {
+                      // 部门/角色/岗位：客户端分页（全量内存数据）
+                      current: page,
+                      pageSize,
+                      total: filtered.length,
+                      size: 'small',
+                      showSizeChanger: true,
+                      pageSizeOptions: ['10', '20', '50', '100'],
+                      onShowSizeChange: (_p, s) => {
+                        setPageSize(s);
+                        setPage(1);
+                      },
+                      onChange: (p) => setPage(p),
+                      showTotal: (t) => `共 ${t} 项`,
+                    }
+              }
               locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据" /> }}
               rowSelection={{
                 type: isMultiple ? 'checkbox' : 'radio',

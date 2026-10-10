@@ -23,7 +23,7 @@ import RichTextEditor, {
 import ApprovalFormRender from '@/pages/FormMode/ExcelDesign/components/ApprovalFormRender';
 import { buildSubmitValues } from '@/pages/FormMode/ExcelDesign/utils/collectFieldValues';
 import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
-import { loadPersonOrgData } from '@/components/FormMode/personOrg';
+import { fetchUserNames } from '@/components/FormMode/personOrg';
 import { MENUS_OPTIONS } from '@/pages/FormMode/WorkflowDesign/wfDict';
 import {
   addSignTask,
@@ -264,23 +264,45 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   const [logs, setLogs] = useState<any[]>([]);
   /** nodeKey → 操作者分组（流程图节点「谁批的」+ 悬浮「操作者」面板） */
   const [nodeOps, setNodeOps] = useState<Record<string, any>>({});
-  /** 操作人 id → {姓名, 部门/角色}（复用统一人员字典，模块级缓存，不额外发请求） */
+  /**
+  * 操作人 id → {姓名, 部门/角色}。
+  *
+  * 人员候选已改为服务端分页，这里不再全量拉取；改为**渲染时按需补查**：
+  * 任何位置发现 id 未命中就记入 missedUserIds，下一轮 effect 统一精确查
+  * （/user/detail，模块级缓存，重复 id 不再请求）。
+  * 历史意见里已离职/禁用的人同样能查到（detail 不按状态过滤）。
+  */
   const [userMap, setUserMap] = useState<Record<string, { name: string; desc?: string }>>({});
+  const missedUserIds = useRef<Set<string>>(new Set());
+
   useEffect(() => {
-    loadPersonOrgData()
-      .then((d: any) => {
-        // 历史流转意见解析：用「全量」字典（含已删除/离职/禁用），否则这些人会显示成裸 ID
-        const m: Record<string, { name: string; desc?: string }> = {};
-        ((d?.allUsers || d?.users || []) as any[]).forEach((u) => {
-          m[String(u.id)] = { name: u.name, desc: u.desc };
+    if (missedUserIds.current.size === 0) return;
+    const ids = Array.from(missedUserIds.current);
+    fetchUserNames(ids)
+      .then((items) => {
+        setUserMap((m) => {
+          const next = { ...m };
+          items.forEach((i) => {
+            next[i.id] = { name: i.name, desc: i.desc };
+          });
+          return next;
         });
-        setUserMap(m);
+        ids.forEach((id) => missedUserIds.current.delete(id));
       })
       .catch(() => {});
-  }, []);
+  });
+
   /** 人员ID → 姓名（流程图节点下方「谁批的」与悬浮面板复用同一人员字典） */
   const resolveUserName = useCallback(
-    (id: string | number) => userMap[String(id)]?.name || String(id),
+    (id: string | number) => {
+      const key = String(id);
+      const hit = userMap[key]?.name;
+      if (hit) return hit;
+      if (key && key !== '0' && key !== 'null' && key !== 'undefined') {
+        missedUserIds.current.add(key);
+      }
+      return key;
+    },
     [userMap],
   );
   const [taskId, setTaskId] = useState<string | undefined>();
@@ -1401,11 +1423,10 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                               },
                             ]
                           : visibleLogs.map((l: any) => {
-                              const u = userMap[String(l.operator)];
                               const who =
                                 String(l.operator) === '0'
                                   ? '系统'
-                                  : u?.name || String(l.operator || '-');
+                                  : resolveUserName(l.operator || '-');
                               return {
                                 children: (
                                   <div style={{ fontSize: 12 }}>

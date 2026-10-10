@@ -806,10 +806,16 @@ export const moduleDefinitionApi = {
 
 /**
  * 浏览框 API（通用数据选择）
+ *
+ * ⚠️ 当前状态：以下 hrm/dept/role/{browserType} 四个方法**全项目无调用方**。
+ *    人员/部门/分部/角色/岗位的选择数据已统一走
+ *    `@/components/FormMode/personOrg.ts`（直接调用 blade-system 的
+ *    user/dept/role/post 接口，带模块级缓存与并发去重），不再经由本组接口。
+ *    保留定义仅为兼容后端既有契约；如后端下线对应接口，可一并移除。
  */
 export const browserApi = {
   /**
-   * 获取人力资源列表
+   * 获取人力资源列表（⚠️ 未接入，见上方说明）
    */
   getHrmList: async (params: PageParams & { name?: string }) => {
     const response = await request<BladeResponse<PageResponse<any>>>(

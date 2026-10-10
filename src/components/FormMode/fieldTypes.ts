@@ -1,5 +1,14 @@
+import { BROWSER_TYPE_META } from './personOrg';
+
 /**
  * 字段类型编码与中文标签（单一来源）
+ *
+ * ⚠️ 开发规范：
+ *  1. 本文件是**字段类型编码的唯一权威**（编码 A：1文本 2多行 3浏览按钮 4选择框
+ *     5附件 6复选框 7特殊字段 8布局）。任何页面不得再自定义一套编码解释。
+ *  2. 新增浏览按钮类型：改 `BROWSER_TYPE_LABEL_MAP`（标签）+ `personOrg.ts`
+ *     的 `BROWSER_TYPE_META`（数据与单多选），UI 自动支持，页面无需改动。
+ *  3. 页面渲染控件一律走 `FieldControl`，不得在页面内自行 switch 类型。
  *
  * 背景：预览页此前面「人力资源 / 多人力资源」等浏览按钮字段显示不出来，根因是
  * 「字段类型编码」在设计器、表设计、后端之间各有一套解释，导致 `fieldhtmltype=3`
@@ -75,9 +84,10 @@ const FIELD_TYPE_LABEL_MAP: Record<number, Record<number, string>> = {
   8: { 14: '布局组件' },
 };
 
-/** 预览 / 设计器使用的控件类型（与 ExcelPreview 的渲染分支一一对应） */
+/** 预览 / 设计器使用的控件类型（与 FieldControl 的渲染分支一一对应） */
 export type ControlType =
   | 'text'
+  | 'password'
   | 'textarea'
   | 'number'
   | 'wholeNumber'
@@ -118,19 +128,21 @@ export const getBrowserTypeLabel = (type?: number | string): string | undefined 
 };
 
 /**
- * 多选的浏览按钮类型：只有「多…」类才是多选。
- * 单选：人力资源(1) / 部门(2) / 分部(18) / 角色(3) / 岗位(4)
- * 多选：多人力资源(161) / 多部门(17) / 多分部(23) / 多角色(163) …
+ * 该浏览按钮类型是否多选。
+ *
+ * ⚠️ 单一来源：以 `personOrg.ts` 的 `BROWSER_TYPE_META.multiple` 为准（唯一登记表）。
+ *    此前本文件另有一份 `MULTI_BROWSER_TYPES` 集合，与 META 双份维护、容易漂移
+ *    （如 163 多角色只在 META 里标了 true，靠「标签含多」才兜住）。
+ *    未登记的类型（资产/文档/流程等）仍按 ecology 惯例：标签含「多」即多选。
+ *
+ * 单选代表：人力资源(1) / 部门(2) / 分部(18) / 角色(3) / 岗位(4)
+ * 多选代表：多人力资源(161) / 多部门(17) / 多分部(23) / 多角色(163) …
  */
-const MULTI_BROWSER_TYPES: ReadonlySet<number> = new Set([
-  161, 168, 17, 20, 22, 23, 163, 166, 26, 31,
-]);
-
-/** 该浏览按钮类型是否多选（对齐 ecology：带「多」字样的才可多选） */
 export const isBrowserTypeMultiple = (type?: number | string): boolean => {
   const t = toNum(type, 0);
   if (t <= 0) return false;
-  if (MULTI_BROWSER_TYPES.has(t)) return true;
+  const meta = BROWSER_TYPE_META[t];
+  if (meta) return meta.multiple;
   const label = BROWSER_TYPE_LABEL_MAP[t];
   return !!label && label.includes('多');
 };
@@ -218,6 +230,7 @@ export const mapFieldToControlType = (field: any): ControlType => {
   switch (htmlType) {
     case 1: // 文本字段
       if (type === 2) return 'textarea';
+      if (type === 3) return 'password'; // 保密字段
       if (type === 4 || type === 7) return 'wholeNumber';
       if (type === 5 || type === 6) return 'number';
       return 'text';

@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import { PermissionButton } from '@/components/PermissionButton';
 import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
-import { loadPersonOrgData } from '@/components/FormMode/personOrg';
+import { useUserNames } from '@/components/FormMode/useUserNames';
 import { listTodo, forwardTask, addSignTask, urgeTask, deleteDraft } from '@/services/workflow';
 import type { WfTaskItem } from '@/services/workflow';
 import { pickPayload } from '@/utils/utils';
@@ -39,20 +39,9 @@ const TodoList: React.FC = () => {
   const { buttons } = usePageButtons('workflow_todo');
   const actionRef = useRef<ActionType>();
   const [modal, setModal] = useState<{ type: 'forward' | 'sign'; record?: WfTaskItem; assignee?: any; addSignType?: number } | null>(null);
-  /** 人员字典：用户ID → 姓名（把后端下发的「发起人」ID 解析成姓名，避免列表显示裸 ID） */
-  const [userMap, setUserMap] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    loadPersonOrgData()
-      .then((d: any) => {
-        const m: Record<string, string> = {};
-        ((d?.users || []) as any[]).forEach((u) => {
-          m[String(u.id)] = u.name;
-        });
-        setUserMap(m);
-      })
-      .catch(() => {});
-  }, []);
+  /** 待办列表的发起人 ID：由 request 回调收集，useUserNames 按需解析姓名（不再全量加载人员） */
+  const [starterIds, setStarterIds] = useState<string[]>([]);
+  const userMap = useUserNames(starterIds);
 
   /** 用户ID → 姓名（字典缺失时回退原 ID，避免信息丢失） */
   const resolveUserName = (id?: string | number) => (id ? userMap[String(id)] || String(id) : '-');
@@ -204,6 +193,8 @@ const TodoList: React.FC = () => {
           if (params.title) {
             list = list.filter((i) => (i.title || '').includes(String(params.title)));
           }
+          // 收集本页发起人 ID：useUserNames 会按需精确查姓名（/user/detail），不拉全量人员
+          setStarterIds(list.map((i) => i.starter).filter(Boolean) as string[]);
           return { data: list, success: true, total: list.length };
         }}
         options={{ reload: true, density: true, setting: true }}
