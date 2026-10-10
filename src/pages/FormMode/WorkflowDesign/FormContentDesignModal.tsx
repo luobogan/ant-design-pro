@@ -492,7 +492,8 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
       if (modeler && defId != null) {
         try {
           const { xml } = await modeler.saveXML({ format: true });
-          const r: any = await saveBpmn(Number(defId), xml);
+          // ⚠️ defId 是雪花 ID（>2^53），必须原样传，禁止 Number()——否则被double 舍入成不存在的 ID
+          const r: any = await saveBpmn(defId, xml);
           if (r && r.success === false) {
             message.warning('已写入画布，但落库返回：' + (r.msg || r.message || '未知'));
           }
@@ -609,7 +610,8 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
       if (modeler && defId != null) {
         try {
           const { xml } = await modeler.saveXML({ format: true });
-          await saveBpmn(Number(defId), xml);
+          // ⚠️ 同上：defId 原样传，禁止 Number()
+          await saveBpmn(defId, xml);
         } catch {
           /* 落库失败不阻断同步结果提示 */
         }

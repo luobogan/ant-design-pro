@@ -349,11 +349,14 @@ export async function deployDefinition(id: number) {
 /**
  * 保存 BPMN 画布（自动保存与手动保存共用）。
  *
+ * @param id 流程定义 ID。⚠️ 雪花 ID（如 2108446420618047490，19 位）**超出JS Number 安全整数
+ *        2^53**，调用方必须原样传入后端返回的 string；**禁止 `Number(id)`**——会double 舍入成
+ *        2108446420618047488，URL 里就成了不存在的 ID，后端报「流程定义不存在」。
  * @param baseRevision 草稿修订号基线（D15/R11 乐观锁）：传上一次读取/保存时的
  *        `draftRevision`，后端原子条件递增校验，冲突返回「定义已被他人修改」错误；
  *        不传则跳过并发校验（兼容旧调用）。
  */
-export async function saveBpmn(id: number, bpmnXml: string, baseRevision?: number) {
+export async function saveBpmn(id: number | string, bpmnXml: string, baseRevision?: number) {
   const encoded = utf8ToBase64(bpmnXml);
   return request<ApiResponse<number>>(`${WORKFLOW}/definition/${id}/bpmn`, {
     method: 'PUT',

@@ -415,7 +415,8 @@ const WorkflowDesignPage: React.FC = () => {
       setWfNodeExt(modeler, element, { ...ext, fieldPerm: nextPerms });
       // ④ 显式 saveBpmn 落库：与弹窗保存同款，不等 BpmnDesigner 700ms 自动保存
       const { xml } = await modeler.saveXML({ format: true });
-      const r: any = await saveBpmn(Number(current.id), xml);
+      // ⚠️ current.id 是雪花 ID（>2^53），必须原样传，禁止 Number()——否则被 double 舍入成不存在的 ID
+      const r: any = await saveBpmn(current.id as any, xml);
       if (r && r.success === false) {
         message.warning('布局已保存，但同步字段权限落库失败：' + (r.msg || r.message || '未知'));
       } else {
