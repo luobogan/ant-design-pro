@@ -16,6 +16,8 @@ interface MenuNode {
   source?: string;
   sort?: number;
   isOpen?: number;
+  /** category=2 为「组件型菜单」（路由载体，如 /formmode/workflowdesign、/workflow/create/start），不应渲染进导航 */
+  category?: number;
   children?: MenuNode[];
 }
 
@@ -93,21 +95,23 @@ const TopNavMenu: React.FC = () => {
     return Comp ? React.createElement(Comp) : undefined;
   };
 
-  /** 递归生成 antd Menu items，天然支持多级 */
+  /** 递归生成 antd Menu items，天然支持多级；剔除 category=2 的组件型菜单（路由载体，不进导航） */
   const buildItems = (list: MenuNode[]): Required<MenuProps>['items'] =>
-    list.map((node) => {
-      const children =
-        Array.isArray(node.children) && node.children.length
-          ? buildItems(node.children)
-          : undefined;
-      return {
-        key: String(node.path || node.id),
-        icon: renderIcon(node.source),
-        label: node.name,
-        children,
-        onClick: children ? undefined : () => go(node),
-      } as any;
-    });
+    list
+      .filter((node) => node.category !== 2)
+      .map((node) => {
+        const children =
+          Array.isArray(node.children) && node.children.length
+            ? buildItems(node.children)
+            : undefined;
+        return {
+          key: String(node.path || node.id),
+          icon: renderIcon(node.source),
+          label: node.name,
+          children,
+          onClick: children ? undefined : () => go(node),
+        } as any;
+      });
 
   const items = useMemo(() => buildItems(menus), [menus]);
 

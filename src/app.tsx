@@ -294,6 +294,10 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
                 name: item1.name,
                 id: item1.id,
                 parentId: item1.parentId,
+                // ⚠️ 必须显式 hideInMenu：本项目的 ProLayout 是 route 模式（.umi/plugin-layout/Layout.tsx
+                // 直接把 clientRoutes 作为 route 传入，menu.request 不在菜单消费链上），
+                // 带 name 的路由默认渲染成左侧菜单项。组件型页面只是路由载体，必须从菜单剔除。
+                hideInMenu: true,
                 // 独立页：显式 layout:false（顶层挂载时兜底，防被布局插件包裹）
                 ...(standalone ? { layout: false } : {}),
                 element: (
