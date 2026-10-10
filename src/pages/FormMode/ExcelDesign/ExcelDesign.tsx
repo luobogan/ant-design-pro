@@ -35,6 +35,8 @@ import {
   setDesignerRibbonOptions,
 } from './ribbonRegistry';
 import PropertyPanel from './components/PropertyPanel';
+import LayoutStructurePanel from './components/LayoutStructurePanel';
+import type { StructField } from './components/LayoutStructurePanel';
 import ExcelPreview from './components/ExcelPreview';
 import { EXCEL_PREVIEW_DATA_KEY } from './ExcelPreviewPage';
 // 布局级代码块：存库需 base64 编码，规避后端 XSS 过滤剥掉 <script> 标签
@@ -643,6 +645,69 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
       (window as any).univerExcelGrid = mainGridApiRef.current;
     }
   }, []);
+
+  // ──────────────────────────────────────────────
+  // 「表单结构」面板：字段属性三态 / 删除字段
+  // ──────────────────────────────────────────────
+  /**
+   * 操作某个字段前，确保「该字段所在画布」已激活。
+   *
+   * <p>window.univerExcelGrid 始终指向**当前激活画布**（主画布或某个明细子画布，
+   * 子画布打开时会覆盖它、关闭时由 closeDetailCanvas 还原）。因此结构面板里对
+   * 明细表字段改属性/删除时，若当前不在对应明细画布，需先切过去。
+   *
+   * @return true=可以继续操作；false=已切换画布，本次操作中止（提示用户再点一次）
+   */
+  const ensureActiveCanvas = useCallback(
+    (scope: string): boolean => {
+      if (scope === 'main') {
+        if (editingDetail != null) {
+          closeDetailCanvas();
+          message.info('已返回主表，请再次操作');
+          return false;
+        }
+        return true;
+      }
+      const idx = Number(String(scope).replace('dt', ''));
+      if (!Number.isFinite(idx)) return false;
+      if (editingDetail !== idx) {
+        openDetailCanvas(idx);
+        message.info(`已切换到「明细表${idx}」画布，请再次操作`);
+        return false;
+      }
+      return true;
+    },
+    [editingDetail, openDetailCanvas, closeDetailCanvas, message],
+  );
+
+  /** 结构面板：切换字段属性（只读/编辑/必填） */
+  const handleStructureAttrChange = useCallback(
+    (f: StructField, attr: number) => {
+      if (!ensureActiveCanvas(f.scope)) return;
+      const grid: any = (window as any).univerExcelGrid;
+      if (!grid?.setFieldAttr) {
+        message.error('画布未就绪，请稍候再试');
+        return;
+      }
+      grid.setFieldAttr(f.row, f.col, attr);
+    },
+    [ensureActiveCanvas, message],
+  );
+
+  /** 结构面板：删除字段（整字段移除并把格子还原为初始状态） */
+  const handleStructureDelete = useCallback(
+    (f: StructField) => {
+      if (!ensureActiveCanvas(f.scope)) return;
+      const grid: any = (window as any).univerExcelGrid;
+      if (!grid?.removeFieldById) {
+        message.error('画布未就绪，请稍候再试');
+        return;
+      }
+      grid.removeFieldById(f.fieldId, f.fieldName);
+      message.success(`字段「${f.fieldLabel}」已删除并还原为初始状态`);
+    },
+    [ensureActiveCanvas, message],
+  );
 
   // ──────────────────────────────────────────────
   // 表格实时上报的「已放置字段集合」
@@ -1485,8 +1550,19 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
               </Card>
             </div>
 
-            {/* 右侧属性配置面板 */}
-            <div style={{ width: 300, borderLeft: '1px solid #f0f0f0', overflow: 'auto' }}>
+            {/* 右侧：表单结构（主表/明细表层级 + 字段属性三态 + 删除字段）+ 字段属性配置 */}
+            <div style={{ width: 320, borderLeft: '1px solid #f0f0f0', overflow: 'auto' }}>
+              <div style={{ padding: '10px 12px', borderBottom: '1px solid #f0f0f0' }}>
+                <LayoutStructurePanel
+                  mainLayout={layoutData}
+                  detailLayouts={detailLayouts}
+                  detailIndexes={detailTableOptions.map((o) => o.idx)}
+                  editingDetail={editingDetail}
+                  onOpenDetail={openDetailCanvas}
+                  onAttrChange={handleStructureAttrChange}
+                  onDeleteField={handleStructureDelete}
+                />
+              </div>
               <PropertyPanel selectedField={selectedField} />
             </div>
           </div>
@@ -1515,10 +1591,28 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
           使用独立的 UniverExcelGrid 实例编辑该明细表的 Excel 布局 */}
       <Modal
         open={editingDetail !== null}
-        title={`明细表${editingDetail ?? ''} 设计`}
+        title={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <TableOutlined style={{ color: '#1677ff' }} />
+            <span style={{ color: '#999' }}>主表</span>
+            <span style={{ color: '#999' }}>/</span>
+            <ApartmentOutlined style={{ color: '#13c2c2' }} />
+            <strong>明细表{editingDetail ?? ''}</strong>
+            <span style={{ color: '#999', fontWeight: 400, fontSize: 12 }}>
+              （本表字段可在右侧「表单结构」中设属性 / 删除）
+            </span>
+          </span>
+        }
         width="92%"
         style={{ top: 24 }}
-        footer={null}
+        footer={
+          <Space>
+            <Button onClick={closeDetailCanvas}>返回主表</Button>
+            <Button type="primary" onClick={closeDetailCanvas}>
+              完成
+            </Button>
+          </Space>
+        }
         onCancel={closeDetailCanvas}
         destroyOnClose
         maskClosable={false}

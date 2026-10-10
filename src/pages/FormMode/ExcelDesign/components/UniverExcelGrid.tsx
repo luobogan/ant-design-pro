@@ -198,6 +198,12 @@ interface FieldMeta {
     };
 
     /** 受保护（锁定）单元格的视觉样式：灰底 + 灰字，表示不可手动编辑 */
+    /**
+     * 字段「初始状态」的属性：新放置字段一律回到「可编辑」(2)。
+     * 不写入 fieldAttr 时 applyFieldAttrStyle 会落到灰底（视觉等同只读），
+     * 用户拖入新字段却看到灰色底，会误以为不可编辑 —— 故显式给初始值。
+     */
+    const INITIAL_FIELD_ATTR = 2;
     const LOCKED_CELL_BG = '#f0f0f0';
     const LOCKED_CELL_FONT = '#8c8c8c';
 
@@ -2094,7 +2100,14 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         // 暂存被移除的元数据（key=fieldId_cellType），供撤销后按显示值原样恢复
         if (meta) removedFieldMetaRef.current[`${String((meta as any).fieldId)}_${(meta as any).cellType}`] = meta as any;
         const [r, c] = key.split('_').map(Number);
-        try { sheet?.getRange?.(r, c)?.setValue?.(''); } catch { /* 忽略单格失败 */ }
+        try {
+          const rg = sheet?.getRange?.(r, c);
+          rg?.setValue?.('');
+          // 连同「字段属性」底色一起清除：applyFieldAttrStyle 给字段格上过灰底(只读)/红底(必填)，
+          // 只清值会留下色块残留，看起来像字段还在且带着旧属性。清除后格子回到未放置的初始外观。
+          rg?.setBackgroundColor?.('');
+          rg?.setFontColor?.('');
+        } catch { /* 忽略单格失败 */ }
         // 打墓碑：阻止 tier-2 从「旧的持久化 layoutData」把该字段复活并写回 Map/保存结果
         markFieldRemoved(meta);
         delete cellFieldMetaMap.current[key];
@@ -2540,6 +2553,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         // 但仍完整保留可拖动与放置能力。
         required: isLabel ? false : (actualField.required || false),
         readonly: isLabel ? false : (actualField.readonly || false),
+        // 字段属性回到初始状态（可编辑）：不写 fieldAttr 会落到 applyFieldAttrStyle 的灰底，
+        // 视觉上等同只读。删除字段后重新拖入即回到该初始态。
+        fieldAttr: isLabel ? undefined : INITIAL_FIELD_ATTR,
         defaultValue: actualField.defaultValue || '',
         placeholder: actualField.placeholder || '',
         length: actualField.length || (FIELD_TYPE_META[resolvedType] as any)?.maxLength,
@@ -4008,6 +4024,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         setFieldAttr,  // 设置字段属性
         getSelection,  // 获取选中单元格
         clearCell,     // 清空单元格
+   // 按字段整字段删除（供「表单结构」面板调用）：移除标签格+字段格元数据、
+   // 清除属性底色并把格子还原为初始外观，字段回到左侧面板可再次拖入。
+   removeFieldById: (fieldId: string, fieldName?: string) => removeFieldCompletely(fieldId, fieldName),
         // 在主表画布插入「明细表标记」格（cellType=detailTableMarker），并返回是否成功
         insertDetailMarker,
         // 当前已放置字段的 key 集合：供父组件轮询兜底，
