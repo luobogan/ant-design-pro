@@ -786,7 +786,10 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
         items={[
           { key: 'base', label: '基本属性', children: baseTab },
           { key: 'operator', label: '操作者', children: operatorTab },
-          { key: 'perm', label: '字段权限', children: permTab },
+          // 「字段权限」页签先隐藏不展示（2026-10-10）：布局设计器已是字段权限唯一控制入口，
+          // 布局保存会自动把 fieldAttr 全量联动到 BPMN wf:fieldPerm（见 WorkflowDesign#syncLayoutRequiredToBpmn）；
+          // 此页签若保留，用户在此的修改会被下一次布局保存覆盖（互相打架）。
+          // permTab / savePerms / permMap 相关代码保留，便于后续恢复。
           { key: 'settings', label: '节点设置', children: settingsTab },
           { key: 'layout', label: '表单布局', children: layoutTab },
         ]}

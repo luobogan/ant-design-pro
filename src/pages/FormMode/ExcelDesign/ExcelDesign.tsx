@@ -99,6 +99,9 @@ export interface ExcelDesignProps {
    * 这样保存入口不依赖 Univer 原生 ribbon 的注册时序，弹窗里一定有可用的保存。
    */
   onReady?: (api: { save: () => Promise<boolean> }) => void;
+  /** 布局保存成功后回调（ribbon / 弹窗底部按钮 / 代码块保存共用 handleSave，均会触发）：
+   *  宿主用它做「布局必填 → 节点 BPMN 字段权限」联动 */
+  onSaved?: () => void;
 }
 
 const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
@@ -479,6 +482,8 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         return false;
       }
       message.success('保存成功');
+      // 保存成功即通知宿主做「布局必填 → 节点 BPMN 字段权限」联动（异步，不阻塞保存返回）
+      props.onSaved?.();
 
       // 保存成功后重新加载布局数据，确保页面显示最新数据（强制刷新，覆盖用户编辑）
       await loadFormLayout(true);
@@ -490,7 +495,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     } finally {
       setSaving(false);
     }
-  }, [formId, nodeKey, detailLayouts, message, loadFormLayout]);
+  }, [formId, nodeKey, detailLayouts, message, loadFormLayout, props.onSaved]);
 
   // 代码块弹窗的「保存」：更新布局级脚本并立即持久化。
   // 对齐 ecology InsertCode 弹窗的「保存 / 关闭」按钮语义 —— 代码块不写入单元格，只存布局级脚本。

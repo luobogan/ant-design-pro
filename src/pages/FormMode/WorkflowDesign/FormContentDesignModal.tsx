@@ -13,7 +13,7 @@ import {
   message,
 } from 'antd';
 import { PlusOutlined, QuestionCircleOutlined, SearchOutlined } from '@ant-design/icons';
-import { WfProcessNode, DetailFilterItem } from '@/services/workflow';
+import { WfProcessNode, DetailFilterItem, saveBpmn } from '@/services/workflow';
 import { getActiveModeler } from './bpmnModelerHolder';
 import { getWfNodeExt, setWfNodeExt, WfDetailFilter, WfDetailTablePerm } from './bpmnExtension';
 import { getFormLayout, saveFormLayout } from '@/services/formmode/formLayoutApi';
@@ -485,8 +485,23 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
         message.error('画布未就绪，无法保存');
         return;
       }
+      // (a) 显式落库：把画布内存（含刚写入的 extJson）序列化写回 wf_process_definition 草稿，
+      // 否则仅 onPatch 更新本地 state，关掉/刷新后改动丢失，表现为「改了没生效」。
+      // 不依赖 BpmnDesigner 的 700ms 自动保存（弹窗关闭竞态/时序不可靠）。
+      const modeler = getActiveModeler();
+      if (modeler && defId != null) {
+        try {
+          const { xml } = await modeler.saveXML({ format: true });
+          const r: any = await saveBpmn(Number(defId), xml);
+          if (r && r.success === false) {
+            message.warning('已写入画布，但落库返回：' + (r.msg || r.message || '未知'));
+          }
+        } catch (se) {
+          message.warning('已写入画布，但落库失败：' + ((se as any)?.message || se));
+        }
+      }
       onPatch?.(nodeKey, { extJson });
-      message.success('表单内容已保存（已写入 BPMN 扩展，表单内容=节点布局）');
+      message.success('表单内容已保存（已写入 BPMN 并落库）');
       onClose();
     } catch {
       message.error('保存失败');
@@ -589,6 +604,16 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
       } else {
         message.success(`已同步${label}配置到 ${cfgOk}/${targetKeys.length} 个节点`);
       }
+      // (a) 落库：同步可能改写多个目标节点的 BPMN 扩展，统一序列化一次写回草稿
+      const modeler = getActiveModeler();
+      if (modeler && defId != null) {
+        try {
+          const { xml } = await modeler.saveXML({ format: true });
+          await saveBpmn(Number(defId), xml);
+        } catch {
+          /* 落库失败不阻断同步结果提示 */
+        }
+      }
       onSynced?.();
     } finally {
       setSyncing(false);
@@ -626,12 +651,9 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
             <a onClick={design} style={{ color: canLayout ? '#1677ff' : '#bfbfbf' }}>
               初始化
             </a>
-            <a
-              onClick={() => nodeKey && onOpenFieldPerm?.(nodeKey)}
-              style={{ color: nodeKey ? '#1677ff' : '#bfbfbf' }}
-            >
-              设置字段属性
-            </a>
+            {/* 「设置字段属性」入口已下线（2026-10-10）：字段权限唯一入口收敛到布局设计器，
+                布局保存自动联动 BPMN 字段权限；原跳转目标（节点详情 perm 页签）已隐藏 */}
+            <span style={{ color: '#bfbfbf', fontSize: 12 }}>字段属性在布局中设置</span>
             <Tooltip title={onPreview ? '' : NOT_YET}>
               <a
                 onClick={() => onPreview && nodeKey && onPreview(nodeKey)}

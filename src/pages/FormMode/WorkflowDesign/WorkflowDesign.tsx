@@ -36,7 +36,8 @@ import WorkflowTestModal from './WorkflowTestModal';
 // 「定位并高亮」指令类型：type-only import，运行时被擦除，不影响画布的懒加载
 import type { FocusEvt, SimulateEvt } from './BpmnDesigner';
 import { getActiveModeler } from './bpmnModelerHolder';
-import { getWfNodeExt, setWfNodeExt, WfOperator } from './bpmnExtension';
+import { getWfNodeExt, setWfNodeExt, WfOperator, WfFieldPerm } from './bpmnExtension';
+import { getFormLayout } from '@/services/formmode/formLayoutApi';
 import './workflowDesign.css';
 
 /** 路线 B：按 nodeKey 取画布元素 */
@@ -263,6 +264,117 @@ const WorkflowDesignPage: React.FC = () => {
       await save();
     } finally {
       setExcelSaving(false);
+    }
+  };
+
+  /**
+   * 布局 → BPMN 字段权限联动（布局保存成功后由 ExcelDesign.onSaved 触发）：
+   * 把布局里每个主表字段的「必填」标记同步进该节点 BPMN `wf:fieldPerm`，
+   * 再 saveBpmn 落库——布局是用户配置必填的入口，BPMN 是运行期权威读源，两源必须恒一致。
+   *
+   * Why：运行期必填是双口径（BPMN fieldPerm 的 perm=3 + form_layout 布局必填 fieldAttr==3/required）
+   * 任一命中即拦。此前两源独立不联动，「布局改成非必填、BPMN 仍是必填」表现为改了不生效
+   * （2026-10-10 用户反馈「申请填单改非必填仍显必填」的结构性根源）。
+   *
+   * 同步规则（布局为准，2026-10-10 扩展为全量权限联动）：
+   *  - 布局 fieldAttr 全量映射 perm：1=只读 2=可编辑 3=必填（缺省按 2=可编辑）；perm 变化时同步 required 细粒度；
+   *  - 布局里删除的字段 → perm='0'（隐藏不展示），不物理删条目，便于追踪/恢复；
+   *  - 用户显式隐藏（perm=0）的条目布局联动不覆盖（布局无「隐藏」档，保留该配置）；
+   *  - 布局标必填但 BPMN 无该字段条目 → 补一条 main scope；
+   *  - 明细表权限（scope=dt*）一律不动。
+   */
+  const syncLayoutRequiredToBpmn = async (nodeKey?: string) => {
+    if (!nodeKey || current?.id == null || !current?.formId) return;
+    try {
+      // ① 读回刚保存的最新布局（此时库里已是新值）
+      const lr: any = await getFormLayout(String(current.formId), undefined, nodeKey, false);
+      const layoutJson: string = lr?.data?.layoutJson || lr?.layoutJson || '';
+      if (!layoutJson) return;
+      const root = JSON.parse(layoutJson);
+      // ② 解析必填字段——口径与后端 WfTestServiceImpl#collectLayoutRequired 完全一致：
+      //    仅统计 cellType 为空或 'field' 的输入格；fieldAttr==3 或 required==true 即必填。
+      const sheets: any[] = [];
+      if (root?.sheets && typeof root.sheets === 'object' && !Array.isArray(root.sheets)) {
+        sheets.push(...Object.values(root.sheets));
+      } else if (Array.isArray(root?.sheets)) {
+        sheets.push(...root.sheets);
+      } else if (root?.cellData) {
+        sheets.push(root);
+      }
+      const requiredMap = new Map<string, boolean>();
+      // 布局 fieldAttr（1=只读 2=可编辑 3=必填，缺省按 2）——布局是字段权限的控制入口
+      const attrMap = new Map<string, number>();
+      for (const sheet of sheets) {
+        const cellData = sheet?.cellData;
+        if (!cellData || typeof cellData !== 'object') continue;
+        for (const rowObj of Object.values<any>(cellData)) {
+          if (!rowObj || typeof rowObj !== 'object') continue;
+          for (const cell of Object.values<any>(rowObj)) {
+            const fm = cell?.fieldMeta;
+            if (!fm || typeof fm !== 'object') continue;
+            const ct = fm.cellType;
+            if (ct != null && ct !== '' && ct !== 'field') continue;
+            const fieldName = fm.fieldName;
+            if (!fieldName) continue;
+            const required = Number(fm.fieldAttr ?? 0) === 3 || fm.required === true;
+            requiredMap.set(
+              String(fieldName),
+              (requiredMap.get(String(fieldName)) || false) || required,
+            );
+            const fa = Number(fm.fieldAttr ?? 0);
+            if (!attrMap.has(String(fieldName)) && (fa === 1 || fa === 2 || fa === 3)) {
+              attrMap.set(String(fieldName), fa);
+            }
+          }
+        }
+      }
+      if (requiredMap.size === 0 && attrMap.size === 0) return;
+      // ③ 同步进 BPMN wf:fieldPerm（main scope：fieldAttr 全量映射 + 删除字段→隐藏）
+      const modeler = getActiveModeler();
+      const element = modeler?.get('elementRegistry')?.get(nodeKey);
+      if (!modeler || !element) return;
+      const ext = getWfNodeExt(element) || {};
+      const oldPerms: WfFieldPerm[] = ext.fieldPerm || [];
+      let changed = false;
+      const nextPerms: WfFieldPerm[] = oldPerms.map((p) => {
+        if ((p.scope || 'main') !== 'main') return p;
+        const field = String(p.field);
+        // 布局里已删除该字段 → 权限置「隐藏(0)」先不展示（不物理删条目，便于追踪/恢复）
+        if (!requiredMap.has(field) && !attrMap.has(field)) {
+          if (p.perm === '0') return p;
+          changed = true;
+          return { ...p, perm: '0', required: '0' };
+        }
+        // 用户显式隐藏（perm=0）的条目：布局联动不覆盖（布局无「隐藏」档，保留该配置）
+        if (p.perm === '0') return p;
+        // 布局 fieldAttr 全量映射到 perm：1=只读 2=可编辑 3=必填（缺省按 2=可编辑）
+        const target = String(attrMap.get(field) ?? 2);
+        if (p.perm !== target) {
+          changed = true;
+          return { ...p, perm: target, required: target === '3' ? '1' : '0' };
+        }
+        return p;
+      });
+      // 布局标了必填、但 BPMN 还没有该字段的权限条目 → 补一条（必填）
+      for (const [field, required] of requiredMap) {
+        if (!required) continue;
+        if (nextPerms.some((p) => (p.scope || 'main') === 'main' && String(p.field) === field)) continue;
+        changed = true;
+        nextPerms.push({ scope: 'main', field, perm: '3', required: '1' });
+      }
+      if (!changed) return;
+      setWfNodeExt(modeler, element, { ...ext, fieldPerm: nextPerms });
+      // ④ 显式 saveBpmn 落库：与弹窗保存同款，不等 BpmnDesigner 700ms 自动保存
+      const { xml } = await modeler.saveXML({ format: true });
+      const r: any = await saveBpmn(Number(current.id), xml);
+      if (r && r.success === false) {
+        message.warning('布局已保存，但同步字段权限落库失败：' + (r.msg || r.message || '未知'));
+      } else {
+        message.info('布局必填已同步到节点字段权限（BPMN）');
+      }
+    } catch (e) {
+      // 联动失败不影响布局本体（已存 form_layout）；打日志便于排查，不打断用户
+      console.error('[布局→BPMN 必填同步] 失败:', e);
     }
   };
 
@@ -1179,6 +1291,7 @@ const WorkflowDesignPage: React.FC = () => {
               onReady={(api: { save: () => Promise<boolean> }) => {
                 excelSaveRef.current = api?.save || null;
               }}
+              onSaved={() => syncLayoutRequiredToBpmn(excelDesignNodeKey)}
             />
           </React.Suspense>
         ) : null}
