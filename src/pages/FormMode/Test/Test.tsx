@@ -121,7 +121,10 @@ const pickMissingFields = (msg?: string | null): string[] => {
   if (!msg) return [];
   const m = /必填[^：:]*[：:]\s*(.+)$/.exec(msg.replace(/\s+/g, ' '));
   if (!m) return [];
+  // 后端「必填校验未通过（字段权限）：以下字段为必填： A、B」一类消息，首个「必填…：」命中后
+  // 捕获组里还带着内层「以下字段为必填：」前缀，展示前剥掉，只留字段名。
   return m[1]
+    .replace(/^以下字段为必填[：:]\s*/, '')
     .split(/[、,，]/)
     .map((s) => s.trim().replace(/\([^)]*\)$/, '').trim())
     .filter(Boolean);

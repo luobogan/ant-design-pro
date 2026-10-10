@@ -1335,7 +1335,18 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                     // 始终回传当前值：测试态手动提交、办理态「保存」都要用它（原先仅测试态接线，导致办理态保存拿不到值）
                     onValuesChange={(v) => {
                       setFormValues(v || {});
-                      onValuesChange?.(v || {});
+                      // ExcelPreview 回吐的是坐标键（{sheetId}__{row}__{col}）。
+                      // 测试页「继续测试」链接直接把本回调的值作为 /test/step 的 formData 提交，
+                      // 坐标键在后端按字段名校验/入引擎全都对不上（必填全报缺、网关取不到值）——
+                      // 故此处统一经 buildSubmitValues 转成字段名键再回传（内部提交不受影响，
+                      // 仍用本组件内部的 setFormValues 原始坐标键做布局回显与校验）。
+                      let layout: any = null;
+                      try {
+                        layout = pkg?.layoutJson ? JSON.parse(pkg.layoutJson) : null;
+                      } catch {
+                        layout = null;
+                      }
+                      onValuesChange?.(buildSubmitValues(layout, v || {}));
                     }}
                     // 布局级必填校验通过后才真正提交（缺失字段已由 ExcelPreview 标红并提示字段名）
                     onSubmit={(vals: Record<string, any>, fieldValues: Record<string, any>) => {
