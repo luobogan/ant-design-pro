@@ -276,12 +276,13 @@ const WorkflowDesignPage: React.FC = () => {
    * 任一命中即拦。此前两源独立不联动，「布局改成非必填、BPMN 仍是必填」表现为改了不生效
    * （2026-10-10 用户反馈「申请填单改非必填仍显必填」的结构性根源）。
    *
-   * 同步规则（布局为准，2026-10-10 扩展为全量权限联动）：
+   * 同步规则（布局为准，2026-10-10 全量权限联动，主表+明细表）：
    *  - 布局 fieldAttr 全量映射 perm：1=只读 2=可编辑 3=必填（缺省按 2=可编辑）；perm 变化时同步 required 细粒度；
    *  - 布局里删除的字段 → perm='0'（隐藏不展示），不物理删条目，便于追踪/恢复；
    *  - 用户显式隐藏（perm=0）的条目布局联动不覆盖（布局无「隐藏」档，保留该配置）；
-   *  - 布局标必填但 BPMN 无该字段条目 → 补一条 main scope；
-   *  - 明细表权限（scope=dt*）一律不动。
+   *  - 布局标必填但 BPMN 无该字段条目 → 补一条（scope=main / dt{idx}）；
+   *  - 明细表：detailTables[idx]（与主布局同构，随 layoutJson 持久化）映射到 scope=dt{idx}（dt1/dt2…），
+   *    规则同主表；明细表整体被删（主表标记没了 → 保存时孤儿明细表被剔除）→ 该表全部 dt 条目置隐藏。
    */
   const syncLayoutRequiredToBpmn = async (nodeKey?: string) => {
     if (!nodeKey || current?.id == null || !current?.formId) return;
@@ -293,54 +294,98 @@ const WorkflowDesignPage: React.FC = () => {
       const root = JSON.parse(layoutJson);
       // ② 解析必填字段——口径与后端 WfTestServiceImpl#collectLayoutRequired 完全一致：
       //    仅统计 cellType 为空或 'field' 的输入格；fieldAttr==3 或 required==true 即必填。
-      const sheets: any[] = [];
-      if (root?.sheets && typeof root.sheets === 'object' && !Array.isArray(root.sheets)) {
-        sheets.push(...Object.values(root.sheets));
-      } else if (Array.isArray(root?.sheets)) {
-        sheets.push(...root.sheets);
-      } else if (root?.cellData) {
-        sheets.push(root);
-      }
-      const requiredMap = new Map<string, boolean>();
-      // 布局 fieldAttr（1=只读 2=可编辑 3=必填，缺省按 2）——布局是字段权限的控制入口
-      const attrMap = new Map<string, number>();
-      for (const sheet of sheets) {
-        const cellData = sheet?.cellData;
-        if (!cellData || typeof cellData !== 'object') continue;
-        for (const rowObj of Object.values<any>(cellData)) {
-          if (!rowObj || typeof rowObj !== 'object') continue;
-          for (const cell of Object.values<any>(rowObj)) {
-            const fm = cell?.fieldMeta;
-            if (!fm || typeof fm !== 'object') continue;
-            const ct = fm.cellType;
-            if (ct != null && ct !== '' && ct !== 'field') continue;
-            const fieldName = fm.fieldName;
-            if (!fieldName) continue;
-            const required = Number(fm.fieldAttr ?? 0) === 3 || fm.required === true;
-            requiredMap.set(
-              String(fieldName),
-              (requiredMap.get(String(fieldName)) || false) || required,
-            );
-            const fa = Number(fm.fieldAttr ?? 0);
-            if (!attrMap.has(String(fieldName)) && (fa === 1 || fa === 2 || fa === 3)) {
-              attrMap.set(String(fieldName), fa);
+      /**
+       * 解析一份布局（主表 / 明细表子画布同构）里的字段权限——口径与后端
+       * WfTestServiceImpl#collectLayoutRequired 一致：仅统计 cellType 为空或 'field'
+       * 的输入格；fieldAttr：1=只读 2=可编辑 3=必填（缺省按 2），required==true 亦视作必填。
+       */
+      const parseLayout = (
+        data: any,
+        requiredMap: Map<string, boolean>,
+        attrMap: Map<string, number>,
+      ) => {
+        const sheets: any[] = [];
+        if (data?.sheets && typeof data.sheets === 'object' && !Array.isArray(data.sheets)) {
+          sheets.push(...Object.values(data.sheets));
+        } else if (Array.isArray(data?.sheets)) {
+          sheets.push(...data.sheets);
+        } else if (data?.cellData) {
+          sheets.push(data);
+        }
+        for (const sheet of sheets) {
+          const cellData = sheet?.cellData;
+          if (!cellData || typeof cellData !== 'object') continue;
+          for (const rowObj of Object.values<any>(cellData)) {
+            if (!rowObj || typeof rowObj !== 'object') continue;
+            for (const cell of Object.values<any>(rowObj)) {
+              const fm = cell?.fieldMeta;
+              if (!fm || typeof fm !== 'object') continue;
+              const ct = fm.cellType;
+              if (ct != null && ct !== '' && ct !== 'field') continue;
+              const fieldName = fm.fieldName;
+              if (!fieldName) continue;
+              const required = Number(fm.fieldAttr ?? 0) === 3 || fm.required === true;
+              requiredMap.set(
+                String(fieldName),
+                (requiredMap.get(String(fieldName)) || false) || required,
+              );
+              const fa = Number(fm.fieldAttr ?? 0);
+              if (!attrMap.has(String(fieldName)) && (fa === 1 || fa === 2 || fa === 3)) {
+                attrMap.set(String(fieldName), fa);
+              }
             }
           }
         }
-      }
-      if (requiredMap.size === 0 && attrMap.size === 0) return;
-      // ③ 同步进 BPMN wf:fieldPerm（main scope：fieldAttr 全量映射 + 删除字段→隐藏）
+      };
+      // 主表 → scope=main
+      const requiredMap = new Map<string, boolean>();
+      const attrMap = new Map<string, number>();
+      parseLayout(root, requiredMap, attrMap);
+      // 明细表 → scope=dt{idx}（detailTables[idx] 与主布局同构；序号与 dt1/dt2 对应）
+      const detailRequired = new Map<number, Map<string, boolean>>();
+      const detailAttr = new Map<number, Map<string, number>>();
+      const detailTables =
+        root?.detailTables && typeof root.detailTables === 'object' ? root.detailTables : {};
+      Object.keys(detailTables).forEach((k) => {
+        const idx = Number(k);
+        if (!Number.isFinite(idx)) return;
+        const rm = new Map<string, boolean>();
+        const am = new Map<string, number>();
+        parseLayout(detailTables[k], rm, am);
+        if (rm.size || am.size) {
+          detailRequired.set(idx, rm);
+          detailAttr.set(idx, am);
+        }
+      });
+      if (!requiredMap.size && !attrMap.size && !detailRequired.size) return;
+      // ③ 同步进 BPMN wf:fieldPerm（scope=main + dt{idx}：fieldAttr 全量映射 + 删除字段→隐藏）
       const modeler = getActiveModeler();
       const element = modeler?.get('elementRegistry')?.get(nodeKey);
       if (!modeler || !element) return;
       const ext = getWfNodeExt(element) || {};
       const oldPerms: WfFieldPerm[] = ext.fieldPerm || [];
       let changed = false;
+      /** 取该条目 scope 对应的布局解析结果（main / dt{n}；布局里已不存在的明细表按空布局 → 其字段全隐藏） */
+      const mapsOfScope = (scope: string) => {
+        if (scope === 'main') return { rm: requiredMap, am: attrMap };
+        if (scope.startsWith('dt')) {
+          const idx = Number(scope.slice(2));
+          if (Number.isFinite(idx)) {
+            return {
+              rm: detailRequired.get(idx) ?? new Map<string, boolean>(),
+              am: detailAttr.get(idx) ?? new Map<string, number>(),
+            };
+          }
+        }
+        return null; // 未知 scope 不动
+      };
       const nextPerms: WfFieldPerm[] = oldPerms.map((p) => {
-        if ((p.scope || 'main') !== 'main') return p;
+        const maps = mapsOfScope(p.scope || 'main');
+        if (!maps) return p;
+        const { rm, am } = maps;
         const field = String(p.field);
         // 布局里已删除该字段 → 权限置「隐藏(0)」先不展示（不物理删条目，便于追踪/恢复）
-        if (!requiredMap.has(field) && !attrMap.has(field)) {
+        if (!rm.has(field) && !am.has(field)) {
           if (p.perm === '0') return p;
           changed = true;
           return { ...p, perm: '0', required: '0' };
@@ -348,20 +393,24 @@ const WorkflowDesignPage: React.FC = () => {
         // 用户显式隐藏（perm=0）的条目：布局联动不覆盖（布局无「隐藏」档，保留该配置）
         if (p.perm === '0') return p;
         // 布局 fieldAttr 全量映射到 perm：1=只读 2=可编辑 3=必填（缺省按 2=可编辑）
-        const target = String(attrMap.get(field) ?? 2);
+        const target = String(am.get(field) ?? 2);
         if (p.perm !== target) {
           changed = true;
           return { ...p, perm: target, required: target === '3' ? '1' : '0' };
         }
         return p;
       });
-      // 布局标了必填、但 BPMN 还没有该字段的权限条目 → 补一条（必填）
-      for (const [field, required] of requiredMap) {
-        if (!required) continue;
-        if (nextPerms.some((p) => (p.scope || 'main') === 'main' && String(p.field) === field)) continue;
-        changed = true;
-        nextPerms.push({ scope: 'main', field, perm: '3', required: '1' });
-      }
+      // 布局标了必填、但 BPMN 还没有该字段的权限条目 → 补一条（必填，scope 同布局来源）
+      const pushRequiredIfMissing = (scope: string, rm: Map<string, boolean>) => {
+        for (const [field, required] of rm) {
+          if (!required) continue;
+          if (nextPerms.some((p) => (p.scope || 'main') === scope && String(p.field) === field)) continue;
+          changed = true;
+          nextPerms.push({ scope, field, perm: '3', required: '1' });
+        }
+      };
+      pushRequiredIfMissing('main', requiredMap);
+      detailRequired.forEach((rm, idx) => pushRequiredIfMissing(`dt${idx}`, rm));
       if (!changed) return;
       setWfNodeExt(modeler, element, { ...ext, fieldPerm: nextPerms });
       // ④ 显式 saveBpmn 落库：与弹窗保存同款，不等 BpmnDesigner 700ms 自动保存
