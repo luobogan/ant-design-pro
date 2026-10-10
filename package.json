@@ -154,6 +154,7 @@
     "@umijs/request-record": "^1.1.4",
     "@vitest/coverage-v8": "4.1.10",
     "@vitest/ui": "4.1.10",
+    "vitest": "4.1.10",
     "@wendellhu/redi": "1.1.1",
     "async-lock": "^1.4.1",
     "cjk-regex": "^3.4.0",

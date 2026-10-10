@@ -5,7 +5,7 @@ import {
   getMyNoticeConfig,
   muteNoticeConfig,
   resetNoticeConfig,
-} from '../../service';
+} from '../service';
 
 type FlowOption = {
   flowKey: string;
