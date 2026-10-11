@@ -11,8 +11,7 @@ import {
   TeamOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { history } from '@umijs/max';
-import { getButton, hasButton } from '@/utils/authority';
+import { history, useAccess } from '@umijs/max';
 import {
   Avatar,
   Badge,
@@ -36,6 +35,8 @@ const Workplace: React.FC = () => {
   const [activities, setActivities] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [stats, setStats] = useState<any>({});
+  // 按钮权限判定走官方 access 方案（src/access.ts）
+  const { hasButton } = useAccess();
 
   useEffect(() => {
     const mockTasks = [
@@ -423,7 +424,7 @@ const Workplace: React.FC = () => {
                   <div>系统监控</div>
                 </Card>
               </Col>
-              {hasButton(getButton('account_settings'), 'account_setting') && (
+              {hasButton('account_settings', 'account_setting') && (
               <Col span={8}>
                 <Card
                   hoverable

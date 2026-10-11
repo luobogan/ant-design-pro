@@ -46,7 +46,7 @@ import type {
   Promotion,
 } from '@/services/mall/typings';
 import RichTextEditor from '@/components/RichTextEditor/index';
-import { getTenantId } from '@/utils/authority';
+import { getTenantId, getToken } from '@/utils/authority';
 
 const { Step } = Steps;
 const { TextArea } = Input;
@@ -372,7 +372,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
       // 对下载URL，通过 fetch 带认证获取图片转为 blob URL
       const fetchBlobForUrl = (url: string, setter: React.Dispatch<React.SetStateAction<any[]>>, uid: string) => {
         if (url.includes('/file/download/')) {
-          const token = localStorage.getItem('sword-token') || '';
+          const token = getToken() || '';
           const tenantId = selectedTenantId || '000000';
           fetch(url, {
             method: 'GET',
@@ -759,7 +759,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
         setAttributeImages(attributeImagesMap);
 
         // 对属性图片的下载URL，通过 fetch 带认证获取图片转为 blob URL
-        const token = localStorage.getItem('sword-token') || '';
+        const token = getToken() || '';
         const tenantId = selectedTenantId || '000000';
         Object.entries(attributeImagesMap).forEach(([specValue, images]: [string, any]) => {
           const fetchBlob = (url: string, field: 'mainImage' | 'albumImages', uid: string) => {
@@ -1632,7 +1632,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
           beforeUpload={beforeUpload}
           action="/api/blade-mall/admin/upload/image"
           headers={{
-            'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`,
+            'Blade-Auth': `bearer ${getToken() || ''}`,
             'Tenant-Id': selectedTenantId || '000000',
           }}
           fileList={mainImageFiles}
@@ -1660,7 +1660,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
                 message.success('上传成功');
                 // 如果是下载URL，通过 fetch 带认证获取图片转为 blob URL
                 if (fileUrl.includes('/file/download/')) {
-                  const token = localStorage.getItem('sword-token') || '';
+                  const token = getToken() || '';
                   const tenantId = selectedTenantId || '000000';
                   fetch(fileUrl, {
                     method: 'GET',
@@ -1711,7 +1711,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
           beforeUpload={beforeUpload}
           action="/api/blade-mall/admin/upload/image"
           headers={{
-            'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`,
+            'Blade-Auth': `bearer ${getToken() || ''}`,
             'Tenant-Id': selectedTenantId || '000000',
           }}
           fileList={albumFiles}
@@ -1739,7 +1739,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
                 message.success('上传成功');
                 // 如果是下载URL，通过 fetch 带认证获取图片转为 blob URL
                 if (fileUrl.includes('/file/download/')) {
-                  const token = localStorage.getItem('sword-token') || '';
+                  const token = getToken() || '';
                   const tenantId = selectedTenantId || '000000';
                   fetch(fileUrl, {
                     method: 'GET',
@@ -2180,7 +2180,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
                             beforeUpload={beforeUpload}
                             action="/api/blade-mall/admin/upload/image"
                             headers={{
-                              'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`,
+                              'Blade-Auth': `bearer ${getToken() || ''}`,
                               'Tenant-Id': selectedTenantId || '000000',
                             }}
                             fileList={attributeImages[value]?.mainImage || []}
@@ -2202,7 +2202,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
                                   info.file.thumbUrl = fileUrl;
                                   message.success('上传成功');
                                   if (fileUrl.includes('/file/download/')) {
-                                    const token = localStorage.getItem('sword-token') || '';
+                                    const token = getToken() || '';
                                     const tenantId = selectedTenantId || '000000';
                                     fetch(fileUrl, {
                                       method: 'GET',
@@ -2261,7 +2261,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
                             beforeUpload={beforeUpload}
                             action="/api/blade-mall/admin/upload/image"
                             headers={{
-                              'Blade-Auth': `bearer ${localStorage.getItem('sword-token') || ''}`,
+                              'Blade-Auth': `bearer ${getToken() || ''}`,
                               'Tenant-Id': selectedTenantId || '000000',
                             }}
                             fileList={attributeImages[value]?.albumImages || []}
@@ -2283,7 +2283,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
                                   info.file.thumbUrl = fileUrl;
                                   message.success('上传成功');
                                   if (fileUrl.includes('/file/download/')) {
-                                    const token = localStorage.getItem('sword-token') || '';
+                                    const token = getToken() || '';
                                     const tenantId = selectedTenantId || '000000';
                                     fetch(fileUrl, {
                                       method: 'GET',

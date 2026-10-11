@@ -3,7 +3,7 @@ import { Upload, Modal, Spin, App } from 'antd';
 import { PlusOutlined, LoadingOutlined } from '@ant-design/icons';
 import type { UploadFile, UploadProps } from 'antd/es/upload/interface';
 import { ImageUploaderProps, UploadResult, ImageValue } from './types';
-import { getTenantId } from '@/utils/authority';
+import { getTenantId, getToken } from '@/utils/authority';
 
 /**
  * fetchImageAsBlob 的"settle-once"封装
@@ -184,7 +184,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
       if (!needsBlobConversion(rawUrl)) {
         return rawUrl;
       }
-      const token = localStorage.getItem('sword-token') || '';
+      const token = getToken() || '';
       const uploadTenantId = propTenantId || getTenantId() || '000000';
       const blobUrl = await fetchImageAsBlob(rawUrl, token, uploadTenantId, signal, 30000);
       if (blobUrl) {
@@ -359,7 +359,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
             formData.append(key, val);
           });
         }
-        const token = localStorage.getItem('sword-token') || '';
+        const token = getToken() || '';
         const uploadTenantId = propTenantId || getTenantId() || '000000';
         const uploadController = new AbortController();
         const response = await fetch(uploadUrl, {
@@ -432,7 +432,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
           }
           if (fileUrl) {
             file.url = '';
-            const token = localStorage.getItem('sword-token') || '';
+            const token = getToken() || '';
             const uploadTenantId = propTenantId || getTenantId() || '000000';
             const changeController = new AbortController();
 
@@ -496,7 +496,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
         const downloadUrl = fileId
           ? `/api/blade-mall/file/download/${fileId}`
           : file.url;
-        const token = localStorage.getItem('sword-token') || '';
+        const token = getToken() || '';
         const uploadTenantId = propTenantId || getTenantId() || '000000';
         try {
           const response = await fetch(downloadUrl, {

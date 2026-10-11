@@ -7,11 +7,10 @@ import {
 import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer } from '@ant-design/pro-components';
 import StandardTable from '@/components/StandardTable';
-import { useRequest } from '@umijs/max';
+import { useRequest, useAccess } from '@umijs/max';
 import { Button, Form, Input, Modal, message, Select } from 'antd';
 import React, { useState, useEffect } from 'react';
 import * as clientApi from '@/services/system/client';
-import { getButton } from '@/utils/authority';
 import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
 
 interface Client {
@@ -39,10 +38,12 @@ const Client: React.FC = () => {
   const [editForm] = Form.useForm();
   const [buttons, setButtons] = useState<ButtonConfig[]>([]);
 
+  // 按钮数据来自官方 access 方案（initialState.buttons，见 src/access.ts）
+  const { getPageButtons } = useAccess();
+
   useEffect(() => {
-    const btns = getButton('client');
-    setButtons(btns || []);
-  }, []);
+    setButtons((getPageButtons('client') || []) as ButtonConfig[]);
+  }, [getPageButtons]);
 
   // 获取客户端列表
   const {

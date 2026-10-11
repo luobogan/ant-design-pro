@@ -12,8 +12,16 @@ export async function list(params: any) {
 }
 
 // 获取用户详情
-export async function detail(params: any) {
-  return request(`${USER_BASE_URL}/detail?${stringify(params)}`);
+// options 透传（如 skipErrorHandler），供"名字反查"这类非关键请求自行兜错、不连坐登出
+export async function detail(params: any, options?: any) {
+  return request(`${USER_BASE_URL}/detail?${stringify(params)}`, options);
+}
+
+// 按主键批量查询用户基础信息（id → 姓名反查，只需登录即可调用）
+// ⚠️ 不要改用 /user/detail：那个接口标注了 @PreAuth(HAS_ROLE_ADMIN)，
+// 非管理员角色调用会得到 401「请求未授权」，审批意见里的历史处理人反查会全部失败。
+export async function names(params: any, options?: any) {
+  return request(`${USER_BASE_URL}/names?${stringify(params)}`, options);
 }
 
 // 提交用户信息

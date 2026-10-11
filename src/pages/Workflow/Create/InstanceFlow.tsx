@@ -140,6 +140,12 @@ const isStaleMsg = (msg?: string) => !!msg && msg.includes('本页已过期');
 
 const menuLabel = (code: string) => MENUS_OPTIONS.find((o) => o.value === code)?.label || code;
 
+/**
+ * 人员姓名反查的最大重试轮次（每轮内部还有 fetchUserNames 的 3 次退避重试）。
+ * 上限用于后端长期不可用时停止空转，避免请求风暴；后端恢复后重新进入页面即自愈。
+ */
+const MAX_USER_NAME_RETRY = 5;
+
 /** 流转动作（wf_approval_log.log_type，对齐 WfApprovalLog 常量）→ 展示文案 */
 const LOG_ACTION: Record<string, string> = {
   '0': '通过',
@@ -274,10 +280,18 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   */
   const [userMap, setUserMap] = useState<Record<string, { name: string; desc?: string }>>({});
   const missedUserIds = useRef<Set<string>>(new Set());
+  /** 每个 id 的重试轮次（配合 MAX_USER_NAME_RETRY 防止后端不可用时无限请求） */
+  const userRetryRounds = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     if (missedUserIds.current.size === 0) return;
-    const ids = Array.from(missedUserIds.current);
+    // 只处理还有重试次数的 id（后端长期不可用时停止空转，避免请求风暴）
+    const ids = Array.from(missedUserIds.current).filter((id) => {
+      if ((userRetryRounds.current.get(id) || 0) >= MAX_USER_NAME_RETRY) return false;
+      userRetryRounds.current.set(id, (userRetryRounds.current.get(id) || 0) + 1);
+      return true;
+    });
+    if (ids.length === 0) return;
     fetchUserNames(ids)
       .then((items) => {
         setUserMap((m) => {
@@ -287,7 +301,15 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
           });
           return next;
         });
-        ids.forEach((id) => missedUserIds.current.delete(id));
+        // ⚠️ 只有拿到「真实姓名」才从待查集合移除。
+        // 若反查失败返回的是 id 兜底值（name === id），必须留在 missedUserIds 里，
+        // 否则 resolveUserName 会把它当成已解析 → 页面永久停留在 id，不再重查。
+        items.forEach((i) => {
+          if (i.name !== i.id) {
+            missedUserIds.current.delete(i.id);
+            userRetryRounds.current.delete(i.id);
+          }
+        });
       })
       .catch(() => {});
   });
@@ -1427,6 +1449,11 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                                 String(l.operator) === '0'
                                   ? '系统'
                                   : resolveUserName(l.operator || '-');
+                              // 该操作人在本地人员字典里的条目（desc = 部门/角色）；
+                              // ⚠️ 此处原先直接引用了未声明的 `u`（可选链对未声明变量无效），
+                              // 导致渲染「流转记录」时抛 ReferenceError: u is not defined。
+                              // 系统（operator=0）不在字典里 → undefined。
+                              const u = String(l.operator) === '0' ? undefined : userMap[String(l.operator)];
                               return {
                                 children: (
                                   <div style={{ fontSize: 12 }}>

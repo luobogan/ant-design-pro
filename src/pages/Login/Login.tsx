@@ -26,7 +26,10 @@ import { getBasicAuth, isCaptchaEnabled } from '@/utils/auth';
 import { loadCaptchaMode, DEFAULT_TENANT_ID } from '@/utils/captchaSetting';
 import {
   setAccessToken,
+  getAccessToken,
+  getToken,
   setButtons,
+  setRefreshToken,
   setRoutes,
   setToken,
   setUserInfo,
@@ -273,10 +276,15 @@ const Login: React.FC = () => {
         // 设置token到localStorage
         setToken(data.data.accessToken);
         setAccessToken(data.data.accessToken);
+        // ⚠️ refreshToken 必须落盘：accessToken 仅 1 小时有效，401 时靠它静默续期
+        // （此前登录响应里的 refreshToken 被直接丢弃，token 过期后前端无任何自愈能力）
+        if (data.data.refreshToken) {
+          setRefreshToken(data.data.refreshToken);
+        }
 
         console.log('Token已保存到localStorage:', {
-          'sword-token': localStorage.getItem('sword-token'),
-          'sword-access-token': localStorage.getItem('sword-access-token'),
+          'sword-token': getToken(),
+          'sword-access-token': getAccessToken(),
         });
 
         // 从登录响应中提取用户信息

@@ -2,7 +2,7 @@ import { FileTextOutlined, UploadOutlined } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
 import { Flex, Tag, Upload, theme } from 'antd';
 import { useState } from 'react';
-import { getTenantId } from '@/utils/authority';
+import { getTenantId, getToken } from '@/utils/authority';
 import type { AttachmentMeta } from '../data';
 
 interface Props {
@@ -22,7 +22,7 @@ export default function AttachmentUpload({ value = [], onChange }: Props) {
     onSuccess,
     onError,
   }) => {
-    const token = localStorage.getItem('sword-token') || '';
+    const token = getToken() || '';
     const formData = new FormData();
     formData.append('file', file as Blob);
     setUploading(true);

@@ -400,17 +400,27 @@ const WorkflowDesignPage: React.FC = () => {
         }
         return p;
       });
-      // 布局标了必填、但 BPMN 还没有该字段的权限条目 → 补一条（必填，scope 同布局来源）
-      const pushRequiredIfMissing = (scope: string, rm: Map<string, boolean>) => {
-        for (const [field, required] of rm) {
-          if (!required) continue;
-          if (nextPerms.some((p) => (p.scope || 'main') === scope && String(p.field) === field)) continue;
+      // 布局里存在、但 BPMN 尚无权限条目的字段 → 补一条（perm 取布局 fieldAttr，缺省=可编辑）。
+      // ⚠️ 不能只补「必填」字段：布局中标为只读(1)/可编辑(2)的字段若没有条目，
+      // 运行期读不到 fieldPerm → 「只读」不生效（如布局 currtype attr=1 却无条目）。
+      const pushPermIfMissing = (
+        scope: string,
+        rm: Map<string, boolean>,
+        am: Map<string, number>,
+      ) => {
+        rm.forEach((_required, field) => {
+          if (nextPerms.some((p) => (p.scope || 'main') === scope && String(p.field) === field)) {
+            return;
+          }
+          const attr = am.get(field) ?? 2;
           changed = true;
-          nextPerms.push({ scope, field, perm: '3', required: '1' });
-        }
+          nextPerms.push({ scope, field, perm: String(attr), required: attr === 3 ? '1' : '0' });
+        });
       };
-      pushRequiredIfMissing('main', requiredMap);
-      detailRequired.forEach((rm, idx) => pushRequiredIfMissing(`dt${idx}`, rm));
+      pushPermIfMissing('main', requiredMap, attrMap);
+      detailRequired.forEach((rm, idx) =>
+        pushPermIfMissing(`dt${idx}`, rm, detailAttr.get(idx) ?? new Map<string, number>()),
+      );
       if (!changed) return;
       setWfNodeExt(modeler, element, { ...ext, fieldPerm: nextPerms });
       // ④ 显式 saveBpmn 落库：与弹窗保存同款，不等 BpmnDesigner 700ms 自动保存
@@ -1014,7 +1024,7 @@ const WorkflowDesignPage: React.FC = () => {
           </div>
         </div>
       </div>
-      </>      
+      </>
     );
   };
 

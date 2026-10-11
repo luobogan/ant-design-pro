@@ -8,6 +8,7 @@
  */
 import { Client, type IMessage } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
+import { getToken } from '@/utils/authority';
 
 const WS_ENDPOINT = '/api/blade-message/ws/message';
 
@@ -77,12 +78,8 @@ function stopPresencePing() {
   }
 }
 
-function getToken(): string {
-  return localStorage.getItem('sword-token') || '';
-}
-
 export function connectMessageSocket() {
-  const token = getToken();
+  const token = getToken() || '';
   // token 未就绪（登录竞态 / 未登录）：按间隔重试，不静默放弃
   if (!token) {
     scheduleConnectRetry();

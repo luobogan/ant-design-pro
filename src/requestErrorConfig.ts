@@ -4,9 +4,34 @@ import hash from 'hash.js';
 // @ts-expect-error
 import qs from 'qs';
 import { getBasicAuth } from '@/utils/auth';
-import { getCaptchaKey, getTenantId, getToken, removeAll } from '@/utils/authority';
+import {
+  getAccessToken,
+  getCaptchaKey,
+  getTenantId,
+  getToken,
+  removeAll,
+} from '@/utils/authority';
 import Settings from '../config/defaultSettings';
 import { message, notification } from 'antd';
+
+/**
+ * 判断错误是否为认证失败（HTTP 401 或后端 body code 401）。
+ * 兼容三种形态：① checkStatus 抛的 error.name=401；② axios 原生 error.response.status=401；
+ * ③ 后端 HTTP 200 + body code 401 挂在 error.response 上。
+ *
+ * ⚠️ 401 有两种来源，msg 都可能是「请求未授权」：
+ *    · 网关 AuthFilter—— token 无效/过期（该重新登录）
+ *    · 后端 @PreAuth    —— 角色不匹配（重新登录也解决不了，是权限配置问题）
+ *    排查时结合 utils/authority.getTokenExpiresAt() 判断 token 是否真的过期。
+ */
+export function isAuthError(error: any): boolean {
+  return (
+    error?.name === 401 ||
+    error?.response?.status === 401 ||
+    error?.response?.data?.code === 401 ||
+    error?.code === 401
+  );
+}
 
 // 后端状态码消息映射
 const codeMessage: Record<number, string> = {
@@ -246,6 +271,19 @@ export const errorConfig: RequestConfig = {
       }
       // ② 调用方声明「自行处理错误」→ 不弹全局提示（避免与页面内的提示重复弹两条一样的）
       if (opts?.skipErrorHandler) throw error;
+      // 网关 HTTP 401（token 失效/过期）：checkStatus 抛出的错误会落到这里，
+      // 原逻辑只弹提示、不跳转，导致空闲过期后页面卡死。补上「清空登录态 + 跳登录页」，
+      // 与业务 401（responseInterceptor 内）口径一致。skipErrorHandler 已在上面 return。
+      if (isAuthError(error)) {
+        const errorMsg = error.msg || codeMessage[401];
+        console.error('认证失败（网关 401），跳转登录页:', errorMsg);
+        message.error(errorMsg);
+        removeAll();
+        if (window.location.pathname !== '/user/login') {
+          history.push('/user/login');
+        }
+        return;
+      }
       // 我们的 errorThrower 抛出的错误。
       if (error.name === 'BizError') {
         const errorInfo: ResponseStructure | undefined = error.info;
@@ -325,13 +363,13 @@ export const errorConfig: RequestConfig = {
       console.log('Basic Auth:', getBasicAuth());
       console.log('Blade-Auth Token:', getToken());
 
-      // Token 鉴权 - 优先使用 getToken() 获取的 token
+      // Token 鉴权 -优先使用 getToken() 获取的 token
       // 登录后存储的 token 会被用于后续请求
       const token = getToken();
       console.log('请求拦截器 - 当前token:', token);
       console.log('请求拦截器 - localStorage中的所有token相关数据:', {
-        'sword-token': localStorage.getItem('sword-token'),
-        'sword-access-token': localStorage.getItem('sword-access-token'),
+        'sword-token': token,
+        'sword-access-token': getAccessToken(),
       });
 
       // 添加 Blade-Auth Token 头
@@ -517,15 +555,15 @@ export const errorConfig: RequestConfig = {
       if (data?.code !== undefined) {
         // 特殊处理401错误，清除认证信息并跳转到登录页
         if (data.code === 401) {
-          const errorMsg = data.msg || codeMessage[401];
-          console.error('认证失败:', errorMsg);
-          // 显示错误消息
-          message.error(errorMsg);
-          // 清除所有登录信息
-          removeAll();
-          // 跳转到登录页
-          if (window.location.pathname !== '/user/login') {
-            history.push('/user/login');
+          // 名字反查等 skipErrorHandler 请求自行兜错，不再连坐清空会话、跳登录
+          if (!response.config?.skipErrorHandler) {
+            const errorMsg = data.msg || codeMessage[401];
+            console.error('认证失败:', errorMsg);
+            message.error(errorMsg);
+            removeAll();
+            if (window.location.pathname !== '/user/login') {
+              history.push('/user/login');
+            }
           }
         } else if (data.code === 400) {
           // 检查是否是"商品已上架，编辑需要二次确认"异常
@@ -551,12 +589,13 @@ export const errorConfig: RequestConfig = {
           message.error(errorMsg);
           // 特殊处理401未授权错误
           if (data.message?.includes('未授权') || data.msg?.includes('未授权')) {
-            console.error('认证失败:', errorMsg);
-            // 清除所有登录信息
-            removeAll();
-            // 跳转到登录页
-            if (window.location.pathname !== '/user/login') {
-              history.push('/user/login');
+            // skipErrorHandler 的请求不连坐登出
+            if (!response.config?.skipErrorHandler) {
+              console.error('认证失败:', errorMsg);
+              removeAll();
+              if (window.location.pathname !== '/user/login') {
+                history.push('/user/login');
+              }
             }
           }
           // 抛出异常，让前端的 try-catch 可以捕获

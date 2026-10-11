@@ -4,7 +4,7 @@ import { PlusOutlined, LoadingOutlined, EyeOutlined, FileImageOutlined } from '@
 import type { UploadFile, UploadProps } from 'antd/es/upload/interface';
 import ZipImagePreview from '@/components/ZipImagePreview';
 import type { ZipImageInfo } from '@/components/ZipImagePreview';
-import { getTenantId } from '@/utils/authority';
+import { getTenantId, getToken } from '@/utils/authority';
 
 export interface ImageUploaderWithZipProps {
   name?: string;
@@ -131,7 +131,7 @@ const ImageUploaderWithZip: React.FC<ImageUploaderWithZipProps> = ({
           });
         }
 
-        const token = localStorage.getItem('sword-token') || '';
+        const token = getToken() || '';
         const uploadTenantId = propTenantId || getTenantId() || '000000';
 
         const response = await fetch(uploadUrl, {
@@ -148,12 +148,12 @@ const ImageUploaderWithZip: React.FC<ImageUploaderWithZipProps> = ({
 
         if (result.success && result.data) {
           const imageData = result.data;
-          
+
           if (imageData.id) {
             if (onChange) {
               onChange(imageData.id);
             }
-            
+
             setCurrentImageInfo({
               id: imageData.id,
               filename: imageData.filename || file.name,
@@ -164,7 +164,7 @@ const ImageUploaderWithZip: React.FC<ImageUploaderWithZipProps> = ({
               encrypt: imageData.isEncrypt || false,
             });
           }
-          
+
           message.success('图片上传成功！');
           onSuccess?.({ id: imageData.id, data: imageData });
         } else {

@@ -3,12 +3,12 @@ import {
   SettingOutlined,
   SkinOutlined,
 } from '@ant-design/icons';
-import { history, useModel } from '@umijs/max';
+import { history, useModel, useAccess } from '@umijs/max';
 import type { MenuProps } from 'antd';
 import { Spin } from 'antd';
 import React, { startTransition } from 'react';
 import { outLogin } from '@/services/ant-design-pro/api';
-import { clearAuthority, getButton, hasButton } from '@/utils/authority';
+import { clearAuthority } from '@/utils/authority';
 import HeaderDropdown from '../HeaderDropdown';
 
 type GlobalHeaderRightProps = {
@@ -16,7 +16,7 @@ type GlobalHeaderRightProps = {
 };
 
 // 用户下拉菜单：根据按钮权限「个人设置」(account_setting) 决定是否显示该项。
-// 权限来自 /menu/buttons（登录后写入 localStorage 的 sword-buttons），无授权则隐藏。
+// 权限数据来自 /menu/buttons → initialState.buttons，判定统一走官方 access 方案（src/access.ts）。
 
 const loginOut = async () => {
   try {
@@ -72,11 +72,9 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({
     return <Spin size="small" />;
   }
 
-  // 「个人设置」下拉项按按钮权限 account_setting 显隐：无权限则隐藏。
-  const accountSettingPerm = hasButton(
-    getButton('account_settings'),
-    'account_setting',
-  );
+  // 「个人设置」下拉项按按钮权限account_setting 显隐：无权限则隐藏（access 数据源）
+  const { hasButton } = useAccess();
+  const accountSettingPerm = hasButton('account_settings', 'account_setting');
   const menuItems: MenuProps['items'] = [];
   if (accountSettingPerm) {
     menuItems.push({

@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import FluentEditor from '@opentiny/fluent-editor';
 import '@opentiny/fluent-editor/style.css';
 import { message } from 'antd';
-import { getTenantId } from '@/utils/authority';
+import { getTenantId, getToken } from '@/utils/authority';
 
 interface RichTextEditorProps {
   value?: string;
@@ -103,7 +103,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         if (!file) return;
         const formData = new FormData();
         formData.append('file', file);
-        const token = localStorage.getItem('sword-token') || '';
+        const token = getToken() || '';
         const tenantId = getTenantId() || '000000';
         try {
           const res = await fetch('/api/blade-mall/admin/upload/image', {

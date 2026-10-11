@@ -20,12 +20,11 @@ import {
   Space,
 } from 'antd';
 import React, { useMemo, useRef, useState } from 'react';
-import { useIntl } from '@umijs/max';
+import { useIntl, useAccess } from '@umijs/max';
 import * as postApi from './service';
 import { pickPayload } from '@/utils/utils';
 import usePageButtons from '@/hooks/usePageButtons';
 import useDictOptions from '@/hooks/useDictOptions';
-import { hasButton } from '@/utils/authority';
 
 /** 岗位列表字段（与后端 PostVO 保持一致，Long 主键后端已序列化为字符串） */
 interface PostItem {
@@ -59,8 +58,8 @@ const Post: React.FC = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
-  // 按钮权限按当前路由末段（/system/post → post）取菜单 code
-  const { buttons } = usePageButtons();
+  // 按钮权限：官方 access 方案（initialState.buttons，见 src/access.ts）
+  const { hasButton } = useAccess();
 
   // 岗位分类取自后端字典 post_category
   const { options: categoryOptions } = useDictOptions('post_category');
@@ -217,17 +216,17 @@ const Post: React.FC = () => {
       width: 180,
       fixed: 'right',
       render: (_: any, record: PostItem) => [
-        hasButton(buttons, 'post_view') && (
+        hasButton('post', 'post_view') && (
           <a key="view" onClick={() => handleView(record)}>
             <EyeOutlined /> {t('pages.system.common.view', '查看')}
           </a>
         ),
-        hasButton(buttons, 'post_edit') && (
+        hasButton('post', 'post_edit') && (
           <a key="edit" onClick={() => handleEdit(record)}>
             <EditOutlined /> {t('pages.system.common.edit', '编辑')}
           </a>
         ),
-        hasButton(buttons, 'post_remove') && (
+        hasButton('post', 'post_remove') && (
           <a
             key="remove"
             style={{ color: '#ff4d4f' }}
@@ -285,12 +284,12 @@ const Post: React.FC = () => {
           ) : null
         }
         toolBarRender={() => [
-          hasButton(buttons, 'post_add') && (
+          hasButton('post', 'post_add') && (
             <Button key="add" type="primary" onClick={handleAdd}>
               <PlusOutlined /> {t('pages.system.post.action.add', '新增岗位')}
             </Button>
           ),
-          selectedRowKeys.length > 0 && hasButton(buttons, 'post_remove') && (
+          selectedRowKeys.length > 0 && hasButton('post', 'post_remove') && (
             <Button
               key="batchRemove"
               danger

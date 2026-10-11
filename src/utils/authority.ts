@@ -6,6 +6,7 @@
 
 const TOKEN_KEY = 'sword-token';
 const ACCESS_TOKEN_KEY = 'sword-access-token';
+const REFRESH_TOKEN_KEY = 'sword-refresh-token';
 const AUTHORITY_KEY = 'sword-authority';
 const USER_INFO_KEY = 'sword-user-info';
 const CLIENT_TOKEN_KEY = 'sword-client-token';
@@ -42,6 +43,20 @@ export function setAccessToken(token: string): void {
 }
 
 /**
+ * 获取 Refresh Token（用于 401 时静默续期）
+ */
+export function getRefreshToken(): string | null {
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+/**
+ * 设置 Refresh Token
+ */
+export function setRefreshToken(token: string): void {
+  localStorage.setItem(REFRESH_TOKEN_KEY, token);
+}
+
+/**
  * 获取客户端 Token
  */
 export function getClientToken(): string | null {
@@ -53,26 +68,6 @@ export function getClientToken(): string | null {
  */
 export function setClientToken(token: string): void {
   localStorage.setItem(CLIENT_TOKEN_KEY, token);
-}
-
-/**
- * 获取权限列表
- */
-export function getAuthority(): string[] {
-  const authorityStr = localStorage.getItem(AUTHORITY_KEY);
-  if (!authorityStr) return [];
-  try {
-    return JSON.parse(authorityStr);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * 设置权限列表
- */
-export function setAuthority(authority: string[]): void {
-  localStorage.setItem(AUTHORITY_KEY, JSON.stringify(authority));
 }
 
 /**
@@ -161,6 +156,34 @@ export function getButton(code: string): any[] {
 }
 
 /**
+ * 读取 JWT payload（不校验签名，仅取 exp 等信息）；解析失败返回 null。
+ * 用于「临期提前续期」，避免请求发出后才401。
+ */
+export function getTokenExpiresAt(token?: string | null): number | null {
+  const raw = token ?? getToken();
+  if (!raw) return null;
+  // 去掉可能存在的 "bearer " 前缀
+  const jwt = raw.replace(/^\s*(bearer|crypto)\s+/i, '');
+  const parts = jwt.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json =
+      typeof atob === 'function'
+        ? decodeURIComponent(
+            Array.from(atob(base64))
+              .map((c) => `%${`00${c.charCodeAt(0).toString(16)}`.slice(-2)}`)
+              .join(''),
+          )
+        : '';
+    const payload = JSON.parse(json);
+    return typeof payload?.exp === 'number' ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 检查是否有指定按钮权限
  */
 export function hasButton(buttons: any[], code: string): boolean {
@@ -196,6 +219,7 @@ export function setCaptchaKey(key: string): void {
 export function clearAuthority(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(ACCESS_TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(AUTHORITY_KEY);
   localStorage.removeItem(USER_INFO_KEY);
   localStorage.removeItem(CLIENT_TOKEN_KEY);
@@ -213,22 +237,9 @@ export function removeAll(): void {
 
 /**
  * 检查是否已登录（根据 Token）
+ *
+ * 权限判定请用官方 access 方案：useAccess() / src/access.ts
  */
 export function isLogin(): boolean {
   return !!getToken();
-}
-
-/**
- * 检查是否有指定权限
- */
-export function hasAuthority(authorityCode: string): boolean {
-  const authorities = getAuthority();
-  return authorities.includes(authorityCode) || authorities.includes('*');
-}
-
-/**
- * 检查是否有任一权限
- */
-export function hasAnyAuthority(authorityCodes: string[]): boolean {
-  return authorityCodes.some((code) => hasAuthority(code));
 }

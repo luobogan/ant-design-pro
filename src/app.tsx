@@ -27,7 +27,7 @@ import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
 import defaultSettings from '../config/defaultSettings';
 import { errorConfig, getSavedFormData } from '@/requestErrorConfig';
 import { dynamicRoutes, dynamicButtons } from '@/services/system/menu';
-import { setButtons, getButtons } from '@/utils/authority';
+import { getToken, setButtons, getButtons } from '@/utils/authority';
 import Func from '@/utils/Func';
 import { formatRoutes, pickPayload } from '@/utils/utils';
 

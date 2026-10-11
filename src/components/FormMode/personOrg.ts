@@ -1,4 +1,5 @@
 import { pickPayload } from '@/utils/utils';
+import { getToken, getTokenExpiresAt } from '@/utils/authority';
 
 /**
  * 把接口返回统一剥成数组。
@@ -241,34 +242,162 @@ const userNameCache = new Map<string, PersonOrgItem>();
  * 按 id 精确查人员信息（姓名 + 部门·角色描述）。
  *
  * 后端 `/user/list` 不支持 `id` 过滤、也不支持 `ids` 批量（实测 ids 传逗号串会 500），
- * 因此反查走 `/user/detail?id=x` 逐条并发查询 + 本地缓存。
+ * 反查走 `/user/names?ids=1,2,3`（**只需登录**，一次请求批量返回）+ 本地缓存。
+ * ⚠️ 不要改用 `/user/detail`：该接口标注 `@PreAuth(HAS_ROLE_ADMIN)`，
+ *    非管理员角色调用会返回 401「请求未授权」，导致审批意见里的历史处理人只能显示 id。
  * 调用方传入的 id 通常只有个位数（一条审批意见一个人、已选人多 1-5 个），开销可接受。
  */
+/** 名字反查的重试退避间隔（ms）：立即 → 0.8s → 2s，覆盖 dev 环境服务抖动 */
+const NAME_QUERY_RETRY_DELAYS = [0, 800, 2000];
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 提取可读的错误信息：区分「缺失令牌」与「令牌失效/过期」两类 401 */
+function describeQueryError(e: any): string {
+  const status = e?.response?.status ?? e?.name ?? 'unknown';
+  const body = e?.response?.data;
+  const msg =
+    (body && typeof body === 'object' ? body.msg || body.message : typeof body === 'string' ? body : '') ||
+    e?.msg ||
+    e?.message ||
+    '';
+  return `status=${status}${msg ? ` msg=${String(msg).slice(0, 60)}` : ''}`;
+}
+
+/** token 是否已过期（解析不出 exp 时返回 false，避免误判） */
+function isTokenExpired(): boolean {
+  const exp = getTokenExpiresAt();
+  return !!exp && exp <= Date.now();
+}
+
+/** 登录态诊断快照：token 是否在、是否已过期 */
+function authSnapshot(): string {
+  const token = getToken();
+  const exp = getTokenExpiresAt(token);
+  const expired = exp ? exp <= Date.now() : null;
+  return `token=${token ? '有' : '无'}过期=${expired === null ? '未知' : expired ? '已过期' : '有效'}`;
+}
+
+/** /user/list 兜底是否已成功拉过（避免每次反查都重复拉全量） */
+let allUsersByListLoaded = false;
+
+/**
+ * 兜底方案：一次拉取当前租户用户（/user/list **没有** @PreAuth 限制，任何登录用户可调用），
+ * 建立 id → 姓名映射。
+ *
+ * 适用场景：`/user/names` 尚未部署（返回 404）或不可用时，保证非管理员账号也能显示姓名。
+ * 上限 1000 条，且只在兜底触发时拉一次；后端 /names 上线后不再走这里。
+ */
+const fetchAllUsersByList = async () => {
+  if (allUsersByListLoaded) return;
+  const res: any = await userApi.list({ current: 1, size: 1000 }, { skipErrorHandler: true });
+  const payload = pickPayload(res);
+  const records: any[] = Array.isArray(payload) ? payload : payload?.records || [];
+  records.forEach((u) => {
+    if (u?.id == null) return;
+    const id = String(u.id);
+    userNameCache.set(id, {
+      id,
+      name: u.realName || u.name || u.account || id,
+      code: u.account || '',
+      desc: [u.deptName, u.roleName].filter(Boolean).join(' · '),
+      raw: u,
+    });
+  });
+  allUsersByListLoaded = records.length > 0;
+};
+
 export async function fetchUserNames(ids: string[]): Promise<PersonOrgItem[]> {
   const unique = Array.from(new Set((ids || []).map(String).filter(Boolean)));
-  const wanted = unique.filter((id) => !userNameCache.has(id));
+  // name 仍是 id 本身 = 上次失败/查无此人的兜底值，不视为「已解析」，允许重新反查自愈
+  // （否则早期失败时缓存的 {id→id} 会因 SPA 重登不清内存而永久显示 id）
+  const wanted = unique.filter((id) => userNameCache.get(id)?.name !== id);
+  if (wanted.length === 0) {
+    return unique.map((id) => userNameCache.get(id) || { id, name: id });
+  }
 
-  await Promise.all(
-    wanted.map(async (id) => {
+  /** 单次请求批量取一批 id 的姓名，写入缓存；返回本批中「后端未返回」的 id */
+  const fetchBatch = async (batch: string[]): Promise<string[]> => {
+    // ⚠️ 用 /user/names（只需登录）而不是 /user/detail（@PreAuth(HAS_ROLE_ADMIN)）：
+    //    非管理员角色调 detail 会得到 401「请求未授权」，反查全部失败只能显示 id。
+    // skipErrorHandler：名字反查只是展示用，失败不应连坐清空整个会话并跳登录。
+    const res: any = await userApi.names({ ids: batch.join(',') }, { skipErrorHandler: true });
+    const payload = pickPayload(res);
+    const list: any[] = Array.isArray(payload) ? payload : payload?.records || [];
+    const found = new Set<string>();
+    list.forEach((u) => {
+      if (u?.id == null) return;
+      const id = String(u.id);
+      found.add(id);
+      userNameCache.set(id, {
+        id,
+        name: u.realName || u.name || u.account || id,
+        code: u.account || '',
+        desc: [u.deptName, u.roleName].filter(Boolean).join(' · '),
+        raw: u,
+      });
+    });
+    return batch.filter((id) => !found.has(id));
+  };
+
+  /**
+   * 批量容错反查（**不做 token 续期**：全局策略是「401 → 清会话 → 跳登录」，
+   * 名字反查是展示类请求，用 skipErrorHandler 自行兜错即可，不连坐登出）：
+   *  ① 按 0.8s / 2s 退避重试，覆盖 dev 环境 blade-system 偶发抖动；
+   *  ② /user/names 返回 404（接口未部署）时立即停止重试，转 /user/list 兜底；
+   *  ③ 全部失败 → 本次用 id 兜底且**不写缓存**，下次反查自动重试。
+   */
+  const fetchBatchWithRetry = async (batch: string[]): Promise<void> => {
+    let lastErr: any;
+    let notDeployed = false;
+    for (let i = 0; i < NAME_QUERY_RETRY_DELAYS.length; i += 1) {
+      if (NAME_QUERY_RETRY_DELAYS[i] > 0) await sleep(NAME_QUERY_RETRY_DELAYS[i]);
       try {
-        const res: any = await userApi.detail({ id });
-        const u = pickPayload(res);
-        if (u && u.id != null) {
-          userNameCache.set(id, {
-            id,
-            name: u.realName || u.name || u.account || id,
-            code: u.account || '',
-            desc: [u.deptName, u.roleName].filter(Boolean).join(' · '),
-            raw: u,
-          });
-        } else {
-          userNameCache.set(id, { id, name: id });
+        await fetchBatch(batch);
+        return;
+      } catch (e) {
+        lastErr = e;
+        // 404 = /user/names 接口尚未部署（blade-system 未重启），重试无意义，直接走兜底
+        if ((e as any)?.response?.status === 404) {
+          notDeployed = true;
+          break;
         }
-      } catch {
-        userNameCache.set(id, { id, name: id });
       }
-    }),
-  );
+    }
+
+    if (notDeployed) {
+      console.warn(
+        '[personOrg] /user/names 接口未生效（404），已自动改用 /user/list 反查姓名；' +
+          '重启 blade-system 后会自动切回 /user/names（一次请求，N 个 id）',
+      );
+    } else {
+      const tokenExpired = isTokenExpired();
+      console.error('[personOrg] 用户姓名反查失败，本次用 id 兜底（下次反查会自动重试）', {
+        本批id: batch,
+        最后一次错误: describeQueryError(lastErr),
+        判定: tokenExpired
+          ? 'token 已过期 → 登录态失效，请重新登录'
+          : 'token 仍有效 → 疑似后端权限不足（@PreAuth 角色不匹配），重新登录也解决不了',
+        登录态: authSnapshot(),
+      });
+    }
+
+    // 兜底：/names 不可用（如后端未重启部署该接口）时，改用无角色限制的 /user/list 建映射，
+    // 这样非管理员账号也能显示姓名，而不是停在 id。
+    try {
+      await fetchAllUsersByList();
+    } catch (e) {
+      console.warn('[personOrg] /user/list 兜底拉取用户失败，姓名仍以 id 展示:', describeQueryError(e));
+    }
+  };
+
+  // 分片（每片 50 个 id）避免 URL 过长；一次流程通常只有个位数 id
+  const BATCH_SIZE = 50;
+  const batches: string[][] = [];
+  for (let i = 0; i < wanted.length; i += BATCH_SIZE) {
+    batches.push(wanted.slice(i, i + BATCH_SIZE));
+  }
+  await Promise.all(batches.map((batch) => fetchBatchWithRetry(batch)));
 
   return unique.map((id) => userNameCache.get(id) || { id, name: id });
 }
@@ -380,6 +509,7 @@ export function loadPersonOrgData(): Promise<OrgData> {
 export function clearPersonOrgCache() {
   (Object.keys(cache) as (keyof OrgData)[]).forEach((k) => delete cache[k]);
   userNameCache.clear();
+  allUsersByListLoaded = false;
   loaded = false;
 }
 

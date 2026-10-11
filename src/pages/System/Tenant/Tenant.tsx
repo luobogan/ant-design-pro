@@ -12,12 +12,11 @@ import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer } from '@ant-design/pro-components';
 import StandardTable from '@/components/StandardTable';
 // @ts-expect-error useRequest 由 @umijs/max 的 request 插件在运行时提供
-import { useRequest } from '@umijs/max';
+import { useRequest, useAccess } from '@umijs/max';
 import { Button, Form, Input, Modal, message, Select, Space, Tag, DatePicker, Tree, Checkbox, Spin } from 'antd';
 import dayjs from 'dayjs';
 import React, { useMemo, useState, useEffect } from 'react';
 import * as tenantApi from '@/services/system/tenant';
-import { getButton } from '@/utils/authority';
 import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
 
 interface TenantPackage {
@@ -79,10 +78,12 @@ const TenantPage: React.FC = () => {
   const [diagnoseData, setDiagnoseData] = useState<any>(null);
   const [diagnosingTenantId, setDiagnosingTenantId] = useState<string>('');
 
+  // 按钮数据来自官方 access 方案（initialState.buttons，见 src/access.ts）
+  const { getPageButtons } = useAccess();
+
   useEffect(() => {
-    const btns = getButton('tenant');
-    setButtons(btns || []);
-  }, []);
+    setButtons((getPageButtons('tenant') || []) as ButtonConfig[]);
+  }, [getPageButtons]);
 
   useEffect(() => {
     const checkSuperAdmin = async () => {
@@ -550,7 +551,7 @@ const TenantPage: React.FC = () => {
     });
     const menuData = await fetchMenuTree();
     console.log('menuData:', menuData);
-    
+
     const result = await tenantApi.tenantPackageApi.packageMenuKeys(pkg.id);
     console.log('packageMenuKeys result:', result);
 
@@ -560,10 +561,10 @@ const TenantPage: React.FC = () => {
       rawCheckedKeys = result.data?.menu?.checkedKeys || result.data?.checkedKeys || result.data || [];
       console.log('rawCheckedKeys from API:', rawCheckedKeys, typeof rawCheckedKeys);
     }
-    
+
     // 统一转为字符串，确保与 MenuTree 的 key 类型匹配
     const checkedKeys = rawCheckedKeys.map((k: any) => String(k));
-    
+
     const validKeys = menuData.length > 0 ? filterValidKeys(checkedKeys, menuData) : checkedKeys;
     console.log('validKeys after filter:', validKeys);
 

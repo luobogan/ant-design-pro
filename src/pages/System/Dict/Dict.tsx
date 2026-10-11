@@ -25,11 +25,9 @@ import {
 } from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import React, { useMemo, useState } from 'react';
-import { useIntl, useRequest } from '@umijs/max';
+import { useIntl, useRequest, useAccess } from '@umijs/max';
 import * as dictApi from './service';
 import { pickPayload } from '@/utils/utils';
-import usePageButtons from '@/hooks/usePageButtons';
-import { hasButton } from '@/utils/authority';
 
 /** 字典项（与后端 DictVO 一致，Long 主键已序列化为字符串） */
 interface DictItem {
@@ -89,7 +87,8 @@ const Dict: React.FC = () => {
   const [currentRow, setCurrentRow] = useState<DictItem | undefined>(undefined);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
-  const { buttons } = usePageButtons('dict');
+  // 按钮权限：官方 access 方案（initialState.buttons，见 src/access.ts）
+  const { hasButton } = useAccess();
 
   /**
    * 后端 /dict/list 返回的是「已合并成树」的字典列表，不支持分页；
@@ -294,17 +293,17 @@ const Dict: React.FC = () => {
       width: 180,
       fixed: 'right',
       render: (_: any, record: DictItem) => [
-        hasButton(buttons, 'dict_view') && (
+        hasButton('dict', 'dict_view') && (
           <a key="view" onClick={() => handleView(record)}>
             <EyeOutlined /> {t('pages.system.common.view', '查看')}
           </a>
         ),
-        hasButton(buttons, 'dict_edit') && (
+        hasButton('dict', 'dict_edit') && (
           <a key="edit" onClick={() => handleEdit(record)}>
             <EditOutlined /> {t('pages.system.common.edit', '编辑')}
           </a>
         ),
-        hasButton(buttons, 'dict_remove') && (
+        hasButton('dict', 'dict_remove') && (
           <a
             key="remove"
             style={{ color: '#ff4d4f' }}
@@ -395,17 +394,17 @@ const Dict: React.FC = () => {
                 t('pages.system.common.total', '共 {total} 条', { total }),
             }}
             toolBarRender={() => [
-              hasButton(buttons, 'dict_add') && (
+              hasButton('dict', 'dict_add') && (
                 <Button key="addType" type="primary" onClick={() => handleAdd('type')}>
                   <PlusOutlined /> {t('pages.system.dict.action.addType', '新增字典类型')}
                 </Button>
               ),
-              hasButton(buttons, 'dict_add') && (
+              hasButton('dict', 'dict_add') && (
                 <Button key="addData" onClick={() => handleAdd('data')}>
                   <PlusOutlined /> {t('pages.system.dict.action.addData', '新增字典数据')}
                 </Button>
               ),
-              selectedRowKeys.length > 0 && hasButton(buttons, 'dict_remove') && (
+              selectedRowKeys.length > 0 && hasButton('dict', 'dict_remove') && (
                 <Button key="batchRemove" danger onClick={() => handleRemove(selectedRowKeys)}>
                   <DeleteOutlined /> {t('pages.system.common.batchRemove', '批量删除')}
                 </Button>

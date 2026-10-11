@@ -23,6 +23,7 @@ import {
   InfoCircleOutlined,
 } from '@ant-design/icons';
 import JSZip from 'jszip';
+import { getToken } from '@/utils/authority';
 
 const { Text, Title } = Typography;
 
@@ -78,7 +79,7 @@ const ZipImagePreview: React.FC<ZipImagePreviewProps> = ({
     setImages([]);
 
     try {
-      const token = localStorage.getItem('sword-token') || '';
+      const token = getToken() || '';
       const response = await fetch(imageInfo.url, {
         method: 'GET',
         headers: {
@@ -114,13 +115,13 @@ const ZipImagePreview: React.FC<ZipImagePreviewProps> = ({
 
       const filePromises = Object.keys(zip.files).map(async (filename) => {
         const file = zip.files[filename];
-        
+
         if (!file.dir && isImageFile(filename)) {
           try {
             const imageData = await file.async('base64');
             const mimeType = getMimeType(filename);
             const dataUrl = `data:${mimeType};base64,${imageData}`;
-            
+
             extractedImages.push({
               name: filename.split('/').pop() || filename,
               dataUrl,
@@ -151,7 +152,7 @@ const ZipImagePreview: React.FC<ZipImagePreviewProps> = ({
     reader.onload = () => {
       const dataUrl = reader.result as string;
       const filename = imageInfo?.filename || 'image.jpg';
-      
+
       setImages([{
         name: filename,
         dataUrl,

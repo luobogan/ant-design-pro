@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Card } from 'antd';
 import type { TableProps } from 'antd';
+import { useAccess } from '@umijs/max';
 import ToolBar, { ButtonConfig } from './ToolBar';
 import SearchBox from './SearchBox';
-import { getButton } from '@/utils/authority';
 
 /**
  * Grid 组件属性
@@ -39,10 +39,10 @@ export interface GridProps<T = any> extends Omit<TableProps<T>, 'dataSource'> {
 
 /**
  * Grid 通用表格组件
- * 
+ *
  * 集成搜索、表格、分页、按钮等功能
  * 支持权限控制，自动过滤无权限按钮
- * 
+ *
  * @example
  * ```tsx
  * <Grid
@@ -70,12 +70,13 @@ const Grid = <T extends Record<string, any>>({
   const [current, setCurrent] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
-  const [buttons, setButtons] = useState<ButtonConfig[]>([]);
 
-  useEffect(() => {
-    const btns = getButton(code);
-    setButtons(btns || []);
-  }, [code]);
+  // 按钮数据来自官方 access 方案（initialState.buttons，见 src/access.ts）
+  const { getPageButtons } = useAccess();
+  const buttons: ButtonConfig[] = React.useMemo(
+    () => (getPageButtons(code) || []) as ButtonConfig[],
+    [getPageButtons, code],
+  );
 
   // 处理表格分页变化
   const handleTableChange: TableProps<T>['onChange'] = (pagination, filters, sorter) => {
