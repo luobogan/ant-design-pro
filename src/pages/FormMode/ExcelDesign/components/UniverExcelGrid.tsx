@@ -1080,11 +1080,23 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         if (put(key, meta)) changed = true;
       });
 
-      // 第三遍：明细表标记等不参与重排，原样保留
+      // 第三遍：明细表标记按显示文本（fieldLabel）随内容对位。
+      // 否则插入/删除行列后，标记值被 Univer 平移到新坐标、元数据却仍停旧坐标
+      // （reconcile 路径下结构性命令不带 range，无法做坐标算术平移）→ 点不开明细表。
       entries.forEach(([key, meta]) => {
         if (!meta) { put(key, meta); return; }
         const t = (meta as any).cellType;
         if (t === 'field' || t === 'label') return;
+        if (t === 'detailTableMarker') {
+          const label = String((meta as any).fieldLabel ?? '');
+          if (label && labelTextIndex[label]) {
+            const spot = labelTextIndex[label];
+            if (put(`${spot.r}_${spot.c}`, meta)) { changed = true; return; }
+          }
+          // 显示文本已改（非预期）等无法对位时，原样保留，交由 saveLayoutData 安全网兜底
+          put(key, meta);
+          return;
+        }
         put(key, meta);
       });
       if (changed) cellFieldMetaMap.current = newMap;
@@ -3196,8 +3208,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
                   return;
                 }
 
-                // 仅保护数据绑定字段；标签允许自由修改文字
-                if (meta.cellType !== 'field') return;
+                // 保护数据绑定字段与明细表标记：二者均由设计器管理，手动改字会被自动还原；
+                // 仅标签允许自由修改文字（标签名可自定义）。
+                if (meta.cellType !== 'field' && meta.cellType !== 'detailTableMarker') return;
 
                 // 字段单元格由设计器管理：被改成其他内容则记录，稍后统一还原
                 if (!isCellValueMatchMeta(newValue, meta)) {
@@ -3384,15 +3397,33 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
               const endCol = cur?.endColumn ?? cur?.actualColumn ?? col;
               const isSingleCell = startRow === endRow && startCol === endCol;
 
-              if (isSingleCell && !isLoadingRef.current) {
-                // 命中「明细表标记」格 → 打开对应的明细表独立画布（对齐 ecology 双击标记开窗）
-                const markerMeta = cellFieldMetaMap.current[`${row}_${col}`];
-                if (markerMeta && markerMeta.cellType === 'detailTableMarker') {
-                  const idx = Number(markerMeta.detailTable);
-                  if (!Number.isNaN(idx) && onDetailMarkerOpenRef.current) {
-                    onDetailMarkerOpenRef.current(idx);
+              // 命中「明细表标记」格 → 打开对应的明细表独立画布（对齐 ecology 双击标记开窗）。
+              // 合并单元格被选中时，Univer 选区是整块矩形（startRow..endRow 跨多行/列），
+              // isSingleCell 恒为 false，导致此前「合并后打不开明细表」。
+              // 修复：当该范围恰为某个合并区域（与 getMergeData 吻合）时，同样视为可点击对象，
+              // 遍历块内所有格查找标记；整行/整列等普通范围不匹配合并而不打开（保留原防误命中）。
+              const isMergeBlock =
+                !isSingleCell &&
+                ((sheetRef.current as any)?.getMergeData?.() || []).some((m: any) => {
+                  const rg = typeof m.getRange === 'function' ? m.getRange() : m;
+                  const msr = rg?.startRow ?? rg?.startRowIndex;
+                  const msc = rg?.startColumn ?? rg?.startColumnIndex;
+                  const mer = rg?.endRow ?? rg?.endRowIndex;
+                  const mec = rg?.endColumn ?? rg?.endColumnIndex;
+                  return msr === startRow && msc === startCol && mer === endRow && mec === endCol;
+                });
+              if (!isLoadingRef.current && (isSingleCell || isMergeBlock)) {
+                for (let r = startRow; r <= endRow; r++) {
+                  for (let c = startCol; c <= endCol; c++) {
+                    const markerMeta = cellFieldMetaMap.current[`${r}_${c}`];
+                    if (markerMeta && markerMeta.cellType === 'detailTableMarker') {
+                      const idx = Number(markerMeta.detailTable);
+                      if (!Number.isNaN(idx) && onDetailMarkerOpenRef.current) {
+                        onDetailMarkerOpenRef.current(idx);
+                      }
+                      return;
+                    }
                   }
-                  return;
                 }
               }
               // 按字段 ID 定位（标签格回退到相邻字段格，与右键菜单逻辑一致）

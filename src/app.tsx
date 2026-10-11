@@ -193,6 +193,13 @@ const buildComponentLoaders = (
   midDirs.forEach((dir) => {
     if (!dir) return;
     const dirPascal = PAGE_DIR_ALIAS[normalizeDirKey(`${module}/${dir}`)] || toPascalCase(dir);
+    // 原始末段优先（ExcelPreviewPage 这类 PascalCase 磁盘文件名）：toPascalCase 可能把
+    // preview 错误拆成 pre+View → ExcelpreViewPage，先试原始形态可直接命中，避免前几个
+    // 候选必败产生噪声日志，也确保一定能加载到真实文件。
+    if (rawPage && rawPage !== page) {
+      loaders.push(() => import(`./pages/${module}/${dirPascal}/${rawPage}.tsx`));
+      loaders.push(() => import(`./pages/${module}/${dirPascal}/${rawPage}/index.tsx`));
+    }
     loaders.push(() => import(`./pages/${module}/${dirPascal}/${page}.tsx`));
     loaders.push(() => import(`./pages/${module}/${dirPascal}/${page}/index.tsx`));
     // 「新增/编辑合并页」约定（非历史遗留）：
@@ -202,17 +209,14 @@ const buildComponentLoaders = (
     // 目录内并不存在 Aae.tsx / Add.tsx，故此候选是这类页面的唯一命中路径。
     // 新增页面时请沿用此约定：XxxAae.tsx = 新增+编辑复用，XxxAdd.tsx = 仅新增。
     loaders.push(() => import(`./pages/${module}/${dirPascal}/${dirPascal}${page}.tsx`));
-    if (rawPage && rawPage !== page) {
-      loaders.push(() => import(`./pages/${module}/${dirPascal}/${rawPage}.tsx`));
-      loaders.push(() => import(`./pages/${module}/${dirPascal}/${rawPage}/index.tsx`));
-    }
   });
-  loaders.push(() => import(`./pages/${module}/${page}/${page}.tsx`));
-  loaders.push(() => import(`./pages/${module}/${page}/index.tsx`));
+  // 顶层：原始末段优先（同 midDirs 分支的兜底逻辑）
   if (rawPage && rawPage !== page) {
     loaders.push(() => import(`./pages/${module}/${rawPage}/${rawPage}.tsx`));
     loaders.push(() => import(`./pages/${module}/${rawPage}/index.tsx`));
   }
+  loaders.push(() => import(`./pages/${module}/${page}/${page}.tsx`));
+  loaders.push(() => import(`./pages/${module}/${page}/index.tsx`));
   return loaders;
 };
 

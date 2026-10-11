@@ -817,6 +817,9 @@ const SheetPreviewForm: React.FC<{
   onDeleteSelectedDetailRows?: (idx: number) => void;
   /** 节点权限解析器（预览态用于判断字段必填等），由上层 ExcelPreview 透传 */
   nodePermission?: NodePermissionResolver;
+  /** 明细表子画布：对齐 ecology DetailTable.tsx，table 宽度 = 100% 铺满容器；
+   *  主表不传（保持真实列宽合计 + margin:0 auto 居中，避免列宽失真）。 */
+  fillWidth?: boolean;
 }> = ({
   sheet,
   formValues,
@@ -834,6 +837,7 @@ const SheetPreviewForm: React.FC<{
   onToggleAllDetailRows,
   onDeleteSelectedDetailRows,
   nodePermission,
+  fillWidth,
 }) => {
   // 字段 / 表头 DOM id 映射：按「作用域 + 类型 + 字段名」生成唯一 id（见 utils/fieldDomId.ts）
   const domIdMap = useMemo(() => buildDomIdMap(sheet, keyPrefix), [sheet, keyPrefix]);
@@ -936,17 +940,22 @@ const SheetPreviewForm: React.FC<{
   }
 
   // ── 对齐 E9 excelMainTable：以 <table> 还原 Excel 网格布局（行列 + 合并单元格）──
-  // 对齐 ecology（cube/src/components/excel-layout/index.tsx）：
+  // 主表：对齐 ecology（cube/src/components/excel-layout/index.tsx）——
   //   table 宽度 = Excel 真实列宽合计（tableStyle.width），margin:0 auto 居中；
   //   外层 wrapper overflowX:auto —— 表格比容器宽时横向滚动，而不是把列压扁/拉伸。
-  // 此前用 width:'100%' 会把「只用了 2 列（真实宽 240px）」的表单拉伸到容器宽（1350px），
-  // 列宽失真 5 倍以上、标签列被撑到半屏，与 Excel 设计器观感完全不符。
+  //   此前用 width:'100%' 会把「只用了 2 列（真实宽 240px）」的表单拉伸到容器宽（1350px），
+  //   列宽失真 5 倍以上、标签列被撑到半屏，与 Excel 设计器观感完全不符。
+  // 明细表：对齐 ecology（cube/src/components/excel-layout/DetailTable.tsx）——
+  //   table 宽度 = 100% 铺满容器（minWidth 兜底真实列宽，避免极端窄列被压塌），tableLayout:auto 等比分配列宽。
   const tableWidth = model.colWidths.reduce((a: number, w: any) => a + (Number(w) || 60), 0);
+  const tableStyle: React.CSSProperties = fillWidth
+    ? { borderCollapse: 'collapse', width: '100%', minWidth: tableWidth, tableLayout: 'auto', background: '#fff' }
+    : { borderCollapse: 'collapse', width: tableWidth, tableLayout: 'fixed', background: '#fff', margin: '0 auto' };
   return (
     <div style={{ background: '#fff', border: `1px solid ${E9_COLORS.cardBorder}`, borderRadius: 8, overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch' }}>
       <table
         className="excelMainTable"
-        style={{ borderCollapse: 'collapse', width: tableWidth, tableLayout: 'fixed', background: '#fff', margin: '0 auto' }}
+        style={tableStyle}
       >
         <colgroup>
           {model.colWidths.map((w, i) => (
@@ -1354,6 +1363,7 @@ const DetailBlock: React.FC<{
                       readOnly={readOnly}
                       nodePermission={nodePermission}
                       keyPrefix={rowPrefix}
+                      fillWidth
                     />
                   ),
                 )
