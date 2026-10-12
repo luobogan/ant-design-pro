@@ -8309,6 +8309,33 @@ const SetCellEditVisibleOperation = {
 		const { unitId } = params;
 		const workbook = accessor.get(IUniverInstanceService).getCurrentUnitOfType(UniverInstanceType.UNIVER_SHEET);
 		if (!workbook) return false;
+		// ── ExcelDesign 补丁：字段格 / 明细表标记格禁止进入编辑态 ──
+		// 所有进入编辑的路径（双击、Enter、F2、直接键入、退格改值、公式栏点击）都会经过本操作，
+		// 故在此统一拦截，避免用户改掉 ${field} 占位符或明细表标记文本。
+		// 判定复用 window.__excelDesignIsFieldCell（与右键菜单「复制」置灰同源）。
+		if (params.visible && typeof globalThis.__excelDesignIsFieldCell === "function") {
+			try {
+				const selectionManagerService = accessor.get(SheetsSelectionsService);
+				const selection = selectionManagerService.getCurrentLastSelection?.() || selectionManagerService.getCurrentSelection?.();
+				const primary = selection == null ? void 0 : selection.primary;
+				if (primary) {
+					const row = primary.actualRow != null ? primary.actualRow : primary.startRow;
+					const col = primary.actualColumn != null ? primary.actualColumn : primary.startColumn;
+					if (row != null && col != null && globalThis.__excelDesignIsFieldCell(row, col)) {
+						const messageService = accessor.get(IMessageService);
+						if (messageService && typeof messageService.show === "function") {
+							messageService.show({
+								type: "warning",
+								content: "字段与明细表内容不可编辑，如需调整请使用拖拽或属性面板。"
+							});
+						}
+						return false;
+					}
+				}
+			} catch (_e2) {
+				// 判定失败不阻断正常编辑
+			}
+		}
 		accessor.get(IEditorBridgeService).changeVisible({
 			...params,
 			unitId: unitId !== null && unitId !== void 0 ? unitId : workbook.getUnitId()
