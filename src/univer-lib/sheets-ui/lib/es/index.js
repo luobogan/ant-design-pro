@@ -18190,32 +18190,53 @@ function menuClipboardDisabledObservable(injector) {
 //   - window.__excelDesignIsFieldCell(row, col)                                       ← 兜底，仅单格判定
 // 未注册时恒为 false，不影响原生行为。
 //
-// ⚠️ 必须按**整个选区**判定：早期实现只看 selection.primary 单格，划范围选中时
-//    主格常常不是字段格（如从标签格起拖），导致右键「复制」没有被置灰。
+// ⚠️ 三处必须注意（都是实际踩过的坑）：
+//  1. 必须按**整个选区**判定。早期只看 primary 单格，划范围时主格常不是字段格
+//     （如从标签格起拖），右键「复制」不会被置灰。
+//  2. 不能在取不到 primary 时直接 return false。粘贴过程中 selectionManager 的
+//     primary 可能瞬时为空，旧写法会因此把「复制」解禁 —— 表现为「粘贴几次后
+//     范围又可以复制了」。这里改为遍历**全部选区**（支持多选），任一命中即禁用。
+//  3. 取值链要足够稳：primary → selection 自身 → getCurrentLastSelectionPrimaryCell()。
 // 用 selectionChanged$ 驱动，保证选区变化时菜单禁用态实时刷新。
 function getExcelDesignFieldCellDisable$(injector) {
 	const selectionManagerService = injector.get(SheetsSelectionsService);
-	return selectionManagerService.selectionChanged$.pipe(startWith(null), map(() => {
+	const isStructuredSelection = (sel) => {
+		if (!sel) return false;
+		const p = sel.primary ?? null;
+		const r0 = p?.startRow ?? sel.startRow ?? p?.actualRow;
+		const r1 = p?.endRow ?? sel.endRow ?? p?.actualRow;
+		const c0 = p?.startColumn ?? sel.startColumn ?? p?.actualColumn;
+		const c1 = p?.endColumn ?? sel.endColumn ?? p?.actualColumn;
+		const isRange = globalThis.__excelDesignIsStructuredRange;
+		if (typeof isRange === "function") {
+			if (r0 == null || c0 == null) return false;
+			return !!isRange(r0, r1, c0, c1);
+		}
+		// 兜底：仅主格单点判定
+		const isFieldCell = globalThis.__excelDesignIsFieldCell;
+		if (typeof isFieldCell !== "function") return false;
+		const row = p?.actualRow ?? r0;
+		const col = p?.actualColumn ?? c0;
+		if (row == null || col == null) return false;
+		return !!isFieldCell(row, col);
+	};
+	return selectionManagerService.selectionChanged$.pipe(startWith(null), map((selections) => {
 		try {
-			const primary = selectionManagerService.getCurrentLastSelection()?.primary;
-			if (!primary) return false;
-			// 优先：按整块选区范围判定（覆盖划范围复制）
-			const isRange = globalThis.__excelDesignIsStructuredRange;
-			if (typeof isRange === "function") {
-				return !!isRange(
-					primary.startRow ?? primary.actualRow,
-					primary.endRow ?? primary.actualRow,
-					primary.startColumn ?? primary.actualColumn,
-					primary.endColumn ?? primary.actualColumn
-				);
+			// ① 优先用事件发射出来的选区数组（天然覆盖多选）
+			let list = Array.isArray(selections) ? selections : null;
+			// ② 事件没带数组时回读当前选区
+			if (!list || list.length === 0) {
+				list = selectionManagerService.getCurrentSelections?.() ?? [];
 			}
-			// 兜底：仅单格判定
-			const isFieldCell = globalThis.__excelDesignIsFieldCell;
-			if (typeof isFieldCell !== "function") return false;
-			const row = primary.actualRow ?? primary.startRow;
-			const col = primary.actualColumn ?? primary.startColumn;
-			if (row == null || col == null) return false;
-			return !!isFieldCell(row, col);
+			if (list.length === 0) {
+				// ③ 最后兜底：至少用主格单元格对象判一次，避免"取不到就放行"
+				const cell = selectionManagerService.getCurrentLastSelectionPrimaryCell?.();
+				return isStructuredSelection(cell ? { primary: cell } : null);
+			}
+			for (const sel of list) {
+				if (isStructuredSelection(sel)) return true;
+			}
+			return false;
 		} catch (_e) {
 			return false;
 		}

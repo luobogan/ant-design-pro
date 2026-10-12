@@ -3842,7 +3842,13 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
      */
     const handleBeforePaste = (): boolean => {
       const clip = clipboardFieldMetaRef.current;
-      clipboardFieldMetaRef.current = null;
+      // ⚠️ 不在入口清空 ref：
+      //   COPY 被拦截（return false）后系统剪贴板里仍装着被复制的字段内容，
+      //   用户再次粘贴会再次触发 onBeforePaste —— 此时必须仍读到这份源元数据才能继续拦截。
+      //   若在这里清空，第二次粘贴 clip 为 null 直接 return true（放行），
+      //   表现为「第一次粘贴被提示、第二次粘贴又把字段粘进来了」。
+      //   只有两种情形需要清空：① 剪切粘贴成功（内容已消费）；② 用户发起新的复制/剪切
+      //   （onBeforeCopy 会重置 ref）。普通粘贴（非结构化内容）也无需清空，ref 会被下次 copy 覆盖。
       if (!clip || clip.cells.length === 0) return true; // 普通粘贴，放行
 
       const structCells = clip.cells.filter((c) => isStructuredCellMeta(c.meta));
@@ -3859,6 +3865,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
       if (clip.copyType !== 'CUT') {
         // 复制结构化格 → 取消粘贴（比「粘贴后再清理」更彻底，不会残留脏值/脏样式）
+        // 注意：此处**保留** clipboardFieldMetaRef，不清空 —— 系统剪贴板里仍装着被复制的
+        // 字段内容，用户再次粘贴（第二次、第三次……）时 onBeforePaste 仍会读到本 ref 并继续拦截。
         message.warning('字段与明细表不能复制，本次粘贴已取消。如需调整位置请使用「剪切」。');
         return false;
       }
@@ -3897,6 +3905,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           } catch (e) { console.warn('[Clipboard] 同步布局失败:', e); }
         }, 0);
       }
+      // 剪切粘贴成功：源内容已消费，清空 ref（避免后续无关粘贴误判）
+      clipboardFieldMetaRef.current = null;
       return true;
     };
 
@@ -3946,9 +3956,13 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       const hits = isStructuredSelection();
       if (hits.length === 0) return; // 未命中 → 正常复制（标签、文本、空白、元素格均可复制）
 
-      e.preventDefault();
-      e.stopPropagation();
-      // 同步中止 Univer 快捷键链，避免其默认复制继续写入内部剪贴板缓存
+      // ⚠️ 这里**只提示、不 preventDefault**。
+      // 若在此中断快捷键链，Univer 的 copy 不会执行 → onBeforeCopy 不触发 →
+      // 粘贴时无从判断剪贴板里装的是什么，于是把**上一次遗留的旧内容**粘了出去
+      // （实测会在空白区粘出 ${field} 占位符，进而让「哪些格是字段」的判定越来越乱，
+      //   表现为「粘贴几次后范围又可以复制了」）。
+      // 放行复制让来源可被 onBeforeCopy 记录，再由 onBeforePaste 确定性取消粘贴，
+      // 右键菜单另有 disabled$ 兜底。净效果仍是「复制出来的字段粘不进去」。
       message.warning(buildCopyBlockTip(hits));
     };
 
