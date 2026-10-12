@@ -354,6 +354,13 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
         // 缺省仍是开始节点，独立路由行为完全不变
         const renderKey = props.nodeKey || nodeKey;
 
+        // 渲染节点是否为「创建节点」（nodeType=0）：创建节点由发起人自行填单，
+        // 不施加节点字段权限限制（字段默认可编辑，权限只用于收紧后续审批节点）。
+        // 否则会把创建节点上被显式设为「只读」的字段权限误当成整表只读，
+        // 表现为「表单字段不可编辑、浏览/附件弹窗按钮不出现」（与设计态预览同口径应全可编辑）。
+        const renderNode = ns.find((n) => String(n.nodeKey) === String(renderKey));
+        const isCreateNode = renderNode ? renderNode.nodeType === 0 : renderKey === nodeKey;
+
         // 审批态渲染包（预览：布局 + 节点字段权限 + 操作菜单；不创建实例）
         if (d.formId && renderKey) {
           const p: any = pickPayload(await renderFormPreview(d.id as any, d.formId, renderKey));
@@ -364,26 +371,33 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
             } catch {
               setLayoutData(null);
             }
-            // 节点字段权限解析器：scope 回退 dt{idx}_r{row} → dt{idx} → main
-            const permByScopeField = new Map<string, number>();
-            (p.fieldPerms || []).forEach((perm: any) => {
-              permByScopeField.set(`${perm.scope || 'main'}|${perm.fieldName}`, perm.perm);
-            });
-            const scopeChain = (scope?: string): string[] => {
-              const s = scope || 'main';
-              if (/^dt\d+_r\d+$/.test(s)) return [s, s.replace(/_r\d+$/, ''), 'main'];
-              if (/^dt\d+$/.test(s)) return [s, 'main'];
-              return ['main'];
-            };
-            setNodePermission(() => (fieldName: string, scope?: string) => {
-              for (const sc of scopeChain(scope)) {
-                const perm = permByScopeField.get(`${sc}|${fieldName}`);
-                if (perm != null) {
-                  return { readonly: perm === 1, required: perm === 3, hidden: perm === 0 };
+            if (isCreateNode) {
+              // 创建节点：发起人填单，不施加节点字段权限（与 ExcelPreviewPage 设计态同口径：
+              // nodePermission=undefined → 全可编辑、弹窗按钮可见）。必填标红/校验仍由布局
+              // fieldAttr=3 驱动，不受此处影响。
+              setNodePermission(undefined);
+            } else {
+              // 节点字段权限解析器：scope 回退 dt{idx}_r{row} → dt{idx} → main
+              const permByScopeField = new Map<string, number>();
+              (p.fieldPerms || []).forEach((perm: any) => {
+                permByScopeField.set(`${perm.scope || 'main'}|${perm.fieldName}`, perm.perm);
+              });
+              const scopeChain = (scope?: string): string[] => {
+                const s = scope || 'main';
+                if (/^dt\d+_r\d+$/.test(s)) return [s, s.replace(/_r\d+$/, ''), 'main'];
+                if (/^dt\d+$/.test(s)) return [s, 'main'];
+                return ['main'];
+              };
+              setNodePermission(() => (fieldName: string, scope?: string) => {
+                for (const sc of scopeChain(scope)) {
+                  const perm = permByScopeField.get(`${sc}|${fieldName}`);
+                  if (perm != null) {
+                    return { readonly: perm === 1, required: perm === 3, hidden: perm === 0 };
+                  }
                 }
-              }
-              return undefined;
-            });
+                return undefined;
+              });
+            }
           }
         }
       } catch (e: any) {

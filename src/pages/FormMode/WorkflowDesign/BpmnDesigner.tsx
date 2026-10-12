@@ -1315,21 +1315,22 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
     }
     try {
       const { xml } = await modelerRef.current.saveXML({ format: true });
-      // 修订号懒加载：首次保存时拉一次定义详情；拉取失败（null）退化为不校验（兼容旧行为）
-      if (draftRevisionRef.current === undefined) {
-        try {
-          const d: any = await getDefinition(defId);
-          const rev = d?.data?.draftRevision ?? d?.draftRevision;
-          draftRevisionRef.current = rev == null ? null : Number(rev);
-        } catch {
-          draftRevisionRef.current = null;
-        }
+      // 修订号基线：每次保存前都从服务端拉一次最新 draftRevision（权威值）作为乐观锁基线，
+      // 不再「首次懒拉取 + 本地 +1」——后者在自动保存 / 多组件实例 / 刷新后二次保存等场景
+      // 会与服务端对不上，导致「第一次成功、第二次冲突」的伪冲突。
+      // 拉取失败时保留上一次已知修订号（不清空）；仍无则 undefined（=不校验，兼容旧行为）。
+      try {
+        const d: any = await getDefinition(defId);
+        const rev = d?.data?.draftRevision ?? d?.draftRevision;
+        draftRevisionRef.current = rev == null ? null : Number(rev);
+      } catch {
+        // 拉取失败：保留上次已知修订号，避免偶发网络抖动把乐观锁降级为不校验
       }
       const base = draftRevisionRef.current == null ? undefined : draftRevisionRef.current;
       const r: any = await saveBpmn(defId, xml, base);
       if (r?.success) {
-        // 本地推进修订号：全局只有本链路递增；他人并发保存后本端下次保存必然冲突并提示刷新
-        draftRevisionRef.current = (base ?? 0) + 1;
+        // 保存后本地跟进为 base+1 仅作兜底；下次保存仍会重拉服务端权威值校正
+        draftRevisionRef.current = base == null ? null : base + 1;
         if (!silent) message.success('BPMN 已保存并解析节点/出口');
         onSaved?.();
         renderOverlaysRef.current();
