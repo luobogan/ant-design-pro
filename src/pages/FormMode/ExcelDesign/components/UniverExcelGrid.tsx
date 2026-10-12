@@ -3578,12 +3578,6 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     const fUniver = fUniverRef.current;
 
     /**
-     * 收集当前选区内所有「结构化单元格」（字段格 + 明细表标记格）。
-     *
-     * 【为什么要优先遍历元数据 Map，而不是逐格扫描选区】
-     * 逐格扫描的复杂度是 O(选区面积)，划整列/整表时会扫到几万格，既卡顿又容易
-     * 在扫描上限处**漏判**（旧实现有 400 格上限，字段落在其后就会被漏过）。
-    /**
      * 收集指定范围内所有「结构化单元格」（字段格 + 明细表标记格）。
      *
      * 【为什么要优先遍历元数据 Map，而不是逐格扫描选区】
@@ -3601,8 +3595,6 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       const inRange = (r: number, c: number) =>
         r >= range.startRow && r <= range.endRow &&
         c >= range.startColumn && c <= range.endColumn;
-    const isStructuredSelection = (): Array<{ kind: 'field' | 'detail'; name: string }> =>
-      collectStructuredHits(getSelectionRange());
       const hits: Array<{ kind: 'field' | 'detail'; name: string }> = [];
       // 命中一个即可阻断；多收集几个仅用于提示文案，设上限避免超大选区时空转
       const MAX_COLLECT = 50;
@@ -3651,6 +3643,10 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       }
       return hits;
     };
+
+    // 当前选区内的结构化单元格（快捷键拦截用；右键菜单走 __excelDesignIsStructuredRange）
+    const isStructuredSelection = (): Array<{ kind: 'field' | 'detail'; name: string }> =>
+      collectStructuredHits(getSelectionRange());
 
     const buildCopyBlockTip = (hits: Array<{ kind: 'field' | 'detail'; name: string }>): string => {
       const TAIL = '不能复制。如需调整位置请使用「剪切」。';
