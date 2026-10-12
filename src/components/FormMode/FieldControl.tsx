@@ -219,6 +219,8 @@ export const FieldControl: React.FC<FieldControlProps> = (props) => {
           multiple={multiple}
           // 预览/表单态不在按钮后显示「人力资源/部门/岗位」类型 Tag（保持控件简洁）
           showTypeTag={false}
+          // 弹窗也按 variant 走：手机端用 antd-mobile 底部弹层（选人/选组织）
+          variant={resolveVariant(variant, isMobileViewport)}
           style={style}
         />
       );

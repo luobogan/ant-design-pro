@@ -6,7 +6,7 @@ import { UniverRenderEnginePlugin } from '@univerjs/engine-render';
 import { UniverFormulaEnginePlugin } from '@univerjs/engine-formula';
 import { UniverUIPlugin, IMenuManagerService, ComponentManager, IRibbonService } from '@univerjs/ui';
 import { UniverSheetsPlugin } from '@univerjs/sheets';
-import { UniverSheetsUIPlugin } from '@univerjs/sheets-ui';
+import { UniverSheetsUIPlugin, ISheetClipboardService } from '@univerjs/sheets-ui';
 import { UniverDocsPlugin } from '@univerjs/docs';
 import { UniverDocsUIPlugin } from '@univerjs/docs-ui';
 import { UniverSheetsFormulaPlugin } from '@univerjs/sheets-formula';
@@ -230,6 +230,33 @@ interface FieldMeta {
       } catch (e) {
         console.warn('[applyFieldAttrStyle] 设置样式失败', e);
       }
+    };
+
+    /**
+     * 「结构化单元格」判定：绑定表单结构、**不可复制**的格子类型。
+     *
+     * 包含两类：
+     *  - field：字段格（主表字段、以及各明细子画布内的明细字段，均为 cellType='field'，
+     *    仅靠 detailTable>0 区分归属明细表）
+     *  - detailTableMarker：主画布上的「明细表标记」格（打开对应明细子画布的入口按钮）
+     *
+     * 复制这两类格子都会产生重复绑定 / 重复的明细表入口，因此：
+     * 右键菜单置灰、Ctrl+C 拦截、粘贴兜底清理都统一以此为准。
+     * 标签(label)与元素(element)格是纯展示内容，允许正常复制。
+     */
+    const isStructuredCellMeta = (meta: any): boolean =>
+      !!meta && (meta.cellType === 'field' || meta.cellType === 'detailTableMarker');
+
+    /**
+     * 结构化单元格的展示名（用于提示文案）：
+     * 字段格取 fieldName，明细表标记格取 fieldLabel（明细标记的 fieldName 为空）。
+     */
+    const structuredCellName = (meta: any): string => {
+      if (!meta) return '';
+      if (meta.cellType === 'detailTableMarker') {
+        return meta.fieldLabel || `明细表${meta.detailTable ?? ''}`;
+      }
+      return meta.fieldName || '';
     };
 
     /**
@@ -1317,9 +1344,26 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // 最近一次选区的激活单元格（复制/剪切/粘贴时定位源/目标格用）
   const lastSelectionCellRef = useRef<{ row: number; col: number } | null>(null);
   // 复制/剪切时暂存的字段元数据（含源格坐标），粘贴时据此跟随或去重
-  const clipboardFieldMetaRef = useRef<{ row: number; col: number; meta: any } | null>(null);
-  // FUniver 外观实例（持有 onBeforeCopy/onBeforePaste/onCopy/onPaste 钩子）
+  /**
+   * 剪贴板字段元数据快照（复制/剪切 → 粘贴之间暂存）。
+   *
+   * ⚠️ 必须是**整个选区**而不只是主单元格：批量剪切粘贴时，Univer 原生只搬「值」，
+   *    字段元数据（fieldMeta：只读/可编辑/必填/类型/选项…）全靠这里按选区整体平移。
+   *    早期只存主单元格，导致批量操作时仅首格属性保留、其余格属性全部丢失。
+   */
+  const clipboardFieldMetaRef = useRef<{
+    /** 源选区范围（含首格，用于计算粘贴偏移） */
+    range: { startRow: number; endRow: number; startColumn: number; endColumn: number };
+    /** 源选区内所有「带元数据」的单元格（不含普通文本/空白格） */
+    cells: { row: number; col: number; meta: any }[];
+    /** 本次剪贴板操作的类型：'CUT'=剪切（允许粘贴并搬移元数据）/ 其它=复制（禁止粘贴） */
+    copyType: string;
+  } | null>(null);
+  // FUniver 外观实例（通过 injector 取得 ISheetClipboardService 后注册剪贴板钩子）
   const fUniverRef = useRef<any>(null);
+  // ISheetClipboardService 实例：剪贴板钩子必须经它 addClipboardHook 注册
+  // （FUniver facade 并没有 onBeforePaste/onCopy 这些方法，见剪贴板 effect 内的说明）
+  const clipboardServiceRef = useRef<any>(null);
 
   // 保持最新的 layoutData：Univer 初始化等「只跑一次」的闭包里若直接读 layoutData，
   // 会捕获到初始的空对象 {}，导致用空数据加载布局（见下方 hasLayoutContent 说明）。
@@ -3032,6 +3076,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           // LocaleService：菜单管理服务不可用时的兜底——把页签 key 直接注册为 locale，
           // 使 ClassicMenu 的 localeService.t(group.key) 能拿到中文标题。
           (window as any).__univerLocaleService = inj?.get?.(LocaleService) || null;
+          // ISheetClipboardService：注册字段剪贴板钩子（拦截复制粘贴 / 剪切元数据跟随）
+          clipboardServiceRef.current = inj?.get?.(ISheetClipboardService) || null;
+          (window as any).__univerClipboardService = clipboardServiceRef.current;
         } catch (e) {
           console.warn('[Univer Init] 暴露 MenuManagerService 失败:', e);
         }
@@ -3530,26 +3577,200 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     if (!initialized || !fUniverRef.current) return;
     const fUniver = fUniverRef.current;
 
-    // 取当前激活单元格坐标（优先实时选区，回退到最近缓存）
-    const getPrimaryCell = (): { row: number; col: number } | null => {
+    /**
+     * 收集当前选区内所有「结构化单元格」（字段格 + 明细表标记格）。
+     *
+     * 【为什么要优先遍历元数据 Map，而不是逐格扫描选区】
+     * 逐格扫描的复杂度是 O(选区面积)，划整列/整表时会扫到几万格，既卡顿又容易
+     * 在扫描上限处**漏判**（旧实现有 400 格上限，字段落在其后就会被漏过）。
+    /**
+     * 收集指定范围内所有「结构化单元格」（字段格 + 明细表标记格）。
+     *
+     * 【为什么要优先遍历元数据 Map，而不是逐格扫描选区】
+     * 逐格扫描的复杂度是 O(选区面积)，划整列/整表时会扫到几万格，既卡顿又容易
+     * 在扫描上限处**漏判**（旧实现有 400 格上限，字段落在其后就会被漏过）。
+     * 而结构化格子在内存 Map 里就那么几百个，遍历 Map 是 O(元数据量)，
+     * 与选区大小无关 —— 既不漏判也不卡顿。
+     * 仅当 Map 尚未回填（刷新后）才回退到逐格扫描。
+     */
+    const collectStructuredHits = (
+      range: { startRow: number; endRow: number; startColumn: number; endColumn: number } | null,
+    ): Array<{ kind: 'field' | 'detail'; name: string }> => {
+      const sheet: any = sheetRef.current;
+      if (!range || !sheet) return [];
+      const inRange = (r: number, c: number) =>
+        r >= range.startRow && r <= range.endRow &&
+        c >= range.startColumn && c <= range.endColumn;
+    const isStructuredSelection = (): Array<{ kind: 'field' | 'detail'; name: string }> =>
+      collectStructuredHits(getSelectionRange());
+      const hits: Array<{ kind: 'field' | 'detail'; name: string }> = [];
+      // 命中一个即可阻断；多收集几个仅用于提示文案，设上限避免超大选区时空转
+      const MAX_COLLECT = 50;
+
+      // ① 遍历元数据 Map（与选区大小无关）
+      const map: any = cellFieldMetaMap.current;
+      if (map && typeof map === 'object') {
+        for (const key of Object.keys(map)) {
+          if (hits.length >= MAX_COLLECT) break;
+          const m = map[key];
+          if (!isStructuredCellMeta(m)) continue;
+          const sep = String(key).indexOf('_');
+          const r = Number(String(key).slice(0, sep));
+          const c = Number(String(key).slice(sep + 1));
+          if (!Number.isFinite(r) || !Number.isFinite(c) || !inRange(r, c)) continue;
+          hits.push({
+            kind: m.cellType === 'detailTableMarker' ? 'detail' : 'field',
+            name: structuredCellName(m),
+          });
+        }
+      }
+
+      // ② Map 未覆盖（刷新后元数据尚未回填）→ 逐格回退扫描
+      if (hits.length === 0) {
+        const isFieldCell = (window as any).__excelDesignIsFieldCell;
+        if (typeof isFieldCell === 'function') {
+          const area = (range.endRow - range.startRow + 1) * (range.endColumn - range.startColumn + 1);
+          const scanned = Math.min(area, 2000);
+          let n = 0;
+          for (let r = range.startRow; r <= range.endRow && n < scanned; r++) {
+            for (let c = range.startColumn; c <= range.endColumn && n < scanned; c++) {
+              n++;
+              let hit = false;
+              try { hit = !!isFieldCell(r, c); } catch { hit = false; }
+              if (!hit) continue;
+              let name = '';
+              try {
+                const v = sheet.getRange(r, c)?.getValue?.();
+                name = (typeof v === 'string' && extractFieldNameFromDisplay(v)) || '';
+              } catch { /* ignore */ }
+              hits.push({ kind: 'field', name });
+              if (hits.length >= MAX_COLLECT) break;
+            }
+          }
+        }
+      }
+      return hits;
+    };
+
+    const buildCopyBlockTip = (hits: Array<{ kind: 'field' | 'detail'; name: string }>): string => {
+      const TAIL = '不能复制。如需调整位置请使用「剪切」。';
+      const named = hits.filter((h) => h.name);
+      // 单个：直接点名，提示更明确（与字段/明细表单格复制时的文案一致）
+      if (hits.length === 1) {
+        const only = named[0];
+        return only
+          ? `${only.kind === 'detail' ? '明细表' : '字段'}「${only.name}」已存在于表格中，${TAIL}`
+          : `该单元格已绑定表单结构，${TAIL}`;
+      }
+      // 范围选中：汇总数量 + 举例，避免长列表刷屏
+      const detailCount = hits.filter((h) => h.kind === 'detail').length;
+      const fieldCount = hits.length - detailCount;
+      const parts: string[] = [];
+      if (fieldCount) parts.push(`${fieldCount} 个字段`);
+      if (detailCount) parts.push(`${detailCount} 个明细表`);
+      const sample = named.slice(0, 3).map((h) => h.name).join('、');
+      const tail = sample ? `（${sample}${hits.length > 3 ? ' 等' : ''}）` : '';
+      return `所选区域包含 ${parts.join(' 和 ')}${tail}，${TAIL}`;
+    };
+
+    /**
+     * 读取当前选区的首个选区，返回 ISelectionCell 形状
+     * （含 startRow/endRow/startColumn/endColumn/actualRow/actualColumn）。
+     *
+     * ⚠️ 关键修正：sheetRef.current 是 **FWorksheet facade**，其 getSelection() 返回
+     * **FSelection 实例**，而 FSelection 自身**没有** startRow / actualRow / row 等属性
+     * （它只暴露 getCurrentCell() / getActiveRange() / getActiveRangeList() 方法）。
+     * 早期代码直接读 `sel.startRow ?? sel.actualRow ?? sel.row`，全部为 undefined →
+     * 取值判空后 getPrimaryCell / getSelectionRange **一直返回 null**，
+     * 连带使粘贴侧的「字段元数据跟随 / 字段不能复制兜底清理」静默失效。
+     * 此处统一兼容 Facade 与原始选区数组两种形状。
+     */
+    const readSelectionCell = (): any | null => {
       try {
         const sheet: any = sheetRef.current;
         const sel: any = sheet?.getSelection?.();
+        if (!sel) return null;
+        // Facade FSelection：坐标必须经 getCurrentCell() 取
+        if (typeof sel.getCurrentCell === 'function') {
+          const cell = sel.getCurrentCell?.();
+          return cell && typeof cell === 'object' ? cell : null;
+        }
+        // 兼容原始选区数组结构
         const arr = Array.isArray(sel) ? sel : (sel?.selection || [sel]);
         const cur = arr?.[0];
-        const row = cur?.actualRow ?? cur?.row ?? cur?.startRow;
-        const col = cur?.actualColumn ?? cur?.col ?? cur?.startColumn;
-        if (row != null && col != null) return { row, col };
+        return cur && typeof cur === 'object' ? cur : null;
       } catch { /* ignore */ }
+      return null;
+    };
+
+    // 取当前激活单元格坐标（优先实时选区，回退到最近缓存）
+    const getPrimaryCell = (): { row: number; col: number } | null => {
+      const cur = readSelectionCell();
+      const row = cur?.actualRow ?? cur?.row ?? cur?.startRow;
+      const col = cur?.actualColumn ?? cur?.col ?? cur?.startColumn;
+      if (row != null && col != null) return { row, col };
       return lastSelectionCellRef.current;
     };
 
-    // 供 Univer 原生菜单判定「当前格是否为字段占位符格」→ 用于把「复制」菜单项置灰。
+    // 取当前选区的完整范围（含起止行列）
+    //
+    // ⚠️ Univer Facade 的两个取值来源各错一半，必须合并使用：
+    //  ① FSelection.getCurrentCell() —— 单格选区准确；多格划选时会**退化成主单元格**，
+    //     导致区内其它字段被漏判（表现为「划范围复制拦不住」）。
+    //  ② FSelection.getActiveRange() —— 多格划选准确；单格选区会返回**非法尺寸**
+    //     （实测 A8 单格 → getRow()=7, getHeight()=7, getWidth()=0），
+    //     直接换算会算出 endColumn = -1 的倒挂范围，同样漏判。
+    // 因此取两者的**并集**，并丢弃高/宽 < 1 的非法候选。
+    const getSelectionRange = (): {
+      startRow: number; endRow: number; startColumn: number; endColumn: number;
+    } | null => {
+      let sR = Infinity, sC = Infinity, eR = -Infinity, eC = -Infinity;
+      const accept = (r0: any, c0: any, r1: any, c1: any) => {
+        const v = [r0, c0, r1, c1].map((x) => Number(x));
+        if (!v.every((x) => Number.isFinite(x))) return;
+        const [a, b, c, d] = v;
+        if (c - a + 1 < 1 || d - b + 1 < 1) return; // 非法尺寸（如 w=0）直接丢弃
+        if (a < sR) sR = a;
+        if (b < sC) sC = b;
+        if (c > eR) eR = c;
+        if (d > eC) eC = d;
+      };
+
+      // 来源 ①：ISelectionCell
+      const cur = readSelectionCell();
+      if (cur) {
+        accept(
+          cur.startRow ?? cur.actualRow ?? cur.row,
+          cur.startColumn ?? cur.actualColumn ?? cur.col,
+          cur.endRow ?? cur.actualRow ?? cur.row,
+          cur.endColumn ?? cur.actualColumn ?? cur.col,
+        );
+      }
+
+      // 来源 ②：FRange（getRow/getColumn + getHeight/getWidth）
+      try {
+        const sheet: any = sheetRef.current;
+        const ar: any = sheet?.getSelection?.()?.getActiveRange?.();
+        if (ar) {
+          const r0 = typeof ar.getRow === 'function' ? ar.getRow() : ar.row;
+          const c0 = typeof ar.getColumn === 'function' ? ar.getColumn() : ar.column;
+          const h = typeof ar.getHeight === 'function' ? ar.getHeight() : 1;
+          const w = typeof ar.getWidth === 'function' ? ar.getWidth() : 1;
+          accept(r0, c0, Number(r0) + Number(h) - 1, Number(c0) + Number(w) - 1);
+        }
+      } catch { /* ignore */ }
+
+      if (eR < 0) return null;
+      return { startRow: sR, endRow: eR, startColumn: sC, endColumn: eC };
+    };
+
+    // 供 Univer 原生菜单判定「当前格是否为结构化格（字段格 / 明细表标记格）」
+    // → 用于把「复制」菜单项置灰。
     // Univer 侧实现：univer/packages/sheets-ui/src/menu/menu.ts 的 getExcelDesignFieldCellDisable$
     (window as any).__excelDesignIsFieldCell = (row: number, col: number) => {
       try {
         const meta = getCellFieldMeta(row, col);
-        if (meta) return meta.cellType === 'field';
+        if (meta) return isStructuredCellMeta(meta);
         // 兜底：刷新后 Map 可能为空，改按值判断（字段占位符形如 "📝 ${field_1}"）
         const sheet: any = sheetRef.current;
         const v = sheet?.getRange?.(row, col)?.getValue?.();
@@ -3559,65 +3780,183 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       }
     };
 
-    // 复制/剪切前：若源格是字段，暂存其元数据（含源坐标）
-    const captureSourceFieldMeta = () => {
-      // 每次粘贴前先清空：避免「上次复制了字段但没粘贴，本次复制的是普通单元格」时误用过期元数据
-      clipboardFieldMetaRef.current = null;
-      const sel = getPrimaryCell();
-      if (!sel) return;
-      let meta = getCellFieldMeta(sel.row, sel.col);
-      if (!meta) {
-        // 兜底：刷新后 Map 可能为空，但值残留 → 从 ${fieldName} 还原最小元数据
-        try {
-          const sheet: any = sheetRef.current;
-          const v = sheet?.getRange?.(sel.row, sel.col)?.getValue?.();
-          if (v && String(v).includes('${')) {
-            const name = (String(v).match(/\$\{([^}]+)\}/) || [])[1];
-            if (name) meta = { fieldName: name, cellType: 'field', fieldAttr: 0 } as any;
-          }
-        } catch { /* ignore */ }
+    /**
+     * 范围感知版判定：给定范围，命中任一结构化格即返回 true。
+     * 供 Univer 的右键菜单禁用态使用（见 univer-lib getExcelDesignFieldCellDisable$）——
+     * 菜单拿到的是整个选区，必须按**整块范围**判定；只看 primary 单格会漏判划选的情况。
+     */
+    (window as any).__excelDesignIsStructuredRange = (
+      startRow: number, endRow: number, startColumn: number, endColumn: number,
+    ): boolean => {
+      try {
+        const hits = collectStructuredHits({
+          startRow: Number(startRow), endRow: Number(endRow),
+          startColumn: Number(startColumn), endColumn: Number(endColumn),
+        });
+        return hits.length > 0;
+      } catch {
+        return false;
       }
-      if (meta) clipboardFieldMetaRef.current = { row: sel.row, col: sel.col, meta };
     };
 
-    // 粘贴后：依据源是否仍保留值判断剪切/复制
-    const handlePasteFieldMeta = () => {
+    // 复制/剪切时（onBeforeCopy）暂存**源选区**内的字段元数据
+    //
+    // ⚠️ 必须挂在 onBeforeCopy（复制/剪切发生的那一刻），不能挂 onBeforePaste：
+    //    onBeforePaste 触发时当前选区已经切换到**目标**区域，读到的是目标而非源，
+    //    于是剪切的元数据永远搬不过去 —— 表现为「剪切后粘贴，只读/可编辑/必填全丢」。
+    const captureSourceFieldMeta = (
+      srcRange: { startRow: number; endRow: number; startColumn: number; endColumn: number } | null,
+      copyType: string,
+    ) => {
+      // 每次复制/剪切都重置，避免沿用上一次的过期元数据
+      clipboardFieldMetaRef.current = null;
+      if (!srcRange) return;
+      const cells: { row: number; col: number; meta: any }[] = [];
+      for (let r = srcRange.startRow; r <= srcRange.endRow; r++) {
+        for (let c = srcRange.startColumn; c <= srcRange.endColumn; c++) {
+          const meta = getCellFieldMeta(r, c);
+          if (meta) { cells.push({ row: r, col: c, meta }); continue; }
+          // 兜底：刷新后 Map 可能为空，但值残留 → 从 ${fieldName} 还原最小元数据
+          try {
+            const sheet: any = sheetRef.current;
+            const v = sheet?.getRange?.(r, c)?.getValue?.();
+            if (v && String(v).includes('${')) {
+              const name = (String(v).match(/\$\{([^}]+)\}/) || [])[1];
+              if (name) {
+                cells.push({
+                  row: r, col: c,
+                  meta: { fieldName: name, cellType: 'field', fieldAttr: 0 },
+                });
+              }
+            }
+          } catch { /* ignore */ }
+        }
+      }
+      clipboardFieldMetaRef.current = { range: srcRange, cells, copyType };
+    };
+
+    /**
+     * 粘贴前（onBeforePaste）决策 —— **返回 false 可彻底取消本次粘贴**。
+     *
+     * 这是「字段不可复制」真正生效的执行点：Univer 的 onBeforeCopy 是通知型钩子
+     * （返回值被忽略），无法取消复制本身；所以复制拦不住时，至少保证**粘贴不发生**，
+     * 从根上杜绝重复字段绑定。
+     *
+     * 剪切（CUT）则放行，并把元数据（含 fieldAttr 只读/可编辑/必填）整体搬到目标位置。
+     */
+    const handleBeforePaste = (): boolean => {
       const clip = clipboardFieldMetaRef.current;
       clipboardFieldMetaRef.current = null;
-      if (!clip) return; // 普通粘贴，无需处理
+      if (!clip || clip.cells.length === 0) return true; // 普通粘贴，放行
+
+      const structCells = clip.cells.filter((c) => isStructuredCellMeta(c.meta));
+      if (structCells.length === 0) return true; // 只剪切了标签/元素等纯展示内容 → 放行
+
       const dest = getPrimaryCell();
-      if (!dest) return;
       const sheet: any = sheetRef.current;
-      if (!sheet) return;
-      const srcKey = `${clip.row}_${clip.col}`;
-      const destKey = `${dest.row}_${dest.col}`;
-      if (srcKey === destKey) return; // 原地粘贴
+      if (!dest || !sheet) return true;
 
-      let srcValue: any = '';
-      try { srcValue = sheet.getRange(clip.row, clip.col)?.getValue?.() ?? ''; } catch { /* ignore */ }
-      const isCut = srcValue == null || srcValue === '';
+      // 目标 = 源选区形状 + 偏移（onBeforePaste 触发时选区已在目标位置）
+      const dRow = dest.row - clip.range.startRow;
+      const dCol = dest.col - clip.range.startColumn;
+      if (dRow === 0 && dCol === 0) return true; // 原地粘贴，无需搬移
 
-      if (isCut) {
-        // 剪切：元数据跟随到新位置（标签格 / 字段占位符格都跟随，保证绑定不丢）
-        delete cellFieldMetaMap.current[srcKey];
-        cellFieldMetaMap.current[destKey] = clip.meta;
-        try {
-          setCellField(workbookRef.current, sheet, dest.row, dest.col, clip.meta);
-        } catch (e) {
-          console.warn('[Clipboard] 重新绑定字段元数据失败:', e);
-        }
-        message.success('字段已移动到新位置');
-        try {
-          const data = saveLayoutData();
-          if (data) onLayoutChangeRef.current?.(data);
-        } catch (e) { console.warn('[Clipboard] 同步布局失败:', e); }
-      } else if (clip.meta.cellType === 'field') {
-        // 复制「字段占位符格」→ 会产生重复字段绑定 → 禁止，清除目标值
-        try { sheet.getRange(dest.row, dest.col)?.setValue?.(''); } catch { /* ignore */ }
-        message.warning('字段不能复制，已清除粘贴内容');
+      if (clip.copyType !== 'CUT') {
+        // 复制结构化格 → 取消粘贴（比「粘贴后再清理」更彻底，不会残留脏值/脏样式）
+        message.warning('字段与明细表不能复制，本次粘贴已取消。如需调整位置请使用「剪切」。');
+        return false;
       }
-      // 复制「标签格」：允许，作为普通文本粘贴（不写入元数据，不产生重复绑定）
+
+      // 剪切：元数据整体跟随到新位置（标签格 / 字段占位符格 / 明细表标记都跟随）
+      let moved = 0;
+      clip.cells.forEach(({ row, col, meta }) => {
+        const tr = row + dRow;
+        const tc = col + dCol;
+        if (tr < 0 || tc < 0) return;
+        delete cellFieldMetaMap.current[`${row}_${col}`];
+        cellFieldMetaMap.current[`${tr}_${tc}`] = meta;
+        try {
+          setCellField(workbookRef.current, sheet, tr, tc, meta);
+          moved += 1;
+        } catch (e) {
+          console.warn('[Clipboard] 重新绑定字段元数据失败:', `${tr}_${tc}`, e);
+        }
+      });
+      if (moved > 0) {
+        message.success(`已移动 ${moved} 个字段到新位置（属性已保留）`);
+        // 粘贴动作发生在本钩子返回之后，稍作延迟再落一次样式，
+        // 避免粘贴写入的单元格样式覆盖掉 applyFieldAttrStyle 的属性配色
+        setTimeout(() => {
+          clip.cells.forEach(({ row, col, meta }) => {
+            const tr = row + dRow;
+            const tc = col + dCol;
+            if (tr < 0 || tc < 0) return;
+            try {
+              setCellField(workbookRef.current, sheetRef.current, tr, tc, meta);
+            } catch (e) { /* ignore */ }
+          });
+          try {
+            const data = saveLayoutData();
+            if (data) onLayoutChangeRef.current?.(data);
+          } catch (e) { console.warn('[Clipboard] 同步布局失败:', e); }
+        }, 0);
+      }
+      return true;
     };
+
+    // ──────────────────────────────────────────────
+    // 拦截「复制」：选区（含划范围）内命中结构化单元格时禁止复制
+    //   结构化单元格 = 字段格（主表字段 / 各明细子画布内的明细字段）
+    //                + 明细表标记格（主画布上的明细表入口）
+    //
+    // 【为什么必须在这里拦 keydown】
+    // Univer 的 onBeforeCopy 是**通知型**钩子 —— 其返回值在
+    // univer-lib/sheets-ui generateCopyContent() 中被直接忽略：
+    //     hooks.forEach(h => h.onBeforeCopy?.(workbookId, worksheetId, range, copyType));
+    //     const copyContent = this._generateCopyContent(...);   // 无条件继续
+    // 因此无法用它取消复制。现有防线只覆盖了右键菜单（__excelDesignIsFieldCell
+    // → getExcelDesignFieldCellDisable$ 把「复制」置灰），而 Ctrl+C 快捷键与工具栏
+    // 按钮走独立路径，不受菜单禁用态影响 → 字段/明细表仍可被复制并粘出重复绑定。
+    // 故在**捕获阶段**拦截 keydown，从源头 preventDefault，保证行为与菜单置灰一致。
+    // （粘贴侧 handlePasteFieldMeta 仍有兜底清理，双保险。）
+    // ──────────────────────────────────────────────
+    /**
+     * 判断焦点是否真的落在「文本输入态」。
+     *
+     * ⚠️ 不能只看 `isContentEditable`：Univer 在**选中单元格**时就会把焦点挂到它那个
+     * 隐藏的 contenteditable 单元格编辑器上（这是常态交互，用来接收键盘/IME 输入）。
+     * 若据此判定「正在输入」并放行，复制拦截会被整体绕过 —— 实测 trace 为
+     *   activeElement=DIV editable=true → bail:input
+     * 因此 contenteditable 还必须**可见且有内容**（真正在编辑某个格子）才算输入态。
+     */
+    const isRealTextEntry = (el: HTMLElement | null): boolean => {
+      if (!el) return false;
+      const tag = el.tagName;
+      // 工具栏搜索框等真实表单控件
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return true;
+      if (!el.isContentEditable) return false;
+      const rect = el.getBoundingClientRect();
+      const visible = rect.width > 0 && rect.height > 0;
+      return visible && !!el.textContent;
+    };
+
+    const blockCopyOnFieldCell = (e: KeyboardEvent) => {
+      // 仅拦复制：Ctrl/Cmd + C（兼容大小写与输入法 Ctrl+C 直送场景）
+      if (!(e.ctrlKey || e.metaKey) || (e.key !== 'c' && e.key !== 'C')) return;
+      // 用户正在输入框里打字时放行（复制的是自己刚输入的文本，不是表格内容）
+      if (isRealTextEntry(document.activeElement as HTMLElement | null)) return;
+
+      // 整个选区逐格判定：只要命中任一结构化格（字段 / 明细表标记）就整体禁止复制
+      const hits = isStructuredSelection();
+      if (hits.length === 0) return; // 未命中 → 正常复制（标签、文本、空白、元素格均可复制）
+
+      e.preventDefault();
+      e.stopPropagation();
+      // 同步中止 Univer 快捷键链，避免其默认复制继续写入内部剪贴板缓存
+      message.warning(buildCopyBlockTip(hits));
+    };
+
+    window.addEventListener('keydown', blockCopyOnFieldCell, true);
 
     // 诊断：粘贴菜单项受 Univer 的 disabled$ 控制（剪贴板不支持且无内部缓存 → 灰；或缺编辑权限 → 灰）
     const supportClipboard =
@@ -3626,19 +3965,51 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     console.log('[Clipboard] supportClipboard =', supportClipboard,
       '(false 说明非 localhost/https，navigator.clipboard 不可用，粘贴依赖 Univer 内部 copyId)');
 
-    // 复制命令是否真的执行：若未打印说明 copy() 提前 return（无选区或 copyContent 为空），
-    // 内部 copyId 不会被写入 → 粘贴按钮会一直置灰。
-    const d0 = fUniver.onCopy?.(() => {
-      console.log('[Clipboard] CopyCommand 已执行（内部 copyId 应已写入）');
-    });
+    /**
+     * 注册剪贴板钩子。
+     *
+     * ⚠️ 关键修正：FUniver facade **并没有** onBeforePaste / onCopy / onPaste 这些方法
+     *    （它们只是 ISheetClipboardService 内部 hook 的回调名）。早期写成
+     *    `fUniver.onBeforePaste?.(fn)` 实际是 `undefined?.()` —— 钩子从未注册，
+     *    导致「剪切后元数据不跟随、只读/可编辑/必填全丢」这一整段逻辑是死代码。
+     *    正确做法是经 injector 取 ISheetClipboardService 后 addClipboardHook。
+     */
+    let hookDisposable: any = null;
+    try {
+      const clipboardService = clipboardServiceRef.current || (window as any).__univerClipboardService;
+      if (clipboardService?.addClipboardHook) {
+        hookDisposable = clipboardService.addClipboardHook({
+          id: 'excel-design-field-clipboard',
+          // 复制/剪切发生时触发：此刻选区还是**源**，可正确暂存元数据与操作类型
+          onBeforeCopy: (_unitId: string, _subUnitId: string, srcRange: any, copyType: any) => {
+            captureSourceFieldMeta(
+              srcRange
+                ? {
+                    startRow: Number(srcRange.startRow),
+                    endRow: Number(srcRange.endRow),
+                    startColumn: Number(srcRange.startColumn),
+                    endColumn: Number(srcRange.endColumn),
+                  }
+                : null,
+              String(copyType ?? 'COPY'),
+            );
+          },
+          // 粘贴前：返回 false 取消粘贴；剪切则放行并搬移元数据
+          onBeforePaste: () => handleBeforePaste(),
+        });
+        console.log('[Clipboard] 已注册字段剪贴板钩子（复制拦截 / 剪切元数据跟随）');
+      } else {
+        console.warn('[Clipboard] 未取到 ISheetClipboardService，字段剪贴板保护未生效');
+      }
+    } catch (e) {
+      console.warn('[Clipboard] 注册剪贴板钩子失败:', e);
+    }
 
-    const d1 = fUniver.onBeforePaste?.(captureSourceFieldMeta);
-    const d2 = fUniver.onPaste?.(handlePasteFieldMeta);
     return () => {
-      d0?.dispose?.();
-      d1?.dispose?.();
-      d2?.dispose?.();
+      hookDisposable?.dispose?.();
+      window.removeEventListener('keydown', blockCopyOnFieldCell, true);
       delete (window as any).__excelDesignIsFieldCell;
+      delete (window as any).__excelDesignIsStructuredRange;
     };
   }, [initialized, getCellFieldMeta, setCellField, saveLayoutData]);
 

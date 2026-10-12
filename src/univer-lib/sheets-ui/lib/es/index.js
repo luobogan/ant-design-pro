@@ -18184,17 +18184,34 @@ function menuClipboardDisabledObservable(injector) {
 		return () => subscription.unsubscribe();
 	});
 }
-// Excel 设计器：判断当前选中格是否为「字段占位符格」（如 `📝 ${field_1}`）。
-// 判定由应用层注入 window.__excelDesignIsFieldCell(row, col)；未注册时恒为 false，不影响原生行为。
+// Excel 设计器：判断当前选区是否包含「结构化单元格」（字段格 / 明细表标记格）。
+// 判定由应用层注入：
+//   - window.__excelDesignIsStructuredRange(startRow, endRow, startColumn, endColumn)  ← 优先，整块范围判定
+//   - window.__excelDesignIsFieldCell(row, col)                                       ← 兜底，仅单格判定
+// 未注册时恒为 false，不影响原生行为。
+//
+// ⚠️ 必须按**整个选区**判定：早期实现只看 selection.primary 单格，划范围选中时
+//    主格常常不是字段格（如从标签格起拖），导致右键「复制」没有被置灰。
 // 用 selectionChanged$ 驱动，保证选区变化时菜单禁用态实时刷新。
 function getExcelDesignFieldCellDisable$(injector) {
 	const selectionManagerService = injector.get(SheetsSelectionsService);
 	return selectionManagerService.selectionChanged$.pipe(startWith(null), map(() => {
-		const isFieldCell = globalThis.__excelDesignIsFieldCell;
-		if (typeof isFieldCell !== "function") return false;
 		try {
 			const primary = selectionManagerService.getCurrentLastSelection()?.primary;
 			if (!primary) return false;
+			// 优先：按整块选区范围判定（覆盖划范围复制）
+			const isRange = globalThis.__excelDesignIsStructuredRange;
+			if (typeof isRange === "function") {
+				return !!isRange(
+					primary.startRow ?? primary.actualRow,
+					primary.endRow ?? primary.actualRow,
+					primary.startColumn ?? primary.actualColumn,
+					primary.endColumn ?? primary.actualColumn
+				);
+			}
+			// 兜底：仅单格判定
+			const isFieldCell = globalThis.__excelDesignIsFieldCell;
+			if (typeof isFieldCell !== "function") return false;
 			const row = primary.actualRow ?? primary.startRow;
 			const col = primary.actualColumn ?? primary.startColumn;
 			if (row == null || col == null) return false;

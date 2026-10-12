@@ -1,6 +1,7 @@
 import React from 'react';
 import { Input, Tag, Tooltip } from 'antd';
 import { getBrowserTypeLabel, isBrowserTypeMultiple } from './fieldTypes';
+import type { FieldVariant } from './fieldTokens';
 import { PersonOrgField } from './PersonOrgPicker';
 import { BROWSER_TYPE_META } from './personOrg';
 
@@ -31,6 +32,11 @@ export interface BrowserControlProps {
   placeholder?: string;
   /** 是否显示右侧类型 Tag（默认显示） */
   showTypeTag?: boolean;
+  /**
+   * 外观变体：desktop=antd 桌面弹窗｜mobile=antd-mobile 底部弹层｜auto=按视口自动。
+   * 透传给 PersonOrgField → PersonOrgPicker，让选人/选组织弹窗也按端切换。
+   */
+  variant?: FieldVariant;
   style?: React.CSSProperties;
 }
 
@@ -42,6 +48,7 @@ export const BrowserControl: React.FC<BrowserControlProps> = ({
   readOnly,
   placeholder,
   showTypeTag = true,
+  variant = 'desktop',
   style,
 }) => {
   const meta = browserType != null ? BROWSER_TYPE_META[browserType] : undefined;
@@ -84,6 +91,7 @@ export const BrowserControl: React.FC<BrowserControlProps> = ({
           disabled={disabled}
           readOnly={readOnly}
           placeholder={placeholder || `请选择${typeLabel}`}
+          variant={variant}
         />
       </div>
       {showTypeTag && (

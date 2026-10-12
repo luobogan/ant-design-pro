@@ -1,99 +1,183 @@
 import React from 'react';
-import {
-  Button,
-  DatePicker,
-  Input,
-  InputNumber,
-  Radio,
-  Select,
-  Space,
-  Switch,
-  Typography,
-  Upload,
-} from 'antd';
-import { InboxOutlined, PaperClipOutlined, UploadOutlined } from '@ant-design/icons';
+import { Button, DatePicker, Input, Picker, Radio, Switch, TextArea } from 'antd-mobile';
+import { Upload } from 'antd';
+import { UploadOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import BrowserControl from './BrowserControl';
 import type { FieldControlBaseProps } from './fieldTypes';
 import { DATE_FMT, DATETIME_FMT, fromDayjsValue, toDayjsValue } from './fieldTypes';
 import { FIELD_COLOR, MOBILE_FIELD_TOKENS } from './fieldTokens';
 
 /**
- * 手机端字段控件集（`FieldControl` 的 mobile 变体实现）
+ * 手机端字段控件集（基于 ant-design-mobile 5）
  *
- * <p><b>与桌面端的关系</b>：本组件的 props 与 `FieldControl` **完全一致**
- * （见 `fieldTypes.ts` 的 `FieldControlBaseProps`），二者由 `FieldControl` 按
- * `variant` 统一分发 —— 页面层永远只调用 `FieldControl`，不直接引用本文件。
- * 这样新增属性只需改一处，两端编译期即强制对齐。</p>
+ * <p><b>定位</b>：本组件是 `FieldControl` 的 `variant='mobile'` 实现，props 与桌面端
+ * <b>完全一致</b>（见 `fieldTypes.ts` 的 `FieldControlBaseProps`）。页面层永远只调用
+ * `FieldControl`，由它按 `variant` 分发到本文件，因此新增属性只需改一处，
+ * 两端编译期即强制对齐。</p>
  *
- * <p><b>手机端与桌面端的差异（全部来自 `MOBILE_FIELD_TOKENS`，不散落魔法值）</b>：</p>
+ * <p><b>为什么用 antd-mobile 而不是 antd</b>：antd 的控件是按桌面鼠标交互设计的
+ * （24px 高度、13px 字号、下拉浮层位置按 PC 视口计算）。在手机上会出现：
+ * 触控目标过小、聚焦时 iOS Safari 自动放大页面、下拉框溢出屏幕。
+ * antd-mobile 是专为 H5 触屏设计的组件库：48px 级触控高度、滚轮式
+ * `Picker`/`DatePicker` 底部弹层、`Switch` 开关、`Selector` 多选胶囊，
+ * 并且自带 `:active` 按压反馈与惯性滚动，这些都是 antd 给不了的。</p>
+ *
+ * <p><b>与桌面端的类型映射差异</b>（值语义完全不变，仅交互形态变化）：</p>
  * <pre>
- *   控件高度   桌面 24px(size=small)      手机 40px(size=middle + minHeight)
- *   取值字号   桌面 13px                  手机 16px（&lt;16px 触发 iOS 聚焦自动缩放）
- *   复选框     Checkbox(同意)             Switch 开关（整行更易点中）
- *   单选组     横排                        纵排（窄屏横排会错位）
- *   下拉       默认列表高                  加大行高，触控不误触
- *   附件       小按钮                      整行虚线上传区（点按/拖放皆可）
+ *   text / password / textarea   → Input / Input(type=password) / TextArea
+ *   number / wholeNumber         → Input(inputMode=decimal/numeric)（antd-mobile 无 InputNumber，
+ *                                   Stepper 步进器不适合金额录入，故用数字键盘输入）
+ *   date / datetime              → DatePicker（底部滚轮弹层，precision=day/second）
+ *   select                       → Picker（底部滚轮单选）
+ *   radio                        → Radio 纵排（antd-mobile 无 Radio.Group，手动管理选中）
+ *   checkbox                     → Switch 开关
+ *   browser                      → 复用 BrowserControl（选人/选组织弹窗逻辑只有一份）
+ *   attachment                   → Upload + antd-mobile Button
+ *   richtext / group / custom / label → 展示型（无交互）
  * </pre>
  *
- * <p><b>响应式</b>：本组件按「整行流式」布局，宽度 100%、minWidth 0，
- * 放在 `MobileSheetForm` 的标签+控件行内自适应；跨断点切换由
- * `FieldControl` 的 `variant='auto'` + `useIsMobileViewport()` 负责。</p>
+ * <p><b>响应式</b>：本组件自身即「整行流式」布局（width:100%、minWidth:0），
+ * 配合 `MobileSheetForm` 的 flexWrap 标签行使用；跨断点由 `FieldControl` 的
+ * `variant='auto'` + `useIsMobileViewport()` 负责，缩放窗口实时切换。</p>
  */
 
-/** 手机端字段控件作用域类名（用于注入局部样式，见 ensureMobileFieldStyles） */
-const MOBILE_FIELD_CLASS = 'fm-mobile-field';
+/** 手机端字段控件作用域类名（用于注入局部样式） */
+const MOBILE_FIELD_CLASS = 'fm-adm-field';
 
 let stylesInjected = false;
 
 /**
  * 注入手机端字段控件的局部样式（全局只注入一次）。
  *
- * <p><b>为什么需要</b>：本项目 antd 主题下 `.ant-input` 的边框色解析为
- * `transparent`（`1px solid rgba(0,0,0,0)`，桌面端同样如此）。桌面端表单字段有
- * 单元格灰底（#f0f0f0）衬托，控件边界仍可辨识；而手机端列表行是**白底**，
- * 白底 + 透明边框 = 控件完全不可见（实测 input 宽 237px、高 40px 但看不见）。
- * 故在此为手机端作用域补回可见边框。</p>
- *
- * <p><b>为什么用局部 CSS 而不是内联 style</b>：内联 `borderColor` 会**覆盖**
- * antd 的 hover / focus 变色，导致聚焦时没有高亮反馈；局部 CSS 保留交互态。</p>
+ * 包含三部分：
+ *  1. **antd-mobile 主题变量**：把 `--adm-color-primary` 等项目主色对齐到 antd 的
+ *     `#1677ff`，否则手机端控件是 antd-mobile 默认的蓝色，与桌面端观感不一致。
+ *  2. **输入框字号 16px**：iOS Safari 对 <16px 的输入框聚焦时会自动放大页面。
+ *  3. **错误态红框**：antd-mobile 的 `Input` 没有 antd 那样的 `status` 属性，
+ *    只能通过 CSS 覆盖 `.adm-input` 的边框色。
  */
-function ensureMobileFieldStyles() {
+function ensureAdmStyles() {
   if (stylesInjected || typeof document === 'undefined') return;
   stylesInjected = true;
   const css = `
-.${MOBILE_FIELD_CLASS} .ant-input,
-.${MOBILE_FIELD_CLASS}.ant-input,
-.${MOBILE_FIELD_CLASS} .ant-input-number,
-.${MOBILE_FIELD_CLASS}.ant-input-number,
-.${MOBILE_FIELD_CLASS} .ant-input-number-input,
-.${MOBILE_FIELD_CLASS} textarea.ant-input {
-  border-color: ${FIELD_COLOR.border};
+:root {
+  --adm-color-primary: #1677ff;
+  --adm-color-text: #333333;
+  --adm-color-text-secondary: #666666;
+  --adm-color-weak: #999999;
+  --adm-color-light: #cccccc;
+  --adm-color-border: #d9d9d9;
+  --adm-color-box: #ffffff;
+  --adm-font-size-main: 16px;
+  --adm-font-size-content: 16px;
 }
-.${MOBILE_FIELD_CLASS} .ant-input:hover,
-.${MOBILE_FIELD_CLASS}.ant-input:hover,
-.${MOBILE_FIELD_CLASS} .ant-input-number:hover,
-.${MOBILE_FIELD_CLASS}.ant-input-number:hover {
-  border-color: #40a9ff;
+.${MOBILE_FIELD_CLASS} {
+  width: 100%;
+  min-width: 0;
+  text-align: left;
 }
-.${MOBILE_FIELD_CLASS} .ant-input:focus,
-.${MOBILE_FIELD_CLASS}.ant-input:focus,
-.${MOBILE_FIELD_CLASS} .ant-input-focused,
-.${MOBILE_FIELD_CLASS} .ant-input-number-focused,
-.${MOBILE_FIELD_CLASS}.ant-input-number-focused {
-  border-color: #1677ff;
-  box-shadow: 0 0 0 2px rgba(5, 145, 255, 0.1);
+/* 输入类：16px 规避 iOS 聚焦自动缩放；右侧留出清除图标空间 */
+.${MOBILE_FIELD_CLASS} .adm-input,
+.${MOBILE_FIELD_CLASS} .adm-text-area {
+  font-size: 16px;
 }
-.${MOBILE_FIELD_CLASS} .ant-input[disabled],
-.${MOBILE_FIELD_CLASS}.ant-input[disabled],
-.${MOBILE_FIELD_CLASS} .ant-input-number-disabled,
-.${MOBILE_FIELD_CLASS}.ant-input-number-disabled {
+/* antd-mobile 的 Input 默认「无边框 + 透明背景」（它的设计依赖外层 List/Form 的分隔线），
+   而本项目的手机端是白底卡片 + 无分隔线的流式布局，裸输入框会完全看不见边界。
+   故在此补回输入框外观（边框/圆角/内边距/白底），高度 ≈ 42px 满足触控目标。 */
+.${MOBILE_FIELD_CLASS} .adm-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: 1px solid ${FIELD_COLOR.border};
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 16px;
+  color: ${FIELD_COLOR.value};
+}
+.${MOBILE_FIELD_CLASS} .adm-text-area {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: 1px solid ${FIELD_COLOR.border};
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 16px;
+  color: ${FIELD_COLOR.value};
+}
+/* 清除图标右侧留位 */
+.${MOBILE_FIELD_CLASS} .adm-input-clear {
+  right: 8px;
+}
+/* 单选字号统一 16px（antd-mobile 默认 14px 偏小） */
+.${MOBILE_FIELD_CLASS} .adm-radio {
+  --font-size: 16px;
+}
+/* 开关放大到接近触控目标（antd-mobile 默认 31px 高，手机上偏小） */
+.${MOBILE_FIELD_CLASS} .adm-switch {
+  --height: 36px;
+  --width: 64px;
+}
+.${MOBILE_FIELD_CLASS} .adm-input::placeholder,
+.${MOBILE_FIELD_CLASS} .adm-text-area::placeholder {
+  font-size: 16px;
+}
+/* 只读 / 禁用态底色 */
+.${MOBILE_FIELD_CLASS} .adm-input[readonly],
+.${MOBILE_FIELD_CLASS} .adm-input:disabled,
+.${MOBILE_FIELD_CLASS} .adm-text-area:disabled {
   background: ${FIELD_COLOR.readOnlyBg};
-  border-color: ${FIELD_COLOR.readOnlyBorder};
   color: ${FIELD_COLOR.readOnlyText};
+}
+/* 错误态红框（Input 无 status，需覆盖边框色） */
+.${MOBILE_FIELD_CLASS}--error .adm-input,
+.${MOBILE_FIELD_CLASS}--error .adm-text-area,
+.${MOBILE_FIELD_CLASS}--error .fm-adm-trigger {
+  border-color: ${FIELD_COLOR.required} !important;
+}
+/* 选择器触发器：做成输入框外观，让「点一下弹滚轮」在视觉上与输入框一致 */
+.${MOBILE_FIELD_CLASS} .fm-adm-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: ${MOBILE_FIELD_TOKENS.controlMinHeight}px;
+  padding: 6px 12px;
+  border: 1px solid ${FIELD_COLOR.border};
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 16px;
+  color: ${FIELD_COLOR.value};
+  box-sizing: border-box;
+}
+.${MOBILE_FIELD_CLASS} .fm-adm-trigger--placeholder {
+  color: ${FIELD_COLOR.placeholder};
+}
+.${MOBILE_FIELD_CLASS} .fm-adm-trigger--disabled {
+  background: ${FIELD_COLOR.readOnlyBg};
+  color: ${FIELD_COLOR.readOnlyText};
+}
+.${MOBILE_FIELD_CLASS} .fm-adm-trigger-arrow {
+  color: ${FIELD_COLOR.placeholder};
+  font-size: 12px;
+  flex-shrink: 0;
+}
+/* 附件上传区：整行虚线框，手机上比小按钮更好点 */
+.${MOBILE_FIELD_CLASS} .fm-adm-upload {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 64px;
+  padding: 8px;
+  border: 1px dashed ${FIELD_COLOR.border};
+  border-radius: 6px;
+  background: #ffffff;
 }
 `;
   const el = document.createElement('style');
-  el.setAttribute('data-fm-mobile-field', 'true');
+  el.setAttribute('data-fm-adm-field', 'true');
   el.appendChild(document.createTextNode(css));
   document.head.appendChild(el);
 }
@@ -112,6 +196,21 @@ const normalizeFileList = (value: any): any[] => {
   ];
 };
 
+/** 取值统一转字符串（antd-mobile 的 Input/TextArea 只接受 string） */
+const toStr = (v: any): string => {
+  if (v === undefined || v === null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) return v.join(',');
+  return String(v);
+};
+
+/** 日期/日期时间：字符串 ↔ Date（antd-mobile DatePicker 的 value 是 Date | null） */
+const toDateValue = (v: any): Date | null => {
+  const d = toDayjsValue(v);
+  return d ? d.toDate() : null;
+};
+
 export const MobileFieldControl: React.FC<FieldControlBaseProps> = ({
   controlType,
   value,
@@ -128,185 +227,144 @@ export const MobileFieldControl: React.FC<FieldControlBaseProps> = ({
   style,
 }) => {
   const T = MOBILE_FIELD_TOKENS;
-  // 首次渲染时注入手机端作用域样式（补回透明边框，保证白底上控件可见）
-  ensureMobileFieldStyles();
+  // 首次渲染时注入主题与局部样式
+  ensureAdmStyles();
+
   /** 只读与禁用合并：手机端同样不允许交互 */
   const locked = !!disabled || !!readOnly;
+  const hasError = status === 'error';
+  /** 外框类名：错误态交给 CSS 覆盖边框色 */
+  const wrapClass = `${MOBILE_FIELD_CLASS}${hasError ? ` ${MOBILE_FIELD_CLASS}--error` : ''}`;
 
-  /**
-   * 统一的手机端控件外框样式：
-   * - fontSize 16px：iOS Safari 对 <16px 输入框聚焦会自动放大页面
-   * - minWidth 0：置于 flex 容器内可正确收缩，不撑破标签列
-   * - minHeight 40：保证触控目标足够大
-   * 外部传入的 style 优先级最高（用于承载 Excel 单元格底色/字体等）
-   */
-  const box: React.CSSProperties = {
-    width: '100%',
-    minWidth: 0,
-    minHeight: T.controlMinHeight,
-    fontSize: T.controlFontSize,
-    ...(locked ? { background: FIELD_COLOR.readOnlyBg, color: FIELD_COLOR.readOnlyText } : { background: '#fff' }),
-    ...style,
-  };
-
-  const commonProps = {
-    id: inputId,
-    className: MOBILE_FIELD_CLASS,
-    disabled: locked,
-    size: T.controlSize,
-    status,
-    style: box,
-  };
-
-  const antOptions = options.map((o) => ({ label: o.label, value: o.value }));
-
-  switch (controlType) {
-    // ── 输入类 ──
-    case 'text':
-      return (
-        <Input
-          {...commonProps}
-          value={value}
-          placeholder={placeholder || ''}
-          maxLength={maxLength}
-          onChange={(e) => onChange?.(e.target.value)}
-        />
-      );
-
-    case 'password':
-      return (
-        <Input.Password
-          {...commonProps}
-          value={value}
-          placeholder={placeholder || ''}
-          maxLength={maxLength}
-          onChange={(e) => onChange?.(e.target.value)}
-        />
-      );
-
-    case 'textarea':
-      return (
-        <Input.TextArea
-          {...commonProps}
-          rows={rows}
-          value={value}
-          placeholder={placeholder || ''}
-          onChange={(e) => onChange?.(e.target.value)}
-        />
-      );
-
-    case 'number':
-      return (
-        <InputNumber
-          {...commonProps}
-          step="any"
-          value={value === undefined ? undefined : value}
-          onChange={(v) => onChange?.(v)}
-        />
-      );
-
-    case 'wholeNumber':
-      return (
-        <InputNumber
-          {...commonProps}
-          step={1}
-          value={value === undefined ? undefined : value}
-          onChange={(v) => onChange?.(v)}
-        />
-      );
-
-    // ── 日期选择 ──（格式与桌面端保持一致，保证存取不漂移）
-    case 'date':
-      return (
+  // ── 日期 / 日期时间：底部滚轮弹层 ──
+  if (controlType === 'date' || controlType === 'datetime') {
+    const withTime = controlType === 'datetime';
+    const dateVal = toDateValue(value);
+    return (
+      <div className={wrapClass} style={style}>
         <DatePicker
-          {...commonProps}
-          format={DATE_FMT}
-          value={toDayjsValue(value)}
-          onChange={(d) => onChange?.(fromDayjsValue(d, false))}
-        />
-      );
-
-    case 'datetime':
-      return (
-        <DatePicker
-          {...commonProps}
-          showTime
-          format={DATETIME_FMT}
-          value={toDayjsValue(value)}
-          onChange={(d) => onChange?.(fromDayjsValue(d, true))}
-        />
-      );
-
-    // ── 选择器 ──
-    case 'select':
-      return (
-        <Select
-          {...commonProps}
-          placeholder={placeholder || '请选择'}
-          value={value === undefined ? undefined : value}
-          onChange={(v) => onChange?.(v)}
-          options={antOptions}
-          // 加大下拉项行高与浮层高度，避免手指误触相邻项
-          listItemHeight={48}
-          listHeight={264}
-        />
-      );
-
-    case 'radio':
-      // 纵向排列：窄屏下横向排列会因换行导致选项与标签错位
-      return (
-        <Radio.Group
+          title={withTime ? '选择日期时间' : '选择日期'}
+          precision={withTime ? 'second' : 'day'}
+          value={dateVal}
           disabled={locked}
-          value={value}
-          onChange={(e) => onChange?.(e.target.value)}
+          onConfirm={(d: Date | null) => onChange?.(d ? fromDayjsValue(dayjs(d), withTime) : '')}
         >
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            {antOptions.map((o) => (
-              <Radio key={String(o.value)} value={o.value} style={{ fontSize: T.controlFontSize }}>
-                {o.label}
-              </Radio>
-            ))}
-          </Space>
-        </Radio.Group>
-      );
+          {(val: Date | null, actions) => (
+            <div
+              id={inputId}
+              className={`fm-adm-trigger${!val ? ' fm-adm-trigger--placeholder' : ''}${locked ? ' fm-adm-trigger--disabled' : ''}`}
+              onClick={() => !locked && actions.open()}
+            >
+              <span>
+                {val
+                  ? dayjs(val).format(withTime ? DATETIME_FMT : DATE_FMT)
+                  : placeholder || (withTime ? '请选择日期时间' : '请选择日期')}
+              </span>
+              <span className="fm-adm-trigger-arrow">▼</span>
+            </div>
+          )}
+        </DatePicker>
+      </div>
+    );
+  }
 
-    case 'checkbox':
-      // 手机端用 Switch（开关）：整行可点，比 Checkbox 更适合触屏。
-      // 值语义与桌面端保持一致：布尔 true/false。
-      return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: T.controlMinHeight }}>
-          <Switch
-            id={inputId}
+  // ── 下拉选择：底部滚轮单选 ──
+  if (controlType === 'select') {
+    const opts = options.map((o) => ({ label: toStr(o.label), value: o.value }));
+    const columns = [{ options: opts }];
+    const selected = opts.find((o) => String(o.value) === String(value ?? ''));
+    return (
+      <div className={wrapClass} style={style}>
+        <Picker
+          title="请选择"
+          columns={columns}
+          value={value === undefined || value === null ? [] : [value]}
+          disabled={locked}
+          onConfirm={(v: (number | string | null)[]) => onChange?.(v[0] ?? '')}
+        >
+          {(items, actions) => (
+            <div
+              id={inputId}
+              className={`fm-adm-trigger${!selected ? ' fm-adm-trigger--placeholder' : ''}${locked ? ' fm-adm-trigger--disabled' : ''}`}
+              onClick={() => !locked && actions.open()}
+            >
+              <span>{selected ? selected.label : placeholder || '请选择'}</span>
+              <span className="fm-adm-trigger-arrow">▼</span>
+            </div>
+          )}
+        </Picker>
+      </div>
+    );
+  }
+
+  // ── 单选：antd-mobile 无 Radio.Group，手动管理选中（纵排更适配窄屏）──
+  if (controlType === 'radio') {
+    const opts = options.map((o) => ({ label: toStr(o.label), value: o.value }));
+    return (
+      <div className={wrapClass} style={{ display: 'flex', flexDirection: 'column', gap: 8, ...style }}>
+        {opts.map((o) => (
+          <Radio
+            key={String(o.value)}
+            block
+            value={o.value}
+            checked={String(o.value) === String(value ?? '')}
             disabled={locked}
-            checked={!!value}
-            onChange={(checked) => onChange?.(checked)}
-          />
-          <span style={{ fontSize: T.controlFontSize, color: locked ? FIELD_COLOR.readOnlyText : FIELD_COLOR.value }}>
-            {value ? '是' : '否'}
-          </span>
-        </div>
-      );
+            onChange={(checked) => checked && onChange?.(o.value)}
+          >
+            {o.label}
+          </Radio>
+        ))}
+      </div>
+    );
+  }
 
-    // ── 浏览按钮（复用桌面端 BrowserControl，保证选人/选组织逻辑只有一份）──
-    case 'browser':
-      return (
-        <div className={MOBILE_FIELD_CLASS}>
-          <BrowserControl
-            browserType={browserType}
-            value={value}
-            onChange={onChange}
-            disabled={disabled}
-            readOnly={readOnly}
-            placeholder={placeholder}
-            showTypeTag={false}
-            style={box}
-          />
-        </div>
-      );
+  // ── 开关 ──
+  if (controlType === 'checkbox') {
+    return (
+      <div
+        className={wrapClass}
+        style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: T.controlMinHeight, ...style }}
+      >
+        <Switch
+          id={inputId}
+          checked={!!value}
+          disabled={locked}
+          // 不使用 checkedText/uncheckedText：开关内部文字会与外层的「是/否」文案重复
+          onChange={(checked) => onChange?.(checked)}
+        />
+        <span style={{ fontSize: 16, color: locked ? FIELD_COLOR.readOnlyText : FIELD_COLOR.value }}>
+          {value ? '是' : '否'}
+        </span>
+      </div>
+    );
+  }
 
-    // ── 附件 ──（整行虚线上传区，手机端更好点）
-    case 'attachment':
-      return (
+  // ── 浏览按钮：复用 BrowserControl（选人/选组织逻辑只有一份）──
+  // ⚠️ 必须显式传 variant="mobile"：本组件（MobileFieldControl）只在手机端被渲染，
+  //    若不传，BrowserControl 会用默认 'desktop' → 弹出 antd 的 780px 宽 Modal，
+  //    在手机上溢出屏幕且表格/分页器极难点中。
+  if (controlType === 'browser') {
+    return (
+      <div className={wrapClass}>
+        <BrowserControl
+          browserType={browserType}
+          value={value}
+          onChange={onChange}
+          disabled={disabled}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          showTypeTag={false}
+          variant="mobile"
+          style={style}
+        />
+      </div>
+    );
+  }
+
+  // ── 附件 ──
+  if (controlType === 'attachment') {
+    return (
+      <div className={wrapClass} style={style}>
         <Upload
           disabled={locked}
           fileList={normalizeFileList(value)}
@@ -322,36 +380,93 @@ export const MobileFieldControl: React.FC<FieldControlBaseProps> = ({
             )
           }
         >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
-              width: '100%',
-              minHeight: 64,
-              padding: 8,
-              border: `1px dashed ${locked ? FIELD_COLOR.readOnlyBorder : FIELD_COLOR.border}`,
-              borderRadius: 4,
-              background: locked ? FIELD_COLOR.readOnlyBg : '#fff',
-              color: locked ? FIELD_COLOR.readOnlyText : FIELD_COLOR.label,
-              fontSize: 14,
-            }}
-          >
-            <InboxOutlined style={{ fontSize: 22 }} />
-            <span>{locked ? '附件（只读）' : '点击或拖拽上传'}</span>
+          <div className="fm-adm-upload">
+            <Button size="small" fill="outline" disabled={locked} icon={<UploadOutlined />}>
+              {locked ? '附件（只读）' : '点击上传'}
+            </Button>
           </div>
         </Upload>
+      </div>
+    );
+  }
+
+  // ── 输入类 ──
+  switch (controlType) {
+    case 'text':
+      return (
+        <div className={wrapClass} style={style}>
+          <Input
+            id={inputId}
+            value={toStr(value)}
+            placeholder={placeholder || ''}
+            maxLength={maxLength}
+            disabled={locked}
+            readOnly={locked}
+            clearable
+            onChange={(v) => onChange?.(v)}
+          />
+        </div>
       );
 
-    // ── 展示类（无交互）──
+    case 'password':
+      return (
+        <div className={wrapClass} style={style}>
+          <Input
+            id={inputId}
+            type="password"
+            value={toStr(value)}
+            placeholder={placeholder || ''}
+            maxLength={maxLength}
+            disabled={locked}
+            readOnly={locked}
+            onChange={(v) => onChange?.(v)}
+          />
+        </div>
+      );
+
+    case 'textarea':
+      return (
+        <div className={wrapClass} style={style}>
+          <TextArea
+            id={inputId}
+            value={toStr(value)}
+            placeholder={placeholder || ''}
+            rows={rows}
+            maxLength={maxLength}
+            showCount
+            disabled={locked}
+            readOnly={locked}
+            onChange={(v) => onChange?.(v)}
+          />
+        </div>
+      );
+
+    case 'number':
+    case 'wholeNumber':
+      return (
+        <div className={wrapClass} style={style}>
+          <Input
+            id={inputId}
+            // antd-mobile 无 InputNumber：用数字键盘输入。
+            // Stepper 步进器只适合 ±1 场景，金额等字段用它逐次点击不现实。
+            inputMode={controlType === 'wholeNumber' ? 'numeric' : 'decimal'}
+            value={toStr(value)}
+            placeholder={placeholder || ''}
+            disabled={locked}
+            readOnly={locked}
+            clearable
+            onChange={(v) => onChange?.(v)}
+          />
+        </div>
+      );
+
     case 'richtext':
       return (
         <div
-          contentEditable={false}
+          className={wrapClass}
           style={{
             border: `1px solid ${FIELD_COLOR.border}`,
-            borderRadius: 4,
+            borderRadius: 6,
             padding: '8px 12px',
             minHeight: 64,
             background: '#fff',
@@ -361,59 +476,58 @@ export const MobileFieldControl: React.FC<FieldControlBaseProps> = ({
             ...style,
           }}
         >
-          {value || <Typography.Text type="secondary">（富文本内容）</Typography.Text>}
+          {toStr(value) || <span style={{ color: FIELD_COLOR.placeholder }}>（富文本内容）</span>}
         </div>
       );
 
     case 'group':
       return (
         <fieldset
+          className={wrapClass}
           style={{
             border: `1px solid ${FIELD_COLOR.border}`,
-            borderRadius: 4,
+            borderRadius: 6,
             padding: '12px',
             margin: 0,
             ...style,
           }}
         >
           <legend style={{ fontWeight: 600, color: '#555', padding: '0 6px', fontSize: T.labelFontSize }}>
-            {value || ''}
+            {toStr(value)}
           </legend>
         </fieldset>
       );
 
     case 'custom':
       return (
-        <Typography.Text strong style={{ color: '#1890ff', fontSize: T.controlFontSize, ...style }}>
-          [自定义] {value || ''}
-        </Typography.Text>
+        <span className={wrapClass} style={{ color: '#1890ff', fontWeight: 600, fontSize: T.controlFontSize, ...style }}>
+          [自定义] {toStr(value)}
+        </span>
       );
 
     case 'label':
-      // 纯文本说明：不渲染输入控件
-      return <span style={{ fontSize: T.controlFontSize, ...style }}>{value || ''}</span>;
+      return (
+        <span className={wrapClass} style={{ fontSize: T.controlFontSize, ...style }}>
+          {toStr(value)}
+        </span>
+      );
 
     default:
       // 未知类型兜底为文本框，保证字段始终是可交互控件而非纯文本
       return (
-        <Input
-          {...commonProps}
-          value={value}
-          placeholder={placeholder || ''}
-          onChange={(e) => onChange?.(e.target.value)}
-        />
+        <div className={wrapClass} style={style}>
+          <Input
+            id={inputId}
+            value={toStr(value)}
+            placeholder={placeholder || ''}
+            disabled={locked}
+            readOnly={locked}
+            clearable
+            onChange={(v) => onChange?.(v)}
+          />
+        </div>
       );
   }
 };
-
-/** 只读态附件按钮（外部无上传能力时降级展示，保持图标语义一致） */
-export const MobileAttachmentFallback: React.FC = () => (
-  <Button icon={<PaperClipOutlined />} disabled size="middle">
-    附件
-  </Button>
-);
-
-/** 上传入口图标（保持附件按钮图标统一） */
-export const MobileUploadIcon = <UploadOutlined />;
 
 export default MobileFieldControl;

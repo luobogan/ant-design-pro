@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Empty, Input, Modal, Spin, Table, Tag, Tooltip, Tree, message } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
+import { Button, CheckList, Empty as AdmEmpty, NavBar, Popup, SearchBar, Selector, Toast } from 'antd-mobile';
+import type { FieldVariant } from './fieldTokens';
+import { resolveVariant, useIsMobileViewport } from './fieldTokens';
 import {
   BROWSER_TYPE_META,
   BrowserTypeMeta,
@@ -44,6 +47,12 @@ export interface PersonOrgPickerProps {
   /** 当前值（id 逗号串） */
   value?: string;
   title?: string;
+  /**
+   * 外观变体：desktop=antd Modal（左右分栏表格）｜mobile=antd-mobile 底部弹层
+   * （搜索 + 分类胶囊 + 列表 + 底部已选）｜auto=按视口自动。
+   * 默认 'desktop'，保持既有调用行为不变。
+   */
+  variant?: FieldVariant;
   onOk: (ids: string[], items: PersonOrgItem[]) => void;
   onCancel: () => void;
 }
@@ -63,9 +72,13 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
   multiple,
   value,
   title,
+  variant = 'desktop',
   onOk,
   onCancel,
 }) => {
+  // 响应式：variant='auto' 时按视口宽度决定用桌面弹窗还是手机弹层
+  const isMobileViewport = useIsMobileViewport();
+  const isMobile = resolveVariant(variant, isMobileViewport) === 'mobile';
   const meta: BrowserTypeMeta | undefined =
     browserType != null ? BROWSER_TYPE_META[browserType] : undefined;
   const cat: PersonOrgCategory = category || meta?.category || 'hrm';
@@ -220,11 +233,173 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
 
   const handleOk = () => {
     if (selected.length === 0) {
-      message.warning(`请选择${label}`);
+      // 两端提示组件不同：桌面用 antd message，手机用 antd-mobile Toast
+      if (isMobile) Toast.show({ content: `请选择${label}` });
+      else message.warning(`请选择${label}`);
       return;
     }
     onOk(selected, selectedItems);
   };
+
+  // ─────────────────────────────────────────────────────────────
+  // 手机端 UI（antd-mobile）：底部弹层，而非 780px 宽的居中 Modal
+  //
+  // 与桌面端的差异（选中逻辑完全一致，均来自上方同一份 state）：
+  //   · Modal + 左右分栏      → Popup(position=bottom) + NavBar
+  //   · 左侧 200px 部门树     → Selector 横向胶囊（一级部门 + 全部）；
+  //                             手机上放不下 200px 侧栏，深层部门用顶部搜索定位
+  //   · Table + 分页器        → CheckList + 「加载更多」；分页器在触屏上极难点中
+  //   · 底部已选 Tag 列表     → 固定底部可逐项移除
+  // ─────────────────────────────────────────────────────────────
+  if (isMobile) {
+    // 当前页可见条目：人员走服务端分页（filtered 即服务端当前页），
+    // 其余类别客户端分页（切片口径与桌面端 Table 一致）
+    const pagedRows = isHrm ? filtered : filtered.slice((page - 1) * pageSize, page * pageSize);
+    const listTotal = isHrm ? total : filtered.length;
+    const totalPages = Math.max(1, Math.ceil(listTotal / pageSize));
+    const hasMore = page < totalPages;
+    // 一级分类胶囊：全部 + 各根节点（替代桌面端左侧部门树）
+    const rootOptions = treeData.length
+      ? [
+          { label: `全部${label}`, value: '' },
+          ...treeData.map((n: any) => ({ label: String(n.title), value: String(n.key) })),
+        ]
+      : [];
+
+    return (
+      <Popup
+        visible={open}
+        position="bottom"
+        closeOnMaskClick
+        destroyOnClose
+        onClose={onCancel}
+        onMaskClick={onCancel}
+        bodyStyle={{
+          height: '82vh',
+          display: 'flex',
+          flexDirection: 'column',
+          background: '#fff',
+        }}
+      >
+        <NavBar
+          onBack={onCancel}
+          right={
+            <Button size="mini" color="primary" onClick={handleOk}>
+              确定{selected.length ? `(${selected.length})` : ''}
+            </Button>
+          }
+        >
+          {title || `选择${label}${isMultiple ? '（可多选）' : '（单选）'}`}
+        </NavBar>
+
+        {/* 搜索 */}
+        <div style={{ padding: '8px 12px 4px' }}>
+          <SearchBar
+            placeholder={`搜索${label}名称/编码`}
+            value={keyword}
+            onChange={setKeyword}
+            clearable
+            style={{ '--background': '#f5f5f5', '--border-radius': '6px' } as any}
+          />
+        </div>
+
+        {/* 一级分类胶囊（替代左侧部门树） */}
+        {rootOptions.length > 0 && (
+          <div style={{ padding: '4px 12px 8px', overflowX: 'auto' }}>
+            <Selector
+              options={rootOptions.map((o) => ({ label: o.label, value: o.value }))}
+              value={[treeKey || '']}
+              onChange={([v]) => setTreeKey(v ? String(v) : undefined)}
+              style={{ '--border-radius': '14px' } as any}
+            />
+          </div>
+        )}
+
+        {/* 列表 */}
+        <div style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          {loading ? (
+            <AdmEmpty description="加载中…" style={{ padding: 24 }} />
+          ) : pagedRows.length === 0 ? (
+            <AdmEmpty description="暂无数据" style={{ padding: 24 }} />
+          ) : (
+            <CheckList
+              multiple={isMultiple}
+              value={selected}
+              onChange={(v) => toggleRows(v.map(String))}
+            >
+              {pagedRows.map((it) => (
+                <CheckList.Item
+                  key={it.id}
+                  value={String(it.id)}
+                  // extra 展示编码/描述：手机上不占主行宽度
+                  extra={
+                    it.code || it.desc ? (
+                      <span style={{ fontSize: 12, color: '#999' }}>{it.code || it.desc}</span>
+                    ) : undefined
+                  }
+                >
+                  <span style={{ color: '#0072C6' }}>{it.name}</span>
+                </CheckList.Item>
+              ))}
+            </CheckList>
+          )}
+
+          {/* 加载更多（替代桌面端分页器） */}
+          {hasMore && !loading && (
+            <div style={{ padding: 12, textAlign: 'center' }}>
+              <Button size="small" fill="outline" onClick={() => setPage(page + 1)}>
+                加载更多（{page}/{totalPages}）
+              </Button>
+            </div>
+          )}
+          {!hasMore && listTotal > pageSize && !loading && (
+            <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: '#999' }}>
+              共 {listTotal} 项，已全部加载
+            </div>
+          )}
+        </div>
+
+        {/* 底部已选区（可逐项移除） */}
+        <div
+          style={{
+            borderTop: '1px solid #f0f0f0',
+            padding: '8px 12px',
+            maxHeight: 108,
+            overflow: 'auto',
+            background: '#fafafa',
+          }}
+        >
+          <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>已选 {selected.length} 项：</div>
+          {selectedItems.length === 0 ? (
+            <div style={{ fontSize: 12, color: '#bfbfbf' }}>暂未选择</div>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {selectedItems.map((it) => (
+                <span
+                  key={it.id}
+                  onClick={() => setSelected((prev) => prev.filter((x) => x !== it.id))}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '2px 8px',
+                    borderRadius: 12,
+                    background: '#e6f4ff',
+                    border: '1px solid #91caff',
+                    color: '#0958d9',
+                    fontSize: 13,
+                  }}
+                >
+                  {it.name}
+                  <span style={{ color: '#0958d9', fontWeight: 600 }}>×</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </Popup>
+    );
+  }
 
   return (
     <Modal
@@ -382,6 +557,19 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
   );
 };
 
+/**
+ * 手机端「人员/组织」选择弹窗（antd-mobile）。
+ *
+ * <p>本质是 `PersonOrgPicker` 的 `variant='mobile'` 薄包装：状态逻辑、选中结果、
+ * 名称反查全部复用同一套实现，只是把交互形态换成手机原生习惯的底部弹层。</p>
+ *
+ * <p>页面层**不需要**直接引用本组件 —— `PersonOrgField` 会按自己的 variant 自动分发；
+ * 此处导出仅便于单独测试或嵌入其他手机端容器。</p>
+ */
+export const MobilePersonOrgPicker: React.FC<PersonOrgPickerProps> = (props) => (
+  <PersonOrgPicker {...props} variant="mobile" />
+);
+
 // ==================== 表单字段壳（E9 风格） ====================
 
 export interface PersonOrgFieldProps {
@@ -402,12 +590,20 @@ export interface PersonOrgFieldProps {
    * 两者同时传入时以 `readOnly` 为准。
    */
   readonly?: boolean;
+  /**
+   * 外观变体：desktop=antd 桌面弹窗｜mobile=antd-mobile 底部弹层｜auto=按视口自动。
+   * 默认 'desktop'（保持既有调用行为不变）；`FieldControl` 会按自己的 variant 透传，
+   * 因此手机端表单里的人力资源/部门/分部字段会自动得到手机弹层。
+   */
+  variant?: FieldVariant;
 }
 
 export const PersonOrgField: React.FC<PersonOrgFieldProps> = (props) => {
-  const { browserType, category, multiple, value, onChange, disabled, placeholder } = props;
+  const { browserType, category, multiple, value, onChange, disabled, placeholder, variant = 'desktop' } = props;
   // 兼容历史小写 readonly，新代码统一用 readOnly
   const readOnly = props.readOnly ?? props.readonly;
+  const isMobileViewport = useIsMobileViewport();
+  const isMobile = resolveVariant(variant, isMobileViewport) === 'mobile';
   const meta = browserType != null ? BROWSER_TYPE_META[browserType] : undefined;
   const cat = category || meta?.category;
   const [open, setOpen] = useState(false);
@@ -445,27 +641,39 @@ export const PersonOrgField: React.FC<PersonOrgFieldProps> = (props) => {
   const disabledAll = disabled || readOnly;
 
   return (
-    <div style={{ display: 'inline-flex', alignItems: 'flex-start', gap: 0, maxWidth: '100%' }}>
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'stretch',
+        gap: 0,
+        width: isMobile ? '100%' : undefined,
+        maxWidth: '100%',
+      }}
+    >
       {/* 值显示区：field{id}span */}
       <div
         onClick={() => !disabledAll && setOpen(true)}
         style={{
-          display: 'inline-flex',
+          display: 'flex',
           alignItems: 'center',
           flexWrap: 'wrap',
           gap: 4,
-          minWidth: 180,
-          minHeight: 32,
-          maxWidth: 420,
+          flex: isMobile ? '1 1 auto' : undefined,
+          minWidth: isMobile ? 0 : 180,
+          minHeight: isMobile ? 40 : 32,
+          maxWidth: isMobile ? '100%' : 420,
           border: '1px solid #d9d9d9',
-          borderRadius: '6px 0 0 6px',
-          padding: '2px 8px',
+          borderRadius: isMobile ? 6 : '6px 0 0 6px',
+          padding: isMobile ? '4px 10px' : '2px 8px',
           background: disabledAll ? '#f5f5f5' : '#fff',
           cursor: disabledAll ? 'not-allowed' : 'pointer',
+          fontSize: isMobile ? 16 : 13,
         }}
       >
         {ids.length === 0 ? (
-          <span style={{ color: '#bfbfbf', fontSize: 13 }}>{placeholder || `请选择`}</span>
+          <span style={{ color: '#bfbfbf', fontSize: isMobile ? 16 : 13 }}>
+            {placeholder || `请选择${meta?.label || CATEGORY_LABEL[cat]}`}
+          </span>
         ) : (
           ids.map((id) => (
             <Tag
@@ -475,7 +683,7 @@ export const PersonOrgField: React.FC<PersonOrgFieldProps> = (props) => {
                 e.preventDefault();
                 onChange?.(joinIds(ids.filter((x) => x !== id)));
               }}
-              style={{ margin: 0 }}
+              style={{ margin: 0, fontSize: isMobile ? 13 : 12 }}
               color="blue"
             >
               {names[id] || id}
@@ -491,17 +699,20 @@ export const PersonOrgField: React.FC<PersonOrgFieldProps> = (props) => {
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
-          width: 32,
-          height: 32,
+          gap: 4,
+          flexShrink: 0,
+          width: isMobile ? 56 : 32,
+          height: isMobile ? 40 : 32,
           border: '1px solid #0072C6',
-          borderRadius: '0 6px 6px 0',
+          borderRadius: isMobile ? 6 : '0 6px 6px 0',
+          marginLeft: isMobile ? 8 : 0,
           background: disabledAll ? '#d9d9d9' : '#0072C6',
           color: '#fff',
           cursor: disabledAll ? 'not-allowed' : 'pointer',
-          flexShrink: 0,
+          fontSize: isMobile ? 14 : 13,
         }}
       >
-        <SearchOutlined style={{ fontSize: 14 }} />
+        {isMobile ? '选择' : <SearchOutlined style={{ fontSize: 14 }} />}
       </span>
 
       <PersonOrgPicker
@@ -510,6 +721,7 @@ export const PersonOrgField: React.FC<PersonOrgFieldProps> = (props) => {
         category={category}
         multiple={multiple}
         value={joinIds(ids)}
+        variant={variant}
         onOk={(nextIds, items) => {
           const m: Record<string, string> = { ...names };
           items.forEach((i) => {
