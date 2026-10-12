@@ -8322,12 +8322,16 @@ const SetCellEditVisibleOperation = {
 					const row = primary.actualRow != null ? primary.actualRow : primary.startRow;
 					const col = primary.actualColumn != null ? primary.actualColumn : primary.startColumn;
 					if (row != null && col != null && globalThis.__excelDesignIsFieldCell(row, col)) {
-						const messageService = accessor.get(IMessageService);
-						if (messageService && typeof messageService.show === "function") {
-							messageService.show({
-								type: "warning",
-								content: "字段与明细表内容不可编辑，如需调整请使用拖拽或属性面板。"
-							});
+						// 提示优先走 React 侧的 antd message（与其它拦截提示统一），无回调时退回 Univer 内置提示
+						if (typeof globalThis.__excelDesignNotifyBlocked === "function") globalThis.__excelDesignNotifyBlocked();
+						else {
+							const messageService = accessor.get(IMessageService);
+							if (messageService && typeof messageService.show === "function") {
+								messageService.show({
+									type: "warning",
+									content: "字段与明细表内容不可编辑，如需调整请使用拖拽或属性面板。"
+								});
+							}
 						}
 						return false;
 					}

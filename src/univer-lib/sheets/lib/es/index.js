@@ -4716,6 +4716,19 @@ const ClearSelectionAllCommand = {
 		const sheetInterceptorService = accessor.get(SheetInterceptorService);
 		const redoMutations = [];
 		const undoMutations = [];
+		// ── ExcelDesign 补丁：清除范围命中字段/明细表标记格时整体取消 ──
+		// 覆盖 Delete/Backspace 键、右键「清除内容/清除全部」、工具栏清除按钮。
+		if (typeof globalThis.__excelDesignIsStructuredRange === "function") {
+			try {
+				const hitStructured = ranges.some((r) => globalThis.__excelDesignIsStructuredRange(r.startRow, r.endRow, r.startColumn, r.endColumn));
+				if (hitStructured) {
+					if (typeof globalThis.__excelDesignNotifyBlocked === "function") globalThis.__excelDesignNotifyBlocked();
+					return false;
+				}
+			} catch (_e) {
+				// 判定失败不阻断正常清除
+			}
+		}
 		const clearMutationParams = {
 			subUnitId,
 			unitId,
@@ -12291,6 +12304,19 @@ const ClearSelectionContentCommand = {
 		const sheetInterceptorService = accessor.get(SheetInterceptorService);
 		const redoMutations = [];
 		const undoMutations = [];
+		// ── ExcelDesign 补丁：清除范围命中字段/明细表标记格时整体取消 ──
+		// 覆盖 Delete/Backspace 键、右键「清除内容/清除全部」、工具栏清除按钮。
+		if (typeof globalThis.__excelDesignIsStructuredRange === "function") {
+			try {
+				const hitStructured = ranges.some((r) => globalThis.__excelDesignIsStructuredRange(r.startRow, r.endRow, r.startColumn, r.endColumn));
+				if (hitStructured) {
+					if (typeof globalThis.__excelDesignNotifyBlocked === "function") globalThis.__excelDesignNotifyBlocked();
+					return false;
+				}
+			} catch (_e) {
+				// 判定失败不阻断正常清除
+			}
+		}
 		const clearMutationParams = {
 			subUnitId,
 			unitId,

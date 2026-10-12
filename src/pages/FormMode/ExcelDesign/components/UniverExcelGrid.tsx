@@ -3776,6 +3776,12 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       }
     };
 
+    // univer-lib 补丁回调：结构化格操作被拦截时（编辑入口 / 清空内容 / 清除全部），
+    // 统一经此用 antd message 提示（sheets 包无 IMessageService，只能回调 React 侧）。
+    (window as any).__excelDesignNotifyBlocked = () => {
+      message.warning('字段与明细表内容不可编辑或清除，如需调整请使用拖拽或属性面板。');
+    };
+
     /**
      * 范围感知版判定：给定范围，命中任一结构化格即返回 true。
      * 供 Univer 的右键菜单禁用态使用（见 univer-lib getExcelDesignFieldCellDisable$）——
@@ -4020,6 +4026,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       window.removeEventListener('keydown', blockCopyOnFieldCell, true);
       delete (window as any).__excelDesignIsFieldCell;
       delete (window as any).__excelDesignIsStructuredRange;
+      delete (window as any).__excelDesignNotifyBlocked;
     };
   }, [initialized, getCellFieldMeta, setCellField, saveLayoutData]);
 
