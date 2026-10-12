@@ -64,7 +64,42 @@
   stroke-dasharray: 4 3;
 }
 
-/* 连线（sequenceFlow）四色：连接线的视觉节点是 path，复用同一套描边规则即可 */
+/* 连线（sequenceFlow）着色。
+   注意：bpmn-js@17 连线没有 .djs-visual-path 类，可见线条就是 .djs-visual 下的普通 <path>；
+   而 .djs-visual > :nth-child(1) 命中的是默认隐藏的 .djs-outline，故连线须单独按
+   .djs-visual path 描边（outline 默认 visibility:hidden，着色无副作用）。 */
+.wf-test-diagram .djs-element.djs-connection.wf-act-success .djs-visual path {
+  stroke: #52c41a !important;
+  stroke-width: 2.5px !important;
+}
+
+.wf-test-diagram .djs-element.djs-connection.wf-act-primary .djs-visual path {
+  stroke: #1677ff !important;
+  stroke-width: 2.5px !important;
+  stroke-dasharray: 6 4;
+}
+
+.wf-test-diagram .djs-element.djs-connection.wf-act-danger .djs-visual path {
+  stroke: #ff4d4f !important;
+  stroke-width: 2.5px !important;
+}
+
+.wf-test-diagram .djs-element.djs-connection.wf-act-cancel .djs-visual path {
+  stroke: #bfbfbf !important;
+  stroke-width: 2px !important;
+  stroke-dasharray: 4 3;
+}
+
+/* 测试态连线：走通绿 / 走不通红 */
+.wf-test-diagram .djs-element.djs-connection.wf-test-pass .djs-visual path {
+  stroke: #52c41a !important;
+  stroke-width: 2.5px !important;
+}
+
+.wf-test-diagram .djs-element.djs-connection.wf-test-fail .djs-visual path {
+  stroke: #ff4d4f !important;
+  stroke-width: 2.5px !important;
+}
 
 /* ---- 节点叠加的「已操作」办理人姓名（谁批的） ----
    由 FlowDiagram 以行内 width（= 节点宽度）挂到节点标签正下方：

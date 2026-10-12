@@ -359,9 +359,9 @@ export default function MessageCenterPage() {
               session={noticeSession}
               onJump={(type, id) => {
                 if (type === 'WF_TASK')
-                  window.open(`/workflow/task/${id}`, '_blank');
+                  window.open(`/formmode/approval/ApprovalPage?taskId=${id}`, '_blank');
                 else if (type === 'WF_INSTANCE')
-                  window.open(`/workflow/instance/${id}`, '_blank');
+                  window.open(`/formmode/approval/ApprovalPage?instanceId=${id}`, '_blank');
               }}
             />
           )}

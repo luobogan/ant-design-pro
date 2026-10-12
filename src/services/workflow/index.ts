@@ -771,6 +771,11 @@ export async function markTaskViewed(taskId: string | number) {
   return request<ApiResponse<boolean>>(`${WORKFLOW}/task/${taskId}/view`, { method: 'POST' });
 }
 
+/** 任务详情：由 taskId 解析出 instanceId（消息中心 / 浮窗点击「待办任务」跳转办理页用，含记录级鉴权） */
+export async function getTask(id: string | number) {
+  return request<ApiResponse<any>>(`${WORKFLOW}/task/${id}`, { method: 'GET' });
+}
+
 export async function getSnapshot(id: string | number, nodeKey: string) {
   return request<ApiResponse<string>>(`${WORKFLOW}/instance/${id}/snapshot/${nodeKey}`, { method: 'GET' });
 }
