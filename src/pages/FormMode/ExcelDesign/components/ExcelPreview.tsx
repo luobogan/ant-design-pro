@@ -31,6 +31,9 @@ import {
   getFieldTypeLabel,
   type ControlType,
 } from '@/components/FormMode/fieldTypes';
+// 字段控件外观变体（desktop / mobile / auto）与统一令牌（颜色/字号/尺寸单一来源）
+import type { FieldVariant } from '@/components/FormMode/fieldTokens';
+import { FIELD_COLOR, MOBILE_FIELD_TOKENS } from '@/components/FormMode/fieldTokens';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -135,8 +138,8 @@ const detectMobile = (): boolean => {
 // 手机端「列表化」：把 Excel 网格重排为单列纵向流所需的条目
 // ──────────────────────────────────────────────
 type MobileItem =
-  | { kind: 'field'; row: number; col: number; cell: CellDataItem; label: string; required: boolean; attrBg?: string }
-  | { kind: 'title'; text: string; row: number; col: number }
+  | { kind: 'field'; row: number; col: number; cell: CellDataItem; label: string; required: boolean; attrBg?: string; labelStyle?: any }
+  | { kind: 'title'; text: string; row: number; col: number; cellStyle?: any }
   | { kind: 'detail'; idx: number; row: number; col: number }
   | { kind: 'element'; row: number; col: number; cell: CellDataItem };
 
@@ -221,12 +224,14 @@ const extractMobileItems = (sheet: SheetLayoutData): MobileItem[] => {
           }
           if (meta?.cellType === 'field') {
             const attr = meta.fieldAttr;
+            const lc = findLabelCell(cellData, r, c, meta);
             items.push({
               kind: 'field',
               row: r,
               col: c,
               cell,
-              label: findLabelCell(cellData, r, c, meta)?.label || meta.fieldLabel || meta.fieldName || '',
+              label: lc?.label || meta.fieldLabel || meta.fieldName || '',
+              labelStyle: lc ? cellData[String(lc.row)]?.[String(lc.col)]?.s : undefined,
               required: attr === 3 || !!meta.required,
               attrBg: attr === 1 ? '#f5f5f5' : attr === 3 ? '#fff1f0' : undefined,
             });
@@ -240,12 +245,34 @@ const extractMobileItems = (sheet: SheetLayoutData): MobileItem[] => {
           if (meta?.cellType === 'label') {
             // 已被字段消费的标签（横向成对的左标签 / 明细表表头行）不再单独成行，避免与字段行标签重复
             if (consumedLabels.has(`${r}_${c}`)) return;
-            items.push({ kind: 'title', text: meta.fieldLabel || (cell.v != null ? String(cell.v) : ''), row: r, col: c });
+            items.push({ kind: 'title', text: meta.fieldLabel || (cell.v != null ? String(cell.v) : ''), row: r, col: c, cellStyle: cell.s });
             return;
           }
+          // 有字段元数据但 cellType 未显式标注为 'field'（历史数据 / 落库遗漏，如部分日期字段）：
+          // 与 PC 端 renderCellNode 兜底一致（非 marker/element/label 一律按字段渲染控件），
+          // 否则这类字段格会被当成普通文本原样输出 "${xxx}" 占位符 → 手机端"没转化成功"。
+          if (meta) {
+            const lc = findLabelCell(cellData, r, c, meta);
+            items.push({
+              kind: 'field',
+              row: r,
+              col: c,
+              cell,
+              label: lc?.label || meta.fieldLabel || meta.fieldName || '',
+              labelStyle: lc ? cellData[String(lc.row)]?.[String(lc.col)]?.s : undefined,
+              required: meta.fieldAttr === 3 || !!meta.required,
+              attrBg: meta.fieldAttr === 1 ? '#f5f5f5' : meta.fieldAttr === 3 ? '#fff1f0' : undefined,
+            });
+            return;
+          }
+          // 无字段元数据的普通文本 → 分区标题；纯占位符（${xxx}）是未转化的字段模板，不显示，避免预览残留 "${reqdate}"
           const v = cell.v;
-          if (v !== undefined && v !== null && String(v).trim() !== '') {
-            items.push({ kind: 'title', text: String(v), row: r, col: c });
+          if (v !== undefined && v !== null) {
+            const raw = String(v);
+            const clean = raw.replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, '').trim();
+            if (clean && !/^\$\{[^}]+\}$/.test(clean)) {
+              items.push({ kind: 'title', text: raw, row: r, col: c, cellStyle: cell.s });
+            }
           }
         });
     });
@@ -465,7 +492,9 @@ const FieldCell: React.FC<{
   nodePermission?: NodePermissionResolver;
   /** 节点权限 scope：main / dt{idx} / dt{idx}_r{row}（B5 行级）；默认 main */
   scope?: string;
-}> = ({ cell, sheetId, row, col, value, onChange, error, readOnly, cellStyle, attrBg, inputId, nodePermission, scope }) => {
+  /** 控件外观变体：Excel 网格内 desktop（默认），手机端列表化布局 mobile */
+  variant?: FieldVariant;
+}> = ({ cell, sheetId, row, col, value, onChange, error, readOnly, cellStyle, attrBg, inputId, nodePermission, scope, variant }) => {
   const meta = cell.fieldMeta;
   // 节点字段权限解析（审批态渲染包下发）：以权限函数替代布尔 readOnly（文档 §3.3-3）
   const nodePerm =
@@ -523,18 +552,11 @@ const FieldCell: React.FC<{
     ...excelFont,
   };
 
-  const commonProps = {
-    // 挂到真正的 input / textarea 上，代码块可 ExcelPreview.get/set 或直接 getElementById
-    id: inputId,
-    disabled,
-    size: 'small' as const,
-    status,
-    style: fieldStyle,
-  };
-
   // ★ 字段控件统一走共享层 FieldControl（全项目唯一渲染入口）。
   //   本组件退化为「容器适配层」：只负责 <td> 布局、Excel 单元格样式、节点权限与校验红框，
   //   不再自行 switch 字段类型（新增/修改类型改共享层即可，所有页面生效）。
+  //   variant：Excel 网格内用 desktop（紧凑控件适配窄单元格），
+  //   手机端列表化布局传 mobile（触控友好控件），两端 props 契约完全一致。
   const body = (
     <FieldControl
       controlType={(meta.fieldType || 'text') as ControlType}
@@ -550,6 +572,7 @@ const FieldCell: React.FC<{
       maxLength={meta.length || 200}
       inputId={inputId}
       style={fieldStyle}
+      variant={variant}
     />
   );
 
@@ -711,6 +734,8 @@ const renderCellNode = (
   nodePermission?: NodePermissionResolver,
   /** 节点权限 scope（main / dt{idx} / dt{idx}_r{row}），B5 行级；默认 main */
   scope?: string,
+  /** 控件外观变体：Excel 网格内传 desktop（默认），手机端列表化布局传 mobile */
+  variant?: FieldVariant,
 ): React.ReactNode => {
   const meta = cell.fieldMeta;
   const rawValue = cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
@@ -781,6 +806,7 @@ const renderCellNode = (
       cellStyle={cell.s}
       attrBg={attrBg}
       inputId={ids?.inputId}
+      variant={variant}
     />
   );
   if (!ids) return fieldNode;
@@ -1070,9 +1096,9 @@ const SheetPreviewForm: React.FC<{
                             onFieldChange,
                             readOnly as boolean,
                             model.requiredLabels.has(key),
-                            nodePermission,
                             attrBg,
                             domIdMap,
+                            nodePermission,
                             scope,
                           )
                         : ' '}
@@ -1143,16 +1169,19 @@ const MobileSheetForm: React.FC<{
       {items.map((item, i) => {
         // 分区标题：无字段的静态/合并文本（如"基本信息"）
         if (item.kind === 'title') {
+          // 标题沿用 Excel 单元格样式（字体/字号/颜色/背景），与 PC 端 <td> 一致
+          const tc = cellStyleToCss(item.cellStyle);
           return (
             <div
               key={`t-${i}`}
               style={{
                 padding: '10px 12px',
-                background: E9_COLORS.sectionBg,
-                borderBottom: `1px solid ${E9_COLORS.sectionBorder}`,
-                fontWeight: 600,
-                fontSize: 14,
-                color: '#333',
+                background: (tc.background as string) || E9_COLORS.sectionBg,
+                borderBottom: `1px solid ${(tc.borderColor as string) || E9_COLORS.sectionBorder}`,
+                fontWeight: (tc.fontWeight as any) || 600,
+                fontSize: (tc.fontSize as any) || 14,
+                color: (tc.color as string) || '#333',
+                fontFamily: tc.fontFamily as any,
               }}
             >
               {item.text}
@@ -1194,12 +1223,14 @@ const MobileSheetForm: React.FC<{
               key={`e-${i}`}
               style={{ padding: '10px 12px', borderBottom: `1px solid ${E9_COLORS.cardBorder}` }}
             >
-              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, undefined, domIdMap, nodePermission, scope)}
+              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, undefined, domIdMap, nodePermission, scope, 'mobile')}
             </div>
           );
         }
         // 字段行：左标签 + 右控件（满宽、触控友好）
         const key = `${keyPrefix ?? ''}${cellKey(sheet.id, item.row, item.col)}`;
+        // 标签沿用 Excel 标签格样式（字体/字号/颜色/加粗），与 PC 端 <td> 一致
+        const labelCss = cellStyleToCss(item.labelStyle);
         // 表头（字段名）也要能被代码块访问：用可见文字生成同规则 id
         const lbIds = buildFieldDomIds(
           { fieldName: '', fieldLabel: item.label, cellType: 'label' } as any,
@@ -1209,17 +1240,35 @@ const MobileSheetForm: React.FC<{
         return (
           <div
             key={`f-${i}`}
-            style={{ display: 'flex', alignItems: 'flex-start', padding: '10px 12px', borderBottom: `1px solid ${E9_COLORS.cardBorder}` }}
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              // 响应式：允许换行，配合下方 minWidth，窄屏（如 360px）时标签与控件自动上下堆叠，
+              // 避免标签列把控件挤到不可用宽度
+              flexWrap: 'wrap',
+              rowGap: 8,
+              padding: MOBILE_FIELD_TOKENS.rowPadding,
+              borderBottom: `1px solid ${FIELD_COLOR.cardBorder}`,
+            }}
           >
             <div
               {...labelProps}
-              style={{ flex: '0 0 38%', color: E9_COLORS.label, fontSize: 14, lineHeight: '24px', paddingRight: 8, wordBreak: 'break-word' }}
+              style={{
+                flex: `0 0 ${MOBILE_FIELD_TOKENS.labelFlex}`,
+                color: (labelCss.color as string) || FIELD_COLOR.label,
+                fontSize: (labelCss.fontSize as any) || MOBILE_FIELD_TOKENS.labelFontSize,
+                fontWeight: labelCss.fontWeight as any,
+                fontFamily: labelCss.fontFamily as any,
+                lineHeight: '24px',
+                paddingRight: 8,
+                wordBreak: 'break-word',
+              }}
             >
               {item.label}
-              {item.required && <span style={{ color: E9_COLORS.required, marginLeft: 2 }}>*</span>}
+              {item.required && <span style={{ color: FIELD_COLOR.required, marginLeft: 2 }}>*</span>}
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, item.attrBg, domIdMap, nodePermission, scope)}
+            <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, item.attrBg, domIdMap, nodePermission, scope, 'mobile')}
             </div>
           </div>
         );

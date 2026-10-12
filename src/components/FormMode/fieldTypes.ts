@@ -1,3 +1,6 @@
+import type { CSSProperties } from 'react';
+import type { FieldVariant } from './fieldTokens';
+import dayjs from 'dayjs';
 import { BROWSER_TYPE_META } from './personOrg';
 
 /**
@@ -102,6 +105,88 @@ export type ControlType =
   | 'group'
   | 'custom'
   | 'label';
+
+/** 下拉 / 单选 / 复选的选项（`FieldControl` 与 `MobileFieldControl` 共用） */
+export interface FieldOption {
+  label: string;
+  value: any;
+}
+
+/**
+ * 字段控件统一 props 契约（桌面端 `FieldControl` 与手机端 `MobileFieldControl` **完全一致**）
+ *
+ * <p>放在本文件（字段类型单一来源）而非具体控件里，有两个目的：</p>
+ * <ol>
+ *   <li>两端控件共享同一份类型定义，从编译期保证「新增属性必须两端都实现」，
+ *       不会出现「桌面端能传、手机端静默忽略」的不一致；</li>
+ *   <li>避开 `FieldControl → MobileFieldControl` 的循环依赖：
+ *       两端都只依赖本文件，`FieldControl` 单向引用 `MobileFieldControl`。</li>
+ * </ol>
+ *
+ * <p>命名规范：布尔只读属性一律用驼峰 `readOnly`（禁用态用 `disabled`），
+ * 与 antd / React 生态一致。`PersonOrgField` 历史遗留的 `readonly`（小写 o）
+ * 已在该组件内做兼容映射，新代码不要沿用。</p>
+ */
+export interface FieldControlBaseProps {
+  /** 控件类型（由 mapFieldToControlType(field) 得出） */
+  controlType: ControlType;
+  /** 当前值 */
+  value?: any;
+  /** 值变化回调 */
+  onChange?: (value: any) => void;
+  /** 下拉/单选/复选的选项 */
+  options?: FieldOption[];
+  /** 禁用（控件不可交互） */
+  disabled?: boolean;
+  /** 只读（预览态/打印态）：语义上等同禁用，与 disabled 合并生效 */
+  readOnly?: boolean;
+  /** 占位符 */
+  placeholder?: string;
+  /** 校验失败红框 */
+  status?: '' | 'error';
+  /** controlType==='browser' 时的浏览按钮类型 */
+  browserType?: number;
+  /** 仅 browser 有效；不传时按 isBrowserTypeMultiple 推导 */
+  multiple?: boolean;
+  /** 文本最大长度（默认 200） */
+  maxLength?: number;
+  /** textarea 行数（默认 3） */
+  rows?: number;
+  /** 挂到真实 input 上的 DOM id（供布局级代码块按 id 取/设值） */
+  inputId?: string;
+  /** 外层样式（字体/底色等，由调用方按单元格或字段属性决定） */
+  style?: CSSProperties;
+  /**
+   * 外观变体：desktop=紧凑表格内｜mobile=触控友好整行｜auto=按视口自动。
+   * 默认 'desktop'，保持既有调用行为不变。
+   */
+  variant?: FieldVariant;
+}
+
+/** 日期格式（桌面 / 手机端共用，保证存取格式一致） */
+export const DATE_FMT = 'YYYY-MM-DD';
+/** 日期时间格式 */
+export const DATETIME_FMT = 'YYYY-MM-DD HH:mm:ss';
+
+/**
+ * 表单值 → antd DatePicker 需要的 dayjs 对象。
+ *
+ * <p>本工程表单值一律以**字符串**形态存取，而 DatePicker 只接受 dayjs 对象；
+ * 直接喂字符串会在 rc-picker 内部抛 `getUDayjs(...).isValid is not a function`，
+ * 进而被 ErrorBoundary 接管（整页白屏）。空值/非法值统一给 undefined，交给控件显示空。</p>
+ */
+export const toDayjsValue = (v: any): any => {
+  if (v === undefined || v === null || v === '') return undefined;
+  const d = dayjs(v);
+  return d.isValid() ? d : undefined;
+};
+
+/**
+ * DatePicker 选值 → 表单的字符串形态（与 `toDayjsValue` 成对）。
+ * 避免把 dayjs 对象序列化进表单快照（会变成 ISO 串，跨时区还会偏移一天）。
+ */
+export const fromDayjsValue = (d: any, withTime?: boolean): string | undefined =>
+  d ? dayjs(d).format(withTime ? DATETIME_FMT : DATE_FMT) : undefined;
 
 const toNum = (v: any, fallback = 0): number => {
   const n = Number(v);

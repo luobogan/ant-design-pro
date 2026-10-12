@@ -6,6 +6,7 @@ import {
   resolveBrowserType,
   type ControlType,
 } from '@/components/FormMode/fieldTypes';
+import type { FieldVariant } from '@/components/FormMode/fieldTokens';
 import { PersonOrgValueText } from '@/components/FormMode/PersonOrgPicker';
 
 interface FieldRendererProps {
@@ -13,6 +14,14 @@ interface FieldRendererProps {
   value?: any;
   onChange?: (value: any) => void;
   disabled?: boolean;
+  /** 只读（命名规范：驼峰 readOnly，与 FieldControl / BrowserControl / PersonOrgField 一致） */
+  readOnly?: boolean;
+  /** 外观变体：默认 'auto'（本组件用于**页面级**容器——数据详情/新增/编辑、流程测试，
+   *  布局是整行流式而非 Excel 的 120px 窄单元格），故按视口自动切换：
+   *  宽屏仍走紧凑桌面控件（行为不变），≤768px 自动换手机端触控控件。
+   *  若调用方处于窄单元格场景（如 Excel 网格内），请显式传 'desktop'。 */
+  variant?: FieldVariant;
+  /** @deprecated 历史命名（小写 o），仅为兼容既有调用保留，新代码请用 `readOnly` */
   readonly?: boolean;
 }
 
@@ -35,19 +44,16 @@ interface FieldRendererProps {
  *   · 时间由 `TimePicker`（HH:mm:ss）统一为 `datetime`（YYYY-MM-DD HH:mm:ss）
  *   · 整数/小数、保密字段此前退化成普通 Input，现已按类型正确渲染
  */
-const FieldRenderer: React.FC<FieldRendererProps> = ({
-  field,
-  value,
-  onChange,
-  disabled = false,
-  readonly = false,
-}) => {
+const FieldRenderer: React.FC<FieldRendererProps> = (props) => {
+  const { field, value, onChange, disabled = false, variant = 'auto' } = props;
+  // 兼容历史小写 readonly，新代码统一用 readOnly
+  const readOnly = props.readOnly ?? props.readonly ?? false;
   const controlType: ControlType = mapFieldToControlType(field);
   const browserType = resolveBrowserType(field);
   const { fieldLabel, fieldLen, options } = field;
 
   // 只读态：不渲染可编辑控件，浏览按钮需把 id 串反查为名称
-  if (readonly) {
+  if (readOnly) {
     if (controlType === 'browser') {
       return <PersonOrgValueText browserType={browserType} value={value} />;
     }
@@ -68,6 +74,8 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
           ? `请选择${fieldLabel}`
           : `请输入${fieldLabel}`
       }
+      // 桌面 / 手机端由共享控件按 variant 分发，页面层无需关心控件细节
+      variant={variant}
     />
   );
 };

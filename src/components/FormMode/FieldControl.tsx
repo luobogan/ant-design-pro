@@ -11,68 +11,36 @@ import {
   Upload,
 } from 'antd';
 import { PaperClipOutlined, UploadOutlined } from '@ant-design/icons';
-import dayjs from 'dayjs';
 import BrowserControl from './BrowserControl';
-import type { ControlType } from './fieldTypes';
+import MobileFieldControl from './MobileFieldControl';
+import type { ControlType, FieldControlBaseProps, FieldOption } from './fieldTypes';
+import { DATE_FMT, DATETIME_FMT, fromDayjsValue, toDayjsValue } from './fieldTypes';
+import { FIELD_COLOR, resolveVariant, useIsMobileViewport } from './fieldTokens';
 
 /**
- * 字段控件唯一渲染入口
+ * 字段控件唯一渲染入口（桌面端实现 + 手机端分发）
  *
  * ⚠️ 开发规范：页面层**禁止**再自行 switch 字段类型渲染控件，一律调用本组件。
- *    新增/修改字段类型只改 `fieldTypes.ts`（编码与控件映射）与本文件（控件实现），
+ *    新增/修改字段类型只改 `fieldTypes.ts`（编码与控件映射）与
+ *    `FieldControl.tsx` / `MobileFieldControl.tsx`（两端控件实现），
  *    所有页面（Excel 预览、表单数据页、流程发起等）自动生效。
+ *
+ * 桌面 / 手机两端共用同一份 props 契约（`FieldControlBaseProps`），
+ * 由 `variant` 决定外观：
+ *   · `variant='desktop'`（默认）：紧凑控件，适配 Excel 网格单元格（可能仅 120px 宽）
+ *   · `variant='mobile'`：触控友好控件（40px 高、16px 字号、开关化、纵向单选）
+ *   · `variant='auto'`：按视口宽度（≤768px）自动切换，窗口缩放/旋屏实时响应
  *
  * 行为基准：对齐 `ExcelPreview.FieldCell`（原主运行态渲染器），保证改造不回归。
  * 页面层退化为「容器适配层」：
  *  · ExcelPreview  → 负责 <td> 布局 + Excel 单元格样式 + 节点权限
  *  · FieldRenderer → 负责 Form.Item 包裹 + 只读降级
  */
-export interface FieldOption {
-  value: any;
-  label: string;
-}
 
-export interface FieldControlProps {
-  /** 控件类型（由 mapFieldToControlType(field) 得出） */
-  controlType: ControlType;
-  value?: any;
-  onChange?: (value: any) => void;
-  /** 下拉/单选/复选的选项 */
-  options?: FieldOption[];
-  disabled?: boolean;
-  /** 只读（预览态/打印态）：控件禁用，不做编辑交互 */
-  readOnly?: boolean;
-  placeholder?: string;
-  /** 校验失败红框 */
-  status?: '' | 'error';
-  /** controlType==='browser' 时的浏览按钮类型 */
-  browserType?: number;
-  /** 仅 browser 有效；不传时按 isBrowserTypeMultiple 推导 */
-  multiple?: boolean;
-  /** 文本最大长度（默认 200） */
-  maxLength?: number;
-  /** textarea 行数（默认 3） */
-  rows?: number;
-  /** 挂到真实 input 上的 DOM id（供代码块取/设值） */
-  inputId?: string;
-  style?: React.CSSProperties;
-}
-
-const DATE_FMT = 'YYYY-MM-DD';
-const DATETIME_FMT = 'YYYY-MM-DD HH:mm:ss';
-
-/** 字符串 → dayjs（非法值返回 undefined，避免 DatePicker 报 Invalid Date） */
-const toDayjs = (v: any): any => {
-  if (v === null || v === undefined || v === '') return undefined;
-  const d = dayjs(v);
-  return d.isValid() ? d : undefined;
-};
-
-/** dayjs → 字符串（日期或日期时间） */
-const fromDayjs = (d: any, withTime = false): string | undefined => {
-  if (!d) return undefined;
-  return dayjs(d).format(withTime ? DATETIME_FMT : DATE_FMT);
-};
+/** 字段控件 props：与手机端 `MobileFieldControl` 共用同一份契约 */
+export type FieldControlProps = FieldControlBaseProps;
+/** 选项类型（从 fieldTypes 单一来源导出，此处保留别名以兼容既有引用） */
+export type { FieldOption };
 
 /** 附件值归一化：兼容数组（UploadFile[]）与字符串（url / 名称） */
 const normalizeFileList = (value: any): any[] => {
@@ -88,22 +56,34 @@ const normalizeFileList = (value: any): any[] => {
   ];
 };
 
-export const FieldControl: React.FC<FieldControlProps> = ({
-  controlType,
-  value,
-  onChange,
-  options = [],
-  disabled,
-  readOnly,
-  placeholder,
-  status,
-  browserType,
-  multiple,
-  maxLength = 200,
-  rows = 3,
-  inputId,
-  style,
-}) => {
+export const FieldControl: React.FC<FieldControlProps> = (props) => {
+  const {
+    controlType,
+    value,
+    onChange,
+    options = [],
+    disabled,
+    readOnly,
+    placeholder,
+    status,
+    browserType,
+    multiple,
+    maxLength = 200,
+    rows = 3,
+    inputId,
+    style,
+    variant = 'desktop',
+  } = props;
+
+  // 响应式：variant='auto' 时按视口宽度自动切换。
+  // ⚠️ Hook 必须无条件调用（不可按条件执行），故放在 early-return 之前。
+  const isMobileViewport = useIsMobileViewport();
+
+  // 手机端：整体委托 MobileFieldControl（两端 props 一致，透传即可）
+  if (resolveVariant(variant, isMobileViewport) === 'mobile') {
+    return <MobileFieldControl {...props} variant="mobile" />;
+  }
+
   // 只读/禁用统一：readOnly 与 disabled 等价（控件不可交互）
   const locked = !!disabled || !!readOnly;
   const commonProps = {
@@ -176,8 +156,8 @@ export const FieldControl: React.FC<FieldControlProps> = ({
           {...commonProps}
           style={{ width: '100%', ...style }}
           format={DATE_FMT}
-          value={toDayjs(value)}
-          onChange={(d) => onChange?.(fromDayjs(d, false))}
+          value={toDayjsValue(value)}
+          onChange={(d) => onChange?.(fromDayjsValue(d, false))}
         />
       );
 
@@ -188,8 +168,8 @@ export const FieldControl: React.FC<FieldControlProps> = ({
           showTime
           style={{ width: '100%', ...style }}
           format={DATETIME_FMT}
-          value={toDayjs(value)}
-          onChange={(d) => onChange?.(fromDayjs(d, true))}
+          value={toDayjsValue(value)}
+          onChange={(d) => onChange?.(fromDayjsValue(d, true))}
         />
       );
 
@@ -216,6 +196,7 @@ export const FieldControl: React.FC<FieldControlProps> = ({
 
     case 'checkbox':
       // 统一语义：**单个布尔**（对齐 ecology 复选框字段 htmlType=6，值 1/0）
+      // 手机端会把本类型渲染为 Switch 开关（见 MobileFieldControl）
       return (
         <Checkbox
           disabled={locked}
@@ -236,6 +217,8 @@ export const FieldControl: React.FC<FieldControlProps> = ({
           readOnly={readOnly}
           placeholder={placeholder}
           multiple={multiple}
+          // 预览/表单态不在按钮后显示「人力资源/部门/岗位」类型 Tag（保持控件简洁）
+          showTypeTag={false}
           style={style}
         />
       );
@@ -277,12 +260,12 @@ export const FieldControl: React.FC<FieldControlProps> = ({
         <div
           contentEditable={false}
           style={{
-            border: '1px solid #d9d9d9',
+            border: `1px solid ${FIELD_COLOR.border}`,
             borderRadius: 4,
             padding: '4px 8px',
             minHeight: 50,
             background: '#fff',
-            color: '#333',
+            color: FIELD_COLOR.value,
             ...style,
           }}
         >
@@ -294,7 +277,7 @@ export const FieldControl: React.FC<FieldControlProps> = ({
       return (
         <fieldset
           style={{
-            border: '1px solid #d9d9d9',
+            border: `1px solid ${FIELD_COLOR.border}`,
             borderRadius: 4,
             padding: '8px 12px',
             margin: 0,

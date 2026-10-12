@@ -395,20 +395,19 @@ export interface PersonOrgFieldProps {
   onChange?: (value: string) => void;
   disabled?: boolean;
   placeholder?: string;
-  /** 是否只展示（禁用交互） */
+  /** 是否只展示（禁用交互）。命名规范：统一驼峰 `readOnly`，与 FieldControl / BrowserControl 一致 */
+  readOnly?: boolean;
+  /**
+   * @deprecated 历史命名（小写 o），仅为兼容既有调用保留，新代码请用 `readOnly`。
+   * 两者同时传入时以 `readOnly` 为准。
+   */
   readonly?: boolean;
 }
 
-export const PersonOrgField: React.FC<PersonOrgFieldProps> = ({
-  browserType,
-  category,
-  multiple,
-  value,
-  onChange,
-  disabled,
-  placeholder,
-  readonly,
-}) => {
+export const PersonOrgField: React.FC<PersonOrgFieldProps> = (props) => {
+  const { browserType, category, multiple, value, onChange, disabled, placeholder } = props;
+  // 兼容历史小写 readonly，新代码统一用 readOnly
+  const readOnly = props.readOnly ?? props.readonly;
   const meta = browserType != null ? BROWSER_TYPE_META[browserType] : undefined;
   const cat = category || meta?.category;
   const [open, setOpen] = useState(false);
@@ -443,7 +442,7 @@ export const PersonOrgField: React.FC<PersonOrgFieldProps> = ({
     );
   }
 
-  const disabledAll = disabled || readonly;
+  const disabledAll = disabled || readOnly;
 
   return (
     <div style={{ display: 'inline-flex', alignItems: 'flex-start', gap: 0, maxWidth: '100%' }}>

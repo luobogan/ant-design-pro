@@ -82,7 +82,7 @@ export const BrowserControl: React.FC<BrowserControlProps> = ({
           value={value}
           onChange={(v: any) => onChange?.(v)}
           disabled={disabled}
-          readonly={readOnly}
+          readOnly={readOnly}
           placeholder={placeholder || `请选择${typeLabel}`}
         />
       </div>
