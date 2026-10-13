@@ -37,6 +37,7 @@ export const FIELD_HTML_TYPE_LABEL_MAP: Record<number, string> = {
   6: '复选框',
   7: '特殊字段',
   8: '布局组件',
+  9: '正文',
 };
 
 /**
@@ -104,7 +105,8 @@ export type ControlType =
   | 'richtext'
   | 'group'
   | 'custom'
-  | 'label';
+  | 'label'
+  | 'odoc';
 
 /** 下拉 / 单选 / 复选的选项（`FieldControl` 与 `MobileFieldControl` 共用） */
 export interface FieldOption {
@@ -161,6 +163,15 @@ export interface FieldControlBaseProps {
    * 默认 'desktop'，保持既有调用行为不变。
    */
   variant?: FieldVariant;
+  /**
+   * 正文(doc)字段专用：流程实例ID，首次编辑时用于后端初始化正文文档。
+   * 由页面层（流程表单）透传；缺失时 OdocField 仅支持「已存在正文」的查看/上传。
+   */
+  instanceId?: number | string;
+  /** 正文(doc)字段专用：流程定义ID */
+  defId?: number | string;
+  /** 正文(doc)字段专用：字段标题，作为正文文档标题 */
+  fieldTitle?: string;
 }
 
 /** 日期格式（桌面 / 手机端共用，保证存取格式一致） */
@@ -341,6 +352,8 @@ export const mapFieldToControlType = (field: any): ControlType => {
       return 'text';
     case 8: // 布局组件
       return 'group';
+    case 9: // 正文（在线编辑 + 版本管理，OnlyOffice）
+      return 'odoc';
     default:
       return 'text';
   }

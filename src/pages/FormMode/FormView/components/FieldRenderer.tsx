@@ -23,6 +23,10 @@ interface FieldRendererProps {
   variant?: FieldVariant;
   /** @deprecated 历史命名（小写 o），仅为兼容既有调用保留，新代码请用 `readOnly` */
   readonly?: boolean;
+  /** 流程实例ID（正文字段首次初始化依赖；无则只能查看/上传已存在正文） */
+  instanceId?: any;
+  /** 流程定义ID */
+  defId?: any;
 }
 
 /**
@@ -45,7 +49,7 @@ interface FieldRendererProps {
  *   · 整数/小数、保密字段此前退化成普通 Input，现已按类型正确渲染
  */
 const FieldRenderer: React.FC<FieldRendererProps> = (props) => {
-  const { field, value, onChange, disabled = false, variant = 'auto' } = props;
+  const { field, value, onChange, disabled = false, variant = 'auto', instanceId, defId } = props;
   // 兼容历史小写 readonly，新代码统一用 readOnly
   const readOnly = props.readOnly ?? props.readonly ?? false;
   const controlType: ControlType = mapFieldToControlType(field);
@@ -76,6 +80,9 @@ const FieldRenderer: React.FC<FieldRendererProps> = (props) => {
       }
       // 桌面 / 手机端由共享控件按 variant 分发，页面层无需关心控件细节
       variant={variant}
+      instanceId={instanceId}
+      defId={defId}
+      fieldTitle={fieldLabel}
     />
   );
 };

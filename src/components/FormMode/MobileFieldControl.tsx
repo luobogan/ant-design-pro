@@ -4,6 +4,7 @@ import { Upload } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import BrowserControl from './BrowserControl';
+import OdocField from './OdocField';
 import type { FieldControlBaseProps } from './fieldTypes';
 import { DATE_FMT, DATETIME_FMT, fromDayjsValue, toDayjsValue } from './fieldTypes';
 import { FIELD_COLOR, MOBILE_FIELD_TOKENS } from './fieldTokens';
@@ -225,6 +226,9 @@ export const MobileFieldControl: React.FC<FieldControlBaseProps> = ({
   rows = 4,
   inputId,
   style,
+  instanceId,
+  defId,
+  fieldTitle,
 }) => {
   const T = MOBILE_FIELD_TOKENS;
   // 首次渲染时注入主题与局部样式
@@ -235,6 +239,22 @@ export const MobileFieldControl: React.FC<FieldControlBaseProps> = ({
   const hasError = status === 'error';
   /** 外框类名：错误态交给 CSS 覆盖边框色 */
   const wrapClass = `${MOBILE_FIELD_CLASS}${hasError ? ` ${MOBILE_FIELD_CLASS}--error` : ''}`;
+
+  // ── 正文：手机端降级为只读（在线编辑建议在电脑端），复用 OdocField ──
+  if (controlType === 'odoc') {
+    return (
+      <div className={wrapClass} style={style}>
+        <OdocField
+          value={value}
+          instanceId={instanceId}
+          defId={defId}
+          fieldTitle={fieldTitle}
+          disabled
+          readOnly
+        />
+      </div>
+    );
+  }
 
   // ── 日期 / 日期时间：底部滚轮弹层 ──
   if (controlType === 'date' || controlType === 'datetime') {

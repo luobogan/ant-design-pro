@@ -987,6 +987,8 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
                           readOnly={isPreview}
                           nodeId={props.nodeKey || startNodeKey}
                           nodePermission={nodePermission}
+                          instanceId={effectiveInstanceId}
+                          defId={defId}
                           initialValues={initialValues}
                           title="流程表单"
                           onClose={closeTab}

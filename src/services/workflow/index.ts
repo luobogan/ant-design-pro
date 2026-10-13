@@ -1516,3 +1516,331 @@ export async function saveDefaultSigns(defId: number, nodeKey: string, signs: Wf
     data: signs,
   });
 }
+
+// ───────────── 公文正文（odoc） ─────────────
+// 对应后端 WfOdocController：正文文档/版本/在线编辑(OnlyOffice)。
+export interface OdocVersion {
+  id?: string;
+  docId?: string;
+  versionId?: number;
+  fileId?: string;
+  fileName?: string;
+  /** 文件类型 3doc 7docx 12pdf 13ofd */
+  docFileType?: number;
+  hasUsedTemplet?: number;
+  versionDetail?: string;
+  createTime?: string;
+}
+
+export interface OdocEditorConfig {
+  docServerUrl?: string;
+  documentType?: string;
+  document?: { fileType?: string; key?: string; title?: string; url?: string; permissions?: any };
+  editorConfig?: { callbackUrl?: string; lang?: string; mode?: string; user?: any };
+}
+
+export interface OdocDocInit {
+  docId?: string;
+  title?: string;
+  docStatus?: number;
+  currentVersion?: OdocVersion;
+  versions?: OdocVersion[];
+  /** 未部署 OnlyOffice 时为 null */
+  editorConfig?: OdocEditorConfig | null;
+  canEdit?: boolean;
+}
+
+export const odocApi = {
+  /** 获取或创建正文（按流程实例） */
+  init: (instanceId: any, defId?: any, title?: string, edit = true) =>
+    request<ApiResponse<OdocDocInit>>(`${WORKFLOW}/odoc/doc/init`, {
+      method: 'POST',
+      params: { instanceId, defId, title, edit },
+    }),
+  /** 版本历史 */
+  versions: (docId: any) =>
+    request<ApiResponse<OdocVersion[]>>(`${WORKFLOW}/odoc/doc/${docId}/versions`, { method: 'GET' }),
+  /** 手动落库新版本（前端先传文件服务拿 fileId） */
+  saveVersion: (docId: any, fileId: any, fileName: string, docFileType: number, versionDetail?: string) =>
+    request<ApiResponse<OdocVersion>>(`${WORKFLOW}/odoc/doc/version/save`, {
+      method: 'POST',
+      params: { docId, fileId, fileName, docFileType, versionDetail },
+    }),
+  /** 回滚到指定版本 */
+  rollback: (docId: any, toVersionId: any) =>
+    request<ApiResponse<OdocVersion>>(`${WORKFLOW}/odoc/doc/version/rollback`, {
+      method: 'POST',
+      params: { docId, toVersionId },
+    }),
+};
+
+/** 版本内容原始下载地址（字节流，浏览器直连；不走 request 的 JSON 解析） */
+export const odocContentUrl = (versionId: any) =>
+  `${WORKFLOW}/odoc/doc/version/${versionId}/content`;
+
+// ───────────── 红头模板 / 套红（odoc mould & taohong） ─────────────
+export interface OdocMould {
+  id?: string;
+  mouldName?: string;
+  /** 1编辑 2套红 3打印 4版式 */
+  mouldType?: number;
+  fileId?: string;
+  gbtProfileId?: string;
+  docTypeCode?: string;
+  defId?: string | null;
+  enabled?: number;
+}
+
+export interface OdocBookmark {
+  id?: string;
+  mouldId?: string;
+  name?: string;
+  descript?: string;
+  elementType?: string;
+  showOrder?: number;
+  /** 1=正文占位书签（套红时插入正文，不填字段） */
+  isContent?: number;
+}
+
+export interface OdocTaohongInfo {
+  docId?: string;
+  hasUsedTemplet?: number;
+  currentVersion?: OdocVersion;
+  moulds?: OdocMould[];
+  mustTaohong?: number;
+}
+
+export const mouldApi = {
+  create: (params: { mouldName: string; mouldType: number; fileId: any; defId?: any; docTypeCode?: string }) =>
+    request<ApiResponse<OdocMould>>(`${WORKFLOW}/odoc/mould/create`, { method: 'POST', params }),
+  list: (defId?: any, mouldType?: number) =>
+    request<ApiResponse<OdocMould[]>>(`${WORKFLOW}/odoc/mould/list`, {
+      method: 'GET',
+      params: { defId, mouldType },
+    }),
+  get: (mouldId: any) =>
+    request<ApiResponse<OdocMould>>(`${WORKFLOW}/odoc/mould/${mouldId}`, { method: 'GET' }),
+  remove: (mouldId: any) =>
+    request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/mould/${mouldId}`, { method: 'DELETE' }),
+  extractBookmarks: (mouldId: any) =>
+    request<ApiResponse<OdocBookmark[]>>(`${WORKFLOW}/odoc/mould/${mouldId}/extract-bookmarks`, {
+      method: 'POST',
+    }),
+  bookmarks: (mouldId: any) =>
+    request<ApiResponse<OdocBookmark[]>>(`${WORKFLOW}/odoc/mould/${mouldId}/bookmarks`, { method: 'GET' }),
+  updateBookmarks: (mouldId: any, bookmarks: any[]) =>
+    request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/mould/${mouldId}/bookmarks`, {
+      method: 'PUT',
+      data: bookmarks,
+    }),
+  saveFieldMaps: (mouldId: any, defId: any, maps: any[]) =>
+    request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/mould/${mouldId}/field-maps`, {
+      method: 'POST',
+      params: { defId },
+      data: maps,
+    }),
+  fieldMaps: (mouldId: any) =>
+    request<ApiResponse<any[]>>(`${WORKFLOW}/odoc/mould/${mouldId}/field-maps`, { method: 'GET' }),
+};
+
+export const taohongApi = {
+  /** 执行套红；fieldValues=表单字段值（键=字段名） */
+  taohong: (docId: any, mouldId: any, fieldValues?: Record<string, any>) =>
+    request<ApiResponse<OdocVersion>>(`${WORKFLOW}/odoc/taohong`, {
+      method: 'POST',
+      params: { docId, mouldId },
+      data: fieldValues || {},
+    }),
+  cancel: (docId: any) =>
+    request<ApiResponse<OdocVersion>>(`${WORKFLOW}/odoc/cancel-taohong`, {
+      method: 'POST',
+      params: { docId },
+    }),
+  info: (docId: any) =>
+    request<ApiResponse<OdocTaohongInfo>>(`${WORKFLOW}/odoc/taohong-info`, {
+      method: 'GET',
+      params: { docId },
+    }),
+};
+
+// ───────────── 流程建文设置（odoc process-set） ─────────────
+export interface OdocProcessSet {
+  id?: string;
+  defId: any;
+  /** 0非公文 1发文 2收文 3签报 */
+  officalType?: number;
+  docFieldKey?: string;
+  docTitleFieldKey?: string;
+  taohongNodeKey?: string;
+  signatureNodeKeys?: string;
+  cleanCopyNodeKeys?: string;
+  printNodeKeys?: string;
+  numberFieldKey?: string;
+  defaultSecCategory?: any;
+  isPermissionTemp?: number;
+  taohongMouldId?: any;
+  mustTaohong?: number;
+  finalizeNodeKey?: string;
+  layoutNodeKey?: string;
+  signNodeKey?: string;
+  /** 0不启用 12PDF 13OFD */
+  layoutFormat?: number;
+  ofdVendor?: string;
+  sealRequired?: number;
+  sealConfig?: string;
+}
+
+export const processSetApi = {
+  get: (defId: any) =>
+    request<ApiResponse<OdocProcessSet>>(`${WORKFLOW}/odoc/process-set`, {
+      method: 'GET',
+      params: { defId },
+    }),
+  save: (set: OdocProcessSet) =>
+    request<ApiResponse<OdocProcessSet>>(`${WORKFLOW}/odoc/process-set`, {
+      method: 'POST',
+      data: set,
+    }),
+};
+
+// ───────────── 文号（odoc number） ─────────────
+export interface OdocNumber {
+  id?: string;
+  typeName?: string;
+  prefix?: string;
+  yearPre?: string;
+  yearEnd?: string;
+  showYear?: number;
+  serialPre?: string;
+  serial?: number;
+  digit?: number;
+  fillZero?: number;
+  defIds?: string;
+  mouldIds?: string;
+  isOpen?: number;
+  isUsed?: number;
+}
+
+export const numberApi = {
+  assign: (defId: any) =>
+    request<ApiResponse<string>>(`${WORKFLOW}/odoc/number/assign`, { method: 'POST', params: { defId } }),
+  preview: (defId: any) =>
+    request<ApiResponse<string>>(`${WORKFLOW}/odoc/number/preview`, { method: 'GET', params: { defId } }),
+  rules: (defId?: any) =>
+    request<ApiResponse<OdocNumber[]>>(`${WORKFLOW}/odoc/number/rules`, { method: 'GET', params: { defId } }),
+  createRule: (rule: OdocNumber) =>
+    request<ApiResponse<OdocNumber>>(`${WORKFLOW}/odoc/number/rule`, { method: 'POST', data: rule }),
+  updateRule: (rule: OdocNumber) =>
+    request<ApiResponse<OdocNumber>>(`${WORKFLOW}/odoc/number/rule`, { method: 'PUT', data: rule }),
+  removeRule: (id: any) =>
+    request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/number/rule/${id}`, { method: 'DELETE' }),
+};
+
+// ───────────── AI 增强 L1（智能排版/范文/敏感词） ─────────────
+export interface OdocLayoutRule {
+  elementType?: string;
+  label?: string;
+  fontFamily?: string;
+  fontSizePt?: number;
+  align?: string;
+  xMm?: number;
+  yMm?: number;
+  widthMm?: number;
+  heightMm?: number;
+  required?: boolean;
+  dataKey?: string;
+}
+export interface OdocSample {
+  docType?: string;
+  docTypeName?: string;
+  title?: string;
+  body?: string;
+}
+export interface OdocSensitiveHit {
+  word?: string;
+  category?: string;
+  index?: number;
+}
+
+export const aiApi = {
+  layout: (docTypeCode?: string) =>
+    request<ApiResponse<any>>(`${WORKFLOW}/odoc/ai/layout`, { method: 'GET', params: { docTypeCode } }),
+  layoutRules: (docTypeCode?: string) =>
+    request<ApiResponse<OdocLayoutRule[]>>(`${WORKFLOW}/odoc/ai/layout-rules`, {
+      method: 'GET',
+      params: { docTypeCode },
+    }),
+  samples: (docTypeCode?: string) =>
+    request<ApiResponse<OdocSample[]>>(`${WORKFLOW}/odoc/ai/samples`, { method: 'GET', params: { docTypeCode } }),
+  sensitiveCheck: (text: string) =>
+    request<ApiResponse<OdocSensitiveHit[]>>(`${WORKFLOW}/odoc/ai/sensitive-check`, {
+      method: 'POST',
+      params: { text },
+    }),
+};
+
+// ───────────── 版式文件 / 电子签章（odoc layout & seal，L2） ─────────────
+export interface OdocLayoutFile {
+  id?: string;
+  docId?: string;
+  srcVersionId?: string;
+  /** 12PDF 13OFD */
+  format?: number;
+  fileId?: string;
+  vendor?: string;
+  layoutStage?: number;
+  isFinal?: number;
+}
+export interface OdocSeal {
+  id?: string;
+  docId?: string;
+  layoutFileId?: string;
+  signerId?: string;
+  sealType?: number;
+  page?: number;
+  offsetX?: number;
+  offsetY?: number;
+  vendor?: string;
+  vendorSealId?: string;
+  sealFileId?: string;
+  certSn?: string;
+  algorithm?: string;
+  tsaToken?: string;
+  status?: number;
+  signTime?: string;
+  verifyTime?: string;
+  verifyResult?: string;
+}
+
+/** 版式文件内容原始地址（浏览器直连预览/下载，不走 request JSON 解析） */
+export const odocLayoutContentUrl = (layoutFileId: any) =>
+  `${WORKFLOW}/odoc/layout/${layoutFileId}/content`;
+
+export const layoutApi = {
+  available: () => request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/layout/available`, { method: 'GET' }),
+  fontCheck: () =>
+    request<
+      ApiResponse<{ font?: string; usage?: string; required?: boolean; available?: boolean; note?: string }[]>
+    >(`${WORKFLOW}/odoc/font-check`, { method: 'GET' }),
+  to: (docId: any, srcVersionId: any, format: number) =>
+    request<ApiResponse<OdocLayoutFile>>(`${WORKFLOW}/odoc/layout/to`, {
+      method: 'POST',
+      params: { docId, srcVersionId, format },
+    }),
+  list: (docId: any) =>
+    request<ApiResponse<OdocLayoutFile[]>>(`${WORKFLOW}/odoc/layout/list`, { method: 'GET', params: { docId } }),
+};
+
+export const sealApi = {
+  available: () => request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/seal/available`, { method: 'GET' }),
+  sign: (docId: any, layoutFileId: any, req: { sealType?: number; page?: number; offsetX?: number; offsetY?: number; signerName?: string }) =>
+    request<ApiResponse<OdocSeal>>(`${WORKFLOW}/odoc/seal/sign`, {
+      method: 'POST',
+      params: { docId, layoutFileId },
+      data: req,
+    }),
+  verify: (sealId: any) =>
+    request<ApiResponse<OdocSeal>>(`${WORKFLOW}/odoc/seal/verify/${sealId}`, { method: 'POST' }),
+  list: (docId: any) =>
+    request<ApiResponse<OdocSeal[]>>(`${WORKFLOW}/odoc/seal/list`, { method: 'GET', params: { docId } }),
+};

@@ -313,6 +313,8 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
       readOnly={readOnly}
       nodeId={nodeKey || pkgNodeKey}
       nodePermission={nodePermission}
+      instanceId={instanceId}
+      defId={previewDefId}
       // 快照可能是坐标键（Excel 路径）或字段名键（旧 FieldRenderer/测试页场景表单），
       // 后者补成坐标键才能回显
       initialValues={initialValues}

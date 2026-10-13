@@ -13,6 +13,7 @@ import {
 import { PaperClipOutlined, UploadOutlined } from '@ant-design/icons';
 import BrowserControl from './BrowserControl';
 import MobileFieldControl from './MobileFieldControl';
+import OdocField from './OdocField';
 import type { ControlType, FieldControlBaseProps, FieldOption } from './fieldTypes';
 import { DATE_FMT, DATETIME_FMT, fromDayjsValue, toDayjsValue } from './fieldTypes';
 import { FIELD_COLOR, resolveVariant, useIsMobileViewport } from './fieldTokens';
@@ -73,6 +74,9 @@ export const FieldControl: React.FC<FieldControlProps> = (props) => {
     inputId,
     style,
     variant = 'desktop',
+    instanceId,
+    defId,
+    fieldTitle,
   } = props;
 
   // 响应式：variant='auto' 时按视口宽度自动切换。
@@ -302,6 +306,20 @@ export const FieldControl: React.FC<FieldControlProps> = (props) => {
     case 'label':
       // 纯文本说明：不渲染输入控件
       return <span style={style}>{value || ''}</span>;
+
+    case 'odoc':
+      // 正文字段：在线编辑 + 版本管理（OnlyOffice），value 为 docId
+      return (
+        <OdocField
+          value={value}
+          instanceId={instanceId}
+          defId={defId}
+          fieldTitle={fieldTitle}
+          disabled={disabled}
+          readOnly={readOnly}
+          onChange={onChange}
+        />
+      );
 
     default:
       // 未知类型兜底为文本框，保证字段始终是可交互控件而非纯文本

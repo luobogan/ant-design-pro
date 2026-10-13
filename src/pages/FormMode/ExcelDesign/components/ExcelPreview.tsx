@@ -494,7 +494,11 @@ const FieldCell: React.FC<{
   scope?: string;
   /** 控件外观变体：Excel 网格内 desktop（默认），手机端列表化布局 mobile */
   variant?: FieldVariant;
-}> = ({ cell, sheetId, row, col, value, onChange, error, readOnly, cellStyle, attrBg, inputId, nodePermission, scope, variant }) => {
+  /** 流程实例ID（正文字段首次初始化依赖） */
+  instanceId?: any;
+  /** 流程定义ID */
+  defId?: any;
+}> = ({ cell, sheetId, row, col, value, onChange, error, readOnly, cellStyle, attrBg, inputId, nodePermission, scope, variant, instanceId, defId }) => {
   const meta = cell.fieldMeta;
   // 节点字段权限解析（审批态渲染包下发）：以权限函数替代布尔 readOnly（文档 §3.3-3）
   const nodePerm =
@@ -573,6 +577,8 @@ const FieldCell: React.FC<{
       inputId={inputId}
       style={fieldStyle}
       variant={variant}
+      instanceId={instanceId}
+      defId={defId}
     />
   );
 
@@ -736,6 +742,10 @@ const renderCellNode = (
   scope?: string,
   /** 控件外观变体：Excel 网格内传 desktop（默认），手机端列表化布局传 mobile */
   variant?: FieldVariant,
+  /** 流程实例ID（正文字段首次初始化依赖） */
+  instanceId?: any,
+  /** 流程定义ID */
+  defId?: any,
 ): React.ReactNode => {
   const meta = cell.fieldMeta;
   const rawValue = cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
@@ -807,6 +817,8 @@ const renderCellNode = (
       attrBg={attrBg}
       inputId={ids?.inputId}
       variant={variant}
+      instanceId={instanceId}
+      defId={defId}
     />
   );
   if (!ids) return fieldNode;
@@ -846,6 +858,10 @@ const SheetPreviewForm: React.FC<{
   /** 明细表子画布：对齐 ecology DetailTable.tsx，table 宽度 = 100% 铺满容器；
    *  主表不传（保持真实列宽合计 + margin:0 auto 居中，避免列宽失真）。 */
   fillWidth?: boolean;
+  /** 流程实例ID（正文字段首次初始化依赖） */
+  instanceId?: any;
+  /** 流程定义ID */
+  defId?: any;
 }> = ({
   sheet,
   formValues,
@@ -864,6 +880,8 @@ const SheetPreviewForm: React.FC<{
   onDeleteSelectedDetailRows,
   nodePermission,
   fillWidth,
+  instanceId,
+  defId,
 }) => {
   // 字段 / 表头 DOM id 映射：按「作用域 + 类型 + 字段名」生成唯一 id（见 utils/fieldDomId.ts）
   const domIdMap = useMemo(() => buildDomIdMap(sheet, keyPrefix), [sheet, keyPrefix]);
@@ -1043,6 +1061,8 @@ const SheetPreviewForm: React.FC<{
                                   onToggleSelect={(n, checked) => onToggleDetailRow?.(dtIdx, n, checked)}
                                   onToggleSelectAll={(checked) => onToggleAllDetailRows?.(dtIdx, checked)}
                                   onDeleteSelected={() => onDeleteSelectedDetailRows?.(dtIdx)}
+                                  instanceId={instanceId}
+                                  defId={defId}
                                 />
                               </div>
                             );
@@ -1087,7 +1107,7 @@ const SheetPreviewForm: React.FC<{
                       }}
                     >
                       {cell
-                        ? renderCellNode(
+                        ?                           renderCellNode(
                             cell,
                             keyPrefix ? `${keyPrefix}${cellKey(sheet.id, r, c)}` : cellKey(sheet.id, r, c),
                             sheet.id,
@@ -1100,6 +1120,9 @@ const SheetPreviewForm: React.FC<{
                             domIdMap,
                             nodePermission,
                             scope,
+                            'desktop',
+                            instanceId,
+                            defId,
                           )
                         : ' '}
                     </td>
@@ -1140,6 +1163,10 @@ const MobileSheetForm: React.FC<{
   onDeleteSelectedDetailRows?: (idx: number) => void;
   /** 节点权限解析器（预览态用于判断字段必填等），由上层 ExcelPreview 透传 */
   nodePermission?: NodePermissionResolver;
+  /** 流程实例ID（正文字段首次初始化依赖） */
+  instanceId?: any;
+  /** 流程定义ID */
+  defId?: any;
 }> = ({
   sheet,
   formValues,
@@ -1157,6 +1184,8 @@ const MobileSheetForm: React.FC<{
   onToggleAllDetailRows,
   onDeleteSelectedDetailRows,
   nodePermission,
+  instanceId,
+  defId,
 }) => {
   const items = useMemo(() => extractMobileItems(sheet), [sheet]);
   // 字段 / 表头 DOM id 映射（手机端同样按作用域 + 类型 + 字段名生成唯一 id）
@@ -1211,6 +1240,8 @@ const MobileSheetForm: React.FC<{
                 onToggleSelect={(n, checked) => onToggleDetailRow?.(item.idx, n, checked)}
                 onToggleSelectAll={(checked) => onToggleAllDetailRows?.(item.idx, checked)}
                 onDeleteSelected={() => onDeleteSelectedDetailRows?.(item.idx)}
+                instanceId={instanceId}
+                defId={defId}
               />
             </div>
           );
@@ -1223,7 +1254,7 @@ const MobileSheetForm: React.FC<{
               key={`e-${i}`}
               style={{ padding: '10px 12px', borderBottom: `1px solid ${E9_COLORS.cardBorder}` }}
             >
-              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, undefined, domIdMap, nodePermission, scope, 'mobile')}
+              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, undefined, domIdMap, nodePermission, scope, 'mobile', instanceId, defId)}
             </div>
           );
         }
@@ -1268,7 +1299,7 @@ const MobileSheetForm: React.FC<{
               {item.required && <span style={{ color: FIELD_COLOR.required, marginLeft: 2 }}>*</span>}
             </div>
             <div style={{ flex: '1 1 200px', minWidth: 0 }}>
-              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, item.attrBg, domIdMap, nodePermission, scope, 'mobile')}
+              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, item.attrBg, domIdMap, nodePermission, scope, 'mobile', instanceId, defId)}
             </div>
           </div>
         );
@@ -1302,6 +1333,10 @@ const DetailBlock: React.FC<{
   onToggleSelect?: (rowIdx: number, checked: boolean) => void;
   onToggleSelectAll?: (checked: boolean) => void;
   onDeleteSelected?: () => void;
+  /** 流程实例ID（正文字段首次初始化依赖；由上层逐级透传） */
+  instanceId?: any;
+  /** 流程定义ID */
+  defId?: any;
 }> = ({
   layout,
   prefix,
@@ -1319,6 +1354,8 @@ const DetailBlock: React.FC<{
   onToggleSelect,
   onToggleSelectAll,
   onDeleteSelected,
+  instanceId,
+  defId,
 }) => {
   const dtSheets = extractSheets(layout);
 
@@ -1401,6 +1438,8 @@ const DetailBlock: React.FC<{
                       readOnly={readOnly}
                       nodePermission={nodePermission}
                       keyPrefix={rowPrefix}
+                      instanceId={instanceId}
+                      defId={defId}
                     />
                   ) : (
                     <SheetPreviewForm
@@ -1413,6 +1452,8 @@ const DetailBlock: React.FC<{
                       nodePermission={nodePermission}
                       keyPrefix={rowPrefix}
                       fillWidth
+                      instanceId={instanceId}
+                      defId={defId}
                     />
                   ),
                 )
@@ -1490,6 +1531,10 @@ interface ExcelPreviewProps {
   readOnly?: boolean;
   /** 审批节点 Key（审批态渲染时由调用方注入，仅用于 data-excelp-node 标记，便于按节点检索） */
   nodeId?: string;
+  /** 流程实例ID（正文字段首次初始化依赖；发起态/办理态调用方注入） */
+  instanceId?: any;
+  /** 流程定义ID */
+  defId?: any;
   /**
    * 节点字段权限解析器（替代布尔 readOnly）：按字段名返回该节点下的权限。
    * 优先级：节点权限 > fieldAttr > Excel 样式 > 默认（文档 §3.3-4）。
@@ -1558,6 +1603,8 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
   onSubmit,
   onValuesChange,
   initialValues,
+  instanceId,
+  defId,
 }, ref) => {
   // 安装全局字段访问器 window.ExcelPreview（供布局级代码块中的 JS 直接按 id / 字段名操作字段）。
   // 挂载时安装、卸载时清理；布局级脚本在提交后才执行（见下方注入 effect），因此使用前必然已就绪。
@@ -1923,6 +1970,8 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
               onToggleDetailRow={handleToggleDetailRow}
               onToggleAllDetailRows={handleToggleAllDetailRows}
               onDeleteSelectedDetailRows={handleDeleteSelectedDetailRows}
+              instanceId={instanceId}
+              defId={defId}
             />
           </div>
         ))}
@@ -1944,6 +1993,8 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
               onToggleSelect={(n, checked) => handleToggleDetailRow(b.idx, n, checked)}
               onToggleSelectAll={(checked) => handleToggleAllDetailRows(b.idx, checked)}
               onDeleteSelected={() => handleDeleteSelectedDetailRows(b.idx)}
+              instanceId={instanceId}
+              defId={defId}
             />
           </div>
         ))}
@@ -1976,6 +2027,8 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
               onToggleDetailRow={handleToggleDetailRow}
               onToggleAllDetailRows={handleToggleAllDetailRows}
               onDeleteSelectedDetailRows={handleDeleteSelectedDetailRows}
+              instanceId={instanceId}
+              defId={defId}
             />
           </div>
         ))}
@@ -1998,6 +2051,8 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
               onToggleSelect={(n, checked) => handleToggleDetailRow(b.idx, n, checked)}
               onToggleSelectAll={(checked) => handleToggleAllDetailRows(b.idx, checked)}
               onDeleteSelected={() => handleDeleteSelectedDetailRows(b.idx)}
+              instanceId={instanceId}
+              defId={defId}
             />
           </div>
         ))}
