@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Button,
   Divider,
+  Empty,
   Input,
   InputNumber,
   Modal,
@@ -14,11 +16,11 @@ import {
   message,
 } from 'antd';
 import { DeleteOutlined, LinkOutlined } from '@ant-design/icons';
-import {
-  WfNodeOperator,
-} from '@/services/workflow';
+import { WfNodeOperator } from '@/services/workflow';
 import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
 import { fetchUserNames, loadPersonOrgData } from '@/components/FormMode/personOrg';
+import * as matrixSvc from '@/pages/System/Matrix/service';
+import type { WfMatrixField } from '@/pages/System/Matrix/service';
 import { BHXJ, SIGN_ORDERS } from './wfDict';
 import { getActiveModeler } from './bpmnModelerHolder';
 import { getWfNodeExt, setWfNodeExt, WfOperator } from './bpmnExtension';
@@ -180,6 +182,77 @@ const TYPE_LABELS: Record<number, string> = {
   6: '字段-人员上级',
   42: '字段-部门',
   43: '字段-角色',
+  99: '组织矩阵',
+};
+
+/** 矩阵条件来源（对齐后端 WfOperatorResolver.resolveConditionValue 的 wfField 语义） */
+type CondSource = 'form' | 'creatorDept' | 'creatorDivision' | 'fixedDept' | 'fixedBranch';
+const COND_SOURCE_OPTIONS: { value: CondSource; label: string }[] = [
+  { value: 'form', label: '表单字段' },
+  { value: 'creatorDept', label: '创建人部门' },
+  { value: 'creatorDivision', label: '创建人分部' },
+  { value: 'fixedDept', label: '指定部门' },
+  { value: 'fixedBranch', label: '指定分部' },
+];
+/** 矩阵条件范围（对齐后端 bhxj / E9 workflow_matrixdetail.WORKFLOW_BHXJ） */
+const MATRIX_SCOPE_OPTIONS = [
+  { value: 0, label: '本部' },
+  { value: 1, label: '含下级' },
+  { value: 2, label: '含上级' },
+  { value: 3, label: '逐级向上' },
+];
+interface MatrixCondRow {
+  condField: string;
+  source: CondSource;
+  formField?: string;
+  fixedId?: string;
+  bhxj?: number;
+}
+/** 落 BPMN 的 matrixJson 结构（与后端 WfOperatorResolver.MatrixCfg 对齐） */
+interface MatrixCfgJson {
+  matrixId: string;
+  valueField: string;
+  conditions: { condField: string; wfField: string; objId?: string; bhxj?: number }[];
+}
+const condRowToCond = (r: MatrixCondRow): { condField: string; wfField: string; objId?: string; bhxj?: number } => {
+  // 编码对齐 E9：-12 创建人部门 / -13 创建人分部 / -2 指定部门 / -1 指定分部
+  switch (r.source) {
+    case 'creatorDept':
+      return { condField: r.condField, wfField: '-12', bhxj: r.bhxj ?? 0 };
+    case 'creatorDivision':
+      return { condField: r.condField, wfField: '-13', bhxj: r.bhxj ?? 0 };
+    case 'fixedDept':
+      return { condField: r.condField, wfField: '-2', objId: r.fixedId || '', bhxj: r.bhxj ?? 0 };
+    case 'fixedBranch':
+      return { condField: r.condField, wfField: '-1', objId: r.fixedId || '', bhxj: r.bhxj ?? 0 };
+    default:
+      return { condField: r.condField, wfField: (r.formField || '').trim(), bhxj: r.bhxj ?? 0 };
+  }
+};
+const parseMatrixCfg = (json?: string | null): MatrixCfgJson | null => {
+  if (!json) return null;
+  try {
+    const o = JSON.parse(json);
+    if (o && o.matrixId) return o as MatrixCfgJson;
+  } catch {
+    /* ignore */
+  }
+  return null;
+};
+/** wfField 反查为可读来源（供列表摘要） */
+const wfFieldLabel = (wf: string): string => {
+  switch (wf) {
+    case '-12':
+      return '创建人部门';
+    case '-13':
+      return '创建人分部';
+    case '-1':
+      return '指定部门';
+    case '-2':
+      return '指定分部';
+    default:
+      return wf ? `表单.${wf}` : '未映射';
+  }
 };
 
 /** BPMN 扩展里的字符串型操作者 → 表单用的混合类型（WfNodeOperator） */
@@ -200,6 +273,7 @@ const fromExt = (o: WfOperator): WfNodeOperator => ({
   isPending: o.isPending != null ? Number(o.isPending) : undefined,
   isModify: o.isModify != null ? Number(o.isModify) : undefined,
   signType: o.signType != null ? Number(o.signType) : undefined,
+  matrixJson: o.matrixJson,
 });
 
 /** 表单用的 WfNodeOperator → BPMN 扩展里的字符串型操作者 */
@@ -220,6 +294,7 @@ const toExt = (o: WfNodeOperator): WfOperator => ({
   isPending: o.isPending != null ? String(o.isPending) : undefined,
   isModify: o.isModify != null ? String(o.isModify) : undefined,
   signType: o.signType != null ? String(o.signType) : undefined,
+  matrixJson: o.matrixJson,
 });
 
 const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
@@ -258,6 +333,14 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
   const [isModify, setIsModify] = useState(0);
   const [signType, setSignType] = useState<number | undefined>();
 
+  // ── 组织矩阵（opType=99）配置 ──────────────────────────
+  const [matrixOptions, setMatrixOptions] = useState<{ value: string; label: string }[]>([]);
+  const [matrixNameMap, setMatrixNameMap] = useState<Record<string, string>>({});
+  const [matrixFields, setMatrixFields] = useState<WfMatrixField[]>([]);
+  const [selMatrixId, setSelMatrixId] = useState<string | undefined>();
+  const [valueField, setValueField] = useState<string | undefined>();
+  const [condRows, setCondRows] = useState<MatrixCondRow[]>([]);
+
   // ── 名称解析字典（id → 显示名，来自统一数据层） ─────────────────
   const [userMap, setUserMap] = useState<Record<string, string>>({});
   /** 渲染时未命中的人员 id：下一轮 effect 统一精确查（/user/detail） */
@@ -285,6 +368,37 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
         })();
     setOps(list);
     setSelectedKeys([]);
+    // 还原组织矩阵配置（若已有 opType=99 行），保证重开可继续编辑
+    const cfg = parseMatrixCfg(list.find((o) => o.opType === 99)?.matrixJson);
+    if (cfg) {
+      setSelMatrixId(cfg.matrixId);
+      setValueField(cfg.valueField);
+      setCondRows(
+        (cfg.conditions || []).map((c) => {
+          // 编码对齐 E9：-12 创建人部门 / -13 创建人分部 / -2 指定部门 / -1 指定分部
+          let source: CondSource = 'form';
+          if (c.wfField === '-12') source = 'creatorDept';
+          else if (c.wfField === '-13') source = 'creatorDivision';
+          else if (c.wfField === '-1') source = 'fixedBranch';
+          else if (c.wfField === '-2') source = 'fixedDept';
+          return {
+            condField: c.condField,
+            source,
+            formField: source === 'form' ? c.wfField : undefined,
+            fixedId: source === 'fixedDept' || source === 'fixedBranch' ? c.objId : undefined,
+            bhxj: c.bhxj ?? 0,
+          };
+        }),
+      );
+      matrixSvc.fields(cfg.matrixId).then((fr: any) => {
+        setMatrixFields(Array.isArray(fr?.data) ? fr.data : []);
+      }).catch(() => {});
+    } else {
+      setSelMatrixId(undefined);
+      setValueField(undefined);
+      setCondRows([]);
+      setMatrixFields([]);
+    }
     // 操作组名称：优先取 group_name 列，回退 condition_json 里存的 name
     const metaName = list.map((o) => o.groupName || parseCondMeta(o.conditionJson).name).find((n) => n);
     setGroupName(metaName || '');
@@ -305,6 +419,94 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
     setSyncOpen(false);
     setTargetKeys([]);
   }, [open, nodeKey, initialOperators]);
+
+  // 打开时拉取矩阵列表（用于下拉选择与名称反查）
+  useEffect(() => {
+    if (!open || matrixOptions.length) return;
+    (async () => {
+      try {
+        const r: any = await matrixSvc.list();
+        const arr: any[] = Array.isArray(r?.data) ? r.data : [];
+        setMatrixOptions(arr.map((m) => ({ value: String(m.id), label: m.matrixName || String(m.id) })));
+        setMatrixNameMap(Object.fromEntries(arr.map((m) => [String(m.id), m.matrixName || String(m.id)])));
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [open, matrixOptions.length]);
+
+  const matrixFieldLabel = (key: string): string =>
+    matrixFields.find((f) => f.fieldKey === key)?.displayName || key;
+
+  // 条件维度是否组织型（部门/分部）——仅这类维度按 bhxj 做范围展开
+  const isOrgCond = (key: string): boolean => {
+    const bt = matrixFields.find((f) => f.fieldKey === key)?.browserType;
+    return bt === 4 || bt === 57 || bt === 164 || bt === 194;
+  };
+
+  // 选择矩阵 → 拉字段 → 初始化结果维度与条件映射行
+  const onSelectMatrix = async (id: string) => {
+    setSelMatrixId(id);
+    setValueField(undefined);
+    setCondRows([]);
+    setMatrixFields([]);
+    if (!id) return;
+    try {
+      const fr: any = await matrixSvc.fields(id);
+      const fs: WfMatrixField[] = Array.isArray(fr?.data) ? fr.data : [];
+      setMatrixFields(fs);
+      setValueField(fs.find((f) => f.fieldType === 1)?.fieldKey);
+      setCondRows(fs.filter((f) => f.fieldType === 0).map((f) => ({ condField: f.fieldKey!, source: 'form', bhxj: 0 })));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const addMatrixOperator = () => {
+    if (!groupName.trim()) {
+      message.warning('请输入操作组名称');
+      return;
+    }
+    if (!selMatrixId) {
+      message.warning('请选择矩阵');
+      return;
+    }
+    if (!valueField) {
+      message.warning('请选择结果维度');
+      return;
+    }
+    for (const r of condRows) {
+      if (r.source === 'form' && !(r.formField || '').trim()) {
+        message.warning(`条件「${matrixFieldLabel(r.condField)}」请填写表单字段名`);
+        return;
+      }
+      if ((r.source === 'fixedDept' || r.source === 'fixedBranch') && !r.fixedId) {
+        message.warning(`条件「${matrixFieldLabel(r.condField)}」请选择固定的部门/分部`);
+        return;
+      }
+    }
+    const cfg: MatrixCfgJson = { matrixId: selMatrixId, valueField, conditions: condRows.map(condRowToCond) };
+    const row: WfNodeOperator = {
+      groupNo: 1,
+      opType: 99,
+      objId: selMatrixId,
+      matrixJson: JSON.stringify(cfg),
+      levelMin,
+      levelMax,
+      signOrder,
+      batchNo,
+      groupName: groupName.trim(),
+      canView,
+      conditionJson: buildCondJson({ name: groupName.trim(), logic: condLogic, rules, expr: legacyExpr }),
+      isCoadjutant: isCoadjutant ? 1 : 0,
+      coadjutants: isCoadjutant ? coadjutants || '' : undefined,
+      isPending: isCoadjutant ? isPending : 0,
+      isModify: isCoadjutant ? isModify : 0,
+      signType: isCoadjutant ? signType : undefined,
+    };
+    setOps((prev) => [...prev, row]);
+    message.success('已添加矩阵操作者');
+  };
 
   // 打开时加载部门/角色/岗位字典（数量小，一次性）；人员改为**按需精确查**
   useEffect(() => {
@@ -361,6 +563,13 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
   /** 名称：objId 可能是逗号分隔的多个 id（多选），逐个解析后拼接 */
   const nameOf = (r: WfNodeOperator): string => {
     const raw = (r.objId || '').trim();
+    if (r.opType === 99) {
+      const cfg = parseMatrixCfg(r.matrixJson);
+      const mName = matrixNameMap[raw] || raw || '未选择矩阵';
+      if (!cfg) return mName;
+      const conds = (cfg.conditions || []).map((c) => `${matrixFieldLabel(c.condField)}=${wfFieldLabel(c.wfField)}`).join(' 且 ');
+      return `${mName}（取：${matrixFieldLabel(cfg.valueField)}）${conds ? `｜${conds}` : ''}`;
+    }
     if (!raw) return '';
     if ([5, 6, 42, 43].includes(r.opType ?? -1)) return `字段：${raw}`;
     const names = raw
@@ -733,9 +942,127 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
             key: 'matrix',
             label: '矩阵对应',
             children: (
-              <div style={{ color: '#999', padding: '24px 0', textAlign: 'center' }}>
-                矩阵对应（组织矩阵）暂未开放，请使用「通用」页签配置操作者。
-              </div>
+              <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center' }}>
+                  <Space size={4}>
+                    <span style={{ color: '#666' }}>选择矩阵：</span>
+                    <Select
+                      style={{ width: 260 }}
+                      showSearch
+                      value={selMatrixId}
+                      placeholder="选择组织矩阵"
+                      options={matrixOptions}
+                      optionFilterProp="label"
+                      onChange={onSelectMatrix}
+                    />
+                  </Space>
+                  <Space size={4}>
+                    <span style={{ color: '#666' }}>操作者（结果维度）：</span>
+                    <Select
+                      style={{ width: 200 }}
+                      value={valueField}
+                      placeholder="选择结果维度"
+                      options={matrixFields
+                        .filter((f) => f.fieldType === 1)
+                        .map((f) => ({ value: f.fieldKey, label: f.displayName }))}
+                      onChange={setValueField}
+                    />
+                  </Space>
+                </div>
+
+                <div>
+                  <div style={{ marginBottom: 6, color: '#666' }}>
+                    条件（多条件为「并且」关系，流程到该节点时按这些条件取值，到矩阵里匹配数据行）：
+                  </div>
+                  {condRows.length === 0 && <Empty description="该矩阵暂无条件维度" />}
+                  {condRows.map((row, idx) => (
+                    <Space
+                      key={row.condField}
+                      size={6}
+                      style={{ marginBottom: 6, display: 'flex', alignItems: 'center' }}
+                    >
+                      <span style={{ width: 110 }}>{matrixFieldLabel(row.condField)}</span>
+                      <span style={{ color: '#bbb' }}>属于</span>
+                      <Select
+                        style={{ width: 120 }}
+                        value={row.source}
+                        options={COND_SOURCE_OPTIONS}
+                        onChange={(v) => {
+                          const next = [...condRows];
+                          next[idx] = {
+                            ...row,
+                            source: v as CondSource,
+                            formField: v === 'form' ? row.formField : undefined,
+                            fixedId: v === 'fixedDept' || v === 'fixedBranch' ? row.fixedId : undefined,
+                          };
+                          setCondRows(next);
+                        }}
+                      />
+                      {row.source === 'form' && (
+                        <Input
+                          style={{ width: 160 }}
+                          placeholder="表单字段名"
+                          value={row.formField || ''}
+                          onChange={(e) => {
+                            const next = [...condRows];
+                            next[idx] = { ...row, formField: e.target.value };
+                            setCondRows(next);
+                          }}
+                        />
+                      )}
+                      {row.source === 'fixedDept' && (
+                        <PersonOrgField
+                          browserType={2}
+                          value={row.fixedId}
+                          onChange={(v) => {
+                            const next = [...condRows];
+                            next[idx] = { ...row, fixedId: v || '' };
+                            setCondRows(next);
+                          }}
+                          placeholder="选择部门"
+                        />
+                      )}
+                      {row.source === 'fixedBranch' && (
+                        <PersonOrgField
+                          browserType={18}
+                          value={row.fixedId}
+                          onChange={(v) => {
+                            const next = [...condRows];
+                            next[idx] = { ...row, fixedId: v || '' };
+                            setCondRows(next);
+                          }}
+                          placeholder="选择分部"
+                        />
+                      )}
+                      {isOrgCond(row.condField) && (
+                        <Select
+                          style={{ width: 104 }}
+                          value={row.bhxj ?? 0}
+                          options={MATRIX_SCOPE_OPTIONS}
+                          title="范围"
+                          onChange={(v) => {
+                            const next = [...condRows];
+                            next[idx] = { ...row, bhxj: v };
+                            setCondRows(next);
+                          }}
+                        />
+                      )}
+                    </Space>
+                  ))}
+                </div>
+
+                <Alert
+                  type="info"
+                  showIcon
+                  message="流程到该节点时，按上方条件取到值，到「组织矩阵」匹配数据行，取结果维度的人作为办理人；命中多人则生成多个待办。"
+                />
+
+                <div style={{ textAlign: 'right' }}>
+                  <Button type="primary" onClick={addMatrixOperator}>
+                    添加操作者设置
+                  </Button>
+                </div>
+              </Space>
             ),
           },
         ]}

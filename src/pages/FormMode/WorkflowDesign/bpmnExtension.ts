@@ -35,6 +35,7 @@ export interface WfOperator {
   isPending?: string;
   isModify?: string;
   signType?: string;
+  matrixJson?: string;
 }
 
 /** 字段权限（wf:fieldPerm，主表 scope=main / 明细表 scope=dt{idx}；含 P3-5 三维度细粒度） */
@@ -245,6 +246,7 @@ export const getWfNodeExt = (element: any): WfNodeExt | null => {
     isPending: str(o.isPending),
     isModify: str(o.isModify),
     signType: str(o.signType),
+    matrixJson: str(o.matrixJson),
   }));
   const fieldPerms: WfFieldPerm[] = fieldPermEls.map((f) => ({
     scope: str(f.scope) ?? 'main',
@@ -467,6 +469,7 @@ const buildOperators = (moddle: any, ops?: WfOperator[]) =>
       isPending: o.isPending,
       isModify: o.isModify,
       signType: o.signType,
+      matrixJson: o.matrixJson,
     }),
   );
 

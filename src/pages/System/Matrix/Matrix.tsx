@@ -11,6 +11,7 @@ import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
 import { pickPayload } from '@/utils/utils';
 import {
   App,
+  Alert,
   Button,
   Card,
   Col,
@@ -38,14 +39,21 @@ import type {
   MatrixMatchVO,
 } from './service';
 
+// 值类型下拉：只暴露 4 个常用项，中文清晰；57/194 仍被 fieldCategory 兼容识别（历史数据）
 const BROWSER_TYPE_OPTIONS = [
-  { value: 1, label: '人力资源(1)' },
-  { value: 17, label: '多人力资源(17)' },
-  { value: 4, label: '部门(4)' },
-  { value: 57, label: '部门(57)' },
-  { value: 164, label: '分部(164)' },
-  { value: 194, label: '分部(194)' },
+  { value: 1, label: '人力资源' },
+  { value: 17, label: '多人力资源' },
+  { value: 4, label: '部门' },
+  { value: 164, label: '分部' },
 ];
+
+// 由显示名生成英文标识（仅取 ASCII）；纯中文返回空串，交由用户手填
+const slugify = (s: string): string =>
+  (s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
 
 const fieldTypeText = (t?: number) => (t === 1 ? '结果维度' : '条件维度');
 const fieldTypeColor = (t?: number) => (t === 1 ? 'blue' : 'gold');
@@ -223,7 +231,6 @@ const Matrix: React.FC = () => {
   };
 
   // ───────── 字段定义编辑 ─────────
-  const [fieldForm] = Form.useForm();
   const [fieldRows, setFieldRows] = useState<WfMatrixField[]>([]);
   const openFieldModal = () => {
     setFieldRows(fields.map((f) => ({ ...f })));
@@ -264,31 +271,26 @@ const Matrix: React.FC = () => {
   };
 
   const fieldColumns: ColumnsType<WfMatrixField> = [
-    { title: t('pages.system.matrix.field.key', '字段键值'), dataIndex: 'fieldKey', width: 160 },
-    { title: t('pages.system.matrix.field.name', '显示名'), dataIndex: 'displayName', width: 160 },
     {
-      title: t('pages.system.matrix.field.type', '维度'),
+      title: '维度',
       dataIndex: 'fieldType',
-      width: 100,
+      width: 110,
       render: (v: number) => <Tag color={fieldTypeColor(v)}>{fieldTypeText(v)}</Tag>,
     },
+    { title: '字段名称', dataIndex: 'displayName', width: 160 },
     {
-      title: t('pages.system.matrix.field.browser', '浏览类型'),
+      title: '值类型',
       dataIndex: 'browserType',
-      width: 130,
-      render: (v: number) => BROWSER_TYPE_OPTIONS.find((o) => o.value === v)?.label || v,
+      width: 120,
+      render: (v: number) => {
+        const cat = fieldCategory(v);
+        if (cat === 'hrm') return v === 17 ? '多人力资源' : '人力资源';
+        if (cat === 'dept') return '部门';
+        if (cat === 'branch') return '分部';
+        return v;
+      },
     },
-    {
-      title: t('pages.system.common.column.option', '操作'),
-      key: 'option',
-      width: 80,
-      render: (_: any, _r: WfMatrixField, idx: number) =>
-        hasButton('matrix', 'matrix_edit') && (
-          <a style={{ color: '#ff4d4f' }} onClick={() => removeFieldRow(idx)}>
-            <DeleteOutlined /> {t('pages.system.common.remove', '删除')}
-          </a>
-        ),
-    },
+    { title: '字段标识', dataIndex: 'fieldKey', width: 160 },
   ];
 
   // ───────── 数据行编辑 ─────────
@@ -303,7 +305,9 @@ const Matrix: React.FC = () => {
       message.warning(t('pages.system.matrix.data.needField', '请先配置字段定义'));
       return;
     }
-    setDataDraft({ dataOrder: dataRows.length + 1, values: {} });
+    // 行序默认取「当前最大行序 + 1」，避免用行数导致删行后重复占用已有行序
+    const maxOrder = dataRows.reduce((m, r) => Math.max(m, Number(r.dataOrder) || 0), 0);
+    setDataDraft({ dataOrder: maxOrder + 1, values: {} });
     setDataModalOpen(true);
   };
   /** 数据行取值控件：人员/部门/分部用选择器，其它退回文本输入 */
@@ -393,17 +397,47 @@ const Matrix: React.FC = () => {
   const [matchForm] = Form.useForm();
   const [matchResult, setMatchResult] = useState<MatrixMatchVO | null>(null);
   const [matchNames, setMatchNames] = useState<Record<string, string>>({});
+  // 条件维度值用本地 state（便于人员/部门/分部用选择器，而非手输 ID）
+  const [matchCond, setMatchCond] = useState<Record<string, string>>({});
+  useEffect(() => {
+    setMatchCond({});
+    setMatchResult(null);
+  }, [selectedId]);
+  const setMatchCondValue = (key: string, v: string) =>
+    setMatchCond((c) => ({ ...c, [key]: v }));
+  const renderCondField = (f: WfMatrixField) => {
+    const cat = fieldCategory(f.browserType);
+    const val = matchCond[f.fieldKey!] ?? '';
+    if (cat) {
+      return (
+        <PersonOrgField
+          category={cat}
+          multiple={false}
+          value={val}
+          onChange={(v) => setMatchCondValue(f.fieldKey!, v || '')}
+          placeholder={cat === 'hrm' ? '选择人员' : cat === 'branch' ? '选择分部' : '选择部门'}
+        />
+      );
+    }
+    return (
+      <Input
+        value={val}
+        onChange={(e) => setMatchCondValue(f.fieldKey!, e.target.value)}
+        allowClear
+        placeholder="输入条件值"
+      />
+    );
+  };
   const handleMatch = async () => {
     if (!selectedId) return;
-    const values = matchForm.getFieldsValue();
-    const valueField = values.valueField;
+    const valueField = matchForm.getFieldValue('valueField');
     if (!valueField) {
       message.warning(t('pages.system.matrix.match.needResult', '请选择结果维度'));
       return;
     }
     const conditions: Record<string, string> = {};
     conditionFields.forEach((f) => {
-      const v = values[`cond_${f.fieldKey}`];
+      const v = matchCond[f.fieldKey!];
       if (v !== undefined && v !== null && v !== '') conditions[f.fieldKey!] = String(v);
     });
     try {
@@ -536,6 +570,19 @@ const Matrix: React.FC = () => {
                 selectedMatrix.matrixDesc || ''
               }`}
             >
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="如何使用"
+                description={
+                  <div style={{ fontSize: 12, lineHeight: 1.8 }}>
+                    · <b>条件维度</b>：按什么匹配，如「所属部门」；<b>结果维度</b>：匹配后要找的人（办理人）。
+                    <br />· 多个条件维度是「并且」关系；每条数据行就是一条「条件 → 人」的映射。
+                    <br />· 人员 / 部门 / 分部都点「浏览」按钮选择，<b>无需手输 ID</b>。
+                  </div>
+                }
+              />
               <Tabs
                 items={[
                   {
@@ -610,10 +657,9 @@ const Matrix: React.FC = () => {
                           {conditionFields.map((f) => (
                             <Form.Item
                               key={f.fieldKey}
-                              name={`cond_${f.fieldKey}`}
-                              label={`${f.displayName}（${t('pages.system.matrix.match.cond', '条件')}）`}
+                              label={`${f.displayName}（条件）`}
                             >
-                              <Input placeholder={t('pages.system.matrix.match.condPlaceholder', '输入条件值（如部门ID）')} allowClear />
+                              {renderCondField(f)}
                             </Form.Item>
                           ))}
                           <Form.Item
@@ -654,11 +700,16 @@ const Matrix: React.FC = () => {
                               </Descriptions.Item>
                               <Descriptions.Item label={t('pages.system.matrix.match.effective', '生效条件')}>
                                 <Space direction="vertical">
-                                  {Object.entries(matchResult.effectiveConditions || {}).map(([k, v]) => (
-                                    <span key={k}>
-                                      {k} = {v}
-                                    </span>
-                                  ))}
+                                  {Object.entries(matchResult.effectiveConditions || {}).map(([k, v]) => {
+                                    const field = fields.find((f) => f.fieldKey === k);
+                                    const name = field ? field.displayName : k;
+                                    const text = field ? renderFieldValue(field, v) : String(v);
+                                    return (
+                                      <span key={k}>
+                                        {name} = {text}
+                                      </span>
+                                    );
+                                  })}
                                 </Space>
                               </Descriptions.Item>
                             </Descriptions>
@@ -716,41 +767,42 @@ const Matrix: React.FC = () => {
           pagination={false}
           columns={[
             {
-              title: t('pages.system.matrix.field.key', '字段键值'),
-              render: (_: any, _r: WfMatrixField, idx: number) => (
-                <Input
-                  value={fieldRows[idx].fieldKey}
-                  onChange={(e) => updateFieldRow(idx, { fieldKey: e.target.value })}
-                  placeholder="fieldKey"
-                />
-              ),
-            },
-            {
-              title: t('pages.system.matrix.field.name', '显示名'),
-              render: (_: any, _r: WfMatrixField, idx: number) => (
-                <Input
-                  value={fieldRows[idx].displayName}
-                  onChange={(e) => updateFieldRow(idx, { displayName: e.target.value })}
-                />
-              ),
-            },
-            {
-              title: t('pages.system.matrix.field.type', '维度'),
-              width: 110,
+              title: '维度',
+              width: 112,
               render: (_: any, _r: WfMatrixField, idx: number) => (
                 <Select
                   value={fieldRows[idx].fieldType}
                   onChange={(v) => updateFieldRow(idx, { fieldType: v })}
                   options={[
-                    { value: 0, label: t('pages.system.matrix.field.cond', '条件维度') },
-                    { value: 1, label: t('pages.system.matrix.field.result', '结果维度') },
+                    { value: 0, label: '条件维度' },
+                    { value: 1, label: '结果维度' },
                   ]}
                 />
               ),
             },
             {
-              title: t('pages.system.matrix.field.browser', '浏览类型'),
-              width: 150,
+              title: '字段名称',
+              render: (_: any, _r: WfMatrixField, idx: number) => (
+                <Input
+                  value={fieldRows[idx].displayName}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    const patch: Partial<WfMatrixField> = { displayName: name };
+                    // 标识为空（或等于上一个名称的 slug）时，自动生成英文标识
+                    const slug = slugify(name);
+                    const prevSlug = slugify(fieldRows[idx].displayName);
+                    if (slug && (!fieldRows[idx].fieldKey || fieldRows[idx].fieldKey === prevSlug)) {
+                      patch.fieldKey = slug;
+                    }
+                    updateFieldRow(idx, patch);
+                  }}
+                  placeholder="如：所属部门 / 部门负责人"
+                />
+              ),
+            },
+            {
+              title: '值类型',
+              width: 130,
               render: (_: any, _r: WfMatrixField, idx: number) => (
                 <Select
                   value={fieldRows[idx].browserType}
@@ -760,7 +812,18 @@ const Matrix: React.FC = () => {
               ),
             },
             {
-              title: t('pages.system.matrix.field.order', '排序'),
+              title: '字段标识(英文)',
+              width: 150,
+              render: (_: any, _r: WfMatrixField, idx: number) => (
+                <Input
+                  value={fieldRows[idx].fieldKey}
+                  onChange={(e) => updateFieldRow(idx, { fieldKey: e.target.value })}
+                  placeholder="如 dept / owner"
+                />
+              ),
+            },
+            {
+              title: '排序',
               width: 80,
               render: (_: any, _r: WfMatrixField, idx: number) => (
                 <InputNumber
@@ -771,7 +834,7 @@ const Matrix: React.FC = () => {
               ),
             },
             {
-              title: t('pages.system.common.column.option', '操作'),
+              title: '操作',
               width: 70,
               render: (_: any, _r: WfMatrixField, idx: number) => (
                 <a style={{ color: '#ff4d4f' }} onClick={() => removeFieldRow(idx)}>
@@ -782,7 +845,7 @@ const Matrix: React.FC = () => {
           ]}
         />
         <Button type="dashed" block icon={<PlusOutlined />} onClick={addFieldRow} style={{ marginTop: 12 }}>
-          {t('pages.system.matrix.action.addField', '新增字段')}
+          新增字段
         </Button>
       </Modal>
 
@@ -808,7 +871,7 @@ const Matrix: React.FC = () => {
           {fields.map((f) => (
             <Form.Item
               key={f.fieldKey}
-              label={`${f.displayName}${f.fieldType === 1 ? '（结果·人员ID）' : ''}`}
+              label={`${f.displayName}${f.fieldType === 1 ? '（办理人）' : ''}`}
             >
               {renderDraftField(f)}
             </Form.Item>

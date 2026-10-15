@@ -210,6 +210,8 @@ export interface WfNodeOperator {
   isPending?: number; // 协办是否生成待办
   isModify?: number; // 协办是否可修改表单
   coadjutants?: string; // 协办/征询意见人（人员id串，逗号分隔）
+  /** opType=99（组织矩阵）时的矩阵配置 JSON：{matrixId,valueField,conditions:[{condField,wfField,objId,bhxj}]} */
+  matrixJson?: string;
 }
 
 // 字段权限：0隐藏 1只读 2可编辑 3必填

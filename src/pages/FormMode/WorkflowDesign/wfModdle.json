@@ -325,6 +325,11 @@
           "name": "signType",
           "type": "String",
           "isAttr": true
+        },
+        {
+          "name": "matrixJson",
+          "type": "String",
+          "isAttr": true
         }
       ]
     },

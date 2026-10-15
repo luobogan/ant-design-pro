@@ -40,6 +40,7 @@ export const toLocalOp = (o: any): WfNodeOperator => ({
   isPending: o?.isPending != null ? parseInt(o.isPending, 10) : null,
   isModify: o?.isModify != null ? parseInt(o.isModify, 10) : null,
   signType: o?.signType != null ? parseInt(o.signType, 10) : null,
+  matrixJson: o?.matrixJson ?? null,
 });
 
 /**
