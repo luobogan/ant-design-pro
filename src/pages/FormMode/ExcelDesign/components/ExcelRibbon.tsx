@@ -50,6 +50,8 @@ import {
   InfoCircleOutlined,
   BarcodeOutlined,
   DeploymentUnitOutlined,
+  EyeInvisibleOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
 
 /**
@@ -62,7 +64,7 @@ import {
  *    （applyRangeFormat / mergeSelection / unmergeSelection / rowColOp）作用到当前选区。
  */
 
-type FieldAttr = 'readonly' | 'editable' | 'required' | null;
+type FieldAttr = 'hidden' | 'readonly' | 'editable' | 'required' | null;
 
 interface ExcelRibbonProps {
   saving?: boolean;
@@ -80,7 +82,11 @@ interface ExcelRibbonProps {
   canRedo: boolean;
   fieldAttr: FieldAttr;
   fieldAttrDisabled: boolean;
-  onFieldAttrChange: (attr: 'readonly' | 'editable' | 'required') => void;
+  onFieldAttrChange: (attr: 'hidden' | 'readonly' | 'editable' | 'required') => void;
+  /** 「禁止手工编辑」开关高亮 */
+  onlyShowActive?: boolean;
+  /** 切换「禁止手工编辑」 */
+  onFieldOnlyShowToggle?: (on: boolean) => void;
   /** 本表单拥有的明细表序号（用于「插入明细表」下拉） */
   detailTableOptions: { idx: number; count: number }[];
   onInsertDetail: (idx: number) => void;
@@ -292,6 +298,8 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
   fieldAttr,
   fieldAttrDisabled,
   onFieldAttrChange,
+  onlyShowActive,
+  onFieldOnlyShowToggle,
   detailTableOptions,
   onInsertDetail,
   visible = true,
@@ -541,6 +549,26 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
               onClick={() => onFieldAttrChange('required')}
             >
               必填
+            </Button>
+          </Tooltip>
+          <Tooltip title="设置字段为不显示（运行时不渲染该字段）">
+            <Button
+              icon={<EyeInvisibleOutlined />}
+              type={fieldAttr === 'hidden' ? 'primary' : 'default'}
+              disabled={fieldAttrDisabled}
+              onClick={() => onFieldAttrChange('hidden')}
+            >
+              不显示
+            </Button>
+          </Tooltip>
+          <Tooltip title="禁止手工编辑（显示但不可手动修改，仅可编辑/必填字段可设）">
+            <Button
+              icon={<StopOutlined />}
+              type={onlyShowActive ? 'primary' : 'default'}
+              disabled={fieldAttrDisabled || (fieldAttr !== 'editable' && fieldAttr !== 'required') || !onFieldOnlyShowToggle}
+              onClick={() => onFieldOnlyShowToggle?.(!onlyShowActive)}
+            >
+              禁止手工编辑
             </Button>
           </Tooltip>
         </Space>

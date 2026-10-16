@@ -22,6 +22,12 @@ export default [
       },
     ],
   },
+  // 登录前门户（免鉴权公开页）：渲染 page_type=0 的门户内容（公告/链接/富文本等）
+  {
+    path: '/prelogin',
+    layout: false,
+    component: './PreLogin',
+  },
   // 两个「独立页」（Excel 表单预览 / 流程审批）已改为菜单驱动，不再在此静态声明：
   //   * 后端 blade_menu 各有一行 category=2 + is_component=1 + is_open=2 的组件型菜单；
   //   * MenuServiceImpl.buildRoutes() 已放行 category=2 && isComponent=1，故 /menu/routes 会下发；

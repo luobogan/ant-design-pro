@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Form, Input, Select, InputNumber, Switch, Empty, Divider, Row, Col } from 'antd';
+import { Card, Form, Input, Select, InputNumber, Switch, Segmented, Empty, Divider, Row, Col } from 'antd';
 import { SettingOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 
 /**
@@ -28,9 +28,11 @@ const FIELD_TYPE_OPTIONS = [
 
 interface PropertyPanelProps {
   selectedField: any;
+  /** 字段属性 / 禁止手工编辑 变更回调（attr: 0不显示/1只读/2可编辑/3必填） */
+  onFieldAttrChange?: (attr: number, onlyShow: boolean) => void;
 }
 
-const PropertyPanel: React.FC<PropertyPanelProps> = ({ selectedField }) => {
+const PropertyPanel: React.FC<PropertyPanelProps> = ({ selectedField, onFieldAttrChange }) => {
   const [form] = Form.useForm();
   const [options, setOptions] = React.useState<{ label: string; value: string }[]>([]);
 
@@ -50,14 +52,16 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ selectedField }) => {
 
   const handleValuesChange = (changedValues: any, allValues: any) => {
     console.log('属性变更:', changedValues);
-    // 同步更新到 window.__pendingField 或 selectedField
-    if ((window as any).__pendingField) {
-      (window as any).__pendingField = {
-        ...(window as any).__pendingField,
-        ...allValues,
-        options,
-      };
+    // 字段属性 / 禁止手工编辑 → 回写到网格（对已放置字段立即生效；未放置时为 no-op）
+    if (changedValues && ('fieldAttr' in changedValues || 'onlyShow' in changedValues)) {
+      onFieldAttrChange?.(Number(allValues.fieldAttr ?? 2), allValues.onlyShow === true);
     }
+    // 同步更新到 window.__pendingField（拖拽放置时读取其预设属性）
+    (window as any).__pendingField = {
+      ...((window as any).__pendingField || {}),
+      ...allValues,
+      options,
+    };
   };
 
   if (!selectedField) {
@@ -127,18 +131,24 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ selectedField }) => {
           <Select options={FIELD_TYPE_OPTIONS} />
         </Form.Item>
 
-        <Row gutter={8}>
-          <Col span={12}>
-            <Form.Item label="是否必填" name="required" valuePropName="checked">
-              <Switch />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item label="是否只读" name="readonly" valuePropName="checked">
-              <Switch />
-            </Form.Item>
-          </Col>
-        </Row>
+        <Form.Item label="字段属性" name="fieldAttr" extra="0不显示 1只读 2可编辑 3必填；「不显示」字段运行时不渲染">
+          <Segmented
+            options={[
+              { label: '不显示', value: 0 },
+              { label: '只读', value: 1 },
+              { label: '可编辑', value: 2 },
+              { label: '必填', value: 3 },
+            ]}
+          />
+        </Form.Item>
+        <Form.Item
+          label="禁止手工编辑"
+          name="onlyShow"
+          valuePropName="checked"
+          extra="显示但不可手动修改（仅 可编辑/必填 有效）"
+        >
+          <Switch />
+        </Form.Item>
 
         {/* 显示属性 */}
         <Divider titlePlacement="left" plain style={{ fontSize: 12 }}>显示属性</Divider>

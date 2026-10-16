@@ -77,7 +77,9 @@ export interface RegisterRibbonOptions {
   onExport: () => void;
   onUndo: () => void;
   onRedo: () => void;
-  onFieldAttr: (attr: 'readonly' | 'editable' | 'required') => void;
+  onFieldAttr: (attr: 'hidden' | 'readonly' | 'editable' | 'required') => void;
+  /** 切换「禁止手工编辑」（读取最新状态后取反） */
+  onFieldOnlyShow: () => void;
   /** 插入明细表（传明细表序号） */
   onInsertDetail: (idx: number) => void;
   /** 当前表单拥有的明细表序号 */
@@ -325,6 +327,8 @@ export const registerDesignerRibbon = (opts: RegisterRibbonOptions): boolean => 
   addItem(TAB.FIELD_ATTR, 'attr', 'attr.readonly', '只读', () => callOpt('onFieldAttr')('readonly'), '设置字段为只读', 0, 'readonly');
   addItem(TAB.FIELD_ATTR, 'attr', 'attr.editable', '编辑', () => callOpt('onFieldAttr')('editable'), '设置字段为可编辑', 1, 'editable');
   addItem(TAB.FIELD_ATTR, 'attr', 'attr.required', '必填', () => callOpt('onFieldAttr')('required'), '设置字段为必填', 2, 'required');
+  addItem(TAB.FIELD_ATTR, 'attr', 'attr.hidden', '不显示', () => callOpt('onFieldAttr')('hidden'), '设置字段为不显示（运行时不渲染该字段）', 3, 'hidden');
+  addItem(TAB.FIELD_ATTR, 'attr', 'attr.onlyshow', '禁止手工编辑', () => callOpt('onFieldOnlyShow')(), '禁止手工编辑（仅可编辑/必填字段可设）', 4, 'onlyshow');
 
   // ── 明细表 ──（已在主表插入的明细表：页签项置灰，避免重复插入）
   if (opts.detailOptions && opts.detailOptions.length > 0) {

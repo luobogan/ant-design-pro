@@ -21,6 +21,8 @@ import {
   CheckCircleOutlined,
   EditOutlined,
   LockOutlined,
+  EyeInvisibleOutlined,
+  StopOutlined,
   TableOutlined,
   ApartmentOutlined,
 } from '@ant-design/icons';
@@ -176,14 +178,16 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
   const [previewData, setPreviewData] = useState<any>(null);
 
   // 字段属性状态
-  const [fieldAttr, setFieldAttr] = useState<'readonly' | 'editable' | 'required' | null>(null);
+  const [fieldAttr, setFieldAttr] = useState<'hidden' | 'readonly' | 'editable' | 'required' | null>(null);
+  // 「禁止手工编辑」开关状态（仅 可编辑/必填 字段可设）
+  const [onlyShowActive, setOnlyShowActive] = useState(false);
   // 属性按钮是否禁用：选中无字段元数据的单元格时禁用（参照 ecology controlOperLimits）
   const [fieldAttrDisabled, setFieldAttrDisabled] = useState(false);
 
   // ──────────────────────────────────────────────
   // 字段属性操作（参照 ecology excel 设计器）- 供工具栏按钮使用
   // ──────────────────────────────────────────────
-  const handleFieldAttrChange = useCallback((attr: 'readonly' | 'editable' | 'required') => {
+  const handleFieldAttrChange = useCallback((attr: 'hidden' | 'readonly' | 'editable' | 'required') => {
     const univerGrid = (window as any).univerExcelGrid;
     if (!univerGrid) {
       return;
@@ -194,10 +198,32 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
       return;
     }
 
-    const attrValue = attr === 'readonly' ? 1 : attr === 'editable' ? 2 : 3;
+    const attrValue = attr === 'hidden' ? 0 : attr === 'readonly' ? 1 : attr === 'editable' ? 2 : 3;
     univerGrid.setFieldAttr?.(selection.row, selection.col, attrValue);
     setFieldAttr(attr);
+    if (attrValue !== 2 && attrValue !== 3) setOnlyShowActive(false);
   }, []);
+
+  // 切换「禁止手工编辑」（仅 可编辑/必填 字段可设）
+  const handleFieldOnlyShowToggle = useCallback((on: boolean) => {
+    const univerGrid = (window as any).univerExcelGrid;
+    if (!univerGrid) return;
+    const selection = univerGrid.getSelection?.() || univerGrid.getContextCell?.();
+    if (!selection) return;
+    univerGrid.setFieldOnlyShow?.(selection.row, selection.col, on);
+    setOnlyShowActive(on);
+  }, []);
+
+  // 侧栏属性面板回调：按字段名直接回写字段属性（attr: 0-3）与禁止手工编辑（免坐标解析）
+  const handlePanelFieldAttrChange = useCallback((attr: number, onlyShow: boolean) => {
+    const univerGrid = (window as any).univerExcelGrid;
+    const name = selectedField?.fieldName;
+    if (!univerGrid || !name) return;
+    univerGrid.setFieldAttrByName?.(name, attr);
+    if (attr === 2 || attr === 3) univerGrid.setFieldOnlyShowByName?.(name, onlyShow);
+    setFieldAttr(attr === 0 ? 'hidden' : attr === 1 ? 'readonly' : attr === 2 ? 'editable' : 'required');
+    setOnlyShowActive(attr === 2 || attr === 3 ? onlyShow : false);
+  }, [selectedField]);
 
   // ──────────────────────────────────────────────
   // 加载表单布局数据
@@ -272,8 +298,10 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
   // ──────────────────────────────────────────────
   useEffect(() => {
     const handleAttrApplied = (e: Event) => {
-      const attr = (e as CustomEvent).detail?.attr;
-      setFieldAttr(attr === 1 ? 'readonly' : attr === 2 ? 'editable' : attr === 3 ? 'required' : null);
+      const detail = (e as CustomEvent).detail;
+      const attr = detail?.attr;
+      setFieldAttr(attr === 0 ? 'hidden' : attr === 1 ? 'readonly' : attr === 2 ? 'editable' : attr === 3 ? 'required' : null);
+      setOnlyShowActive(detail?.onlyShow === true);
     };
     window.addEventListener('univer-field-attr-applied', handleAttrApplied as EventListener);
     return () => {
@@ -281,11 +309,14 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     };
   }, []);
 
-  // 监听单元格选中状态 → 无字段元数据时禁用属性按钮（参照 ecology controlOperLimits 的禁用行为，不弹提示）
+  // 监听单元格选中状态 → 无字段元数据时禁用属性按钮；并按当前格属性回显高亮（只读/可编辑/必填/不显示 + 禁止手工编辑）
   useEffect(() => {
     const handleCellSelected = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       setFieldAttrDisabled(detail?.hasField === false);
+      const attr = detail?.fieldAttr;
+      setFieldAttr(attr === 0 ? 'hidden' : attr === 1 ? 'readonly' : attr === 2 ? 'editable' : attr === 3 ? 'required' : null);
+      setOnlyShowActive(detail?.onlyShow === true);
     };
     window.addEventListener('univer-cell-selected', handleCellSelected as EventListener);
     return () => {
@@ -1321,6 +1352,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     onUndo: handleUndo,
     onRedo: handleRedo,
     onFieldAttr: handleFieldAttrChange,
+    onFieldOnlyShow: () => handleFieldOnlyShowToggle(!onlyShowActive),
     onInsertDetail: handleInsertDetailTable,
     detailOptions: detailTableOptions,
   };
@@ -1442,6 +1474,28 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         必填
       </Button>
     </Tooltip>,
+    <Tooltip key="hidden-tooltip" title="设置字段为不显示（运行时不渲染该字段）">
+      <Button
+        key="hidden"
+        icon={<EyeInvisibleOutlined />}
+        type={fieldAttr === 'hidden' ? 'primary' : 'default'}
+        disabled={fieldAttrDisabled}
+        onClick={() => handleFieldAttrChange('hidden')}
+      >
+        不显示
+      </Button>
+    </Tooltip>,
+    <Tooltip key="onlyshow-tooltip" title="禁止手工编辑（显示但不可手动修改，仅可编辑/必填字段可设）">
+      <Button
+        key="onlyshow"
+        icon={<StopOutlined />}
+        type={onlyShowActive ? 'primary' : 'default'}
+        disabled={fieldAttrDisabled || (fieldAttr !== 'editable' && fieldAttr !== 'required')}
+        onClick={() => handleFieldOnlyShowToggle(!onlyShowActive)}
+      >
+        禁止手工编辑
+      </Button>
+    </Tooltip>,
   ];
 
   // ──────────────────────────────────────────────
@@ -1499,6 +1553,8 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
                   fieldAttr={fieldAttr}
                   fieldAttrDisabled={fieldAttrDisabled}
                   onFieldAttrChange={handleFieldAttrChange}
+                  onlyShowActive={onlyShowActive}
+                  onFieldOnlyShowToggle={handleFieldOnlyShowToggle}
                   detailTableOptions={detailTableOptions}
                   onInsertDetail={handleInsertDetailTable}
                   // 原生 ribbon 不可用时（注册失败）回退显示，保证操作入口不丢
@@ -1550,7 +1606,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
                   onDeleteField={handleStructureDelete}
                 />
               </div>
-              <PropertyPanel selectedField={selectedField} />
+              <PropertyPanel selectedField={selectedField} onFieldAttrChange={handlePanelFieldAttrChange} />
             </div>
           </div>
         </Spin>
@@ -1636,7 +1692,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
 
             {/* 右侧属性面板 */}
             <div style={{ width: 300, borderLeft: '1px solid #f0f0f0', overflow: 'auto' }}>
-              <PropertyPanel selectedField={selectedField} />
+              <PropertyPanel selectedField={selectedField} onFieldAttrChange={handlePanelFieldAttrChange} />
             </div>
           </div>
         )}

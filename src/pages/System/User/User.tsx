@@ -17,7 +17,7 @@ import {
 import type { ProColumns, ActionType } from '@ant-design/pro-components';
 import { PageContainer } from '@ant-design/pro-components';
 import StandardTable from '@/components/StandardTable';
-import { useModel, useRequest } from '@umijs/max';
+import { useAccess, useModel, useRequest } from '@umijs/max';
 import {
   Button,
   Card,
@@ -40,6 +40,7 @@ import * as roleApi from '@/services/authority/role';
 import * as deptApi from '@/services/system/dept';
 import * as postApi from '@/pages/System/Post/service';
 import * as userApi from '@/services/system/user';
+import * as tenantApi from '@/services/system/tenant';
 import UserAdd from './UserAdd';
 import UserEdit from './UserEdit';
 import UserStatusFlowModal from './UserStatusFlowModal';
@@ -48,6 +49,8 @@ const { Panel } = Collapse;
 
 /** 组织树顶层「公司」虚拟根节点 key（点击=查看全部用户；真实公司/分部/部门节点在其下） */
 const COMPANY_ROOT_KEY = '__company__';
+/** 超管视图顶层「全部租户」虚拟根节点 key（点击=查看所有租户用户；其下为每个租户的分支） */
+const ALL_TENANTS_KEY = '__all_tenants__';
 
 /** 人员状态 Tag 配色：在职态(0试用/1正式)绿、临时/延期蓝、退休金、解聘(4)红（该账号登录会被拦截） */
 const personStatusColor = (status?: number) => {
@@ -100,16 +103,103 @@ const UserPage: React.FC = () => {
   const [statusFlowModalVisible, setStatusFlowModalVisible] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [selectedDeptId, setSelectedDeptId] = useState<string>('');
+  const [selectedTenantId, setSelectedTenantId] = useState<string>('');
   const [searchValue, setSearchValue] = useState<string>('');
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
 
   const { initialState } = useModel('@@initialState');
+  // 管理员（角色含 admin / administrator / 超级管理员，对齐后端 SecureUtil.isAdministrator）可跨租户查看
+  const { canAdmin } = useAccess();
 
   // 获取页面按钮权限（自动从路由提取菜单 code）
   const { buttons: pageButtons, loading: buttonsLoading } = usePageButtons();
 
-  // 获取部门树数据
-  const { data: deptTreeData, loading: deptLoading } = useRequest(deptApi.tree);
+  // 超管可跨租户查看：拉全部租户 + 各租户部门树，拼成「全部租户 → 租户 → 部门」两级层级；
+  // 普通用户仅本租户部门树，根节点为「公司：{租户名}」（对齐现状）。
+  // 全程容错：任一租户部门树或租户列表失败，都不会让整棵树变空（降级为仅本租户公司树）。
+  const currentTenantId = (initialState?.currentUser as any)?.tenantId as
+    | string
+    | undefined;
+  const isSuperViewer = canAdmin || currentTenantId === '000000';
+  const [deptTreeRaw, setDeptTreeRaw] = useState<DeptNode[]>([]);
+  const [deptLoading, setDeptLoading] = useState<boolean>(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setDeptLoading(true);
+      const buildCompanyRoot = (data: any[]): any[] => {
+        const tName = (initialState?.currentUser as any)?.tenantName as
+          | string
+          | undefined;
+        return [
+          {
+            id: COMPANY_ROOT_KEY,
+            parentId: '-1',
+            key: COMPANY_ROOT_KEY,
+            title: tName ? `公司：${tName}` : '公司',
+            children: data,
+          },
+        ];
+      };
+      try {
+        if (!isSuperViewer) {
+          const res = await deptApi.tree();
+          const data = Array.isArray(res) ? res : (res as any)?.data || [];
+          if (!cancelled) setDeptTreeRaw(buildCompanyRoot(data));
+          return;
+        }
+        // 超管：先取全部租户（失败则降级为仅本租户公司树，保证树可见）
+        let tenants: any[] = [];
+        try {
+          const sel = await tenantApi.select();
+          tenants = Array.isArray(sel) ? sel : (sel as any)?.data ?? [];
+        } catch {
+          const res = await deptApi.tree();
+          const data = Array.isArray(res) ? res : (res as any)?.data || [];
+          if (!cancelled) setDeptTreeRaw(buildCompanyRoot(data));
+          return;
+        }
+        // 各租户部门树并行获取，单个失败仅跳过该租户（allSettled 容错）
+        const results = await Promise.allSettled(
+          tenants.map(async (t: any) => {
+            const res = await deptApi.tree({ tenantId: t.tenantId });
+            const children = Array.isArray(res) ? res : (res as any)?.data || [];
+            return {
+              id: `tenant:${t.tenantId}`,
+              parentId: ALL_TENANTS_KEY,
+              key: `tenant:${t.tenantId}`,
+              title: `租户：${t.tenantName}`,
+              tenantId: t.tenantId,
+              children,
+            };
+          }),
+        );
+        const tenantNodes = results
+          .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+          .map((r) => (r as PromiseFulfilledResult<any>).value);
+        if (!cancelled) {
+          setDeptTreeRaw([
+            {
+              id: ALL_TENANTS_KEY,
+              parentId: '-1',
+              key: ALL_TENANTS_KEY,
+              title: '全部租户',
+              children: tenantNodes,
+            },
+          ]);
+        }
+      } catch (e: any) {
+        // 极端兜底：连本租户公司树都拉不到时，留空树（页面其余功能仍可用）
+        if (!cancelled) setDeptTreeRaw([]);
+      } finally {
+        if (!cancelled) setDeptLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperViewer]);
+  const deptTree: DeptNode[] = deptTreeRaw;
 
   // 获取角色树数据
   const { data: roleTreeData } = useRequest(roleApi.tree);
@@ -121,9 +211,6 @@ const UserPage: React.FC = () => {
   // 组织树子树过滤（deptId）+ 租户过滤（tenantId）均由后端完成
   const tableRef = useRef<ActionType>();
   const usersRef = useRef<User[]>([]);
-  const myTenantId = (initialState?.currentUser as any)?.tenantId as
-    | string
-    | undefined;
 
   /**
    * ProTable 列头排序 → Blade 的 ascs/descs 信封参数。
@@ -192,24 +279,19 @@ const UserPage: React.FC = () => {
     return { data: records, total: page.total ?? records.length, success: true };
   };
 
-  // 转换部门树数据，并在最顶层叠加「公司」节点（对齐 ecology 组织树根为公司档案；租户名缺失时仅显示「公司」）
-  const tenantName = (initialState?.currentUser as any)?.tenantName as
-    | string
-    | undefined;
-  const deptTree = useMemo(() => {
-    const data = Array.isArray(deptTreeData)
-      ? deptTreeData
-      : deptTreeData?.data || [];
-    return [
-      {
-        id: COMPANY_ROOT_KEY,
-        parentId: '-1',
-        key: COMPANY_ROOT_KEY,
-        title: tenantName ? `公司：${tenantName}` : '公司',
-        children: data,
-      },
-    ];
-  }, [deptTreeData, tenantName]);
+  // 部门节点 id → 所属租户ID（超管视图：点击某部门时连带其租户一起过滤，避免跨租户 deptId 歧义）
+  const deptTenantMap = useMemo(() => {
+    const map = new Map<string, string>();
+    const walk = (nodes: any[], tenantId?: string) => {
+      nodes.forEach((n) => {
+        const tid = n.tenantId ?? tenantId;
+        if (tid) map.set(String(n.id), tid);
+        if (n.children) walk(n.children, tid);
+      });
+    };
+    walk(deptTree);
+    return map;
+  }, [deptTree]);
 
   // 树节点 id → title 映射（列表顶部过滤标签用）
   const deptTitleMap = useMemo(() => {
@@ -248,27 +330,49 @@ const UserPage: React.FC = () => {
     }));
   };
 
-  // 获取所有部门ID用于默认展开
+  // 默认展开：超管仅展开「全部租户」根 + 各租户节点（部门层级默认收起，避免一次性展开过多）；
+  // 普通用户展开整棵部门树（对齐现状）
   React.useEffect(() => {
     if (deptTree.length > 0) {
-      const getAllKeys = (data: DeptNode[]): string[] => {
-        let keys: string[] = [];
-        data.forEach((item) => {
-          keys.push(item.id);
-          if (item.children) {
-            keys = keys.concat(getAllKeys(item.children));
-          }
-        });
-        return keys;
-      };
-      setExpandedKeys(getAllKeys(deptTree));
+      if (isSuperViewer) {
+        const tenantKeys =
+          (deptTree[0]?.children as any[] | undefined)?.map((n) => n.key) ?? [];
+        setExpandedKeys([ALL_TENANTS_KEY, ...tenantKeys]);
+      } else {
+        const getAllKeys = (data: DeptNode[]): string[] => {
+          let keys: string[] = [];
+          data.forEach((item) => {
+            keys.push(item.id);
+            if (item.children) {
+              keys = keys.concat(getAllKeys(item.children));
+            }
+          });
+          return keys;
+        };
+        setExpandedKeys(getAllKeys(deptTree));
+      }
     }
-  }, [deptTree]);
+  }, [deptTree, isSuperViewer]);
 
-  // 处理部门选择（公司根节点/取消选择 = 查看全部；其余节点由后端按子树过滤）
+  // 处理树节点选择：
+  //   全部租户根 / 取消选择 = 查看所有租户用户；
+  //   租户节点 = 按该租户过滤；
+  //   部门节点 = 按该部门（连同所属租户）过滤；后端按子树 + 租户隔离。
   const handleDeptSelect = (selectedKeys: React.Key[], _info: any) => {
     const key = selectedKeys[0] as string;
-    setSelectedDeptId(!key || key === COMPANY_ROOT_KEY ? '' : key);
+    // 全部租户根（超管）或 公司根（普通用户）= 查看全部，清空过滤
+    if (!key || key === ALL_TENANTS_KEY || key === COMPANY_ROOT_KEY) {
+      setSelectedTenantId('');
+      setSelectedDeptId('');
+      return;
+    }
+    if (key.startsWith('tenant:')) {
+      setSelectedTenantId(key.slice('tenant:'.length));
+      setSelectedDeptId('');
+      return;
+    }
+    setSelectedTenantId(deptTenantMap.get(key) || '');
+    setSelectedDeptId(key);
   };
 
   // 处理展开/折叠
@@ -549,7 +653,7 @@ const UserPage: React.FC = () => {
         {/* 左侧部门树 */}
         <Col span={5}>
           <Card
-            title="组织机构"
+            title={isSuperViewer ? '组织 / 租户' : '组织机构'}
             extra={
               <Button
                 type="text"
@@ -583,14 +687,19 @@ const UserPage: React.FC = () => {
 
         {/* 右侧用户列表 */}
         <Col span={19}>
-          {selectedDeptId && (
+          {(selectedTenantId || selectedDeptId) && (
             <div style={{ marginBottom: 8 }}>
               <Tag
                 closable
                 color="blue"
-                onClose={() => setSelectedDeptId('')}
+                onClose={() => {
+                  setSelectedTenantId('');
+                  setSelectedDeptId('');
+                }}
               >
-                组织过滤：{deptTitleMap.get(selectedDeptId) || selectedDeptId}
+                {selectedTenantId
+                  ? `租户过滤：${deptTitleMap.get(`tenant:${selectedTenantId}`) || selectedTenantId}`
+                  : `组织过滤：${deptTitleMap.get(selectedDeptId) || selectedDeptId}`}
               </Tag>
             </div>
           )}
@@ -599,8 +708,10 @@ const UserPage: React.FC = () => {
             actionRef={tableRef}
             request={fetchUsers}
             params={{
+              // 超管不强制自身租户：selectedTenantId 为空=全部租户（后端 isAdministrator 放行），
+              // 选中某租户/部门时按之过滤；普通用户该项恒为空，由后端按会话租户隔离。
               deptId: selectedDeptId || undefined,
-              tenantId: myTenantId || undefined,
+              tenantId: selectedTenantId || undefined,
             }}
             rowKey="id"
             pagination={{ defaultPageSize: 10, showSizeChanger: true }}

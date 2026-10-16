@@ -144,7 +144,9 @@ const Login: React.FC = () => {
         message.success(defaultLoginSuccessMessage);
         await fetchUserInfo();
         const urlParams = new URL(window.location.href).searchParams;
-        const redirectUrl = getSafeRedirectUrl(urlParams.get('redirect'));
+        const fromRedirect = urlParams.get('redirect');
+        // 登录后默认进入门户工作台；若从后台受保护页跳来（带 redirect），则回跳原页
+        const redirectUrl = fromRedirect ? getSafeRedirectUrl(fromRedirect) : '/portal/home';
         window.location.href = redirectUrl;
         return;
       }

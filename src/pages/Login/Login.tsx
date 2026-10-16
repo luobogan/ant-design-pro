@@ -38,6 +38,8 @@ import { clearFormData, getSavedFormData } from '@/requestErrorConfig';
 import Crypto from '@/utils/crypto';
 import { getQueryString, getSafeRedirectUrl, getTopUrl, pickPayload, validateNull } from '@/utils/utils';
 import { dynamicButtons, dynamicRoutes } from '@/services/system/menu';
+import { portalApi } from '@/services/portal';
+import type { PortalLoginTemplateVO } from '@/services/portal';
 // 左侧 AI 流程引擎视觉图形（SVG + CSS 动画）
 import AiFlowVisual from './components/AiFlowVisual';
 import styles from './Login.less';
@@ -105,6 +107,15 @@ const Login: React.FC = () => {
   const [form] = Form.useForm();
   // 当前租户对应的「是否开启验证码」状态（响应式，随租户选择变化）
   const [captchaEnabled, setCaptchaEnabled] = useState<boolean>(isCaptchaEnabled());
+
+  /** 登录前门户皮肤（免鉴权拉取，应用到登录页背景/Logo/版权） */
+  const [loginSkin, setLoginSkin] = useState<PortalLoginTemplateVO | null>(null);
+  useEffect(() => {
+    portalApi
+      .getCurrentLoginTemplate()
+      .then((tpl) => setLoginSkin(tpl || null))
+      .catch(() => setLoginSkin(null));
+  }, []);
 
   const fetchCaptcha = async () => {
     try {
@@ -327,9 +338,9 @@ const Login: React.FC = () => {
 
         message.success('登录成功');
         // 登录成功后回到「被拦截前的页面」：URL 形如 /user/login?redirect=%2Fsystem%2Fworkflow
-        // 做同源校验（防开放重定向），无 redirect 或非法时回落到工作台。
+        // 做同源校验（防开放重定向），无 redirect 或非法时回落到门户首页（F07：登录默认进门户）。
         const redirectParam = getQueryString('redirect');
-        const redirectUrl = getSafeRedirectUrl(redirectParam, '/dashboard/workplace');
+        const redirectUrl = getSafeRedirectUrl(redirectParam, '/portal/home');
         console.log('准备跳转到', redirectUrl, '（redirect 参数：', redirectParam, '）');
         // 使用 window.location.href 强制刷新页面,触发 getInitialState 重新加载用户信息
         window.location.href = redirectUrl;
@@ -353,8 +364,18 @@ const Login: React.FC = () => {
     fetchCaptcha();
   };
 
+  const skinStyle: React.CSSProperties = loginSkin?.backgroundConfig?.bgImage
+    ? {
+        backgroundImage: `url(${loginSkin.backgroundConfig.bgImage})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }
+    : loginSkin?.backgroundConfig?.bgColor
+      ? { backgroundColor: String(loginSkin.backgroundConfig.bgColor) }
+      : {};
+
   return (
-    <div className={styles.main}>
+    <div className={styles.main} style={skinStyle}>
       <div className={styles.layout}>
         {/* 左：AI 流程引擎视觉区（≤1024px 收起，保证移动端只保留登录卡片） */}
         <aside className={styles.brand}>
@@ -363,7 +384,7 @@ const Login: React.FC = () => {
               <BrandMark />
             </span>
             <span>
-              <div className={styles.logoText}>流程引擎系统</div>
+              <div className={styles.logoText}>{loginSkin?.logoConfig?.title || '流程引擎系统'}</div>
               <div className={styles.logoSub}>FLOW ENGINE · AI</div>
             </span>
           </div>
@@ -400,10 +421,10 @@ const Login: React.FC = () => {
                 <BrandMark />
               </span>
               <Title className={styles.cardTitle} level={3}>
-                流程引擎系统
+                {loginSkin?.formConfig?.title || '流程引擎系统'}
               </Title>
               <Paragraph className={styles.cardSub}>
-                登录以进入流程设计与审批工作台
+                {loginSkin?.formConfig?.subtitle || '登录以进入流程设计与审批工作台'}
               </Paragraph>
             </div>
 
@@ -570,7 +591,28 @@ const Login: React.FC = () => {
               />
             </div>
             </Form>
-            <div className={styles.footer}>© 2026 FLOW ENGINE · AI 流程引擎系统</div>
+            {loginSkin?.qrcodeConfig?.qrcodeUrl ? (
+              <div style={{ textAlign: 'center', margin: '12px 0 4px' }}>
+                <img
+                  src={String(loginSkin.qrcodeConfig.qrcodeUrl)}
+                  alt="qrcode"
+                  style={{ width: 96, height: 96, borderRadius: 8 }}
+                />
+                {loginSkin.qrcodeConfig?.caption ? (
+                  <div style={{ fontSize: 12, color: '#86909C', marginTop: 4 }}>
+                    {String(loginSkin.qrcodeConfig.caption)}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            <div className={styles.footer}>
+              {loginSkin?.copyrightConfig?.text || '© 2026 FLOW ENGINE · AI 流程引擎系统'}
+            </div>
+            <div style={{ textAlign: 'center', marginTop: 8 }}>
+              <a href="/prelogin" style={{ fontSize: 13 }}>
+                浏览企业门户
+              </a>
+            </div>
           </div>
         </section>
       </div>

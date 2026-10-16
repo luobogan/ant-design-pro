@@ -10,7 +10,7 @@ import StandardTable from '@/components/StandardTable';
 import { useRequest } from '@umijs/max';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import { Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, TreeSelect, message, Tree, Tag } from 'antd';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import * as deptApi from '@/services/system/dept';
 import usePermission from '@/hooks/usePermission';
 
@@ -61,6 +61,8 @@ const Dept: React.FC = () => {
   const [addForm] = Form.useForm();
   const [editForm] = Form.useForm();
   const [selectedDept, setSelectedDept] = useState<string>('');
+  // 树默认展开（defaultExpandAll 在异步数据到达前已消费，故用受控 expandedKeys 在数据就绪后展开）
+  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([COMPANY_ROOT_KEY]);
 
   // 获取部门列表（显式带当前租户：admin 后端不做租户过滤，缺省会把全部租户的组织混进来）
   const {
@@ -231,6 +233,14 @@ const Dept: React.FC = () => {
       },
     ];
   }, [deptData, tenantName]);
+
+  // 数据就绪后自动展开整棵组织树（defaultExpandAll 在异步数据到达前已消费，故用受控 expandedKeys）
+  useEffect(() => {
+    const keys: React.Key[] = [];
+    const walk = (ns: any[]) => ns.forEach((n) => { keys.push(n.key); if (n.children?.length) walk(n.children); });
+    walk(treeData as any[]);
+    setExpandedKeys(keys);
+  }, [treeData]);
 
   // 左侧组织树选中 → 右侧仅显示该子树（公司根节点/未选 = 全量）
   const tableDepts = useMemo(() => {
@@ -496,7 +506,8 @@ const Dept: React.FC = () => {
             treeData={treeData}
             selectedKeys={selectedDept ? [selectedDept] : []}
             onSelect={(keys) => setSelectedDept((keys[0] as string) || '')}
-            defaultExpandAll
+            expandedKeys={expandedKeys}
+            onExpand={(keys) => setExpandedKeys(keys)}
             style={{ maxHeight: '600px', overflow: 'auto' }}
           />
         </Card>

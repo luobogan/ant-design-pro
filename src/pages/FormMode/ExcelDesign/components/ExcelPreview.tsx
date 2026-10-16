@@ -81,8 +81,10 @@ interface FieldMeta {
   browserType?: number;
   required: boolean;
   readonly: boolean;
-  /** 字段属性：1=只读 2=可编辑 3=必填（参照 ecology viewAttr） */
+  /** 字段属性：0=不显示 1=只读 2=可编辑 3=必填（参照 ecology viewAttr） */
   fieldAttr?: number;
+  /** 禁止手工编辑（onlyShow）：显示但不可手动修改；仅 可编辑(2)/必填(3) 有效 */
+  onlyShow?: boolean;
   defaultValue?: string;
   placeholder?: string;
   length?: number;
@@ -524,11 +526,13 @@ const FieldCell: React.FC<{
     return <span>{meta.fieldLabel || displayValue || '\u00A0'}</span>;
   }
 
-  // 字段属性以 fieldAttr 为权威（参照 ecology：1=只读 2=可编辑 3=必填），兼容旧 readonly/required 布尔
+  // 字段属性以 fieldAttr 为权威（参照 ecology：0不显示 1只读 2可编辑 3必填），兼容旧 readonly/required 布尔
   const fieldAttr = meta?.fieldAttr;
+  // 0=不显示：运行时不渲染该字段（标签格仍显示，保持版式）
+  if (fieldAttr === 0) return null;
   // 预览态（readOnly）整体只读：对应 ecology 显示/监控/打印布局（layouttype 0/3/4）强制只读
   // 节点权限基线：节点权限 > fieldAttr > Excel 样式 > 默认（文档 §3.3-4）
-  const disabled = !!readOnly || fieldAttr === 1 || meta?.readonly === true || !!nodePerm?.readonly;
+  const disabled = !!readOnly || fieldAttr === 1 || meta?.readonly === true || meta?.onlyShow === true || !!nodePerm?.readonly;
   // 必填校验未通过 → 控件红色边框（必填 * 与错误文案由外层 Form.Item 统一渲染）
   const status = error ? 'error' : '';
   // 节点权限：隐藏（perm=0）→ 不渲染数据输入控件（标签格由上层一同隐藏）
@@ -1088,6 +1092,7 @@ const SheetPreviewForm: React.FC<{
                   let attrBg: string | undefined;
                   if (cellAttr === 1) { tdBackground = '#f5f5f5'; tdColor = '#999'; attrBg = '#f5f5f5'; }
                   else if (cellAttr === 3) { tdBackground = '#fff1f0'; attrBg = '#fff1f0'; }
+                  else if (cellAttr === 0) { tdBackground = '#fafafa'; tdColor = '#c0c0c0'; }
 
                   return (
                     <td

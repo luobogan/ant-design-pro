@@ -155,8 +155,10 @@ interface FieldMeta {
   browserType?: number;
   required: boolean;
   readonly: boolean;
-  /** 字段属性：1=只读 2=可编辑 3=必填（参照 ecology fieldAttrMap） */
+  /** 字段属性：0=不显示 1=只读 2=可编辑 3=必填（参照 ecology fieldAttrMap） */
   fieldAttr?: number;
+  /** 禁止手工编辑（onlyShow）：显示但不可手动修改；仅 可编辑(2)/必填(3) 有效 */
+  onlyShow?: boolean;
   defaultValue?: string;
   placeholder?: string;
   length?: number;
@@ -208,6 +210,20 @@ interface FieldMeta {
     const LOCKED_CELL_FONT = '#8c8c8c';
 
     /**
+     * 特殊字段属性归一化（参照 ecology setFieldPro 的特例分支）。
+     * ecology 约定字段ID：-1 标题 / -4 签字意见 / -9 打印次数 / -10 密级。
+     * 这些负数为约定值，普通字段不会命中；命中时按规则改写，未命中原样返回（前向兼容）。
+     */
+    const SPECIAL_FIELD_ID = { TITLE: -1, SIGN: -4, PRINT_COUNT: -9, SECRECY: -10 };
+    const normalizeFieldAttr = (meta: any, attr: number): number => {
+      const fid = Number(meta?.fieldId);
+      if (fid === SPECIAL_FIELD_ID.SIGN || fid === SPECIAL_FIELD_ID.PRINT_COUNT) return 1; // 签字意见/打印次数：只能只读
+      if ((fid === SPECIAL_FIELD_ID.SECRECY || fid === SPECIAL_FIELD_ID.TITLE) && attr === 2) return 3; // 密级/标题：可编辑自动升为必填
+      if (meta?.fieldType === 'position' && attr === 3) return 2; // 位置字段：无必填态，降为可编辑
+      return attr;
+    };
+
+    /**
      * 字段单元格视觉样式（唯一决策点，参照 ecology getCellFieldImage）
      * 背景色由 fieldAttr 唯一决定，label 标签格不应用背景色：
      *   1=只读 → 灰底灰字   2=可编辑 → 白底黑字   3=必填 → 浅红底黑字
@@ -223,6 +239,9 @@ interface FieldMeta {
         bg = '#ffffff'; font = '#000000';
       } else if (meta.fieldAttr === 3) {
         bg = '#fff1f0'; font = '#000000';
+      } else if (meta.fieldAttr === 0) {
+        // 不显示：设计态淡化占位（运行时不渲染该字段）
+        bg = '#fafafa'; font = '#c0c0c0';
       }
       try {
         range.setBackground(bg);
@@ -272,8 +291,8 @@ interface FieldMeta {
       return meta.fieldLabel || meta.fieldName || '';
     }
     const typeIcon = FIELD_ICON_MAP[meta.fieldType] ?? '📝';
-    // 字段属性图标（参照 ecology viewAttr）：1=只读🔒 3=必填⚠️；2=可编辑不额外加图标
-    const attrIcon = meta.fieldAttr === 1 ? '🔒' : meta.fieldAttr === 3 ? '⚠️' : '';
+    // 字段属性图标（参照 ecology viewAttr）：0=不显示🚫 1=只读🔒 3=必填⚠️；2=可编辑不额外加图标
+    const attrIcon = meta.fieldAttr === 1 ? '🔒' : meta.fieldAttr === 3 ? '⚠️' : meta.fieldAttr === 0 ? '🚫' : '';
     const iconPart = [attrIcon, typeIcon].filter(Boolean).join(' ');
     const placeholder = `\${${meta.fieldName}}`;
     return iconPart ? `${iconPart} ${placeholder}` : placeholder;
@@ -2593,6 +2612,14 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             ? mapToFieldType(actualField)
             : (actualField.type as FieldType));
 
+      // 预置字段属性（属性面板可设）：优先 fieldAttr(0-3)，其次 required/readonly 推导，最后初始可编辑(2)。
+      // 标签不参与字段属性。特殊字段（标题/签字/密级等）按 ecology 规则归一化。
+      const presetAttrRaw = Number((actualField as any).fieldAttr);
+      const presetAttr = Number.isFinite(presetAttrRaw) && presetAttrRaw >= 0 && presetAttrRaw <= 3
+        ? presetAttrRaw
+        : (actualField.required ? 3 : actualField.readonly ? 1 : INITIAL_FIELD_ATTR);
+      const resolvedAttr = isLabel ? undefined : normalizeFieldAttr(actualField, presetAttr);
+
       // 构造完整的字段元数据
       const fieldMeta: FieldMeta = {
         fieldId: String(actualField.id || actualField.fieldId || ''),
@@ -2607,11 +2634,12 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         browserType: resolveBrowserType(actualField),
         // 标签是静态说明文本：不参与「只读 / 必填 / 可编辑」等字段属性（不显示状态），
         // 但仍完整保留可拖动与放置能力。
-        required: isLabel ? false : (actualField.required || false),
-        readonly: isLabel ? false : (actualField.readonly || false),
-        // 字段属性回到初始状态（可编辑）：不写 fieldAttr 会落到 applyFieldAttrStyle 的灰底，
-        // 视觉上等同只读。删除字段后重新拖入即回到该初始态。
-        fieldAttr: isLabel ? undefined : INITIAL_FIELD_ATTR,
+        required: isLabel ? false : resolvedAttr === 3,
+        readonly: isLabel ? false : resolvedAttr === 1,
+        // 字段属性：取属性面板预设（0不显示/1只读/2可编辑/3必填），不再强制盖成可编辑(2)。
+        fieldAttr: resolvedAttr,
+        // 禁止手工编辑：仅 可编辑/必填 有效
+        onlyShow: isLabel ? false : (!!(actualField as any).onlyShow && (resolvedAttr === 2 || resolvedAttr === 3)),
         defaultValue: actualField.defaultValue || '',
         placeholder: actualField.placeholder || '',
         length: actualField.length || (FIELD_TYPE_META[resolvedType] as any)?.maxLength,
@@ -3478,7 +3506,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
               const meta = hasField ? resolveCellMeta(row, col) : null;
               // 广播选中状态：无字段元数据 → 父组件禁用属性按钮（参照 ecology controlOperLimits 的禁用行为，不弹提示）
               window.dispatchEvent(new CustomEvent('univer-cell-selected', {
-                detail: { row, col, hasField, fieldAttr: meta?.fieldAttr ?? null },
+                detail: { row, col, hasField, fieldAttr: meta?.fieldAttr ?? null, onlyShow: meta?.onlyShow ?? false },
               }));
             }
           );
@@ -4035,40 +4063,28 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // ──────────────────────────────────────
   useEffect(() => {
     if (workbook) {
-      // 设置字段属性（参照 ecology excel 设计器）
-      const setFieldAttr = (row: number, col: number, attrValue: number) => {
-        // 用缓存的活动表，避免命令执行回调里再调 getActiveSheet() 触发 redi 循环依赖
-        const sheet = sheetRef.current;
-        if (!sheet) return;
+      // ── 字段属性（参照 ecology excel 设计器）：0不显示/1只读/2可编辑/3必填 + 禁止手工编辑(onlyShow) ──
 
-        // ① 先把内存 Map 与「表格当前内容」对齐：插入/删除行列后 Univer 会把字段占位符平移到新坐标，
-        //    而 Map 的键仍停在旧坐标。先 realign 再读写，才能按字段真实位置落属性。
-        //    （旧实现此处 reconcileMetaWithContent() 漏传 sheet → 空操作，是错位/覆盖的根因之一）
-        try { reconcileMetaWithContent(sheet); } catch (e) { /* 对齐失败不阻断属性写入 */ }
-
-        // ② 以「被点击单元格的真实内容」解析目标字段名（而非信任可能过期的 Map 坐标）。
-        //    标签格在字段左侧一格：本格若为纯文本标签，则右邻一格才是字段占位符 ${name}。
-        const resolveTargetName = (): string | null => {
-          const nameAt = (r: number, c: number): string | null => {
-            let v: any;
-            try { v = sheet.getRange(r, c).getValue(); } catch { return null; }
-            if (v == null || v === '') return null;
-            return extractFieldNameFromDisplay(v);
-          };
-          const n = nameAt(row, col);
-          if (n) return n;
-          const maxC = sheet.getMaxColumns?.() ?? 26;
-          if (col + 1 < maxC) { const n2 = nameAt(row, col + 1); if (n2) return n2; }
-          if (col - 1 >= 0) { const n3 = nameAt(row, col - 1); if (n3) return n3; }
-          return null;
+      // 解析某坐标（含左右邻格）对应的字段名：标签格右侧即为字段占位符 ${name}
+      const resolveFieldNameAt = (row: number, col: number): string | null => {
+        const sheet0 = sheetRef.current;
+        if (!sheet0) return null;
+        const nameAt = (r: number, c: number): string | null => {
+          let v: any;
+          try { v = sheet0.getRange(r, c).getValue(); } catch { return null; }
+          if (v == null || v === '') return null;
+          return extractFieldNameFromDisplay(v);
         };
-        const name = resolveTargetName();
-        if (!name) {
-          console.warn('[setFieldAttr] 未找到字段（单元格无占位符），row=' + row + ', col=' + col);
-          return;
-        }
+        const n = nameAt(row, col);
+        if (n) return n;
+        const maxC = sheet0.getMaxColumns?.() ?? 26;
+        if (col + 1 < maxC) { const n2 = nameAt(row, col + 1); if (n2) return n2; }
+        if (col - 1 >= 0) { const n3 = nameAt(row, col - 1); if (n3) return n3; }
+        return null;
+      };
 
-        // ③ 取该字段的权威元数据（按字段名在 Map/布局里取任一格即可，坐标不重要）
+      // 按字段名取权威元数据（内存 Map 优先，持久化布局兜底，坐标不重要）
+      const findBaseMetaByName = (name: string): any => {
         let baseMeta: any = null;
         Object.values(cellFieldMetaMap.current).forEach((m) => {
           if (m && String((m as any).fieldName) === name) baseMeta = m;
@@ -4084,33 +4100,39 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             });
           }
         }
+        return baseMeta;
+      };
+
+      // 按字段名写入属性：更新该 fieldId 的全部条目（标签格+字段格），重写显示/样式并立即持久化。
+      // onlyShow 仅在 可编辑(2)/必填(3) 下有意义；传入 undefined 时保留原值。
+      const writeFieldAttrByName = (name: string, attrValue: number, onlyShow?: boolean) => {
+        const sheet = sheetRef.current;
+        if (!sheet) return;
+        const baseMeta = findBaseMetaByName(name);
         if (!baseMeta) {
           console.warn('[setFieldAttr] 未找到字段元数据，name=' + name);
           return;
         }
-
         const fieldId = String(baseMeta.fieldId);
+        const keepOnlyShow = onlyShow === undefined ? (baseMeta.onlyShow ?? false) : !!onlyShow;
+        const finalOnlyShow = (attrValue === 2 || attrValue === 3) ? keepOnlyShow : false;
 
-        // ④ 更新属性：必须更新「该 fieldId 的全部条目」，不能只改 baseMeta 一个对象。
-        //    标签格与字段格在 Map 里是两个互相独立的对象（loadLayoutData 每格各做一份
-        //    {...fieldMeta} 拷贝），而决定图标（getCellDisplayValue）与底色（applyFieldAttrStyle）
-        //    的正是「字段格」那一份。只改 baseMeta（它可能命中的是标签格那份）时，字段格仍按旧
-        //    fieldAttr 渲染 → 表现为「切了只读/可编辑/必填却没效果」。
+        // 必须更新「该 fieldId 的全部条目」：标签格与字段格在 Map 里是两个独立对象，
+        // 决定图标/底色的正是「字段格」那一份，只改一个对象会出现「切了属性却没效果」。
         Object.values(cellFieldMetaMap.current).forEach((m: any) => {
           if (m && String(m.fieldId) === fieldId) {
             m.fieldAttr = attrValue;
             m.required = attrValue === 3;
             m.readonly = attrValue === 1;
+            m.onlyShow = finalOnlyShow;
           }
         });
         // 仍同步 baseMeta 自身：它可能来自持久化布局兜底（不在 Map 中）
         baseMeta.fieldAttr = attrValue;
         baseMeta.required = attrValue === 3;
         baseMeta.readonly = attrValue === 1;
+        baseMeta.onlyShow = finalOnlyShow;
 
-        // ⑤ 遍历对齐后的 Map 中该 fieldId 的全部条目写回显示/样式。
-        //    reconcile 已确保 Map 键落在字段真实位置，故不会错格覆盖其它字段、也不丢标签/字段条目。
-        //    仅当 Map 中确无该 fieldId（极端：重载后 Map 尚未填充）才退回用布局坐标写回。
         isRestoringRef.current = true; // 包裹写入，避免触发防篡改/变更处理器递归
         let updated = false;
         try {
@@ -4119,7 +4141,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             const [r, c] = key.split('_').map(Number);
             try {
               const range = sheet.getRange(r, c);
-              // 字段前面的图标随 fieldAttr 切换（只读🔒 / 必填⚠️，可编辑沿用类型图标）
+              // 字段前面的图标随 fieldAttr 切换（不显示🚫 / 只读🔒 / 必填⚠️，可编辑沿用类型图标）
               range.setValue(getCellDisplayValue(meta as any));
               applyFieldAttrStyle(range, meta as any);
               updated = true;
@@ -4137,8 +4159,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
                   const fm = cell?.fieldMeta;
                   if (fm && String(fm.fieldId) === fieldId) {
                     const c = Number(ck);
-                    const key = `${r}_${c}`;
-                    cellFieldMetaMap.current[key] = fm;
+                    cellFieldMetaMap.current[`${r}_${c}`] = fm;
                     try {
                       const range = sheet.getRange(r, c);
                       range.setValue(getCellDisplayValue(fm));
@@ -4163,10 +4184,51 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         } catch (e) {
           console.warn('[setFieldAttr] 自动保存失败:', e);
         }
+        console.log(`[setFieldAttr] 字段属性: fieldId=${fieldId}, attr=${attrValue}, onlyShow=${finalOnlyShow}, name=${name}`);
+        // 通知设计器同步工具栏高亮状态（含 onlyShow）
+        window.dispatchEvent(new CustomEvent('univer-field-attr-applied', { detail: { attr: attrValue, onlyShow: finalOnlyShow } }));
+      };
 
-        console.log(`[setFieldAttr] 设置字段属性: fieldId=${fieldId}, attr=${attrValue}, name=${name}`);
-        // 通知设计器同步工具栏高亮状态（只读/可编辑/必填）
-        window.dispatchEvent(new CustomEvent('univer-field-attr-applied', { detail: { attr: attrValue } }));
+      // 对外：按坐标设置字段属性（含特殊字段归一化）
+      const setFieldAttr = (row: number, col: number, attrValue: number) => {
+        const sheet = sheetRef.current;
+        if (!sheet) return;
+        try { reconcileMetaWithContent(sheet); } catch (e) { /* 对齐失败不阻断属性写入 */ }
+        const name = resolveFieldNameAt(row, col);
+        if (!name) {
+          console.warn('[setFieldAttr] 未找到字段（单元格无占位符），row=' + row + ', col=' + col);
+          return;
+        }
+        const finalAttr = normalizeFieldAttr(findBaseMetaByName(name), attrValue);
+        writeFieldAttrByName(name, finalAttr);
+      };
+
+      // 对外：切换「禁止手工编辑」（仅 可编辑/必填 字段可设）
+      const setFieldOnlyShow = (row: number, col: number, on: boolean) => {
+        const sheet = sheetRef.current;
+        if (!sheet) return;
+        try { reconcileMetaWithContent(sheet); } catch (e) { /* 对齐失败不阻断 */ }
+        const name = resolveFieldNameAt(row, col);
+        if (!name) { console.warn('[setFieldOnlyShow] 未找到字段'); return; }
+        const cur = findBaseMetaByName(name)?.fieldAttr;
+        if (cur !== 2 && cur !== 3) {
+          console.warn('[setFieldOnlyShow] 仅可编辑/必填字段可设置禁止手工编辑，当前 attr=' + cur);
+          return;
+        }
+        writeFieldAttrByName(name, cur as number, on);
+      };
+
+      // 按字段名直接设置（供属性面板回调，免坐标解析）
+      const setFieldAttrByName = (name: string, attrValue: number) => {
+        if (!name) return;
+        const finalAttr = normalizeFieldAttr(findBaseMetaByName(name), attrValue);
+        writeFieldAttrByName(name, finalAttr);
+      };
+      const setFieldOnlyShowByName = (name: string, on: boolean) => {
+        if (!name) return;
+        const cur = findBaseMetaByName(name)?.fieldAttr;
+        if (cur !== 2 && cur !== 3) return;
+        writeFieldAttrByName(name, cur as number, on);
       };
 
       // 获取当前选中单元格
@@ -4440,7 +4502,10 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         getWorkbook: () => workbook,  // 返回 FWorkbook
         getActiveSheet: () => sheetRef.current,  // 返回 FWorksheet（用缓存避免命令执行中 redi 循环依赖）
         getWorkbookId: () => workbookRef.current?.getUnitId?.(),
-        setFieldAttr,  // 设置字段属性
+        setFieldAttr,  // 按坐标设置字段属性
+        setFieldAttrByName,      // 按字段名设置字段属性（供属性面板回调）
+        setFieldOnlyShow,        // 按坐标切换禁止手工编辑
+        setFieldOnlyShowByName,  // 按字段名切换禁止手工编辑
         getSelection,  // 获取选中单元格
         clearCell,     // 清空单元格
    // 按字段整字段删除（供「表单结构」面板调用）：移除标签格+字段格元数据、

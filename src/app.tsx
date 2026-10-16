@@ -129,7 +129,7 @@ const toPascalCase = (str: string): string => {
   // ⚠️ 收录原则：只收「磁盘目录/文件名里真实出现、且小写化后无法还原」的复合词。
   // 缺词会导致复合词目录推导错误（tenantpackage → Tenantpackage ✗ → TenantPackage ✓），
   // 此时优先补词典，而不是在 PAGE_DIR_ALIAS 打补丁。
-  const commonWords = ['Form', 'Mode', 'Manage', 'Data', 'View', 'Field', 'Edit', 'Add', 'List', 'Detail', 'System', 'Mall', 'Product', 'Category', 'User', 'Role', 'Menu', 'Exception', 'Table', 'Design', 'Tenant', 'Package', 'Preview', 'Page'];
+  const commonWords = ['Form', 'Mode', 'Manage', 'Data', 'View', 'Field', 'Edit', 'Add', 'List', 'Detail', 'System', 'Mall', 'Product', 'Category', 'User', 'Role', 'Menu', 'Exception', 'Table', 'Design', 'Tenant', 'Package', 'Preview', 'Page', 'Portal', 'Lib', 'Template'];
 
   let result = str.toLowerCase();
 
@@ -547,19 +547,54 @@ export function render(oldRender: () => void) {
           pushToLoginWithRedirect();
         } else {
           console.error('动态菜单拉取失败（已重试）：', lastErr);
-          message.error('菜单加载失败（网络/服务波动），请稍后刷新重试');
+          message.error('菜单加载失败（网络/服务波动），正在自动刷新恢复...');
           extraRoutes = [];
+          // 自动恢复：非 401 的瞬时失败（服务重启窗口/代理抖动）重试 3 次仍失败时，
+          // 若直接进应用会得到「空菜单 + 404 死页」，用户只能手动刷新。
+          // 这里延时 2s 自动刷新一次；用 sessionStorage 做guard，避免刷新后仍失败导致循环。
+          try {
+            const guardKey = 'menu_reload_guard';
+            if (!sessionStorage.getItem(guardKey)) {
+              sessionStorage.setItem(guardKey, String(Date.now()));
+              setTimeout(() => window.location.reload(), 2000);
+            }
+          } catch (e) {
+            console.warn('设置自动刷新 guard 失败', e);
+          }
         }
       } else {
+        // 菜单拉取成功：清掉自动刷新 guard，避免影响后续正常刷新
+        try {
+          sessionStorage.removeItem('menu_reload_guard');
+        } catch (e) {
+          /* ignore */
+        }
         // ⚠️ 按钮型组件页（category=2 + isComponent=1 + path，如流程设计器 /formmode/workflowdesign）
         // 的路由注册依赖按钮数据（getButtons() 读 localStorage）。而按钮数据在 getInitialState
         // 里才拉取，晚于本 render ⇒ 首次进入（sword-buttons 无缓存）路由会漏注册，进入即 404。
         // 故此处若缓存为空先拉一次按钮并落盘，再构建路由，保证按钮组件页首次即可用。
         if (!(getButtons() || []).length) {
-          try {
-            setButtons(pickPayload(await dynamicButtons()) || []);
-          } catch (e) {
-            console.warn('按钮数据预加载失败，按钮型组件页可能不可用：', e);
+          // ⚠️ 首次进入时 token 可能尚未就绪，/menu/buttons 会 401（AxiosError）。
+          // 原实现只 warn，导致所有按钮型组件页（流程设计器 / 门户设计器 / Excel 设计…）
+          // 首次直接进入即 404，且后续 render 不会补注册（getInitialState 成功时按钮才落盘，
+          // 但路由已在首屏 patch 完成）。故这里做有限次退避重试。
+          const delays = [0, 300, 800];
+          for (let attempt = 0; attempt < delays.length; attempt += 1) {
+            if (delays[attempt] > 0) {
+              await new Promise((r) => setTimeout(r, delays[attempt]));
+            }
+            try {
+              const buttons = pickPayload(await dynamicButtons()) || [];
+              if (buttons.length) {
+                setButtons(buttons);
+                break;
+              }
+            } catch (e) {
+              console.warn(
+                `按钮数据预加载失败（第 ${attempt + 1}/${delays.length} 次），按钮型组件页可能不可用：`,
+                e,
+              );
+            }
           }
         }
         // 兼容两种形态：拦截器已拆包时 menuData.data 就是路由数组；
@@ -695,6 +730,56 @@ export const layout: RunTimeLayoutConfig = ({
 }) => {
   console.log(initialState?.currentUser?.name);
   console.log(initialState?.currentUser?.userid);
+
+  /* ==================== 门户双布局体系 ====================
+   * 门户是「门面」，形态与后台差异大：
+   *  - /portal/design  设计器：全屏工作台 → 不渲染侧边菜单、顶部导航与页脚，最大化画布
+   *  - /portal/home    门户首页：门户壳 → 隐藏侧边菜单与后台顶部导航，仅保留消息铃铛/头像
+   *  - 其他路径：维持后台 mix 布局（不变）
+   * 参考 docs/门户.md §4①「双布局体系」与避坑1「不要把所有页面塞进 ProLayout」。
+   */
+  const { pathname } = history.location;
+
+  // 设计器：全屏（返回门户按钮在页面内部）
+  if (pathname.startsWith('/portal/design')) {
+    return {
+      layout: 'top',
+      menuRender: false,
+      headerRender: false,
+      footerRender: false,
+      // 设计器是配置类工具页，不需要后台水印干扰
+      waterMarkProps: false,
+    };
+  }
+
+  // 门户首页：门户壳（隐藏侧边菜单与后台顶部导航）
+  if (pathname.startsWith('/portal')) {
+    return {
+      layout: 'mix',
+      // 隐藏左侧菜单：门户内容由配置驱动渲染，不依赖后台菜单树
+      menuRender: false,
+      // 保留顶部消息铃铛与用户头像，但去掉后台顶部导航
+      actionsRender: () => [<MessageBell key="message-bell" />],
+      avatarProps: {
+        src: initialState?.currentUser?.avatar,
+        title: initialState?.currentUser?.name || '用户',
+        render: (_, avatarChildren) => {
+          return <AvatarDropdown>{avatarChildren}</AvatarDropdown>;
+        },
+      },
+      title: '企业统一门户',
+      logo: '/logo.svg',
+      contentStyle: { margin: 0 },
+      footerRender: () => <Footer />,
+      onPageChange: () => {
+        const { location } = history;
+        if (!initialState?.currentUser && location.pathname !== loginPath && location.pathname !== '/prelogin') {
+          pushToLoginWithRedirect();
+        }
+      },
+    };
+  }
+
   return {
     // 顶部消息铃铛：全局未读红点（WS 实时更新），点击进入 /message 消息中心。
     // /message 路由由后端菜单驱动注册（见 formatRoutes），不在 config/routes.ts 静态声明。
@@ -735,7 +820,7 @@ export const layout: RunTimeLayoutConfig = ({
     footerRender: () => <Footer />,
     onPageChange: () => {
       const { location } = history;
-      if (!initialState?.currentUser && location.pathname !== loginPath) {
+      if (!initialState?.currentUser && location.pathname !== loginPath && location.pathname !== '/prelogin') {
         // 带上 ?redirect=，登录后回到被拦截的页面（此前直接 push(loginPath) 把参数丢了）
         pushToLoginWithRedirect();
       }
