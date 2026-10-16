@@ -24,7 +24,7 @@ const NEWS_TEMPLATE_TYPES = [
  * - 图片素材：目录/文件元数据维护（文件本体走资源服务，登记 fileUrl）
  * - 新闻模板：内部/外部两类排版模板，支持默认模板
  */
-const PortalMaterial: React.FC = () => {
+const PortalMaterialManage: React.FC = () => {
   const { buttons } = usePageButtons('portal');
   const canManage = buttons.some((b: any) => b.code === 'portal_material_manage');
 
@@ -435,4 +435,4 @@ const PortalMaterial: React.FC = () => {
   );
 };
 
-export default PortalMaterial;
+export default PortalMaterialManage;

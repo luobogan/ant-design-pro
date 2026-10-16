@@ -3,7 +3,7 @@ import { Alert, Button, Card, Form, InputNumber, Radio, Space, Switch, Tabs, Typ
 import { SyncOutlined } from '@ant-design/icons';
 import { portalApi } from '@/services/portal';
 import { usePageButtons } from '@/hooks/usePageButtons';
-import type { AccountMoreSaveData, AccountMoreVO, PortalSetting, PortalSettingSaveData } from '@/services/portal';
+import type { AccountMoreSaveData, AccountMoreVO, PortalSettingSaveData } from '@/services/portal';
 
 const { Text } = Typography;
 
@@ -60,7 +60,6 @@ const PortalSettingPage: React.FC = () => {
   const { buttons } = usePageButtons('portal');
   const canManage = buttons.some((b: any) => b.code === 'portal_setting_manage');
 
-  const [setting, setSetting] = useState<PortalSetting | undefined>();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -74,7 +73,6 @@ const PortalSettingPage: React.FC = () => {
     setLoading(true);
     try {
       const data = await portalApi.getPortalSetting();
-      setSetting(data);
       form.setFieldsValue({
         needRefresh: bool(data?.needRefresh),
         refreshScope: data?.refreshScope ?? 1,

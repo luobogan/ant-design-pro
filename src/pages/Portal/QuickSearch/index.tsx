@@ -14,7 +14,7 @@ const { Text } = Typography;
  *       /quick-search/share/list、/quick-search/share/set
  * 总开关在「门户应用设置 → quickSearchEnabled」（blade_portal_setting）。
  */
-const PortalQuickSearch: React.FC = () => {
+const PortalQuickSearchManage: React.FC = () => {
   const { buttons } = usePageButtons('portal');
   const canManage = buttons.some((b: any) => b.code === 'portal_quick_search_manage');
 
@@ -315,4 +315,4 @@ const PortalQuickSearch: React.FC = () => {
   );
 };
 
-export default PortalQuickSearch;
+export default PortalQuickSearchManage;

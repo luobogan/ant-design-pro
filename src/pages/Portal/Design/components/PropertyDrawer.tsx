@@ -139,7 +139,7 @@ const PropertyDrawer: React.FC<PropertyDrawerProps> = ({
           <Form.Item label="快捷入口（名称 / 图标 / 地址）">
             <Space direction="vertical" style={{ width: '100%' }} size={6}>
               {(config.links || []).map((link: any, index: number) => (
-                <Row key={index} gutter={4}>
+                <Row key={link?.uid || `link-${index}`} gutter={4}>
                   <Col span={7}>
                     <Input
                       size="small"
@@ -194,7 +194,14 @@ const PropertyDrawer: React.FC<PropertyDrawerProps> = ({
                 size="small"
                 icon={<PlusOutlined />}
                 block
-                onClick={() => patchConfig({ links: [...(config.links || []), { name: '新入口', icon: '🔗', url: '/' }] })}
+                onClick={() =>
+                  patchConfig({
+                    links: [
+                      ...(config.links || []),
+                      { uid: `lk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name: '新入口', icon: '🔗', url: '/' },
+                    ],
+                  })
+                }
               >
                 添加入口
               </Button>
