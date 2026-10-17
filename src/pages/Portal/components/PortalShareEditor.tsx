@@ -85,9 +85,10 @@ const PortalShareEditor: React.FC<Props> = ({ all, onAllChange, items, onItemsCh
         const map: Record<string, string> = {};
         const toTree = (nodes: any[]): any[] =>
           (nodes || []).map((n: any) => {
-            map[String(n.id ?? n.key)] = n.name ?? n.title;
+            const label = n.deptName || n.fullName || n.name || n.title;
+            map[String(n.id ?? n.key)] = label;
             return {
-              title: n.name ?? n.title,
+              title: label,
               value: n.id ?? n.key,
               children: toTree(n.children || []),
             };

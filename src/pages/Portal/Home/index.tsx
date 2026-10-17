@@ -67,6 +67,25 @@ const PortalPage: React.FC = () => {
   const [portalLoading, setPortalLoading] = useState(true);
   const [portalError, setPortalError] = useState<string | undefined>(undefined);
 
+  /* ==================== 前端/后端菜单（导航源可配置，V2026.10.16_007） ==================== */
+  /** 门户后端菜单（顶部导航）：源=系统菜单时取 blade_menu 顶级（对标 topmenu）；源=门户私有时取 blade_portal_menu(type=top) */
+  const [topMenus, setTopMenus] = useState<PortalMenuNode[]>([]);
+  /** 门户前端菜单（应用宫格数据源）：源=系统菜单时取 blade_menu 整树；源=门户私有时取 blade_portal_menu(type=front) */
+  const [frontMenus, setFrontMenus] = useState<PortalMenuNode[]>([]);
+
+  /**
+   * 按导航菜单源加载菜单（menuSource：1=系统菜单 blade_menu / 2=门户私有菜单 blade_portal_menu）
+   * <p>泛微为 LEFTMenuInfo/MAINMenuInfo 两物理表；本项目同表分型 + 源可配置（方案一），
+   * 由门户应用设置下发 menuSource，首页据此分流 /menu/system-tree 或 /menu/tree。</p>
+   */
+  const loadMenus = useCallback((menuSource: number) => {
+    const fromPortal = menuSource === 2;
+    const topReq = fromPortal ? portalApi.getMenuTree('top') : portalApi.getSystemMenuTree('top');
+    const frontReq = fromPortal ? portalApi.getMenuTree('front') : portalApi.getSystemMenuTree('front');
+    topReq.then((data) => setTopMenus(data || [])).catch(() => setTopMenus([]));
+    frontReq.then((data) => setFrontMenus(data || [])).catch(() => setFrontMenus([]));
+  }, []);
+
   /**
    * 加载门户配置
    * 采用 useEffect + useState 直接 await（与 FormMode 列表页一致的项目既有范式），
@@ -79,6 +98,8 @@ const PortalPage: React.FC = () => {
       const data = await portalApi.getMyPortal(portalCode);
       setPortal(data);
       setPortalError(undefined);
+      // 导航菜单源随门户数据下发（V2026.10.16_007）：1=系统菜单 2=门户私有菜单
+      loadMenus(data?.menuSource ?? 1);
     } catch (e) {
       console.error('[portal] 加载我的门户失败', e);
       setPortal(undefined);
@@ -86,7 +107,7 @@ const PortalPage: React.FC = () => {
     } finally {
       setPortalLoading(false);
     }
-  }, [portalCode]);
+  }, [portalCode, loadMenus]);
 
   useEffect(() => {
     loadPortal();
@@ -148,24 +169,6 @@ const PortalPage: React.FC = () => {
   /** 个人默认门户（对标 hpcurrentuse）：当前页是否已设为「我的默认」 */
   const [userDefaultPageId, setUserDefaultPageId] = useState<number | null | undefined>(undefined);
   const [defaultSaving, setDefaultSaving] = useState(false);
-
-  /** 门户后端菜单（顶部导航，= 系统菜单 blade_menu 顶级；对标泛微 topmenu，按角色授权） */
-  const [topMenus, setTopMenus] = useState<PortalMenuNode[]>([]);
-  useEffect(() => {
-    portalApi
-      .getSystemMenuTree('top')
-      .then((data) => setTopMenus(data || []))
-      .catch(() => setTopMenus([]));
-  }, []);
-
-  /** 门户前端菜单（左侧导航，= 系统菜单 blade_menu 整树；对标泛微 leftmenu，按角色授权） */
-  const [frontMenus, setFrontMenus] = useState<PortalMenuNode[]>([]);
-  useEffect(() => {
-    portalApi
-      .getSystemMenuTree('front')
-      .then((data) => setFrontMenus(data || []))
-      .catch(() => setFrontMenus([]));
-  }, []);
 
   useEffect(() => {
     portalApi
@@ -265,12 +268,10 @@ const PortalPage: React.FC = () => {
     else history.push(node.routeUrl);
   };
 
-  const onFrontMenuClick = ({ key }: { key: string }) => {
-    const node = findMenuNode(frontMenus, key);
-    if (!node || !node.routeUrl) return;
-    if (node.linkMode === 2) window.open(node.routeUrl, '_blank');
-    else history.push(node.routeUrl);
-  };
+  /**
+   * 门户应用宫格入口：把菜单树摊平成可点击磁贴。
+   * 只保留带 routeUrl 的节点（分组节点无地址，不单独成贴）。
+   */
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -320,6 +321,11 @@ const PortalPage: React.FC = () => {
 
   /* ==================== 布局个性化处理（排序/显隐/保存/重置） ==================== */
   const enterEditLayout = () => {
+    // 门户配置项 canPageMaintainerSettingInViewpage=0 时，按钮权限之外的第二道闸（§16.6 消费点）
+    if (portal && portal.canMaintainInViewpage === 0) {
+      message.warning('门户配置项已禁止在查看页编辑布局（canPageMaintainerSettingInViewpage=0）');
+      return;
+    }
     setDraft((portal?.elements || []).map((e) => ({ ...e, _hidden: false })));
     setEditLayout(true);
   };
@@ -659,7 +665,12 @@ const PortalPage: React.FC = () => {
               </Button>
             </>
           ) : (
-            <Button icon={<EditOutlined />} onClick={enterEditLayout}>
+            <Button
+              icon={<EditOutlined />}
+              disabled={portal?.canMaintainInViewpage === 0}
+              title={portal?.canMaintainInViewpage === 0 ? '门户配置项已禁止查看页编辑布局' : undefined}
+              onClick={enterEditLayout}
+            >
               编辑布局
             </Button>
           )}
@@ -692,23 +703,7 @@ const PortalPage: React.FC = () => {
       )}
 
       <div style={{ display: 'flex', gap: layoutGapOf(accountMore?.layoutType), alignItems: 'flex-start' }}>
-        {/* 前端菜单（左侧导航，对标 portalmenu left；运行时 /menu/tree?menuType=front，按授权过滤） */}
-        {frontMenus.length > 0 && (
-          <div
-            style={{
-              width: 208,
-              flex: '0 0 208px',
-              background: '#fff',
-              border: '1px solid #f0f0f0',
-              borderRadius: 8,
-              padding: 8,
-              position: 'sticky',
-              top: 16,
-            }}
-          >
-            <Menu mode="inline" items={buildMenuItems(frontMenus)} onClick={onFrontMenuClick} style={{ border: 'none' }} />
-          </div>
-        )}
+        {/* 门户不再使用左侧树菜单：前端菜单统一收进右上角「门户小图标」的应用宫格 */}
         <div style={{ flex: 1, minWidth: 0 }}>
         {dataError ? (
           <Alert type="warning" showIcon message={dataError} style={{ marginBottom: 16 }} />
@@ -955,4 +950,4 @@ const PortalPage: React.FC = () => {
   );
 };
 
-export default PortalPage; 
+export default PortalPage;

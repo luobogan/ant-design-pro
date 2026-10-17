@@ -174,6 +174,10 @@ export interface MyPortal {
   elements?: PortalElement[];
   /** 当前用户可见的全部门户页面（多门户切换；已按授权过滤） */
   visiblePages?: PortalPageBrief[];
+  /** 导航菜单源（1系统菜单 2门户私有菜单 front/top；首页据此分流菜单接口） */
+  menuSource?: number;
+  /** 是否允许页面维护者在查看页进入编辑布局（配置项 canPageMaintainerSettingInViewpage） */
+  canMaintainInViewpage?: number;
 }
 
 /** 可见门户页面简要信息（切换用） */
@@ -250,6 +254,27 @@ export interface PortalThemeSaveData {
   openTimer?: number;
   timerStart?: string;
   timerEnd?: string;
+}
+
+/** 主题使用人员（反查 getAllHrmOfTheme） */
+export interface ThemeUser {
+  userId?: number;
+  account?: string;
+  realName?: string;
+  deptId?: number;
+  updateTime?: string;
+}
+
+/** 人员当前主题详情（查人员 getAllThemesOfUserId） */
+export interface UserThemeInfo {
+  userId?: number;
+  account?: string;
+  realName?: string;
+  deptId?: number;
+  hasExplicit?: boolean;
+  themeId?: number;
+  themeName?: string;
+  effectiveThemeName?: string;
 }
 
 /** 门户访问趋势（按日聚合 PV/UV） */
@@ -396,6 +421,8 @@ export interface PortalSetting {
   quickSearchEnabled?: number;
   layoutType?: number;
   fontSize?: number;
+  /** 导航菜单源：1系统菜单(blade_menu) 2门户私有菜单(blade_portal_menu front/top) */
+  menuSource?: number;
 }
 
 /** 门户应用设置保存入参 */
@@ -414,6 +441,8 @@ export interface PortalSettingSaveData {
   quickSearchEnabled?: number;
   layoutType?: number;
   fontSize?: number;
+  /** 导航菜单源：1系统菜单(blade_menu) 2门户私有菜单(blade_portal_menu front/top) */
+  menuSource?: number;
 }
 
 /* ==================== 个人通用设置（对标泛微 accountmore §14.2 I） ==================== */
@@ -611,4 +640,82 @@ export interface PortalNewsTemplateSaveData {
   layoutHtml?: string;
   isDefault?: number;
   remark?: string;
+}
+
+/* ==================== 特色门户/门户网格布局（对标泛微 tsportal §16.2 hp_grid_layout） ==================== */
+
+/** 门户网格布局（layoutType：login 登录前门户 / theme 登录后门户） */
+export interface PortalGridLayout {
+  id?: number;
+  layoutType?: string;
+  layoutName?: string;
+  layoutTitle?: string;
+  layoutUse?: number;
+  layoutDefaultEntrance?: number;
+  layoutConfig?: string;
+  layoutBackground?: string;
+  layoutVersion?: number;
+  remark?: string;
+}
+
+/** 门户网格布局保存入参 */
+export interface PortalGridLayoutSaveData {
+  id?: number;
+  layoutType: string;
+  layoutName: string;
+  layoutTitle?: string;
+  layoutConfig?: string;
+  layoutBackground?: string;
+  layoutUse?: number;
+  layoutDefaultEntrance?: number;
+  remark?: string;
+}
+
+/* ==================== 门户配置项（对标泛微 portalconfig §16.6） ==================== */
+
+/** 门户配置项（ccode/vvalue/name/note 键值配置） */
+export interface PortalConfig {
+  id?: number;
+  ccode?: string;
+  vvalue?: string;
+  name?: string;
+  note?: string;
+}
+
+/* ==================== 元素注册（对标泛微 elementregister §15.3 B5） ==================== */
+
+/** 元素注册记录（zip 开发包登记） */
+export interface PortalElementRegister {
+  id?: number;
+  elementType?: string;
+  elementName?: string;
+  version?: string;
+  manifestJson?: string;
+  packagePath?: string;
+  packageSize?: number;
+  createTime?: string;
+}
+
+/* ==================== 协同区（对标泛微 synergy §15.7 C2；知识型延后） ==================== */
+
+/** 协同区配置（流程 workflow / 流程表单 form / 流程节点 node） */
+export interface PortalSynergyArea {
+  id?: number;
+  areaType?: 'workflow' | 'form' | 'node';
+  title?: string;
+  bindId?: string;
+  bindName?: string;
+  nodeId?: string;
+  nodeName?: string;
+  formId?: string;
+  enabled?: number;
+  width?: number;
+  paramsJson?: string;
+  createTime?: string;
+}
+
+/** 绑定选项（流程/节点下拉，复用 blade-workflow 的 BrowserOptionVO） */
+export interface WorkflowOption {
+  value?: string;
+  label?: string;
 }

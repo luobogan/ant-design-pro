@@ -69,12 +69,19 @@ const UserAdd: React.FC<UserAddProps> = ({
   const { data: tenantData } = useRequest(() => tenantApi.list({}));
 
   // 部门树按数据权限裁剪：非超管仅见授权部门子树（对齐 ecology DepartmentBrowser3 rightLevel）
+  // 后端 /dept/tree、/dept/tree-scope 返回 DeptVO，展示名在 deptName/fullName，这里归一化为 TreeSelect 结构
   const { data: scopedDeptData } = useRequest(() => deptApi.treeScope({}));
   const effectiveDeptTree = useMemo(() => {
     const data = Array.isArray(scopedDeptData)
       ? scopedDeptData
       : scopedDeptData?.data || deptTree;
-    return data || [];
+    const toTree = (nodes: any[]): any[] =>
+      (nodes || []).map((n: any) => ({
+        title: n.title || n.deptName || n.fullName || String(n.id ?? ''),
+        value: n.id ?? n.key,
+        children: Array.isArray(n.children) && n.children.length ? toTree(n.children) : undefined,
+      }));
+    return toTree(data || []);
   }, [scopedDeptData, deptTree]);
 
   // P2：字段配置驱动（对齐 ecology getHrmResourceAddForm）——改配置即改表单

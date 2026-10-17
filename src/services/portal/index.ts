@@ -1,4 +1,5 @@
 ﻿import { request } from '@umijs/max';
+import { getTenantId, getToken } from '@/utils/authority';
 import { pickPayload } from '@/utils/utils';
 import type {
   BladeResponse,
@@ -69,6 +70,14 @@ export type {
   PortalMaterialSaveData,
   PortalNewsTemplate,
   PortalNewsTemplateSaveData,
+  PortalGridLayout,
+  PortalGridLayoutSaveData,
+  PortalConfig,
+  ThemeUser,
+  UserThemeInfo,
+  PortalElementRegister,
+  PortalSynergyArea,
+  WorkflowOption,
 } from './typings';
 export { ELEMENT_TYPE_META } from './typings';
 
@@ -480,6 +489,19 @@ export const portalApi = {
     const response = await request<BladeResponse<PortalMenuNode[]>>(`${API_BASE_PATH}/menu/system-tree`, {
       method: 'GET',
       params: { region },
+    });
+    return pickPayload(response);
+  },
+
+  /**
+   * 门户私有菜单树（blade_portal_menu）：当前用户可见的指定类型菜单，按 blade_portal_menu_share 授权过滤。
+   * menuType: front 前端(左侧整树) / top 后端(顶部) / toolbar 工具栏 / quick 快捷入口。
+   * 仅在「门户应用设置 → 导航菜单源 = 门户私有菜单」时被首页消费（对标泛微 portalmenu 自有导航语义）。
+   */
+  getMenuTree: async (menuType: string) => {
+    const response = await request<BladeResponse<PortalMenuNode[]>>(`${API_BASE_PATH}/menu/tree`, {
+      method: 'GET',
+      params: { menuType },
     });
     return pickPayload(response);
   },
@@ -1017,6 +1039,262 @@ export const portalApi = {
     const response = await request<BladeResponse<boolean>>(`${API_BASE_PATH}/news-template/set-default`, {
       method: 'POST',
       params: { id },
+    });
+    return pickPayload(response);
+  },
+
+  /* ==================== 特色门户/门户网格布局（对标泛微 tsportal §16.2） ==================== */
+
+  /** 网格布局列表（layoutType 可空：login/theme） */
+  getGridLayoutList: async (layoutType?: string) => {
+    const response = await request<BladeResponse<PortalGridLayout[]>>(`${API_BASE_PATH}/grid-layout/list`, {
+      method: 'GET',
+      params: layoutType ? { layoutType } : undefined,
+    });
+    return pickPayload(response);
+  },
+
+  /** 保存网格布局（id 空为新增；defaultEntrance=1 时同类型内唯一） */
+  submitGridLayout: async (data: PortalGridLayoutSaveData) => {
+    const response = await request<BladeResponse<boolean>>(`${API_BASE_PATH}/grid-layout/submit`, {
+      method: 'POST',
+      data,
+    });
+    return pickPayload(response);
+  },
+
+  /** 删除网格布局（默认入口不可删） */
+  removeGridLayout: async (id: number) => {
+    const response = await request<BladeResponse<boolean>>(`${API_BASE_PATH}/grid-layout/remove`, {
+      method: 'POST',
+      params: { id },
+    });
+    return pickPayload(response);
+  },
+
+  /** 启用/停用网格布局 */
+  setGridLayoutUse: async (id: number, use: boolean) => {
+    const response = await request<BladeResponse<boolean>>(`${API_BASE_PATH}/grid-layout/set-use`, {
+      method: 'POST',
+      params: { id, use },
+    });
+    return pickPayload(response);
+  },
+
+  /** 设为默认入口（同类型内唯一） */
+  setGridLayoutDefaultEntrance: async (id: number) => {
+    const response = await request<BladeResponse<boolean>>(`${API_BASE_PATH}/grid-layout/set-default-entrance`, {
+      method: 'POST',
+      params: { id },
+    });
+    return pickPayload(response);
+  },
+
+  /** 网格布局使用限制列表 */
+  getGridLayoutShareList: async (id: number) => {
+    const response = await request<BladeResponse<PortalPageShare[]>>(`${API_BASE_PATH}/grid-layout/share/list`, {
+      method: 'GET',
+      params: { id },
+    });
+    return pickPayload(response);
+  },
+
+  /** 保存网格布局使用限制（差量；传空数组=清空） */
+  saveGridLayoutShare: async (id: number, shares: PortalPageShare[]) => {
+    const response = await request<BladeResponse<boolean>>(`${API_BASE_PATH}/grid-layout/share/set`, {
+      method: 'POST',
+      params: { id },
+      data: shares,
+    });
+    return pickPayload(response);
+  },
+
+  /* ==================== 主题批量指定/使用查询（对标泛微 themeappoint/themesearch §15.5 A3/A4） ==================== */
+
+  /** 按人员范围批量指定主题，返回生效用户数 */
+  appointTheme: async (themeId: number, scopeType: number, scopeIds?: number[]) => {
+    const response = await request<BladeResponse<number>>(`${API_BASE_PATH}/theme/appoint`, {
+      method: 'POST',
+      params: { themeId, scopeType },
+      data: scopeIds || [],
+    });
+    return pickPayload(response);
+  },
+
+  /** 主题整体迁移（源主题全部偏好用户 → 目标主题），返回迁移用户数 */
+  migrateTheme: async (fromThemeId: number, toThemeId: number) => {
+    const response = await request<BladeResponse<number>>(`${API_BASE_PATH}/theme/migrate`, {
+      method: 'POST',
+      params: { fromThemeId, toThemeId },
+    });
+    return pickPayload(response);
+  },
+
+  /** 反查主题使用人员（分页） */
+  getThemeUsers: async (params: { themeId: number; current?: number; size?: number }) => {
+    const response = await request<BladeResponse<PageResult<ThemeUser>>>(`${API_BASE_PATH}/theme/users`, {
+      method: 'GET',
+      params,
+    });
+    return pickPayload(response);
+  },
+
+  /** 查人员当前主题（显式偏好 + 生效主题） */
+  getThemeUserInfo: async (userId: number) => {
+    const response = await request<BladeResponse<UserThemeInfo>>(`${API_BASE_PATH}/theme/user-info`, {
+      method: 'GET',
+      params: { userId },
+    });
+    return pickPayload(response);
+  },
+
+  /* ==================== 门户配置项（对标泛微 portalconfig §16.6） ==================== */
+
+  /** 配置项列表 */
+  getPortalConfigList: async () => {
+    const response = await request<BladeResponse<PortalConfig[]>>(`${API_BASE_PATH}/config/list`, {
+      method: 'GET',
+    });
+    return pickPayload(response);
+  },
+
+  /** 修改配置取值（写库后后端刷新进程内缓存） */
+  setPortalConfigValue: async (ccode: string, vvalue: string) => {
+    const response = await request<BladeResponse<boolean>>(`${API_BASE_PATH}/config/set`, {
+      method: 'POST',
+      params: { ccode, vvalue },
+    });
+    return pickPayload(response);
+  },
+
+  /** 读取配置值（运行时消费点查询；无记录返回 null） */
+  getPortalConfigValue: async (ccode: string) => {
+    const response = await request<BladeResponse<string>>(`${API_BASE_PATH}/config/value`, {
+      method: 'GET',
+      params: { ccode },
+    });
+    return pickPayload(response);
+  },
+
+  /* ==================== 元素注册（对标泛微 elementregister §15.3 B5） ==================== */
+
+  /** 上传注册元素开发包（zip，≤10MB，含 manifest.json），返回注册ID（失败返回 null） */
+  uploadElementRegister: async (file: File) => {
+    // 走原生 fetch + FormData（umi request 无 multipart 封装；与 ImageUploader 上传模式一致）
+    const form = new FormData();
+    form.append('file', file);
+    const token = getToken() || '';
+    const tenantId = getTenantId() || '000000';
+    const res = await fetch(`${API_BASE_PATH}/element-register/upload`, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Basic c2FiZXI6c2FiZXJfc2VjcmV0',
+        'Blade-Auth': `bearer ${token}`,
+        'Tenant-Id': tenantId,
+      },
+      body: form,
+    });
+    const json = await res.json();
+    if (json && json.success && json.data != null) {
+      return json.data as number;
+    }
+    return null;
+  },
+
+  /** 元素注册列表 */
+  getElementRegisterList: async () => {
+    const response = await request<BladeResponse<PortalElementRegister[]>>(`${API_BASE_PATH}/element-register/list`, {
+      method: 'GET',
+    });
+    return pickPayload(response);
+  },
+
+  /** 注销元素注册 */
+  removeElementRegister: async (id: number) => {
+    const response = await request<BladeResponse<boolean>>(`${API_BASE_PATH}/element-register/remove`, {
+      method: 'POST',
+      params: { id },
+    });
+    return pickPayload(response);
+  },
+
+  /* ==================== 协同区（对标泛微 synergy §15.7 C2；知识型延后） ==================== */
+
+  /** 协同区树（按 area_type 分组） */
+  getSynergyTree: async () => {
+    const response = await request<BladeResponse<Record<string, PortalSynergyArea[]>>>(`${API_BASE_PATH}/synergy/tree`, {
+      method: 'GET',
+    });
+    return pickPayload(response);
+  },
+
+  /** 保存协同区（新增/更新） */
+  saveSynergy: async (dto: Partial<PortalSynergyArea>) => {
+    const response = await request<BladeResponse<PortalSynergyArea>>(`${API_BASE_PATH}/synergy/save`, {
+      method: 'POST',
+      data: dto,
+    });
+    return pickPayload(response);
+  },
+
+  /** 注销协同区 */
+  removeSynergy: async (id: number) => {
+    const response = await request<BladeResponse<boolean>>(`${API_BASE_PATH}/synergy/remove`, {
+      method: 'POST',
+      params: { id },
+    });
+    return pickPayload(response);
+  },
+
+  /** 启用/禁用协同区 */
+  setSynergyEnabled: async (id: number, enabled: number) => {
+    const response = await request<BladeResponse<boolean>>(`${API_BASE_PATH}/synergy/set-enabled`, {
+      method: 'POST',
+      params: { id, enabled },
+    });
+    return pickPayload(response);
+  },
+
+  /** 设置协同区宽度 */
+  setSynergyWidth: async (id: number, width: number) => {
+    const response = await request<BladeResponse<boolean>>(`${API_BASE_PATH}/synergy/set-width`, {
+      method: 'POST',
+      params: { id, width },
+    });
+    return pickPayload(response);
+  },
+
+  /** 保存协同区扩展参数 */
+  saveSynergyParams: async (id: number, paramsJson: string) => {
+    const response = await request<BladeResponse<boolean>>(`${API_BASE_PATH}/synergy/save-params`, {
+      method: 'POST',
+      params: { id, paramsJson },
+    });
+    return pickPayload(response);
+  },
+
+  /** 已发布流程定义选项（深度对接 blade-workflow） */
+  getSynergyWorkflowOptions: async () => {
+    const response = await request<BladeResponse<WorkflowOption[]>>(`${API_BASE_PATH}/synergy/workflow-options`, {
+      method: 'GET',
+    });
+    return pickPayload(response);
+  },
+
+  /** 流程节点选项（按流程定义ID） */
+  getSynergyNodeOptions: async (defId: string | number) => {
+    const response = await request<BladeResponse<WorkflowOption[]>>(`${API_BASE_PATH}/synergy/node-options`, {
+      method: 'GET',
+      params: { defId },
+    });
+    return pickPayload(response);
+  },
+
+  /** 流程表单字段（按流程定义ID；供流程表单协同区字段映射） */
+  getSynergyWfFields: async (defId: string | number) => {
+    const response = await request<BladeResponse<Array<{ key?: string; label?: string; control?: string }>>>(`${API_BASE_PATH}/synergy/wf-fields`, {
+      method: 'GET',
+      params: { defId },
     });
     return pickPayload(response);
   },

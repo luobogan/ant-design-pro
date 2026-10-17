@@ -45,7 +45,7 @@ const DefaultPortal: React.FC = () => {
   const deptTreeData = useMemo(() => {
     const toTree = (nodes: any[]): any[] =>
       (nodes || []).map((n) => ({
-        title: n.name ?? n.title,
+        title: n.deptName || n.fullName || n.name || n.title,
         key: n.id ?? n.key,
         value: n.id ?? n.key,
         children: toTree(n.children || []),
@@ -57,7 +57,7 @@ const DefaultPortal: React.FC = () => {
     const map: Record<string, string> = {};
     const walk = (nodes: any[]) => {
       (nodes || []).forEach((n) => {
-        map[String(n.id ?? n.key)] = n.name ?? n.title;
+        map[String(n.id ?? n.key)] = n.deptName || n.fullName || n.name || n.title;
         if (n.children) walk(n.children);
       });
     };

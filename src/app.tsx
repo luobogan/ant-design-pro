@@ -23,6 +23,7 @@ import {
 import FloatingMessageBox from '@/components/FloatingMessageBox';
 import MessageBell from '@/components/MessageBell';
 import TopNavMenu from '@/components/TopNavMenu';
+import PortalAppLauncher from '@/pages/Portal/components/PortalAppLauncher';
 import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
 import defaultSettings from '../config/defaultSettings';
 import { errorConfig, getSavedFormData } from '@/requestErrorConfig';
@@ -129,7 +130,7 @@ const toPascalCase = (str: string): string => {
   // ⚠️ 收录原则：只收「磁盘目录/文件名里真实出现、且小写化后无法还原」的复合词。
   // 缺词会导致复合词目录推导错误（tenantpackage → Tenantpackage ✗ → TenantPackage ✓），
   // 此时优先补词典，而不是在 PAGE_DIR_ALIAS 打补丁。
-  const commonWords = ['Form', 'Mode', 'Manage', 'Data', 'View', 'Field', 'Edit', 'Add', 'List', 'Detail', 'System', 'Mall', 'Product', 'Category', 'User', 'Role', 'Menu', 'Exception', 'Table', 'Design', 'Tenant', 'Package', 'Preview', 'Page', 'Portal', 'Lib', 'Template', 'Search'];
+  const commonWords = ['Form', 'Mode', 'Manage', 'Data', 'View', 'Field', 'Edit', 'Add', 'List', 'Detail', 'System', 'Mall', 'Product', 'Category', 'User', 'Role', 'Menu', 'Exception', 'Table', 'Design', 'Tenant', 'Package', 'Preview', 'Page', 'Portal', 'Lib', 'Template', 'Search', 'Element', 'Register', 'Synergy'];
 
   let result = str.toLowerCase();
 
@@ -746,9 +747,9 @@ export const layout: RunTimeLayoutConfig = ({
   console.log(initialState?.currentUser?.userid);
 
   /* ==================== 门户双布局体系 ====================
-   * 门户是「门面」，形态与后台差异大：
+   * 门户与后台共用同一套导航，仅个别页面做全屏化处理：
    *  - /portal/design  设计器：全屏工作台 → 不渲染侧边菜单、顶部导航与页脚，最大化画布
-   *  - /portal/home    门户首页：门户壳 → 隐藏侧边菜单与后台顶部导航，仅保留消息铃铛/头像
+   *  - 其他 /portal/*   门户页面：与 /welcome 一致 → 左侧为系统原始菜单（/menu/routes 按角色过滤）
    *  - 其他路径：维持后台 mix 布局（不变）
    * 参考 docs/门户.md §4①「双布局体系」与避坑1「不要把所有页面塞进 ProLayout」。
    */
@@ -766,13 +767,25 @@ export const layout: RunTimeLayoutConfig = ({
     };
   }
 
-  // 门户首页：门户壳（隐藏侧边菜单与后台顶部导航）
-  if (pathname.startsWith('/portal')) {
+  // 门户首页：门户壳 —— 与 /welcome 同源，左侧沿用系统原始菜单
+  // （/welcome 现在直接渲染 Portal/Home，见 config/routes.ts，故一并走门户壳，
+  //   保证系统首页与 /portal/home 视觉完全一致）
+  if (pathname.startsWith('/portal') || pathname === '/welcome') {
     return {
       layout: 'mix',
-      // 隐藏左侧菜单：门户内容由配置驱动渲染，不依赖后台菜单树
-      menuRender: false,
-      // 保留顶部消息铃铛与用户头像，但去掉后台顶部导航
+      // 左侧菜单与 welcome 一致：用后台下发的原始菜单树（已按角色过滤），
+      // 并按同样规则剔除「组件型菜单」，避免设计器/发起页等路由载体混进侧边栏。
+      splitMenus: false,
+      menu: {
+        params: {
+          userId: initialState?.currentUser?.userid,
+        },
+        request: async (_params, _defaultMenuData) => {
+          const menuRoutes = stripComponentMenus(formatRoutes(extraRoutes));
+          return loopMenuItem1(menuRoutes);
+        },
+      },
+      // 保留顶部消息铃铛与用户头像（门户小图标挂在标题旁，见 headerTitleRender）
       actionsRender: () => [<MessageBell key="message-bell" />],
       avatarProps: {
         src: initialState?.currentUser?.avatar,
@@ -781,8 +794,17 @@ export const layout: RunTimeLayoutConfig = ({
           return <AvatarDropdown>{avatarChildren}</AvatarDropdown>;
         },
       },
-      title: '企业统一门户',
+      // 不再单独用「企业统一门户」作标题：门户壳与 /welcome 同源，统一用系统标题，
+      // 避免点标题跳回 /welcome 时出现「标题变了」的割裂感
       logo: '/logo.svg',
+      // mix 布局下标题区由 headerTitleRender 渲染：在 Logo + 标题右侧挂门户小图标
+      headerTitleRender: (logo, title) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {logo}
+          {title}
+          <PortalAppLauncher align="left" />
+        </div>
+      ),
       contentStyle: { margin: 0 },
       footerRender: () => <Footer />,
       onPageChange: () => {
@@ -798,6 +820,14 @@ export const layout: RunTimeLayoutConfig = ({
     // 顶部消息铃铛：全局未读红点（WS 实时更新），点击进入 /message 消息中心。
     // /message 路由由后端菜单驱动注册（见 formatRoutes），不在 config/routes.ts 静态声明。
     actionsRender: () => [<MessageBell key="message-bell" />],
+    // mix 布局下标题区由 headerTitleRender 渲染：在 Logo + 标题右侧挂门户小图标
+    headerTitleRender: (logo, title) => (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {logo}
+        {title}
+        <PortalAppLauncher align="left" />
+      </div>
+    ),
     avatarProps: {
       src: initialState?.currentUser?.avatar,
       title: initialState?.currentUser?.name || '用户',

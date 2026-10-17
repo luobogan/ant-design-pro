@@ -11,12 +11,12 @@ import {
   Space,
   Switch,
   Table,
+  Tabs,
   Tag,
   Typography,
   message,
 } from 'antd';
 import {
-  DeleteOutlined,
   EditOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -25,6 +25,8 @@ import {
 import { portalApi } from '@/services/portal';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import type { PortalTheme, PortalThemeSaveData } from '@/services/portal';
+import ThemeAppointPanel from './ThemeAppointPanel';
+import ThemeSearchPanel from './ThemeSearchPanel';
 
 const { Text } = Typography;
 
@@ -47,10 +49,13 @@ const toHex = (c: any): string | undefined => {
 };
 
 /**
- * 门户主题中心（对标泛微 themestyle）
+ * 门户主题中心（对标泛微 themestyle / themeappoint / themesearch 三件套，§15.5 A1/A3/A4）
  *
- * 维护主题库（配色/Logo/背景），页面可绑定主题；写接口复用后端 PERM_PAGE_MAINT。
- * 后端 /theme/list 返回的 themeConfig 是 JSON 字符串，提交时按对象发送。
+ * 三个页签：
+ * - 主题库：维护主题（配色/Logo/背景/定时），页面可绑定主题；
+ * - 批量指定：按人员范围指定主题 + 按主题整体迁移（themeappoint）；
+ * - 使用查询：反查主题使用人员 + 查人员当前主题（themesearch）。
+ * 写接口门禁复用后端 PERM_THEME_MAINT（PortalRight.MAIN_PORTAL 独立权限码）。
  */
 const PortalThemeManage: React.FC = () => {
   const { buttons } = usePageButtons('portal');
@@ -112,7 +117,7 @@ const PortalThemeManage: React.FC = () => {
     try {
       // 高级 JSON 作为基础，结构化字段叠加覆盖（任一变更都生效）
       let config: Record<string, any> = {};
-      if (values.advancedJson && values.advancedJson.trim()) {
+      if (values.advancedJson?.trim()) {
         try {
           config = JSON.parse(values.advancedJson);
         } catch {
@@ -127,7 +132,9 @@ const PortalThemeManage: React.FC = () => {
         bgColor: toHex(values.bgColor) || config.bgColor,
         logoUrl: values.logoUrl ?? config.logoUrl,
       };
-      Object.keys(config).forEach((k) => config[k] === undefined && delete config[k]);
+      Object.keys(config).forEach((k) => {
+        if (config[k] === undefined) delete config[k];
+      });
 
       const payload: PortalThemeSaveData = {
         themeId: editing?.id,
@@ -260,7 +267,7 @@ const PortalThemeManage: React.FC = () => {
           <Typography.Title level={4} style={{ margin: 0 }}>
             门户主题
           </Typography.Title>
-          <Text type="secondary">维护主题库（配色 / Logo / 背景），页面可绑定主题</Text>
+          <Text type="secondary">主题库 + 批量指定 + 使用查询（对标泛微 themestyle/themeappoint/themesearch）</Text>
         </Space>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={load}>
@@ -272,21 +279,43 @@ const PortalThemeManage: React.FC = () => {
         </Space>
       </Space>
 
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="说明"
-        description="生效优先级：用户个人偏好 > 页面绑定主题 > 定时生效主题 > 租户默认主题。默认主题不可删除。"
-      />
-
-      <Table
-        rowKey="id"
-        loading={loading}
-        columns={columns as any}
-        dataSource={list}
-        pagination={false}
-        locale={{ emptyText: <Empty description="暂无主题，点击右上角新建" /> }}
+      <Tabs
+        defaultActiveKey="lib"
+        items={[
+          {
+            key: 'lib',
+            label: '主题库',
+            children: (
+              <>
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                  message="说明"
+                  description="生效优先级：用户个人偏好 > 页面绑定主题 > 定时生效主题 > 租户默认主题。默认主题不可删除。"
+                />
+                <Table
+                  rowKey="id"
+                  loading={loading}
+                  columns={columns as any}
+                  dataSource={list}
+                  pagination={false}
+                  locale={{ emptyText: <Empty description="暂无主题，点击右上角新建" /> }}
+                />
+              </>
+            ),
+          },
+          {
+            key: 'appoint',
+            label: '批量指定',
+            children: <ThemeAppointPanel themes={list} canManage={canManage} />,
+          },
+          {
+            key: 'search',
+            label: '使用查询',
+            children: <ThemeSearchPanel themes={list} />,
+          },
+        ]}
       />
 
       <Drawer

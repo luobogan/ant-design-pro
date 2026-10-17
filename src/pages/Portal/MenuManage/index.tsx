@@ -9,6 +9,7 @@ import {
   Popconfirm,
   Select,
   Space,
+  Spin,
   Switch,
   Table,
   Tag,
@@ -29,6 +30,7 @@ const MENU_TYPES: { value: string; label: string }[] = [
   { value: 'front', label: '前端菜单(左侧)' },
   { value: 'toolbar', label: '工具栏菜单' },
   { value: 'quick', label: '快捷入口' },
+  { value: 'report', label: '报表菜单' },
 ];
 
 /**
@@ -243,7 +245,7 @@ const PortalMenuManage: React.FC = () => {
           <Typography.Title level={4} style={{ margin: 0 }}>
             门户菜单管理
           </Typography.Title>
-          <Text type="secondary">维护门户自有菜单（前端/后端/工具栏/快捷入口）；系统导航菜单(blade_menu)在「系统管理→菜单管理」维护</Text>
+          <Text type="secondary">维护门户自有菜单（前端/后端/工具栏/快捷入口/报表菜单）；系统导航菜单(blade_menu)在「系统管理→菜单管理」维护</Text>
         </Space>
         <Space>
           <Select
@@ -266,7 +268,7 @@ const PortalMenuManage: React.FC = () => {
         showIcon
         style={{ marginBottom: 16 }}
         message="提示"
-        description="「前端菜单(front)/后端菜单(top)」是门户自有导航菜单（blade_portal_menu），与系统导航菜单(blade_menu)相互独立；门户查看页顶部/左侧优先呈现 blade_portal_menu 授权结果。本页可维护全部四类门户菜单，未配「可见范围」默认全员可见。"
+        description="「前端菜单(front)/后端菜单(top)」是门户自有导航菜单（blade_portal_menu），与系统导航菜单(blade_menu)相互独立。注意：首页顶部/左侧默认呈现系统菜单（blade_menu）；需在「门户应用设置 → 导航菜单源 = 门户私有菜单」切换后，本页维护的 front/top 才会在首页生效（对标泛微 portalmenu 自有导航语义，方案一：同表分型 + 源可配置）。「报表菜单(report)」= 我的报表树（对标 reportMenu），不进首页渲染，供报表门户场景按类型拉取。本页可维护全部五类门户菜单，未配「可见范围」默认全员可见。"
       />
 
       <Table
@@ -343,15 +345,17 @@ const PortalMenuManage: React.FC = () => {
           style={{ marginBottom: 12 }}
           message="未配置授权 = 全员可见；配置后仅命中（全员/本部门/本人）的用户可见。"
         />
-        <PortalShareEditor
-          all={shareAll}
-          onAllChange={(v) => {
-            setShareAll(v);
-            if (v) setShareItems([]);
-          }}
-          items={shareItems}
-          onItemsChange={setShareItems}
-        />
+        <Spin spinning={shareLoading}>
+          <PortalShareEditor
+            all={shareAll}
+            onAllChange={(v) => {
+              setShareAll(v);
+              if (v) setShareItems([]);
+            }}
+            items={shareItems}
+            onItemsChange={setShareItems}
+          />
+        </Spin>
       </Modal>
     </div>
   );

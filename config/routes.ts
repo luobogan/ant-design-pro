@@ -42,11 +42,13 @@ export default [
         path: '/',
         redirect: '/welcome',
       },
-      // 欢迎页：/ 重定向落点，必须显式注册，否则落到 /* 渲染 404
+      // 系统首页（= 门户首页）：直接把 Portal/Home 挂到 /welcome，
+      // 让「一进系统 / 输根路径」看到的就是门户内容，不再需要点左侧「门户」再跳一次。
+      // 原模板欢迎页 components 保留在 src/pages/Welcome.tsx，需要时改回 './Welcome' 即可。
       {
         path: '/welcome',
         name: 'welcome',
-        component: './Welcome',
+        component: './Portal/Home',
       },
       // 消息中心：菜单驱动（blade_menu code='message'，path=/message），无需在此静态声明。
       // 入口是顶部消息铃铛（MessageBell → navigate('/message')）。

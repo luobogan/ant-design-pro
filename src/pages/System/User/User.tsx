@@ -90,10 +90,17 @@ interface User {
 interface DeptNode {
   id: string;
   parentId: string;
-  title: string;
+  /** 后端 /dept/tree 返回 DeptVO，展示名为 deptName/fullName；title 仅作旧接口兼容 */
+  title?: string;
+  deptName?: string;
+  fullName?: string;
   key: string;
   children?: DeptNode[];
 }
+
+/** 部门节点展示名：优先旧 title，其次 DeptVO 的 deptName / fullName */
+const deptNodeLabel = (n: DeptNode): string =>
+  n.title || n.deptName || n.fullName || String(n.id);
 
 const UserPage: React.FC = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -298,7 +305,7 @@ const UserPage: React.FC = () => {
     const map = new Map<string, string>();
     const walk = (nodes: DeptNode[]) =>
       nodes.forEach((n) => {
-        map.set(n.id, n.title);
+        map.set(n.id, deptNodeLabel(n));
         if (n.children) walk(n.children);
       });
     walk(deptTree);
@@ -325,7 +332,7 @@ const UserPage: React.FC = () => {
   const buildTreeData = (data: DeptNode[]): DataNode[] => {
     return data.map((item) => ({
       key: item.id,
-      title: item.title,
+      title: deptNodeLabel(item),
       children: item.children ? buildTreeData(item.children) : undefined,
     }));
   };

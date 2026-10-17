@@ -37,7 +37,14 @@ interface SettingFormValues {
   quickSearchEnabled: boolean;
   layoutType: number;
   fontSize: number;
+  menuSource: number;
 }
+
+/** 导航菜单源选项（对标 V2026.10.16_007 menu_source） */
+const MENU_SOURCE_OPTIONS = [
+  { value: 1, label: '系统菜单' },
+  { value: 2, label: '门户私有菜单' },
+];
 
 /** 个人设置表单值（null=沿用全局） */
 interface AccountFormValues {
@@ -88,6 +95,7 @@ const PortalSettingPage: React.FC = () => {
         quickSearchEnabled: bool(data?.quickSearchEnabled),
         layoutType: data?.layoutType ?? 2,
         fontSize: data?.fontSize ?? 3,
+        menuSource: data?.menuSource ?? 1,
       });
     } catch (e) {
       console.error('[portal] 加载门户应用设置失败', e);
@@ -134,6 +142,7 @@ const PortalSettingPage: React.FC = () => {
         quickSearchEnabled: num(values.quickSearchEnabled),
         layoutType: values.layoutType,
         fontSize: values.fontSize,
+        menuSource: values.menuSource,
       };
       const ok = await portalApi.savePortalSetting(payload);
       if (ok) {
@@ -262,6 +271,13 @@ const PortalSettingPage: React.FC = () => {
                   </Form.Item>
                   <Form.Item label="全局默认字体" name="fontSize">
                     <Radio.Group options={FONT_OPTIONS} optionType="button" />
+                  </Form.Item>
+                  <Form.Item
+                    label="导航菜单源"
+                    name="menuSource"
+                    extra="系统菜单= blade_menu（按角色授权）；门户私有菜单= blade_portal_menu 的 front/top（在「门户菜单管理」维护，按菜单授权过滤）。对标泛微 portalmenu 自有导航语义。"
+                  >
+                    <Radio.Group options={MENU_SOURCE_OPTIONS} optionType="button" />
                   </Form.Item>
                   <Space>
                     <Button type="primary" loading={saving} onClick={handleSaveSetting} disabled={!canManage}>

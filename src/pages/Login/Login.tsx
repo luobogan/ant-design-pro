@@ -338,9 +338,10 @@ const Login: React.FC = () => {
 
         message.success('登录成功');
         // 登录成功后回到「被拦截前的页面」：URL 形如 /user/login?redirect=%2Fsystem%2Fworkflow
-        // 做同源校验（防开放重定向），无 redirect 或非法时回落到门户首页（F07：登录默认进门户）。
+        // 做同源校验（防开放重定向），无 redirect 或非法时回落到系统首页 /welcome
+        // （/welcome 即门户首页，见 config/routes.ts）。
         const redirectParam = getQueryString('redirect');
-        const redirectUrl = getSafeRedirectUrl(redirectParam, '/portal/home');
+        const redirectUrl = getSafeRedirectUrl(redirectParam, '/welcome');
         console.log('准备跳转到', redirectUrl, '（redirect 参数：', redirectParam, '）');
         // 使用 window.location.href 强制刷新页面,触发 getInitialState 重新加载用户信息
         window.location.href = redirectUrl;

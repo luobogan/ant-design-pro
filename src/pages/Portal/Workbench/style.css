@@ -1,0 +1,93 @@
+/* 门户工作台：左右分栏布局 */
+
+.wb {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+/* 左侧固定菜单栏：吸顶并独立滚动 */
+.wb-sider {
+  flex: 0 0 240px;
+  width: 240px;
+  position: sticky;
+  top: 0;
+}
+
+.wb-sider-inner {
+  background: #fff;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  padding: 12px;
+  max-height: calc(100vh - 140px);
+  overflow: auto;
+}
+
+.wb-sider-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.wb-sider-current {
+  font-size: 12px;
+}
+
+.wb-sider-search {
+  margin-bottom: 10px;
+}
+
+/* 右侧内容区 */
+.wb-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wb-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wb-card {
+  margin: 0;
+}
+
+.wb-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.wb-toolbar {
+  margin-bottom: 12px;
+}
+
+.wb-table {
+  margin-top: 4px;
+}
+
+.wb-loading {
+  display: flex;
+  justify-content: center;
+  padding: 48px 0;
+}
+
+@media (max-width: 992px) {
+  .wb {
+    flex-direction: column;
+  }
+
+  .wb-sider {
+    flex: 0 0 auto;
+    width: 100%;
+    position: static;
+  }
+
+  .wb-sider-inner {
+    max-height: 320px;
+  }
+}
