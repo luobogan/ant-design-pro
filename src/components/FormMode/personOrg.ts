@@ -15,6 +15,7 @@ import * as userApi from '@/services/system/user';
 import * as deptApi from '@/services/system/dept';
 import * as roleApi from '@/services/authority/role';
 import * as postApi from '@/pages/System/Post/service';
+import { odocReceiveGroupApi, odocReceiveUnitApi } from '@/services/workflow';
 
 /**
  * 统一「人员与组织」浏览框数据层（对齐 ecology BrowserBean）。
@@ -34,7 +35,7 @@ import * as postApi from '@/pages/System/Post/service';
 
 // ==================== 类型元信息 ====================
 
-export type PersonOrgCategory = 'hrm' | 'dept' | 'branch' | 'role' | 'post';
+export type PersonOrgCategory = 'hrm' | 'dept' | 'branch' | 'role' | 'post' | 'unit';
 
 export interface PersonOrgItem {
   /** 主键（字符串，雪花 ID 防精度丢失） */
@@ -54,11 +55,16 @@ export interface BrowserTypeMeta {
   /** 浏览按钮类型（对齐 ecology 35+ 类型编号） */
   browserType: number;
   label: string;
-  category: PersonOrgCategory;
+  /** 人员/组织类别；字典/文号类（browse=dict/number）无此类别 */
+  category?: PersonOrgCategory;
   /** 是否多选 */
   multiple: boolean;
   /** 是否提供左侧分类树（人员/部门/分部提供） */
   tree: boolean;
+  /** 公文字典/文号浏览：dict=按 dictType 取字典，number=取文号规则（走 DictNumberField） */
+  browse?: 'dict' | 'number';
+  /** browse=dict 时的字典类型（secret_level/urgency/doc_type/topic_type） */
+  dictType?: string;
 }
 
 /**
@@ -89,6 +95,16 @@ export const BROWSER_TYPE_META: Record<number, BrowserTypeMeta> = {
   3: { browserType: 3, label: '角色', category: 'role', multiple: false, tree: false },
   163: { browserType: 163, label: '多角色', category: 'role', multiple: true, tree: false },
   4: { browserType: 4, label: '岗位', category: 'post', multiple: false, tree: false },
+  // 收发文单位（odoc 公文）
+  258: { browserType: 258, label: '收发文单位', category: 'unit', multiple: false, tree: true },
+  259: { browserType: 259, label: '多收发文单位', category: 'unit', multiple: true, tree: true },
+  // 公文规范字典（odoc，走 DictNumberField：按 dictType 取字典值）
+  260: { browserType: 260, label: '秘密等级', multiple: false, tree: false, browse: 'dict', dictType: 'secret_level' },
+  261: { browserType: 261, label: '紧急程度', multiple: false, tree: false, browse: 'dict', dictType: 'urgency' },
+  262: { browserType: 262, label: '公文类型', multiple: false, tree: false, browse: 'dict', dictType: 'doc_type' },
+  263: { browserType: 263, label: '主题分类', multiple: false, tree: false, browse: 'dict', dictType: 'topic_type' },
+  // 发文字号（odoc，走 DictNumberField：取文号规则）
+  264: { browserType: 264, label: '发文字号', multiple: false, tree: false, browse: 'number' },
 };
 
 /**
@@ -152,6 +168,12 @@ interface OrgData {
   deptTree: any[];
   roles: PersonOrgItem[];
   posts: PersonOrgItem[];
+  /** 收发文单位（odoc）扁平列表 */
+  units: PersonOrgItem[];
+  /** 收发文单位树（按 superiorId 聚合） */
+  unitTree: any[];
+  /** 收发文公共组（odoc，unit 选择器里作快捷多选） */
+  groups: { id: string; name: string; unitIds: string[] }[];
   /** 各数据源加载是否失败（失败时 UI 降级提示） */
   errors: string[];
 }
@@ -416,15 +438,53 @@ function normalizeDeptTree(list: any[]): { flat: PersonOrgItem[]; tree: any[] } 
   return { flat, tree: conv(list || []) };
 }
 
+/** 收发文单位扁平列表 → 树（按 superiorId 聚合，含完整树结构用于分类树） */
+function normalizeUnitTree(list: any[]): { flat: PersonOrgItem[]; tree: any[] } {
+  const flat: PersonOrgItem[] = (list || [])
+    .filter((u) => u && u.id != null)
+    .map((u) => ({
+      id: String(u.id),
+      name: u.unitName || String(u.id),
+      code: u.unitCode || '',
+      desc: u.companyType === 1 ? '外部单位' : '内部单位',
+      raw: u,
+    }));
+  const byId = new Map<string, any>();
+  flat.forEach((i) => {
+    byId.set(i.id, { key: i.id, title: i.name, raw: i.raw, children: [] as any[] });
+  });
+  const roots: any[] = [];
+  flat.forEach((i) => {
+    const node = byId.get(i.id);
+    if (!node) return;
+    const sup = i.raw?.superiorId != null && i.raw?.superiorId !== '' ? String(i.raw.superiorId) : '';
+    if (sup && byId.has(sup)) {
+      byId.get(sup)?.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  });
+  // 清理空 children，避免无意义展开箭头
+  const prune = (nodes: any[]) =>
+    nodes.forEach((n) => {
+      if (!n.children.length) delete n.children;
+      else prune(n.children);
+    });
+  prune(roots);
+  return { flat, tree: roots };
+}
+
 async function fetchAll(): Promise<OrgData> {
   const errors: string[] = [];
   // ⚠️ 人员**不再全量预取**：原实现最多 10 页 × 1000 人串行拉全量（万人时首屏极慢）。
   //    现改为按需分页查询 `queryUsers()`（服务端搜索 + 服务端分页 + 服务端部门树过滤）。
   //    部门/角色/岗位数量级小（几十~几百），保持一次性全量。
-  const [deptR, roleR, postR] = await Promise.allSettled([
+  const [deptR, roleR, postR, unitR, groupR] = await Promise.allSettled([
     deptApi.tree({}).then((r: any) => extractList(r)),
     roleApi.list({}).then((r: any) => extractList(r)),
     postApi.list({}).then((r: any) => extractList(r)),
+    odocReceiveUnitApi.list().then((r: any) => extractList(r)),
+    odocReceiveGroupApi.list().then((r: any) => extractList(r)),
   ]);
 
   let depts: PersonOrgItem[] = [];
@@ -470,6 +530,36 @@ async function fetchAll(): Promise<OrgData> {
     console.warn('[personOrg] 岗位数据加载失败:', postR.reason);
   }
 
+  // 收发文单位（odoc 公文）：扁平 + 树；失败不影响其它类别（不计入 errors）
+  let units: PersonOrgItem[] = [];
+  let unitTree: any[] = [];
+  if (unitR.status === 'fulfilled') {
+    const norm = normalizeUnitTree(unitR.value as any[]);
+    units = norm.flat;
+    unitTree = norm.tree;
+  } else {
+    console.warn('[personOrg] 收发文单位数据加载失败:', unitR.reason);
+  }
+
+  // 收发文公共组（odoc）：失败不影响其它类别（不计入 errors）
+  let groups: { id: string; name: string; unitIds: string[] }[] = [];
+  if (groupR.status === 'fulfilled') {
+    groups = ((groupR.value as any[]) || [])
+      .filter((g) => g && g.id != null)
+      .map((g) => ({
+        id: String(g.id),
+        name: g.groupName || String(g.id),
+        unitIds:
+          typeof g.unitIds === 'string'
+            ? g.unitIds.split(',').map((s: string) => s.trim()).filter(Boolean)
+            : Array.isArray(g.unitIds)
+              ? g.unitIds.map((x: any) => String(x))
+              : [],
+      }));
+  } else {
+    console.warn('[personOrg] 收发文公共组数据加载失败:', groupR.reason);
+  }
+
   // 人员改为懒加载（queryUsers），此处只缓存组织类数据
   Object.assign(cache, {
     users: [],
@@ -478,6 +568,9 @@ async function fetchAll(): Promise<OrgData> {
     deptTree,
     roles,
     posts,
+    units,
+    unitTree,
+    groups,
     errors,
   } satisfies OrgData);
   // 部门/角色/岗位全部非空才标记已加载，否则下次打开重新拉取（不把失败缓存成空）
@@ -531,6 +624,8 @@ export function itemsOfCategory(data: OrgData, category: PersonOrgCategory): Per
       return data.roles;
     case 'post':
       return data.posts;
+    case 'unit':
+      return data.units;
     default:
       return [];
   }

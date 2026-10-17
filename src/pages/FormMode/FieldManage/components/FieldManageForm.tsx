@@ -267,12 +267,12 @@ const FieldManageForm: React.FC<FieldManageFormProps> = ({
           表单填报时按该类型弹出对应的人员/部门/分部/角色/岗位选择弹窗（优先级高于「字段详细类型」） */}
       <ProFormDependency name={['fieldHtmlType']}>
         {({ fieldHtmlType }) => {
-          if (fieldHtmlType !== 2) return null;
+          if (fieldHtmlType !== 3) return null;
           return (
             <ProFormSelect
               name="browType"
               label="浏览按钮类型（browtype）"
-              placeholder="请选择浏览按钮类型（人力资源/部门/分部/角色/岗位）"
+              placeholder="请选择浏览按钮类型（人员/部门/公文单位/秘密等级/紧急程度/公文类型/主题分类/发文字号…）"
               tooltip="对齐 ecology 浏览按钮类型编号；设置后表单填报时按该类型弹出选择弹窗。留空则按「字段详细类型」推断。"
               options={Object.values(BROWSER_TYPE_META).map((m) => ({
                 value: m.browserType,

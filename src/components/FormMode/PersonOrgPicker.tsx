@@ -178,9 +178,12 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
 
   // 分类树（人员/部门/分部）；分部只列根节点
   const treeData = useMemo(() => {
-    if (!data || !['hrm', 'dept', 'branch'].includes(cat)) return [];
+    if (!data || !['hrm', 'dept', 'branch', 'unit'].includes(cat)) return [];
     if (cat === 'branch') {
       return itemsOfCategory(data, 'branch').map((i) => ({ key: i.id, title: i.name }));
+    }
+    if (cat === 'unit') {
+      return data.unitTree || [];
     }
     return data.deptTree || [];
   }, [data, cat]);
@@ -192,6 +195,10 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
     if (data && treeKey && ['dept', 'branch'].includes(cat)) {
       const deptIds = collectDeptIds(data.deptTree, treeKey);
       list = list.filter((i) => deptIds.has(i.id));
+    }
+    if (data && treeKey && cat === 'unit') {
+      const unitIds = collectDeptIds(data.unitTree, treeKey);
+      list = list.filter((i) => unitIds.has(i.id));
     }
     const kw = keyword.trim().toLowerCase();
     if (kw) {
@@ -229,6 +236,50 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
       });
       return next;
     });
+  };
+
+  // 收发文单位（cat=unit）多选时：提供「公共组」快捷多选——点组即把成员单位并入已选
+  const addGroup = (groupId: string) => {
+    const g = (data?.groups || []).find((x: any) => String(x.id) === groupId);
+    if (!g) return;
+    const memberIds: string[] = (g.unitIds || []).map((x: any) => String(x));
+    if (memberIds.length === 0) {
+      if (isMobile) Toast.show({ content: '该公共组暂无成员单位' });
+      else message.warning('该公共组暂无成员单位');
+      return;
+    }
+    setSelected((prev) => Array.from(new Set([...prev, ...memberIds])));
+    setNameMap((m) => {
+      const next = { ...m };
+      const units = data?.units || [];
+      memberIds.forEach((id) => {
+        if (!next[id]) {
+          const hit = units.find((u: any) => String(u.id) === id);
+          if (hit) next[id] = hit.name;
+        }
+      });
+      return next;
+    });
+  };
+
+  const renderGroupBar = () => {
+    if (cat !== 'unit' || !isMultiple) return null;
+    const groups = data?.groups || [];
+    if (groups.length === 0) return null;
+    return (
+      <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+        <span style={{ fontSize: 12, color: '#999' }}>公共组（点击带入成员）：</span>
+        {groups.map((g: any) => (
+          <Tag
+            key={g.id}
+            onClick={() => addGroup(g.id)}
+            style={{ cursor: 'pointer', background: '#f6ffed', borderColor: '#b7eb8f', color: '#389e0d', marginInlineEnd: 0 }}
+          >
+            + {g.name}（{g.unitIds?.length || 0}）
+          </Tag>
+        ))}
+      </div>
+    );
   };
 
   const handleOk = () => {
@@ -314,6 +365,9 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
             />
           </div>
         )}
+
+        {/* 公共组快捷条（收发文单位多选） */}
+        <div style={{ padding: '0 12px' }}>{renderGroupBar()}</div>
 
         {/* 列表 */}
         <div style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
@@ -467,6 +521,7 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
               allowClear
               style={{ marginBottom: 8 }}
             />
+            {renderGroupBar()}
             <Table
               rowKey="id"
               size="small"

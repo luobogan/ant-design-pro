@@ -4,6 +4,7 @@ import { getBrowserTypeLabel, isBrowserTypeMultiple } from './fieldTypes';
 import type { FieldVariant } from './fieldTokens';
 import { PersonOrgField } from './PersonOrgPicker';
 import { BROWSER_TYPE_META } from './personOrg';
+import { DictNumberField } from './DictNumberPicker';
 
 /**
  * 浏览按钮字段统一壳（唯一入口）
@@ -67,6 +68,22 @@ export const BrowserControl: React.FC<BrowserControlProps> = ({
           style={style}
         />
       </Tooltip>
+    );
+  }
+
+  // 公文规范字典 / 发文字号 → 专用浏览按钮（数据源为字典/文号规则）
+  if (meta.browse === 'dict' || meta.browse === 'number') {
+    return (
+      <DictNumberField
+        browserType={browserType as number}
+        multiple={isBrowserTypeMultiple(browserType)}
+        value={value}
+        onChange={(v: any) => onChange?.(v)}
+        disabled={disabled}
+        readOnly={readOnly}
+        placeholder={placeholder}
+        showTypeTag={showTypeTag}
+      />
     );
   }
 

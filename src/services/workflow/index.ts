@@ -1580,6 +1580,400 @@ export const odocApi = {
 export const odocContentUrl = (versionId: any) =>
   `${WORKFLOW}/odoc/doc/version/${versionId}/content`;
 
+// ───────────── 公文待办 / 已办 / 我的请求（odoc todo） ─────────────
+// 对应后端 WfOdocTodoController。办理/退回等动作复用通用 /task/**。
+export interface PageResult<T> {
+  records: T[];
+  total: number;
+  current: number;
+  size: number;
+}
+
+export interface OdocTodoVO {
+  taskId?: string;
+  instanceId?: string;
+  defId?: string;
+  officalType?: number;
+  title?: string;
+  issuedNum?: string;
+  receiveNum?: string;
+  issuedUnit?: string;
+  receiveUnit?: string;
+  secretLevel?: string;
+  urgency?: string;
+  topicType?: string;
+  writtenDate?: string;
+  issuedDate?: string;
+  docId?: string;
+  currentNodeKey?: string;
+  starter?: string;
+  taskStatus?: number;
+  receiveTime?: string;
+  operateTime?: string;
+}
+
+export interface OdocListQuery {
+  officalType?: number;
+  title?: string;
+  secretLevels?: string[];
+  beginTime?: string;
+  endTime?: string;
+  current?: number;
+  size?: number;
+}
+
+export const odocTodoApi = {
+  todo: (query: OdocListQuery) =>
+    request<ApiResponse<PageResult<OdocTodoVO>>>(`${WORKFLOW}/odoc/todo`, { method: 'GET', params: query }),
+  done: (query: OdocListQuery) =>
+    request<ApiResponse<PageResult<OdocTodoVO>>>(`${WORKFLOW}/odoc/done`, { method: 'GET', params: query }),
+  myRequest: (query: OdocListQuery) =>
+    request<ApiResponse<PageResult<OdocTodoVO>>>(`${WORKFLOW}/odoc/my-request`, { method: 'GET', params: query }),
+};
+
+// ───────────── 公文督办（odoc supervise） ─────────────
+// 对应后端 WfOdocSuperviseController。
+export interface OdocSuperviseVO {
+  id?: string;
+  instanceId?: string;
+  defId?: string;
+  officalType?: number;
+  title?: string;
+  issuedNum?: string;
+  supervisorId?: string;
+  starterId?: string;
+  /** 0督办中 1已办结 2已取消 */
+  status?: number;
+  deadline?: string;
+  remark?: string;
+  lastRemindTime?: string;
+  createTime?: string;
+}
+
+export interface OdocSuperviseQuery {
+  officalType?: number;
+  /** 0我发起的督办 1我被督办 */
+  superviseType?: number;
+  status?: number;
+  current?: number;
+  size?: number;
+}
+
+export const odocSuperviseApi = {
+  getSetting: (defId: any) =>
+    request<ApiResponse<any>>(`${WORKFLOW}/odoc/supervise/setting`, { method: 'GET', params: { defId } }),
+  saveSetting: (data: any) =>
+    request<ApiResponse<any>>(`${WORKFLOW}/odoc/supervise/setting`, { method: 'POST', data }),
+  list: (query: OdocSuperviseQuery) =>
+    request<ApiResponse<PageResult<OdocSuperviseVO>>>(`${WORKFLOW}/odoc/supervise/list`, {
+      method: 'GET',
+      params: query,
+    }),
+  count: (query: OdocSuperviseQuery) =>
+    request<ApiResponse<number>>(`${WORKFLOW}/odoc/supervise/count`, { method: 'GET', params: query }),
+  add: (data: { instanceId: any; supervisorId?: any; deadline?: string; remark?: string }) =>
+    request<ApiResponse<any>>(`${WORKFLOW}/odoc/supervise`, { method: 'POST', data }),
+  remind: (id: any) =>
+    request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/supervise/${id}/remind`, { method: 'POST' }),
+};
+
+// ───────────── 公文统计 / 监控（odoc report & monitor） ─────────────
+// 对应后端 WfOdocReportController。
+export interface OdocStatisticVO {
+  officalType?: number;
+  total?: number;
+  running?: number;
+  approved?: number;
+  rejected?: number;
+  canceled?: number;
+  suspended?: number;
+  draft?: number;
+}
+
+export const odocReportApi = {
+  statistics: (officalType?: number) =>
+    request<ApiResponse<OdocStatisticVO[]>>(`${WORKFLOW}/odoc/report/statistics`, {
+      method: 'GET',
+      params: { officalType },
+    }),
+  monitorList: (query: OdocListQuery) =>
+    request<ApiResponse<PageResult<OdocTodoVO>>>(`${WORKFLOW}/odoc/monitor/list`, {
+      method: 'GET',
+      params: query,
+    }),
+};
+
+// ───────────── 公文基础数据：字典 / 意见模板 / 收发文单位 / 公共组 ─────────────
+// 对应后端 WfOdocDictController / WfOdocOpinionController /
+//        WfOdocReceiveUnitController / WfOdocReceiveGroupController。
+
+export interface OdocDict {
+  id?: string;
+  dictType?: string;
+  code?: string;
+  name?: string;
+  alias?: string;
+  showOrder?: number;
+  enabled?: number;
+  isDefault?: number;
+  extColor?: string;
+  extNote?: string;
+}
+export const odocDictApi = {
+  list: (dictType: string, enabledOnly = false) =>
+    request<ApiResponse<OdocDict[]>>(`${WORKFLOW}/odoc/dict/${dictType}`, {
+      method: 'GET',
+      params: { enabledOnly },
+    }),
+  get: (dictType: string, code: string) =>
+    request<ApiResponse<OdocDict>>(`${WORKFLOW}/odoc/dict/${dictType}/${code}`, { method: 'GET' }),
+  save: (data: OdocDict) =>
+    request<ApiResponse<OdocDict>>(`${WORKFLOW}/odoc/dict/save`, { method: 'POST', data }),
+  remove: (id: any) =>
+    request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/dict/${id}`, { method: 'DELETE' }),
+};
+
+export interface OdocOpinion {
+  id?: string;
+  defId?: any;
+  phraseShort?: string;
+  phrase?: string;
+  isDefault?: number;
+  showOrder?: number;
+  enabled?: number;
+}
+export const odocOpinionApi = {
+  list: (defId?: any) =>
+    request<ApiResponse<OdocOpinion[]>>(`${WORKFLOW}/odoc/opinion/list`, {
+      method: 'GET',
+      params: { defId },
+    }),
+  save: (data: OdocOpinion) =>
+    request<ApiResponse<OdocOpinion>>(`${WORKFLOW}/odoc/opinion/save`, { method: 'POST', data }),
+  remove: (id: any) =>
+    request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/opinion/${id}`, { method: 'DELETE' }),
+};
+
+export interface OdocReceiveUnit {
+  id?: string;
+  unitName?: string;
+  unitCode?: string;
+  superiorId?: any;
+  unitLevel?: number;
+  companyType?: number;
+  isMain?: number;
+  canStartChildRequest?: number;
+  receiverIds?: string;
+  showOrder?: number;
+  enabled?: number;
+  extNote?: string;
+}
+export const odocReceiveUnitApi = {
+  list: (enabledOnly = false) =>
+    request<ApiResponse<OdocReceiveUnit[]>>(`${WORKFLOW}/odoc/receive-unit/list`, {
+      method: 'GET',
+      params: { enabledOnly },
+    }),
+  children: (superiorId?: any) =>
+    request<ApiResponse<OdocReceiveUnit[]>>(`${WORKFLOW}/odoc/receive-unit/children`, {
+      method: 'GET',
+      params: { superiorId },
+    }),
+  get: (id: any) =>
+    request<ApiResponse<OdocReceiveUnit>>(`${WORKFLOW}/odoc/receive-unit/${id}`, { method: 'GET' }),
+  save: (data: OdocReceiveUnit) =>
+    request<ApiResponse<OdocReceiveUnit>>(`${WORKFLOW}/odoc/receive-unit/save`, { method: 'POST', data }),
+  remove: (id: any) =>
+    request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/receive-unit/${id}`, { method: 'DELETE' }),
+};
+
+export interface OdocReceiveGroup {
+  id?: string;
+  groupName?: string;
+  unitIds?: string;
+  showOrder?: number;
+  enabled?: number;
+  extNote?: string;
+}
+export const odocReceiveGroupApi = {
+  list: (enabledOnly = false) =>
+    request<ApiResponse<OdocReceiveGroup[]>>(`${WORKFLOW}/odoc/receive-group/list`, {
+      method: 'GET',
+      params: { enabledOnly },
+    }),
+  get: (id: any) =>
+    request<ApiResponse<OdocReceiveGroup>>(`${WORKFLOW}/odoc/receive-group/${id}`, { method: 'GET' }),
+  save: (data: OdocReceiveGroup) =>
+    request<ApiResponse<OdocReceiveGroup>>(`${WORKFLOW}/odoc/receive-group/save`, { method: 'POST', data }),
+  remove: (id: any) =>
+    request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/receive-group/${id}`, { method: 'DELETE' }),
+};
+
+export interface OdocSetting {
+  id?: string;
+  isOpenOfd?: number;
+  defaultLayoutFormat?: number;
+  defaultMustTaohong?: number;
+  defaultSealRequired?: number;
+  remark?: string;
+}
+export const odocSettingApi = {
+  get: () => request<ApiResponse<OdocSetting>>(`${WORKFLOW}/odoc/setting`, { method: 'GET' }),
+  save: (data: OdocSetting) =>
+    request<ApiResponse<OdocSetting>>(`${WORKFLOW}/odoc/setting`, { method: 'POST', data }),
+};
+
+export interface OdocSecretRule {
+  id?: string;
+  targetType?: number;
+  targetId?: any;
+  secLevelFrom?: number;
+  secLevelTo?: number;
+  enabled?: number;
+  remark?: string;
+}
+export const odocSecretRuleApi = {
+  list: () => request<ApiResponse<OdocSecretRule[]>>(`${WORKFLOW}/odoc/secret-rule/list`, { method: 'GET' }),
+  save: (data: OdocSecretRule) =>
+    request<ApiResponse<OdocSecretRule>>(`${WORKFLOW}/odoc/secret-rule/save`, { method: 'POST', data }),
+  remove: (id: any) =>
+    request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/secret-rule/${id}`, { method: 'DELETE' }),
+  check: (docSecretLevel: string, receiveUnitIds: string) =>
+    request<ApiResponse<string>>(`${WORKFLOW}/odoc/secret-rule/check`, {
+      method: 'POST',
+      params: { docSecretLevel, receiveUnitIds },
+    }),
+};
+
+export interface OdocListSet {
+  id?: string;
+  listCode?: string;
+  hiddenKeys?: string;
+  enabled?: number;
+}
+export const odocListSetApi = {
+  get: (listCode: string) =>
+    request<ApiResponse<OdocListSet>>(`${WORKFLOW}/odoc/list-set`, { method: 'GET', params: { listCode } }),
+  save: (data: OdocListSet) =>
+    request<ApiResponse<OdocListSet>>(`${WORKFLOW}/odoc/list-set`, { method: 'POST', data }),
+};
+
+// ───────────── 公文文种转换（odoc doc-type-change） ─────────────
+// 对应后端 WfOdocDocTypeChangeController。
+export interface OdocDocTypeChange {
+  id?: string;
+  defId?: string;
+  targetDefId?: string;
+  targetOfficalType?: number;
+  isDefault?: number;
+  fieldMaps?: string;
+  enabled?: number;
+}
+
+export interface OdocDocTypeChangeRevision {
+  id?: string;
+  instanceId?: string;
+  defId?: string;
+  targetDefId?: string;
+  targetOfficalType?: number;
+  reasons?: string;
+  operatorId?: string;
+  chanInstanceId?: string;
+  createTime?: string;
+}
+
+export const odocDocTypeChangeApi = {
+  setting: (defId: any) =>
+    request<ApiResponse<OdocDocTypeChange[]>>(`${WORKFLOW}/odoc/doc-type-change/setting`, {
+      method: 'GET',
+      params: { defId },
+    }),
+  saveSetting: (data: OdocDocTypeChange) =>
+    request<ApiResponse<OdocDocTypeChange>>(`${WORKFLOW}/odoc/doc-type-change/setting`, {
+      method: 'POST',
+      data,
+    }),
+  removeSetting: (id: any) =>
+    request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/doc-type-change/setting/${id}`, { method: 'DELETE' }),
+  assignment: (defId: any) =>
+    request<ApiResponse<any>>(`${WORKFLOW}/odoc/doc-type-change/assignment`, {
+      method: 'GET',
+      params: { defId },
+    }),
+  saveAssignment: (data: any) =>
+    request<ApiResponse<any>>(`${WORKFLOW}/odoc/doc-type-change/assignment`, { method: 'POST', data }),
+  revision: (instanceId: any) =>
+    request<ApiResponse<OdocDocTypeChangeRevision[]>>(`${WORKFLOW}/odoc/doc-type-change/revision`, {
+      method: 'GET',
+      params: { instanceId },
+    }),
+  submit: (data: { instanceId: any; targetDefId: any; reasons?: string }) =>
+    request<ApiResponse<OdocDocTypeChangeRevision>>(`${WORKFLOW}/odoc/doc-type-change/submit`, {
+      method: 'POST',
+      data,
+    }),
+};
+
+// ───────────── 公文交换（odoc exchange） ─────────────
+// 对应后端 WfOdocExchangeController。
+export interface OdocExchangeInner {
+  id?: string;
+  instanceId?: string;
+  officalType?: number;
+  /** 1发出 2接收 */
+  direction?: number;
+  targetUnit?: string;
+  documentIdentifier?: string;
+  issuedNum?: string;
+  issuedUnit?: string;
+  /** 0待接收 1已接收 2已退回 */
+  exchangeStatus?: number;
+  remark?: string;
+  createTime?: string;
+}
+
+export interface OdocExchangeSetting {
+  id?: string;
+  platformCode?: string;
+  platformName?: string;
+  /** ws/ftp */
+  type?: string;
+  endpoint?: string;
+  appKey?: string;
+  appSecret?: string;
+  enabled?: number;
+}
+
+export const odocExchangeApi = {
+  innerSend: (data: { instanceId: any; targetUnits: string[]; remark?: string }) =>
+    request<ApiResponse<OdocExchangeInner[]>>(`${WORKFLOW}/odoc/exchange/inner/send`, { method: 'POST', data }),
+  innerList: (params: { direction?: number; officalType?: number; current?: number; size?: number }) =>
+    request<ApiResponse<PageResult<OdocExchangeInner>>>(`${WORKFLOW}/odoc/exchange/inner/list`, {
+      method: 'GET',
+      params,
+    }),
+  innerReceive: (id: any) =>
+    request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/exchange/inner/${id}/receive`, { method: 'POST' }),
+  externalAvailable: () =>
+    request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/exchange/external/available`, { method: 'GET' }),
+  listSetting: () =>
+    request<ApiResponse<OdocExchangeSetting[]>>(`${WORKFLOW}/odoc/exchange/external/setting`, {
+      method: 'GET',
+    }),
+  saveSetting: (data: OdocExchangeSetting) =>
+    request<ApiResponse<OdocExchangeSetting>>(`${WORKFLOW}/odoc/exchange/external/setting`, {
+      method: 'POST',
+      data,
+    }),
+  removeSetting: (id: any) =>
+    request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/exchange/external/setting/${id}`, { method: 'DELETE' }),
+  externalSend: (platformCode: string, instanceId: any) =>
+    request<ApiResponse<string>>(`${WORKFLOW}/odoc/exchange/external/send`, {
+      method: 'POST',
+      params: { platformCode, instanceId },
+    }),
+};
+
 // ───────────── 红头模板 / 套红（odoc mould & taohong） ─────────────
 export interface OdocMould {
   id?: string;

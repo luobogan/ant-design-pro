@@ -160,7 +160,21 @@ const toPascalCase = (str: string): string => {
  * 若将来新增目录名含词典外的复合词（如 Preview/Page 之类），应**优先补 commonWords**，
  * 只有在补词典会误伤其它路径时才登记到此表。
  */
-const PAGE_DIR_ALIAS: Record<string, string> = {};
+const PAGE_DIR_ALIAS: Record<string, string> = {
+  // 公文管理：菜单 path=/odoc/docTypeChange，磁盘目录 DocTypeChange。
+  // doctypechange 里的 Doc/Type/Change 均不在 commonWords（补词典会误伤其它含
+  // type/doc 子串的路径，如 odoctype、xxtype），故按上方约定登记别名。
+  'odoc/doctypechange': 'DocTypeChange',
+  // 公文基础数据维护页：菜单末段（dict/opinion/receive-unit/receive-group/number/
+  // secret-rule）经 toPascalCase 推不出磁盘上的「XxxManage」目录，统一在此登记。
+  // 注意 normalizeDirKey 会去掉 [-_]，故 kebab 路径的 key 写成去连字符形式。
+  'odoc/dict': 'DictManage',
+  'odoc/opinion': 'OpinionManage',
+  'odoc/receiveunit': 'ReceiveUnitManage',
+  'odoc/receivegroup': 'ReceiveGroupManage',
+  'odoc/number': 'NumberManage',
+  'odoc/secretrule': 'SecretRuleManage',
+};
 
 const normalizeDirKey = (p: string): string => p.toLowerCase().replace(/[-_]/g, '');
 

@@ -33,6 +33,7 @@ import FormContentDesignModal from './FormContentDesignModal';
 import VersionDiffModal from './VersionDiffModal';
 import SimulateModal from './SimulateModal';
 import WorkflowTestModal from './WorkflowTestModal';
+import ProcessSetModal from '@/pages/Odoc/ProcessSetModal';
 // 「定位并高亮」指令类型：type-only import，运行时被擦除，不影响画布的懒加载
 import type { FocusEvt, SimulateEvt } from './BpmnDesigner';
 import { getActiveModeler } from './bpmnModelerHolder';
@@ -224,6 +225,7 @@ const WorkflowDesignPage: React.FC = () => {
   const [simulateOpen, setSimulateOpen] = useState(false);
   // 流程测试弹窗（设计期校验：指定发起人走查路径 + 逐节点解析操作者 + 产出测试日志）
   const [testOpen, setTestOpen] = useState(false);
+  const [processSetOpen, setProcessSetOpen] = useState(false);
   const [formRefresh, setFormRefresh] = useState(0);
   // 模拟运行：路径演示信号（seq 递增触发 BpmnDesigner 在画布上动画走查）
   const [simulateEvt, setSimulateEvt] = useState<SimulateEvt | undefined>();
@@ -742,6 +744,9 @@ const WorkflowDesignPage: React.FC = () => {
         )}
         {hasPerm('workflow_design_deploy') && (current?.status === 1 || current?.status === 3) && (
           <Button danger onClick={() => handleWithdraw(current?.id)}>撤回</Button>
+        )}
+        {current?.procKey?.includes('odoc') && (
+          <Button onClick={() => setProcessSetOpen(true)}>建文设置</Button>
         )}
       </Space>
     </Space>
@@ -1388,6 +1393,13 @@ const WorkflowDesignPage: React.FC = () => {
         defName={current?.name}
         formId={current?.formId}
         onClose={() => setTestOpen(false)}
+      />
+
+      {/* 流程建文设置：套红/签章/取号/版式/密级字段引用等公文开关（按 defId 配置） */}
+      <ProcessSetModal
+        open={processSetOpen}
+        defId={current?.id}
+        onClose={() => setProcessSetOpen(false)}
       />
     </PageContainer>
   );

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Form, Input, InputNumber, Modal, Select, Space, Spin, Switch, message } from 'antd';
-import { listNodes, mouldApi, processSetApi, type OdocProcessSet, type OdocMould, type WfProcessNode } from '@/services/workflow';
+import { listNodes, mouldApi, odocSettingApi, processSetApi, type OdocMould, type OdocProcessSet, type WfProcessNode } from '@/services/workflow';
 
 interface ProcessSetModalProps {
   open: boolean;
@@ -36,6 +36,7 @@ const ProcessSetModal: React.FC<ProcessSetModalProps> = ({ open, defId, onClose,
   const [saving, setSaving] = useState(false);
   const [nodes, setNodes] = useState<WfProcessNode[]>([]);
   const [moulds, setMoulds] = useState<OdocMould[]>([]);
+  const [setting, setSetting] = useState<any>(null);
 
   useEffect(() => {
     if (!open || defId == null) return;
@@ -44,25 +45,28 @@ const ProcessSetModal: React.FC<ProcessSetModalProps> = ({ open, defId, onClose,
       listNodes(defId).catch(() => []),
       mouldApi.list(defId, 2).catch(() => []),
       processSetApi.get(defId).catch(() => null),
+      odocSettingApi.get().catch(() => null),
     ])
-      .then(([nodeList, mouldList, set]) => {
-        setNodes((nodeList || []) as WfProcessNode[]);
-        setMoulds((mouldList || []) as OdocMould[]);
-        const s = (set || {}) as OdocProcessSet;
+      .then(([nodeList, mouldList, set, setRes]) => {
+        setNodes((nodeList?.data || []) as WfProcessNode[]);
+        setMoulds((mouldList?.data || []) as OdocMould[]);
+        const cfg = (setRes?.data || {}) as any;
+        setSetting(cfg);
+        const s = (set?.data || {}) as OdocProcessSet;
         form.setFieldsValue({
           defId,
           officalType: s.officalType ?? 1,
           docFieldKey: s.docFieldKey,
           docTitleFieldKey: s.docTitleFieldKey,
           taohongNodeKey: s.taohongNodeKey,
-          mustTaohong: s.mustTaohong === 1,
+          mustTaohong: s.mustTaohong != null ? s.mustTaohong === 1 : cfg.defaultMustTaohong === 1,
           numberFieldKey: s.numberFieldKey,
           taohongMouldId: s.taohongMouldId,
           finalizeNodeKey: s.finalizeNodeKey,
           layoutNodeKey: s.layoutNodeKey,
-          layoutFormat: s.layoutFormat ?? 0,
+          layoutFormat: s.layoutFormat ?? (cfg.defaultLayoutFormat ?? 0),
           signNodeKey: s.signNodeKey,
-          sealRequired: s.sealRequired === 1,
+          sealRequired: s.sealRequired != null ? s.sealRequired === 1 : cfg.defaultSealRequired === 1,
           printNodeKeys: splitCsv(s.printNodeKeys),
           cleanCopyNodeKeys: splitCsv(s.cleanCopyNodeKeys),
           signatureNodeKeys: splitCsv(s.signatureNodeKeys),
@@ -172,7 +176,10 @@ const ProcessSetModal: React.FC<ProcessSetModalProps> = ({ open, defId, onClose,
               <Select allowClear showSearch optionFilterProp="label" options={nodeOptions} style={{ width: 200 }} placeholder="选择节点" />
             </Form.Item>
             <Form.Item label="版式格式" name="layoutFormat">
-              <Select options={layoutFormatOptions} style={{ width: 220 }} />
+              <Select
+                options={layoutFormatOptions.filter((o) => setting?.isOpenOfd === 1 || o.value !== 13)}
+                style={{ width: 220 }}
+              />
             </Form.Item>
           </Space>
 

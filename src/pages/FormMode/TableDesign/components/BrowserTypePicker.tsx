@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Modal, Tabs, Space, Tooltip, Empty, Spin } from 'antd';
 import { SettingOutlined } from '@ant-design/icons';
 import { browserApi } from '@/services/formmode';
+import { BROWSER_TYPE_META } from '@/components/FormMode/personOrg';
 
 // ==================== 类型定义 ====================
 interface BrowserTypeItem {
@@ -35,6 +36,7 @@ const CATEGORY_TO_GROUP_MAP: Record<string, string> = {
   project: 'project',
   asset: 'asset',
   custom: 'custom',
+  odoc: 'odoc',
 };
 
 /** group key 到中文名称的映射 */
@@ -48,6 +50,7 @@ const GROUP_LABEL_MAP: Record<string, string> = {
   project: '项目',
   asset: '资产',
   custom: '自定义',
+  odoc: '公文',
 };
 
 /** 类型详细描述配置（补充后端未返回的 description 等信息） */
@@ -90,6 +93,14 @@ const TYPE_DETAIL_MAP: Record<number, { description?: string; singleSelect?: boo
   257: { description: '树形结构多选',                 subCategory: '' },
   3:   { description: '选择系统角色',                  subCategory: '人事' },
   4:   { description: '选择岗位信息',                  subCategory: '人事' },
+  // ===== odoc 公文浏览按钮类型（与后端 getBrowserTypes 的 odoc 分类、personOrg.ts BROWSER_TYPE_META 对应）=====
+  258: { description: '选择收发文单位（单选）',          subCategory: '公文' },
+  259: { description: '选择多个收发文单位',              subCategory: '公文' },
+  260: { description: '按公文字典选择秘密等级',          subCategory: '公文' },
+  261: { description: '按公文字典选择紧急程度',          subCategory: '公文' },
+  262: { description: '按公文字典选择公文类型(doc_type)', subCategory: '公文' },
+  263: { description: '按公文字典选择主题分类',          subCategory: '公文' },
+  264: { description: '选择发文字号规则',                subCategory: '公文' },
 };
 
 // ==================== Props ====================
@@ -145,6 +156,40 @@ const BrowserTypePicker: React.FC<BrowserTypePickerProps> = ({
               });
             }
           });
+
+          // ---- 兜底注入：前端已实现、但后端 getBrowserTypes 目录尚未包含的 odoc 浏览按钮类型 ----
+          // 后端目录是硬编码的（暂缺 odoc 一组），导致设计器「浏览按钮类型选择」选不到公文类类型。
+          // 这里直接从 BROWSER_TYPE_META（258~264：收发文单位/秘密等级/紧急程度/公文类型/主题分类/发文字号）
+          // 合并，并按 typeId 去重——后端日后补齐返回同批类型时不会重复。
+          const existingIds = new Set<number>(types.map((t) => t.typeId));
+          const odocItems: BrowserTypeItem[] = [];
+          Object.values(BROWSER_TYPE_META).forEach((m) => {
+            if ((m.category === 'unit' || m.browse) && !existingIds.has(m.browserType)) {
+              odocItems.push({
+                typeId: m.browserType,
+                label: m.label,
+                description: `选择${m.label}`,
+                singleSelect: !m.multiple,
+                group: 'odoc',
+                subCategory: '公文',
+              });
+            }
+          });
+          if (odocItems.length > 0) {
+            types.push(...odocItems);
+            const backendCats = data as unknown as BrowserCategory[];
+            if (!backendCats.find((c) => c.categoryId === 'odoc')) {
+              setCategories([
+                ...backendCats,
+                {
+                  categoryId: 'odoc',
+                  categoryName: '公文',
+                  types: odocItems.map((t) => ({ typeId: t.typeId, label: t.label, categoryId: 'odoc' })),
+                },
+              ]);
+            }
+          }
+
           setAllTypes(types);
         }
       } catch (err) {

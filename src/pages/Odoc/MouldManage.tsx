@@ -61,8 +61,8 @@ const MouldManage: React.FC<MouldManageProps> = ({ defId }) => {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await mouldApi.list(defId);
-      setList(data || []);
+      const res = await mouldApi.list(defId);
+      setList(res?.data || []);
     } finally {
       setLoading(false);
     }
