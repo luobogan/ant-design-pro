@@ -605,8 +605,10 @@ const PortalPage: React.FC = () => {
             borderRadius: 12,
             padding: '20px 24px',
             marginBottom: 16,
-            background:
-              themeBg || (isDarkTheme ? 'rgba(255,255,255,0.04)' : 'linear-gradient(120deg, #E6F0FF 0%, #F5F7FA 55%, #FFFFFF 100%)'),
+            // 暗黑下门户主题的 bgColor（多为浅色）必须让位，否则白底 + 暗黑白字 = 文字被吞
+            background: isDarkTheme
+              ? 'rgba(255,255,255,0.04)'
+              : themeBg || 'linear-gradient(120deg, #E6F0FF 0%, #F5F7FA 55%, #FFFFFF 100%)',
             border: isDarkTheme ? '1px solid rgba(255,255,255,0.12)' : '1px solid #E6EDF5',
             borderLeft: `4px solid ${primaryColor}`,
             display: 'flex',

@@ -1,4 +1,4 @@
-import { List, Space, Typography } from 'antd';
+import { List, Space, Typography, theme } from 'antd';
 import dayjs from 'dayjs';
 import { useNavigate } from '@umijs/max';
 import type { ElementDataRow } from '@/services/portal';
@@ -19,6 +19,8 @@ const categoryLabel: Record<number, string> = { 1: '通知', 2: '公告', 3: '�
  */
 const NoticeElement: React.FC<NoticeElementProps> = ({ rows, perPage = 5 }) => {
   const navigate = useNavigate();
+  // 分类标签跟随主题（暗黑下自动变深底，主色跟随用户主题色）
+  const { token } = theme.useToken();
   const list = rows.slice(0, perPage);
   return (
     <List
@@ -39,8 +41,8 @@ const NoticeElement: React.FC<NoticeElementProps> = ({ rows, perPage = 5 }) => {
             <span
               style={{
                 fontSize: 12,
-                color: '#0958D9',
-                background: '#E6F4FF',
+                color: token.colorPrimary,
+                background: token.colorPrimaryBg,
                 borderRadius: 4,
                 padding: '0 6px',
                 flex: 'none',
