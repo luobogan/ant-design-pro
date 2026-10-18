@@ -394,6 +394,24 @@ export interface PortalMenuNode {
   children?: PortalMenuNode[];
 }
 
+/** 部门菜单权限项（GET /menu/dept/share 返回） */
+export interface PortalDeptMenuVO {
+  id?: number;
+  parentId?: number;
+  menuName?: string;
+  icon?: string;
+  routeUrl?: string;
+  menuType?: string;
+  sortOrder?: number;
+  visible?: number;
+  /** 该部门是否可见（true=已授权或全员可见） */
+  checked?: boolean;
+  /** 是否已纳入限定管理（存在授权记录 ≠ 全员可见） */
+  limited?: boolean;
+  /** 现有授权记录数（不含限定标记） */
+  shareCount?: number;
+}
+
 /** 门户页面导出数据（页面 + 元素 + 授权） */
 export interface PortalPageExportData {
   page: PortalPage;

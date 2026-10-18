@@ -1,4 +1,4 @@
-import { Empty } from 'antd';
+import { Empty, theme } from 'antd';
 import type { ElementDataRow } from '@/services/portal';
 
 export interface LinksElementProps {
@@ -7,6 +7,8 @@ export interface LinksElementProps {
 
 /** 快捷链接元素：数据来自元素私有配置 config.links */
 const LinksElement: React.FC<LinksElementProps> = ({ rows }) => {
+  // 跟随全局主题（暗黑下自动变深、主色浅底跟随用户主题色）
+  const { token } = theme.useToken();
   if (!rows.length) {
     return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无快捷入口" />;
   }
@@ -23,8 +25,8 @@ const LinksElement: React.FC<LinksElementProps> = ({ rows }) => {
             gap: 10,
             padding: '10px 12px',
             borderRadius: 8,
-            background: '#F7F9FC',
-            color: '#1F2733',
+            background: token.colorFillQuaternary,
+            color: token.colorText,
             fontSize: 13,
           }}
         >
@@ -38,7 +40,8 @@ const LinksElement: React.FC<LinksElementProps> = ({ rows }) => {
               alignItems: 'center',
               justifyContent: 'center',
               fontSize: 16,
-              background: '#E6F4FF',
+              background: token.colorPrimaryBg,
+              color: token.colorPrimary,
             }}
           >
             {item.icon || '🔗'}

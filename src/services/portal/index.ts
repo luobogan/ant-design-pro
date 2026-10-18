@@ -30,6 +30,7 @@ export type {
   PortalElementSaveData,
   PortalMenu,
   PortalMenuNode,
+  PortalDeptMenuVO,
   PortalMenuSaveData,
   PortalLog,
   PortalLayoutItem,
@@ -525,6 +526,29 @@ export const portalApi = {
       method: 'POST',
       params: { menuId },
       data: shares,
+    });
+    return pickPayload(response);
+  },
+
+  /**
+   * 部门菜单权限反查：指定类型的全部菜单 + 该部门当前可见状态
+   * menuType: front 前端菜单 / top 后端菜单
+   */
+  getDeptMenuShare: async (deptId: number, menuType: string) => {
+    const response = await request<BladeResponse<PortalDeptMenuVO[]>>(`${API_BASE_PATH}/menu/dept/share`, {
+      method: 'GET',
+      params: { deptId, menuType },
+    });
+    return pickPayload(response);
+  },
+
+  /**
+   * 部门菜单批量授权：一次性对齐该部门在指定类型下的可见菜单集合
+   */
+  saveDeptMenuShare: async (data: { deptId: number; menuType: string; menuIds: number[] }) => {
+    const response = await request<BladeResponse<boolean>>(`${API_BASE_PATH}/menu/dept/share/set`, {
+      method: 'POST',
+      data,
     });
     return pickPayload(response);
   },

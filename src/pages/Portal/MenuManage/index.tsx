@@ -12,6 +12,7 @@ import {
   Spin,
   Switch,
   Table,
+  Tabs,
   Tag,
   Typography,
   message,
@@ -21,6 +22,7 @@ import { portalApi } from '@/services/portal';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import type { PortalMenu, PortalMenuSaveData, PortalPageShare } from '@/services/portal';
 import PortalShareEditor from '../components/PortalShareEditor';
+import MenuDeptPerm from './MenuDeptPerm';
 
 const { Text } = Typography;
 
@@ -33,15 +35,41 @@ const MENU_TYPES: { value: string; label: string }[] = [
   { value: 'report', label: '报表菜单' },
 ];
 
+/** 跨类型查看（自定义菜单页用）：后端 /menu/list 不传 menuType 即返回全部类型 */
+const ALL_TYPES: { value: string; label: string }[] = [
+  { value: 'all', label: '全部类型' },
+  ...MENU_TYPES,
+];
+
+/** 各菜单类型在「新建菜单」表单里的说明文案 */
+const TYPE_DESC: Record<string, string> = {
+  front: '前端菜单 = 门户左侧导航（对标泛微 portalmenu leftmenu），menu_type=front',
+  top: '后端菜单 = 门户顶部导航（对标泛微 portalmenu topmenu），menu_type=top',
+  toolbar: '工具栏菜单 = 门户工具栏「更多」下拉（对标泛微 toolbarmore），menu_type=toolbar',
+  quick: '快捷入口 = 门户快捷搜索入口，menu_type=quick',
+  report: '报表菜单 = 我的报表树（对标 reportMenu），不进首页渲染',
+  all: '自定义菜单 = 用户/管理员自建的门户菜单，可跨类型查看（顶部下拉可切换类型筛选）',
+};
+
+/** 门户菜单管理页参数：供「前端/后端/自定义/工具栏菜单」四个独立菜单页复用同一实现 */
+export interface PortalMenuManageProps {
+  /** 锁定菜单类型；'all' = 跨类型查看（自定义菜单页）；不传 = 保持顶部下拉可切换 */
+  fixedMenuType?: 'front' | 'top' | 'toolbar' | 'quick' | 'report' | 'all';
+  /** 页面标题 */
+  title?: string;
+  /** 标题下方补充说明 */
+  desc?: string;
+}
+
 /**
  * 门户菜单管理（对标泛微 portalmenu §14）
  * 后端：/menu/list、/menu/submit、/menu/remove、/menu/share/list、/menu/share/set、/menu/tree(运行时)
  */
-const PortalMenuManage: React.FC = () => {
+const PortalMenuManage: React.FC<PortalMenuManageProps> = ({ fixedMenuType, title, desc }) => {
   const { buttons } = usePageButtons('portal');
   const canManage = buttons.some((b: any) => b.code === 'portal_menu_manage');
 
-  const [menuType, setMenuType] = useState<string>('top');
+  const [menuType, setMenuType] = useState<string>(fixedMenuType || 'top');
   const [list, setList] = useState<PortalMenu[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -60,7 +88,7 @@ const PortalMenuManage: React.FC = () => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await portalApi.getMenuList(menuType);
+      const data = await portalApi.getMenuList(menuType === 'all' ? undefined : menuType);
       setList(data || []);
     } catch (e) {
       console.error('[portal] 加载门户菜单失败', e);
@@ -77,10 +105,16 @@ const PortalMenuManage: React.FC = () => {
 
   const nameOf = (id?: number) => list.find((m) => m.id === id)?.menuName || '';
 
+  /** 表单里当前选中的菜单类型（跨类型页默认落到 front），用于过滤「父菜单」候选：父菜单须同类型 */
+  const watchType = Form.useWatch('menuType', form) as string | undefined;
+  const formType = watchType || (menuType === 'all' ? 'front' : menuType);
+
   const openCreate = () => {
     setEditing(null);
     form.resetFields();
-    form.setFieldsValue({ menuType, parentId: 0, linkMode: 1, sortOrder: 0, visible: 1 });
+    // 「自定义菜单」页（menuType=all）不锁定类型，新增时默认落到前端菜单
+    const defaultType = menuType === 'all' ? 'front' : menuType;
+    form.setFieldsValue({ menuType: defaultType, parentId: 0, linkMode: 1, sortOrder: 0, visible: 1 });
     setModalOpen(true);
   };
 
@@ -238,22 +272,21 @@ const PortalMenuManage: React.FC = () => {
     },
   ];
 
-  return (
+  const main = (
     <div style={{ padding: 24 }}>
       <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
         <Space>
           <Typography.Title level={4} style={{ margin: 0 }}>
-            门户菜单管理
+            {title || '门户菜单管理'}
           </Typography.Title>
-          <Text type="secondary">维护门户自有菜单（前端/后端/工具栏/快捷入口/报表菜单）；系统导航菜单(blade_menu)在「系统管理→菜单管理」维护</Text>
+          <Text type="secondary">
+            {desc || '维护门户自有菜单（前端/后端/工具栏/快捷入口/报表菜单）；系统导航菜单(blade_menu)在「系统管理→菜单管理」维护'}
+          </Text>
         </Space>
         <Space>
-          <Select
-            value={menuType}
-            style={{ width: 140 }}
-            onChange={setMenuType}
-            options={MENU_TYPES}
-          />
+          {!fixedMenuType && (
+            <Select value={menuType} style={{ width: 140 }} onChange={setMenuType} options={ALL_TYPES} />
+          )}
           <Button icon={<ReloadOutlined />} onClick={load}>
             刷新
           </Button>
@@ -268,7 +301,7 @@ const PortalMenuManage: React.FC = () => {
         showIcon
         style={{ marginBottom: 16 }}
         message="提示"
-        description="「前端菜单(front)/后端菜单(top)」是门户自有导航菜单（blade_portal_menu），与系统导航菜单(blade_menu)相互独立。注意：首页顶部/左侧默认呈现系统菜单（blade_menu）；需在「门户应用设置 → 导航菜单源 = 门户私有菜单」切换后，本页维护的 front/top 才会在首页生效（对标泛微 portalmenu 自有导航语义，方案一：同表分型 + 源可配置）。「报表菜单(report)」= 我的报表树（对标 reportMenu），不进首页渲染，供报表门户场景按类型拉取。本页可维护全部五类门户菜单，未配「可见范围」默认全员可见。"
+        description={`${TYPE_DESC[menuType] || ''}。本页菜单与系统导航菜单(blade_menu)相互独立。注意：首页顶部/左侧默认呈现系统菜单（blade_menu）；需在「门户应用设置 → 导航菜单源 = 门户私有菜单」切换后，本页维护的 front/top 才会在首页生效（对标泛微 portalmenu 自有导航语义，方案一：同表分型 + 源可配置）。未配置「可见范围」默认全员可见。`}
       />
 
       <Table
@@ -291,14 +324,14 @@ const PortalMenuManage: React.FC = () => {
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="menuType" label="菜单类型" rules={[{ required: true, message: '请选择菜单类型' }]}>
-            <Select options={MENU_TYPES} disabled={!!editing} />
+            <Select options={MENU_TYPES} disabled={!!editing || fixedMenuType === 'all'} />
           </Form.Item>
           <Form.Item name="parentId" label="父菜单" extra="顶级菜单请选择「顶级」；父菜单须为同类型">
             <Select
               options={[
                 { value: 0, label: '（顶级）' },
                 ...list
-                  .filter((m) => m.id !== editing?.id)
+                  .filter((m) => m.id !== editing?.id && (m.menuType == null || m.menuType === formType))
                   .map((m) => ({ value: m.id as number, label: m.menuName as string })),
               ]}
             />
@@ -358,6 +391,21 @@ const PortalMenuManage: React.FC = () => {
         </Spin>
       </Modal>
     </div>
+  );
+
+  // 仅独立菜单页（/portal/menumanage）暴露「部门菜单权限」页签；
+  // 前端菜单/后端菜单等分类页只维护菜单本身，避免在六个页面重复出现同一功能块。
+  if (fixedMenuType) {
+    return main;
+  }
+
+  return (
+    <Tabs
+      items={[
+        { key: 'list', label: '菜单维护', children: main },
+        { key: 'dept', label: '部门菜单权限', children: <MenuDeptPerm /> },
+      ]}
+    />
   );
 };
 

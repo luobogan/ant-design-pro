@@ -37,14 +37,16 @@ export default [
   {
     path: '/',
     routes: [
-      // 默认路由，重定向到欢迎页面
+      // 默认路由：统一落到 /portal/home（菜单驱动路由，与登录后落地一致，
+      // 侧边栏「门户」才能高亮）。此前落到 /welcome —— 该 path 不在菜单数据里，
+      // 直接访问 "/" 与登录进入会出现「左侧菜单选中态/标题不一致」。
       {
         path: '/',
-        redirect: '/welcome',
+        redirect: '/portal/home',
       },
-      // 系统首页（= 门户首页）：直接把 Portal/Home 挂到 /welcome，
-      // 让「一进系统 / 输根路径」看到的就是门户内容，不再需要点左侧「门户」再跳一次。
-      // 原模板欢迎页 components 保留在 src/pages/Welcome.tsx，需要时改回 './Welcome' 即可。
+      // 系统首页别名：/welcome 与 /portal/home 渲染同一组件（./Portal/Home）。
+      // 保留它是为了兼容历史书签/外部链接；主入口统一走 /portal/home。
+      // 原模板欢迎页组件保留在 src/pages/Welcome.tsx，需要时把 component 改回 './Welcome' 即可。
       {
         path: '/welcome',
         name: 'welcome',

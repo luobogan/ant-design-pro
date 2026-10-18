@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Col, ConfigProvider, Drawer, Empty, Form, Input, InputNumber, Menu, Modal, Popconfirm, Row, Select, Space, Spin, Switch, Tag, Typography, message } from 'antd';
+import { Alert, Button, Col, ConfigProvider, Drawer, Empty, Form, Input, InputNumber, Menu, Modal, Popconfirm, Row, Select, Space, Spin, Switch, Tag, Typography, message, theme as antdTheme } from 'antd';
 import { ReloadOutlined, SettingOutlined, AppstoreOutlined, DashboardOutlined, EditOutlined, SaveOutlined, CloseOutlined, UndoOutlined, EyeOutlined, EyeInvisibleOutlined, UpOutlined, DownOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import { history, useModel, useSearchParams } from '@umijs/max';
 import dayjs from 'dayjs';
@@ -159,9 +159,31 @@ const PortalPage: React.FC = () => {
 
   /** 生效主题（后端已解析：用户偏好 > 页面主题 > 租户默认） */
   const themeConfig = (portal?.resolvedTheme?.themeConfig || {}) as Record<string, any>;
-  const primaryColor = (themeConfig.primaryColor as string) || '#1677FF';
+  /**
+   * 门户主色：**用户主题设置优先**，其次门户主题，最后兜底默认蓝。
+   * 早期这里直接用 themeConfig.primaryColor，会把用户在「主题设置」里选的主色盖掉，
+   * 表现为"门户按钮/框体不跟随主题变色"。
+   */
+  const primaryColor =
+    (initialState?.settings as any)?.colorPrimary || (themeConfig.primaryColor as string) || '#1677FF';
   const themeBg = (themeConfig.bgColor as string) || '';
   const logoUrl = (themeConfig.logoUrl as string) || '';
+
+  /**
+   * 暗黑/紧凑：跟随用户在「主题设置」里的选择。
+   * 本页自带 ConfigProvider（为了按门户主题覆盖主色/字号），若不在这里同样传 algorithm，
+   * 内层 Provider 会以默认亮色算法渲染，把外层的暗黑效果整个盖掉
+   * —— 这就是"侧边栏变暗了、门户内容区还是白色"的原因。
+   */
+  const isDarkTheme = (initialState?.settings as any)?.navTheme === 'realDark';
+  const isCompactTheme = !!(initialState?.settings as any)?.compact;
+  const themeAlgorithm = (() => {
+    const algorithms: any[] = [];
+    if (isDarkTheme) algorithms.push(antdTheme.darkAlgorithm);
+    if (isCompactTheme) algorithms.push(antdTheme.compactAlgorithm);
+    if (!algorithms.length) return antdTheme.defaultAlgorithm;
+    return algorithms.length === 1 ? algorithms[0] : algorithms;
+  })();
 
   /** 终端用户主题偏好（themecenter）：下拉选项 + 当前偏好 */
   const [themeOptions, setThemeOptions] = useState<PortalTheme[]>([]);
@@ -570,16 +592,22 @@ const PortalPage: React.FC = () => {
   }
 
   return (
-    <ConfigProvider theme={{ token: { colorPrimary: primaryColor, fontSize: fontSizeOf(accountMore?.fontSize) } }}>
+    <ConfigProvider
+      theme={{
+        token: { colorPrimary: primaryColor, fontSize: fontSizeOf(accountMore?.fontSize) },
+        algorithm: themeAlgorithm,
+      }}
+    >
       <div style={{ padding: 16 }}>
-        {/* 顶部欢迎区（主题化：背景色 / 主色左边框 / Logo） */}
+        {/* 顶部欢迎区（主题化：背景色 / 主色左边框 / Logo；暗黑下用深色底，避免一块亮白） */}
         <div
           style={{
             borderRadius: 12,
             padding: '20px 24px',
             marginBottom: 16,
-            background: themeBg || 'linear-gradient(120deg, #E6F0FF 0%, #F5F7FA 55%, #FFFFFF 100%)',
-            border: '1px solid #E6EDF5',
+            background:
+              themeBg || (isDarkTheme ? 'rgba(255,255,255,0.04)' : 'linear-gradient(120deg, #E6F0FF 0%, #F5F7FA 55%, #FFFFFF 100%)'),
+            border: isDarkTheme ? '1px solid rgba(255,255,255,0.12)' : '1px solid #E6EDF5',
             borderLeft: `4px solid ${primaryColor}`,
             display: 'flex',
             alignItems: 'center',
@@ -593,7 +621,7 @@ const PortalPage: React.FC = () => {
               <img
                 src={logoUrl}
                 alt="logo"
-                style={{ height: 40, borderRadius: 8, background: '#fff', padding: 4 }}
+                style={{ height: 40, borderRadius: 8, background: isDarkTheme ? 'rgba(255,255,255,0.85)' : '#fff', padding: 4 }}
               />
             )}
             <div>
@@ -637,10 +665,10 @@ const PortalPage: React.FC = () => {
               ...themeOptions.map((t) => ({ value: t.id as number, label: t.themeName as string })),
             ]}
           />
-          <Button loading={defaultSaving} onClick={handleToggleMyDefault}>
+          <Button type="primary" loading={defaultSaving} onClick={handleToggleMyDefault}>
             {isMyDefault ? '取消我的默认' : '设为我的默认'}
           </Button>
-          <Button onClick={() => history.push('/portal/setting')}>个人设置</Button>
+          <Button type="primary" onClick={() => history.push('/portal/setting')}>个人设置</Button>
           {editLayout ? (
             <>
               <Button type="primary" icon={<SaveOutlined />} loading={layoutSaving} onClick={saveLayout}>
@@ -666,6 +694,7 @@ const PortalPage: React.FC = () => {
             </>
           ) : (
             <Button
+              type="primary"
               icon={<EditOutlined />}
               disabled={portal?.canMaintainInViewpage === 0}
               title={portal?.canMaintainInViewpage === 0 ? '门户配置项已禁止查看页编辑布局' : undefined}
@@ -674,20 +703,20 @@ const PortalPage: React.FC = () => {
               编辑布局
             </Button>
           )}
-          <Button icon={<ReloadOutlined />} loading={refreshing} onClick={handleRefresh}>
+          <Button type="primary" icon={<ReloadOutlined />} loading={refreshing} onClick={handleRefresh}>
             刷新
           </Button>
           {canManagePortal && (
-            <Button icon={<AppstoreOutlined />} onClick={() => history.push('/portal/pagemanage')}>
+            <Button type="primary" icon={<AppstoreOutlined />} onClick={() => history.push('/portal/pagemanage')}>
               页面管理
             </Button>
           )}
           {canManagePortal && (
-            <Button icon={<SettingOutlined />} onClick={() => history.push('/portal/design')}>
+            <Button type="primary" icon={<SettingOutlined />} onClick={() => history.push('/portal/design')}>
               门户设计
             </Button>
           )}
-          <Button icon={<DashboardOutlined />} onClick={() => history.push('/')}>
+          <Button type="primary" icon={<DashboardOutlined />} onClick={() => history.push('/')}>
             进入后台
           </Button>
         </div>
@@ -731,7 +760,7 @@ const PortalPage: React.FC = () => {
                   xl={el.colSpan || 12}
                 >
                   {editLayout && (
-                    <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 6, padding: '2px 6px', background: '#fafafa', borderRadius: 6 }}>
+                    <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 6, padding: '2px 6px', background: isDarkTheme ? 'rgba(255,255,255,0.06)' : '#fafafa', borderRadius: 6 }}>
                       <Button size="small" type="text" icon={<UpOutlined />} onClick={() => moveDraft(el.id, -1)} title="上移（行首时移到上一行末尾）" />
                       <Button size="small" type="text" icon={<DownOutlined />} onClick={() => moveDraft(el.id, 1)} title="下移（行尾时移到下一行行首）" />
                       <Select

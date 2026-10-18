@@ -38,11 +38,11 @@ const TEMPLATE_TYPE_OPTIONS = (Object.keys(ELEMENT_TYPE_META) as ElementType[]).
  * B4 headlinestyle / B2 elementtemplate 四合一维护台）
  * 后端：/menu-style/*、/element-style/*、/element-template/*
  */
-const PortalStyleLib: React.FC = () => {
+const PortalStyleLib: React.FC<{ onlyTab?: string; title?: string }> = ({ onlyTab, title }) => {
   const { buttons } = usePageButtons('portal');
   const canManage = buttons.some((b: any) => b.code === 'portal_style_lib_manage');
 
-  const [activeTab, setActiveTab] = useState('menu');
+  const [activeTab, setActiveTab] = useState(onlyTab || 'menu');
 
   /* ==================== 菜单样式 ==================== */
   const [menuStyles, setMenuStyles] = useState<PortalMenuStyle[]>([]);
@@ -381,70 +381,77 @@ const PortalStyleLib: React.FC = () => {
     </Space>
   );
 
+  const tabItems = [
+    {
+      key: 'menu',
+      label: '菜单样式',
+      children: (
+        <>
+          {renderToolbar(openMenuCreate, loadMenuStyles, '新建菜单样式')}
+          <Table rowKey="id" loading={menuLoading} dataSource={menuStyles} columns={menuColumns as any} pagination={false} size="middle" />
+        </>
+      ),
+    },
+    {
+      key: 'element',
+      label: '元素样式',
+      children: (
+        <>
+          {renderToolbar(() => openEsCreate('element'), loadElementStyles, '新建元素样式')}
+          <Table
+            rowKey="id"
+            loading={esLoading}
+            dataSource={elementStyles.filter((s) => s.styleKind !== 'headline')}
+            columns={esColumns as any}
+            pagination={false}
+            size="middle"
+          />
+        </>
+      ),
+    },
+    {
+      key: 'headline',
+      label: '头条样式',
+      children: (
+        <>
+          {renderToolbar(() => openEsCreate('headline'), loadElementStyles, '新建头条样式')}
+          <Table
+            rowKey="id"
+            loading={esLoading}
+            dataSource={elementStyles.filter((s) => s.styleKind === 'headline')}
+            columns={esColumns as any}
+            pagination={false}
+            size="middle"
+          />
+        </>
+      ),
+    },
+    {
+      key: 'template',
+      label: '元素模板',
+      children: (
+        <>
+          {renderToolbar(openTplCreate, loadTemplates, '新建元素模板')}
+          <Table rowKey="id" loading={tplLoading} dataSource={templates} columns={tplColumns as any} pagination={false} size="middle" />
+        </>
+      ),
+    },
+  ];
+
   return (
     <div style={{ padding: 16 }}>
+      {onlyTab && (
+        <Typography.Title level={4} style={{ marginTop: 0 }}>
+          {title || '菜单样式库'}
+        </Typography.Title>
+      )}
       {!canManage && (
         <Alert type="info" showIcon style={{ marginBottom: 12 }} message="只读模式：需要「门户样式库」按钮权限才能维护" />
       )}
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}
-        items={[
-          {
-            key: 'menu',
-            label: '菜单样式',
-            children: (
-              <>
-                {renderToolbar(openMenuCreate, loadMenuStyles, '新建菜单样式')}
-                <Table rowKey="id" loading={menuLoading} dataSource={menuStyles} columns={menuColumns as any} pagination={false} size="middle" />
-              </>
-            ),
-          },
-          {
-            key: 'element',
-            label: '元素样式',
-            children: (
-              <>
-                {renderToolbar(() => openEsCreate('element'), loadElementStyles, '新建元素样式')}
-                <Table
-                  rowKey="id"
-                  loading={esLoading}
-                  dataSource={elementStyles.filter((s) => s.styleKind !== 'headline')}
-                  columns={esColumns as any}
-                  pagination={false}
-                  size="middle"
-                />
-              </>
-            ),
-          },
-          {
-            key: 'headline',
-            label: '头条样式',
-            children: (
-              <>
-                {renderToolbar(() => openEsCreate('headline'), loadElementStyles, '新建头条样式')}
-                <Table
-                  rowKey="id"
-                  loading={esLoading}
-                  dataSource={elementStyles.filter((s) => s.styleKind === 'headline')}
-                  columns={esColumns as any}
-                  pagination={false}
-                  size="middle"
-                />
-              </>
-            ),
-          },
-          {
-            key: 'template',
-            label: '元素模板',
-            children: (
-              <>
-                {renderToolbar(openTplCreate, loadTemplates, '新建元素模板')}
-                <Table rowKey="id" loading={tplLoading} dataSource={templates} columns={tplColumns as any} pagination={false} size="middle" />
-              </>
-            ),
-          },
-        ]}
+        items={tabItems.filter((t) => (onlyTab ? t.key === onlyTab : true))}
       />
 
       {/* 菜单样式弹窗 */}

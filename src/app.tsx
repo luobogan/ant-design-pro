@@ -4,7 +4,8 @@ import type { Settings as LayoutSettings, MenuDataItem } from '@ant-design/pro-c
 import { SettingDrawer } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
 import { history, Link, Navigate, request as httpRequest } from '@umijs/max';
-import { message, Spin, Button, Space } from 'antd';
+import { message, Spin, Button, Space, ConfigProvider, theme as antdTheme } from 'antd';
+import { useCallback, useEffect, useState } from 'react';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import React from 'react';
@@ -175,6 +176,10 @@ const PAGE_DIR_ALIAS: Record<string, string> = {
   'odoc/receivegroup': 'ReceiveGroupManage',
   'odoc/number': 'NumberManage',
   'odoc/secretrule': 'SecretRuleManage',
+  // 门户「菜单样式库」：菜单 path=/portal/menustylelib，磁盘目录 MenuStyleLib。
+  // style 不在 commonWords，toPascalCase 会推成 MenustyleLib（Windows 大小写不敏感能裸跑，
+  // Linux 构建会解析失败），故按上方约定登记别名。
+  'portal/menustylelib': 'MenuStyleLib',
 };
 
 const normalizeDirKey = (p: string): string => p.toLowerCase().replace(/[-_]/g, '');
@@ -739,6 +744,84 @@ const stripComponentMenus = (menus: MenuDataItem[] = []): MenuDataItem[] =>
       return next;
     });
 
+/* ==================== 全局主题（主色 / 暗黑 / 紧凑） ====================
+ * SettingDrawer 改的是 initialState.settings（colorPrimary / navTheme / compact），
+ * 必须注入 antd ConfigProvider 才能让左侧菜单树/顶导航/按钮/容器同步变色：
+ *   · colorPrimary → theme.token.colorPrimary
+ *   · navTheme=realDark → theme.darkAlgorithm（否则只有 ProLayout 骨架变暗、内容区仍亮色）
+ *   · compact → theme.compactAlgorithm
+ *
+ * ⚠️ Provider 必须挂在 rootContainer（ProLayout 外层）：挂在 childrenRender 内只能包住
+ * 内容区，左侧菜单树在 ProLayout 内部会被漏掉（表现为"点一下才更新"）。
+ * 而 rootContainer 不在 umi Provider 作用域内、拿不到 initialState，故用
+ * 「模块变量 + 自定义事件」桥接，不引入任何新依赖。
+ */
+interface ThemeSnapshot {
+  colorPrimary?: string;
+  navTheme?: string;
+  compact?: boolean;
+}
+let themeSnapshot: ThemeSnapshot = {};
+const THEME_TOKEN_EVENT = 'app:theme-token-change';
+
+const sameTheme = (a: ThemeSnapshot, b: ThemeSnapshot) =>
+  a.colorPrimary === b.colorPrimary && a.navTheme === b.navTheme && a.compact === b.compact;
+
+const syncThemeSettings = (settings: any) => {
+  const next: ThemeSnapshot = {
+    colorPrimary: settings?.colorPrimary || undefined,
+    navTheme: settings?.navTheme,
+    compact: !!settings?.compact,
+  };
+  if (sameTheme(themeSnapshot, next)) return;
+  themeSnapshot = next;
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(THEME_TOKEN_EVENT));
+  }
+};
+
+/** 主题快照 → antd theme 配置（暗黑/紧凑算法 + 主色 token） */
+const toAntdTheme = (s: ThemeSnapshot) => {
+  const algorithms: any[] = [];
+  if (s.navTheme === 'realDark') algorithms.push(antdTheme.darkAlgorithm);
+  if (s.compact) algorithms.push(antdTheme.compactAlgorithm);
+  return {
+    token: { colorPrimary: s.colorPrimary || undefined },
+    algorithm: algorithms.length
+      ? (algorithms.length === 1 ? algorithms[0] : algorithms)
+      : antdTheme.defaultAlgorithm,
+  };
+};
+
+/** 全局主题 Provider：主色/暗黑/紧凑变化时全站（含 ProLayout 菜单树）即时刷新 */
+const ThemeTokenProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [snapshot, setSnapshot] = useState<ThemeSnapshot>(themeSnapshot);
+
+  useEffect(() => {
+    const onChange = () => setSnapshot({ ...themeSnapshot });
+    window.addEventListener(THEME_TOKEN_EVENT, onChange);
+    return () => window.removeEventListener(THEME_TOKEN_EVENT, onChange);
+  }, []);
+
+  return <ConfigProvider theme={toAntdTheme(snapshot)}>{children}</ConfigProvider>;
+};
+
+/**
+ * 左侧菜单数据源（全站唯一实现）。
+ *
+ * <p>门户页（/portal/*、/welcome）与后台页共用这一个函数——此前两处各写一份
+ * `stripComponentMenus(formatRoutes(extraRoutes))`，容易漂移，也是"直接访问 /"与
+ * "登录进入"两侧边栏不一致的隐患之一。
+ *
+ * <p>说明：后端 /menu/routes 会一并下发「组件型菜单」（category=2 && isComponent=1，
+ * 如 Excel 预览 / 流程审批），它们是独立页的路由载体，不应出现在左侧菜单；
+ * 路由注册由 patchClientRoutes 负责，这里递归剔除所有层级的 category=2。
+ */
+const buildMenuData = async () => {
+  const menuRoutes = stripComponentMenus(formatRoutes(extraRoutes));
+  return loopMenuItem1(menuRoutes);
+};
+
 export const layout: RunTimeLayoutConfig = ({
   initialState,
   setInitialState,
@@ -746,14 +829,110 @@ export const layout: RunTimeLayoutConfig = ({
   console.log(initialState?.currentUser?.name);
   console.log(initialState?.currentUser?.userid);
 
-  /* ==================== 门户双布局体系 ====================
-   * 门户与后台共用同一套导航，仅个别页面做全屏化处理：
-   *  - /portal/design  设计器：全屏工作台 → 不渲染侧边菜单、顶部导航与页脚，最大化画布
-   *  - 其他 /portal/*   门户页面：与 /welcome 一致 → 左侧为系统原始菜单（/menu/routes 按角色过滤）
-   *  - 其他路径：维持后台 mix 布局（不变）
-   * 参考 docs/门户.md §4①「双布局体系」与避坑1「不要把所有页面塞进 ProLayout」。
+  /* ==================== 统一布局体系 ====================
+   * 全站只有一套 ProLayout 壳（见下面唯一 return），门户与后台共用：
+   *   · 布局/左侧菜单(buildMenuData)/顶导航(TopNavMenu)/主题(renderShell + settings) 完全一致
+   *   · /portal/design 设计器是全屏工作台 → 不渲染侧边菜单、顶部导航与页脚，最大化画布
+   *   · 门户页（/portal/*、/welcome）只做少量覆盖：不挂水印/背景图、内容贴边、显式 logo
+   * 历史教训：曾拆成「门户壳 / 后台壳」两个提前 return 的分支，导致直接访问 "/" 与
+   * 登录进入两侧边栏/主题不一致、切页面时 ProLayout 整体重建（像"跳到另一个地方"）、
+   * 主题设置在门户页不生效。现统一为单一壳 + 少量覆盖项，杜绝再次漂移。
    */
   const { pathname } = history.location;
+
+  // 同步当前用户主题（主色/暗黑/紧凑）到全局 ConfigProvider（登录时已合并 themeSetting）
+  syncThemeSettings(initialState?.settings);
+
+  /**
+   * 全局壳层（SettingDrawer 主题抽屉 + 全局消息悬浮框）：门户壳与默认壳**共用**。
+   *
+   * <p>历史坑：门户壳分支是提前 return 的，早期没有挂这段，导致门户页出现三个症状——
+   * ① 右下角全局消息悬浮框缺失；② 右侧浮动齿轮消失；
+   * ③ 头像下拉「主题设置」点击无反应（AvatarDropdown 只 setInitialState({settingDrawerOpen:true})，
+   * 没有 SettingDrawer 消费这个状态，等于点了没动静）。
+   */
+  const renderShell = (children: React.ReactNode) => {
+    console.log('[MSG-DIAG] childrenRender 执行, currentUser?.userid =', initialState?.currentUser?.userid);
+    // 保存当前用户的主题设置到后端（按用户持久化，登录时随用户信息返回并加载）
+    const handleSaveTheme = async () => {
+      const theme = initialState?.settings;
+      if (!theme) return;
+      try {
+        const res = await httpRequest('/api/blade-system/user/theme-setting', {
+          method: 'POST',
+          data: { themeSetting: JSON.stringify(theme) },
+        });
+        // 响应形态：umi 包装对象 { data: ApiResponse }，ApiResponse = { code, success, data, msg }。
+        // 注意 pickPayload 对 data 为基本类型（本接口 data 为 boolean）会多剥一层，取不到 success，
+        // 这里直接定位 ApiResponse 的成功标识，并兼容「包装对象 / ApiResponse 直出」两种形态。
+        const r = res as any;
+        const api = r?.data && typeof r.data === 'object' && r.data.success !== undefined ? r.data : r;
+        if (api?.success) {
+          message.success('主题设置已保存');
+          setInitialState((pre) => ({
+            ...pre,
+            currentUser: pre.currentUser
+              ? { ...pre.currentUser, themeSetting: JSON.stringify(theme) }
+              : pre.currentUser,
+          }));
+        } else {
+          message.error(api?.msg || '主题设置保存失败');
+        }
+      } catch {
+        message.error('主题设置保存失败');
+      }
+    };
+    // 恢复默认主题（仅本地重置，不自动保存）
+    const handleResetTheme = () => {
+      setInitialState((pre) => ({
+        ...pre,
+        settings: defaultSettings as Partial<LayoutSettings>,
+      }));
+      message.success('已恢复默认主题，点击「保存主题」可生效');
+    };
+    return (
+      <>
+        {children}
+        <SettingDrawer
+          disableUrlParams
+          enableDarkTheme
+          settings={initialState?.settings}
+          // SettingDrawer 的抽屉 open 由内部 state 控制，但 drawerProps.open 会覆盖它，
+          // 导致浮动齿轮（setOpen 改内部 state）点了没反应。
+          // 改用受控项 collapse + onCollapseChange 驱动 open，齿轮与「主题设置」菜单都能正常开关。
+          collapse={initialState?.settingDrawerOpen}
+          onCollapseChange={(o: boolean) => {
+            setInitialState((pre) => ({ ...pre, settingDrawerOpen: !!o }));
+          }}
+          drawerProps={{
+            onClose: () => {
+              setInitialState((pre) => ({ ...pre, settingDrawerOpen: false }));
+            },
+            footer: (
+              <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+                <Button onClick={handleResetTheme}>恢复默认</Button>
+                <Button type="primary" onClick={handleSaveTheme}>
+                  保存主题
+                </Button>
+              </Space>
+            ),
+          }}
+          onSettingChange={(settings) => {
+            setInitialState((preInitialState) => ({
+              ...preInitialState,
+              settings,
+            }));
+            // 主色/暗黑/紧凑立即同步到全局 ConfigProvider（不等点"保存主题"）
+            syncThemeSettings(settings);
+          }}
+        />
+        {/* 全局消息中心（右下角悬浮聊天框 + 未读红点）。
+            放在壳层内（Umi Context 作用域中），useModel 才能取到 initialState；
+            组件用 position:fixed，不受 DOM 位置影响。未登录时内部返回 null。 */}
+        <FloatingMessageBox />
+      </>
+    );
+  };
 
   // 设计器：全屏（返回门户按钮在页面内部）
   if (pathname.startsWith('/portal/design')) {
@@ -767,54 +946,12 @@ export const layout: RunTimeLayoutConfig = ({
     };
   }
 
-  // 门户首页：门户壳 —— 与 /welcome 同源，左侧沿用系统原始菜单
-  // （/welcome 现在直接渲染 Portal/Home，见 config/routes.ts，故一并走门户壳，
-  //   保证系统首页与 /portal/home 视觉完全一致）
-  if (pathname.startsWith('/portal') || pathname === '/welcome') {
-    return {
-      layout: 'mix',
-      // 左侧菜单与 welcome 一致：用后台下发的原始菜单树（已按角色过滤），
-      // 并按同样规则剔除「组件型菜单」，避免设计器/发起页等路由载体混进侧边栏。
-      splitMenus: false,
-      menu: {
-        params: {
-          userId: initialState?.currentUser?.userid,
-        },
-        request: async (_params, _defaultMenuData) => {
-          const menuRoutes = stripComponentMenus(formatRoutes(extraRoutes));
-          return loopMenuItem1(menuRoutes);
-        },
-      },
-      // 保留顶部消息铃铛与用户头像（门户小图标挂在标题旁，见 headerTitleRender）
-      actionsRender: () => [<MessageBell key="message-bell" />],
-      avatarProps: {
-        src: initialState?.currentUser?.avatar,
-        title: initialState?.currentUser?.name || '用户',
-        render: (_, avatarChildren) => {
-          return <AvatarDropdown>{avatarChildren}</AvatarDropdown>;
-        },
-      },
-      // 不再单独用「企业统一门户」作标题：门户壳与 /welcome 同源，统一用系统标题，
-      // 避免点标题跳回 /welcome 时出现「标题变了」的割裂感
-      logo: '/logo.svg',
-      // mix 布局下标题区由 headerTitleRender 渲染：在 Logo + 标题右侧挂门户小图标
-      headerTitleRender: (logo, title) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {logo}
-          {title}
-          <PortalAppLauncher align="left" />
-        </div>
-      ),
-      contentStyle: { margin: 0 },
-      footerRender: () => <Footer />,
-      onPageChange: () => {
-        const { location } = history;
-        if (!initialState?.currentUser && location.pathname !== loginPath && location.pathname !== '/prelogin') {
-          pushToLoginWithRedirect();
-        }
-      },
-    };
-  }
+  /**
+   * 门户页（含系统首页 /welcome —— 它现在直接渲染 Portal/Home，见 config/routes.ts）。
+   * 门户页与后台页**共用同一套 layout**，只在下面用少量覆盖项表达差异，
+   * 避免出现"两套壳、两套菜单实现"导致入口间不一致、主题不生效、跳转时整体重建等问题。
+   */
+  const isPortalPage = pathname.startsWith('/portal') || pathname === '/welcome';
 
   return {
     // 顶部消息铃铛：全局未读红点（WS 实时更新），点击进入 /message 消息中心。
@@ -850,16 +987,11 @@ export const layout: RunTimeLayoutConfig = ({
       params: {
         userId: initialState?.currentUser?.userid,
       },
-      request: async (_params, _defaultMenuData) => {
-        // 后端 /menu/routes 现会一并下发「组件型菜单」（category=2 && isComponent=1），
-        // 它们是 Excel 预览 / 流程审批等「独立页」的路由载体，但不应出现在左侧菜单里。
-        // 路由注册由 patchClientRoutes 负责，这里递归剔除所有层级的 category=2
-        // （此前只 filter 顶层数组，挂在 /system/workflow 等菜单下的组件型菜单漏进了侧边栏）。
-        const menuRoutes = stripComponentMenus(formatRoutes(extraRoutes));
-        const menu1 = loopMenuItem1(menuRoutes);
-        console.log(`menuData 转换1：${menu1}`);
-        return menu1;
-      },
+      // 左侧菜单唯一数据源（门户页与后台页共用，见 buildMenuData）：
+      // 后端 /menu/routes 下发的原始菜单树，递归剔除「组件型菜单」
+      // （category=2 && isComponent=1，如 Excel 预览 / 流程审批——它们只是路由载体，
+      //  由 patchClientRoutes 负责注册，不应出现在侧边栏）。
+      request: buildMenuData,
     },
     footerRender: () => <Footer />,
     onPageChange: () => {
@@ -901,86 +1033,24 @@ export const layout: RunTimeLayoutConfig = ({
     // so chunk load errors show friendly messages instead of "Something went wrong."
     ErrorBoundary,
     menuHeaderRender: undefined,
-    childrenRender: (children) => {
-      console.log('[MSG-DIAG] childrenRender 执行, currentUser?.userid =', initialState?.currentUser?.userid);
-      // 保存当前用户的主题设置到后端（按用户持久化，登录时随用户信息返回并加载）
-      const handleSaveTheme = async () => {
-        const theme = initialState?.settings;
-        if (!theme) return;
-        try {
-          const res = await httpRequest('/api/blade-system/user/theme-setting', {
-            method: 'POST',
-            data: { themeSetting: JSON.stringify(theme) },
-          });
-          // 响应形态：umi 包装对象 { data: ApiResponse }，ApiResponse = { code, success, data, msg }。
-          // 注意 pickPayload 对 data 为基本类型（本接口 data 为 boolean）会多剥一层，取不到 success，
-          // 这里直接定位 ApiResponse 的成功标识，并兼容「包装对象 / ApiResponse 直出」两种形态。
-          const r = res as any;
-          const api = r?.data && typeof r.data === 'object' && r.data.success !== undefined ? r.data : r;
-          if (api?.success) {
-            message.success('主题设置已保存');
-            setInitialState((pre) => ({
-              ...pre,
-              currentUser: pre.currentUser
-                ? { ...pre.currentUser, themeSetting: JSON.stringify(theme) }
-                : pre.currentUser,
-            }));
-          } else {
-            message.error(api?.msg || '主题设置保存失败');
-          }
-        } catch {
-          message.error('主题设置保存失败');
+    // 主题抽屉（齿轮/主题设置）+ 全局消息悬浮框：门户页与后台页共用同一壳层
+    childrenRender: renderShell,
+    // ==================== 门户页覆盖项 ====================
+    // 只表达"内容型首页"与"后台工作台"的差异，布局/菜单/主题/顶导航全部共用：
+    //   · 不挂水印与背景图（首页是大块内容卡片，水印/装饰图会干扰阅读）
+    //   · 内容区贴边（后台页保留 PageContainer 的默认间距）
+    //   · 显式 logo（后台页用 ProLayout 默认 logo）
+    ...(isPortalPage
+      ? {
+          waterMarkProps: false,
+          bgLayoutImgList: [],
+          contentStyle: { margin: 0 },
+          logo: '/logo.svg',
         }
-      };
-      // 恢复默认主题（仅本地重置，不自动保存）
-      const handleResetTheme = () => {
-        setInitialState((pre) => ({
-          ...pre,
-          settings: defaultSettings as Partial<LayoutSettings>,
-        }));
-        message.success('已恢复默认主题，点击「保存主题」可生效');
-      };
-      return (
-        <>
-          {children}
-          <SettingDrawer
-            disableUrlParams
-            enableDarkTheme
-            settings={initialState?.settings}
-            // SettingDrawer 的抽屉 open 由内部 state 控制，但 drawerProps.open 会覆盖它，
-            // 导致浮动齿轮（setOpen 改内部 state）点了没反应。
-            // 改用受控项 collapse + onCollapseChange 驱动 open，齿轮与「主题设置」菜单都能正常开关。
-            collapse={initialState?.settingDrawerOpen}
-            onCollapseChange={(o: boolean) => {
-              setInitialState((pre) => ({ ...pre, settingDrawerOpen: !!o }));
-            }}
-            drawerProps={{
-              onClose: () => {
-                setInitialState((pre) => ({ ...pre, settingDrawerOpen: false }));
-              },
-              footer: (
-                <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-                  <Button onClick={handleResetTheme}>恢复默认</Button>
-                  <Button type="primary" onClick={handleSaveTheme}>
-                    保存主题
-                  </Button>
-                </Space>
-              ),
-            }}
-            onSettingChange={(settings) => {
-              setInitialState((preInitialState) => ({
-                ...preInitialState,
-                settings,
-              }));
-            }}
-          />
-          {/* 全局消息中心（右下角悬浮聊天框 + 未读红点），见提交 8f473e9b。
-              放在 childrenRender 内（Umi Context 作用域中），useModel 才能取到 initialState；
-              组件用 position:fixed，不受 DOM 位置影响。未登录时内部返回 null。 */}
-          <FloatingMessageBox />
-        </>
-      );
-    },
+      : {}),
+    // 用户主题（登录时由 getInitialState 从 user.themeSetting 合并而来）最后展开：
+    // layout / navTheme / colorPrimary / 密度等对门户页与后台页同时生效，
+    // 且不会因两壳 layout 不一致而在页面切换时触发 ProLayout 整体重建。
     ...initialState?.settings,
   };
 };
@@ -992,7 +1062,10 @@ export function rootContainer(container: React.ReactNode) {
   return (
     <>
       <OfflineBanner />
-      <ErrorBoundary>{container}</ErrorBoundary>
+      <ErrorBoundary>
+        {/* 主题主色 Provider 必须在 ProLayout 外层，左侧菜单树/顶导航才会跟随主题设置变色 */}
+        <ThemeTokenProvider>{container}</ThemeTokenProvider>
+      </ErrorBoundary>
     </>
   );
 }
