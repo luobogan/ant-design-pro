@@ -189,14 +189,14 @@ const SimulateModal: React.FC<SimulateModalProps> = ({
                 {
                   title: '说明',
                   dataIndex: 'message',
-                  render: (v: string) => <span style={{ color: v?.includes('未') ? '#cf1322' : '#666' }}>{v}</span>,
+                  render: (v: string) => <span style={{ color: v?.includes('未') ? 'var(--th-error, #cf1322)' : 'var(--th-text-secondary, #666)' }}>{v}</span>,
                 },
               ]}
             />
           </Card>
         </Space>
       ) : (
-        <div style={{ color: '#999', fontSize: 12 }}>
+        <div style={{ color: 'var(--th-text-tertiary, #999)', fontSize: 12 }}>
           填写模拟数据后点「运行模拟」，将展示流转路径与逐节点校验结果。
         </div>
       )}

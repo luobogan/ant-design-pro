@@ -90,12 +90,12 @@ const NodeInfoPanel: React.FC<NodeInfoPanelProps> = ({
           })()}
           {current ? (
             <>
-              <span style={{ color: '#888' }}>当前节点：</span>
+              <span style={{ color: 'var(--th-text-tertiary, #888)' }}>当前节点：</span>
               <span style={{ fontWeight: 600 }}>{current.nodeName || current.nodeKey}</span>
               <Tag color="blue">{dictLabel(NODE_TYPES, current.nodeType, '未知')}</Tag>
             </>
           ) : (
-            <span style={{ color: '#888' }}>节点列表：点行选中，各列可直接编辑</span>
+            <span style={{ color: 'var(--th-text-tertiary, #888)' }}>节点列表：点行选中，各列可直接编辑</span>
           )}
         </Space>
         <Space size={8} wrap>

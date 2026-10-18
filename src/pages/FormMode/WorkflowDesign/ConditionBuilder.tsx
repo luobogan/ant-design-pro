@@ -131,7 +131,7 @@ const ConditionBuilder: React.FC<ConditionBuilderProps> = ({ rows, onChange, fie
         + 添加条件
       </Button>
       {fields.length === 0 && (
-        <div style={{ color: '#999', fontSize: 12, marginTop: 6 }}>
+        <div style={{ color: 'var(--th-text-tertiary, #999)', fontSize: 12, marginTop: 6 }}>
           当前流程未绑定表单或表单无字段，暂无法可视化配置条件。
         </div>
       )}

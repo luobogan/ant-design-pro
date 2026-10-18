@@ -108,7 +108,7 @@ const LinkDetail: React.FC<LinkDetailProps> = ({
     <>
       <Card
         size="small"
-        style={{ borderColor: '#91caff', background: '#f0f7ff' }}
+        style={{ borderColor: 'var(--th-primary-border, #91caff)', background: 'var(--th-primary-bg, #f0f7ff)' }}
         title={<span>当前出口：{linkName(currentLink)}</span>}
         extra={
           <Space size={4}>
@@ -139,13 +139,13 @@ const LinkDetail: React.FC<LinkDetailProps> = ({
           <Descriptions.Item label="排序">{currentLink.sortOrder ?? 0}</Descriptions.Item>
           <Descriptions.Item label="流转条件">
             {currentLink.conditionCn || currentLink.conditionExpr || (
-              <span style={{ color: '#bbb' }}>未设置</span>
+              <span style={{ color: 'var(--th-text-quaternary, #bbb)' }}>未设置</span>
             )}
           </Descriptions.Item>
         </Descriptions>
 
         <Divider orientation="left" style={{ margin: '10px 0 6px' }}>出口级附加操作</Divider>
-        <div style={{ color: '#999', fontSize: 12, marginBottom: 4 }}>
+        <div style={{ color: 'var(--th-text-tertiary, #999)', fontSize: 12, marginBottom: 4 }}>
           离开该出口时执行（多行脚本，前缀分派：http/https、sql:、field:、action:）。字段赋值右侧支持
           {' '}<code>{"${字段名}"}</code>、<code>{"${sys.*}"}</code>、四则运算与 <code>addDays(x,n)</code> /{' '}
           <code>addDaysSkipWeekend(x,n)</code>。

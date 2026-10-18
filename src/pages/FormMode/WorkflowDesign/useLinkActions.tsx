@@ -154,9 +154,9 @@ export function useLinkActions(
       destroyOnClose
     >
       <ConditionBuilder rows={condRows} onChange={setCondRows} fields={condFields} />
-      <div style={{ marginTop: 12, color: condPreview.expr ? '#1677ff' : '#999', fontSize: 12 }}>
+      <div style={{ marginTop: 12, color: condPreview.expr ? 'var(--th-primary, #1677ff)' : 'var(--th-text-tertiary, #999)', fontSize: 12 }}>
         条件预览：{condPreview.cn || '未设置条件'}
-        {condPreview.expr ? <div style={{ color: '#888' }}>{condPreview.expr}</div> : null}
+        {condPreview.expr ? <div style={{ color: 'var(--th-text-tertiary, #888)' }}>{condPreview.expr}</div> : null}
       </div>
     </Modal>
   );

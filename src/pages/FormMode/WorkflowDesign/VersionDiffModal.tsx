@@ -118,12 +118,12 @@ const VersionDiffModal: React.FC<VersionDiffModalProps> = ({
       title: `当前版本 v${sourceVersion ?? '-'}`,
       render: (_: any, r: NodeRow) =>
         r.kind === 'added' ? (
-          <span style={{ color: '#999' }}>—</span>
+          <span style={{ color: 'var(--th-text-tertiary, #999)' }}>—</span>
         ) : (
           <span>
             {r.sourceName || '-'}（{dictLabel(NODE_TYPES, r.sourceType)} · {dictLabel(SIGN_ORDERS, r.sourceSignOrder)}）
             {r.kind === 'changed' && r.sourceOperators !== r.targetOperators && (
-              <div style={{ color: '#d46b08', fontSize: 12 }}>
+              <div style={{ color: 'var(--th-warning, #d46b08)', fontSize: 12 }}>
                 操作者 {opCount(r.sourceOperators)} → {opCount(r.targetOperators)} 个
               </div>
             )}
@@ -134,12 +134,12 @@ const VersionDiffModal: React.FC<VersionDiffModalProps> = ({
       title: `对比版本 v${others.find((v) => v.id === targetId)?.version ?? '-'}`,
       render: (_: any, r: NodeRow) =>
         r.kind === 'removed' ? (
-          <span style={{ color: '#999' }}>—</span>
+          <span style={{ color: 'var(--th-text-tertiary, #999)' }}>—</span>
         ) : (
           <span>
             {r.targetName || '-'}（{dictLabel(NODE_TYPES, r.targetType)} · {dictLabel(SIGN_ORDERS, r.targetSignOrder)}）
             {r.kind === 'added' && opCount(r.targetOperators) > 0 && (
-              <div style={{ color: '#389e0d', fontSize: 12 }}>操作者 {opCount(r.targetOperators)} 个</div>
+              <div style={{ color: 'var(--th-success, #389e0d)', fontSize: 12 }}>操作者 {opCount(r.targetOperators)} 个</div>
             )}
           </span>
         ),
@@ -162,7 +162,7 @@ const VersionDiffModal: React.FC<VersionDiffModalProps> = ({
       title: '当前版本条件',
       render: (_: any, r: LinkRow) =>
         r.kind === 'added' ? (
-          <span style={{ color: '#999' }}>—</span>
+          <span style={{ color: 'var(--th-text-tertiary, #999)' }}>—</span>
         ) : (
           <span>
             {r.sourceConditionCn || '无条件'}
@@ -176,7 +176,7 @@ const VersionDiffModal: React.FC<VersionDiffModalProps> = ({
       title: '对比版本条件',
       render: (_: any, r: LinkRow) =>
         r.kind === 'removed' ? (
-          <span style={{ color: '#999' }}>—</span>
+          <span style={{ color: 'var(--th-text-tertiary, #999)' }}>—</span>
         ) : (
           <span>
             {r.targetConditionCn || '无条件'}
@@ -217,7 +217,7 @@ const VersionDiffModal: React.FC<VersionDiffModalProps> = ({
           </Descriptions.Item>
         </Descriptions>
         {others.length === 0 ? (
-          <div style={{ color: '#999', textAlign: 'center', padding: 24 }}>
+          <div style={{ color: 'var(--th-text-tertiary, #999)', textAlign: 'center', padding: 24 }}>
             当前流程还没有其它版本，可先「另存为新版本」后再对比。
           </div>
         ) : (

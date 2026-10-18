@@ -416,7 +416,7 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
           <span
             draggable
             title="按住拖动调整执行顺序"
-            style={{ cursor: 'grab', color: '#999', display: 'inline-flex', alignItems: 'center' }}
+            style={{ cursor: 'grab', color: 'var(--th-text-tertiary, #999)', display: 'inline-flex', alignItems: 'center' }}
             onDragStart={(e) => {
               setDragKey(r.key);
               e.dataTransfer.effectAllowed = 'move';
@@ -506,7 +506,7 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
                         allowClear
                       />
                     )}
-                    <span style={{ color: '#999' }}>=</span>
+                    <span style={{ color: 'var(--th-text-tertiary, #999)' }}>=</span>
                     <Input
                       style={{ width: 260 }}
                       value={assignValue}
@@ -519,7 +519,7 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
                     </Button>
                   </Space>
                   {!fieldOptions.length && (
-                    <span style={{ color: formBound ? '#8c8c8c' : '#faad14', fontSize: 12 }}>
+                    <span style={{ color: formBound ? 'var(--th-text-quaternary, #8c8c8c)' : 'var(--th-warning, #faad14)', fontSize: 12 }}>
                       {formBound
                         ? `当前流程已绑定表单${
                             formName ? `「${formName}」` : ''
@@ -551,7 +551,7 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
                     placeholder="动作名称"
                     allowClear
                   />
-                  <span style={{ color: '#ff4d4f' }}>*</span>
+                  <span style={{ color: 'var(--th-error, #ff4d4f)' }}>*</span>
                   {apiType === 'customAction' ? (
                     <>
                       <Select
@@ -580,7 +580,7 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
                         title="注册自定义接口（Java 动作类）"
                         onClick={() => setRegisterOpen(true)}
                       />
-                      <span style={{ color: '#bbb', fontSize: 12 }}>（Java 类）</span>
+                      <span style={{ color: 'var(--th-text-quaternary, #bbb)', fontSize: 12 }}>（Java 类）</span>
                     </>
                   ) : (
                     <Input
@@ -588,11 +588,11 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
                       value={apiTarget}
                       onChange={(e) => setApiTarget(e.target.value)}
                       placeholder={apiMeta.label}
-                      suffix={<SearchOutlined style={{ color: '#bbb' }} />}
+                      suffix={<SearchOutlined style={{ color: 'var(--th-text-quaternary, #bbb)' }} />}
                       allowClear
                     />
                   )}
-                  <span style={{ color: '#ff4d4f' }}>*</span>
+                  <span style={{ color: 'var(--th-error, #ff4d4f)' }}>*</span>
                   <Button type="primary" onClick={addApiItem}>
                     确定
                   </Button>

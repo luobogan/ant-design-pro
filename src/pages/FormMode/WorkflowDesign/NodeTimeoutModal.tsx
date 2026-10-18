@@ -172,7 +172,7 @@ const NodeTimeoutModal: React.FC<NodeTimeoutModalProps> = ({ open, nodeKey, node
           {rules.map((r, idx) => (
             <div
               key={idx}
-              style={{ border: '1px solid #eee', borderRadius: 6, padding: 12, marginBottom: 12 }}
+              style={{ border: '1px solid var(--th-border, #eee)', borderRadius: 6, padding: 12, marginBottom: 12 }}
             >
               <Space wrap size={12}>
                 <span>启用</span>

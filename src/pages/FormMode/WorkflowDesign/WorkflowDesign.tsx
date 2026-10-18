@@ -796,7 +796,7 @@ const WorkflowDesignPage: React.FC = () => {
         }
       >
         {!current?.formId ? (
-          <div style={{ color: '#999' }}>当前流程尚未绑定表单，请到「基础设置」选择对应表单。</div>
+          <div style={{ color: 'var(--th-text-tertiary, #999)' }}>当前流程尚未绑定表单，请到「基础设置」选择对应表单。</div>
         ) : (
           <Table
             rowKey={(r: any) => `${r.scope}|${r.fieldName}`}
@@ -944,8 +944,8 @@ const WorkflowDesignPage: React.FC = () => {
               gap: 12,
               padding: '6px 12px',
               marginBottom: 8,
-              background: '#fffbe6',
-              border: '1px solid #ffe58f',
+              background: 'var(--th-warning-bg, #fffbe6)',
+              border: '1px solid var(--th-warning-border, #ffe58f)',
               borderRadius: 4,
             }}
           >
@@ -1058,7 +1058,7 @@ const WorkflowDesignPage: React.FC = () => {
       );
     return (
       <Space size="small" style={{ marginRight: 8 }}>
-        <span style={{ color: '#999' }}>版本</span>
+        <span style={{ color: 'var(--th-text-tertiary, #999)' }}>版本</span>
         <Select
           size="small"
           style={{ minWidth: 170 }}
@@ -1201,7 +1201,7 @@ const WorkflowDesignPage: React.FC = () => {
         ) : null
       }
     >
-      <div style={{ color: '#888', fontSize: 12, marginBottom: 8 }}>
+      <div style={{ color: 'var(--th-text-tertiary, #888)', fontSize: 12, marginBottom: 8 }}>
         点击节点行可在「流转设置 → 节点信息」中编辑该节点；字段权限矩阵同样在节点信息页签维护。
       </div>
       <Table

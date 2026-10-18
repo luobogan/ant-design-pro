@@ -783,8 +783,8 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
       const NS = 'http://www.w3.org/2000/svg';
       const circle = document.createElementNS(NS, 'circle') as SVGElement;
       circle.setAttribute('r', '5');
-      circle.setAttribute('fill', '#52c41a');
-      circle.setAttribute('stroke', '#fff');
+      circle.setAttribute('fill', 'var(--th-success, #52c41a)');
+      circle.setAttribute('stroke', 'var(--th-bg-container, #fff)');
       circle.setAttribute('stroke-width', '1.5');
       circle.setAttribute('class', 'wf-sim-dot');
       const motion = document.createElementNS(NS, 'animateMotion') as SVGElement;
@@ -820,13 +820,13 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
       g.setAttribute('transform', `translate(${p.x}, ${p.y})`);
       const ring = document.createElementNS(NS, 'circle');
       ring.setAttribute('r', '9');
-      ring.setAttribute('fill', '#52c41a');
-      ring.setAttribute('stroke', '#fff');
+      ring.setAttribute('fill', 'var(--th-success, #52c41a)');
+      ring.setAttribute('stroke', 'var(--th-bg-container, #fff)');
       ring.setAttribute('stroke-width', '1.5');
       const tick = document.createElementNS(NS, 'path');
       tick.setAttribute('d', 'M -4 0.6 L -1.2 3.4 L 4.2 -3.2');
       tick.setAttribute('fill', 'none');
-      tick.setAttribute('stroke', '#fff');
+      tick.setAttribute('stroke', 'var(--th-bg-container, #fff)');
       tick.setAttribute('stroke-width', '2');
       tick.setAttribute('stroke-linecap', 'round');
       tick.setAttribute('stroke-linejoin', 'round');
@@ -1507,7 +1507,7 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
         display: 'flex',
         flexDirection: 'column',
         height: fullscreen ? '100%' : '72vh',
-        background: '#fff',
+        background: 'var(--th-bg-container, #fff)',
         padding: fullscreen ? 12 : 0,
       }}
     >
@@ -1603,7 +1603,7 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
           </Space>
         )}
 
-        <span style={{ color: '#999', fontSize: 12 }}>
+        <span style={{ color: 'var(--th-text-tertiary, #999)', fontSize: 12 }}>
           {editMode
             ? '编辑中：左侧图形库拖入节点、连线后点「保存」；Delete 删除选中元素，Ctrl+Z 撤销，Ctrl/⌘+S 保存'
             : '展示中：点节点或连线即可在右侧查看其信息；点「编辑」可修改流程图'}
@@ -1624,14 +1624,14 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
           position: 'relative',
           flex: 1,
           minHeight: 0,
-          border: '1px solid #d9d9d9',
+          border: '1px solid var(--th-border, #d9d9d9)',
           overflow: 'hidden',
           display: 'flex',
         }}
       >
         {/* 画布本体：相对定位容器，模拟日志浮层锚定在「画布」右下角（不含右侧属性面板） */}
         <div style={{ position: 'relative', flex: 1, minWidth: 0, height: '100%' }}>
-          <div ref={containerRef} style={{ position: 'absolute', inset: 0, background: '#fff' }} />
+          <div ref={containerRef} style={{ position: 'absolute', inset: 0, background: 'var(--th-bg-container, #fff)' }} />
 
           {/* 模拟运行日志：右下角小窗，随动画逐条显示「节点 / 走线 是否成功」 */}
           {simLogOpen && simLog.length > 0 && (

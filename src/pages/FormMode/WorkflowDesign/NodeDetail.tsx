@@ -77,7 +77,7 @@ const ROW_STYLE: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'space-between',
   padding: '6px 10px',
-  borderBottom: '1px solid #f0f0f0',
+  borderBottom: '1px solid var(--th-border, #f0f0f0)',
 };
 
 export interface NodeDetailProps {
@@ -520,8 +520,8 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <Space size={8} wrap>
-          <span style={{ color: '#666' }}>操作组：</span>
-          <span>{groupMeta.name || <span style={{ color: '#bbb' }}>未命名</span>}</span>
+          <span style={{ color: 'var(--th-text-secondary, #666)' }}>操作组：</span>
+          <span>{groupMeta.name || <span style={{ color: 'var(--th-text-quaternary, #bbb)' }}>未命名</span>}</span>
           {groupMeta.canView != null && (
             <Tag color={groupMeta.canView === 1 ? 'blue' : 'default'}>
               {groupMeta.canView === 1 ? '表单可见' : '表单不可见'}
@@ -559,7 +559,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
               // 有对应人员/组织类型的走只读名称解析（id 串 → 名称串）
               if (bt != null) return <PersonOrgValueText browserType={bt} value={r.objId} />;
               // 字段型（5/6/42/43）：objId 存的是表单字段名；无对象型（所有人 / 创建人…）显示占位
-              return r.objId ? <span>字段：{r.objId}</span> : <span style={{ color: '#bbb' }}>—</span>;
+              return r.objId ? <span>字段：{r.objId}</span> : <span style={{ color: 'var(--th-text-quaternary, #bbb)' }}>—</span>;
             },
           },
           {
@@ -569,7 +569,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
               r.bhxj != null ? (
                 BHXJ.find((o) => o.value === r.bhxj)?.label ?? String(r.bhxj)
               ) : (
-                <span style={{ color: '#bbb' }}>—</span>
+                <span style={{ color: 'var(--th-text-quaternary, #bbb)' }}>—</span>
               ),
           },
           {
@@ -579,7 +579,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
               r.levelMin != null && r.levelMax != null ? (
                 `${r.levelMin} - ${r.levelMax}`
               ) : (
-                <span style={{ color: '#bbb' }}>—</span>
+                <span style={{ color: 'var(--th-text-quaternary, #bbb)' }}>—</span>
               ),
           },
           {
@@ -589,7 +589,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
               r.signOrder != null ? (
                 SIGN_ORDERS.find((o) => o.value === r.signOrder)?.label ?? String(r.signOrder)
               ) : (
-                <span style={{ color: '#bbb' }}>—</span>
+                <span style={{ color: 'var(--th-text-quaternary, #bbb)' }}>—</span>
               ),
           },
           {
@@ -599,7 +599,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
           },
         ]}
       />
-      <div style={{ marginTop: 8, color: '#999', fontSize: 12 }}>
+      <div style={{ marginTop: 8, color: 'var(--th-text-tertiary, #999)', fontSize: 12 }}>
         生效条件：{groupMeta.cond || '未设置'}　·　组级属性（名称 / 可见性 / 生效条件 / 协办）在「编辑操作组」中统一维护，与「节点信息」共用同一实现。
       </div>
     </>
@@ -715,10 +715,10 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
           }
         />
       ) : null}
-      <div style={{ border: '1px solid #f0f0f0', borderRadius: 6, overflow: 'hidden' }}>
+      <div style={{ border: '1px solid var(--th-border, #f0f0f0)', borderRadius: 6, overflow: 'hidden' }}>
         <div style={ROW_STYLE}>
           <span>表单内容</span>
-          <span style={{ color: '#1677ff' }}>
+          <span style={{ color: 'var(--th-primary, #1677ff)' }}>
             {settings.formContent?.mode
               ? FORM_CONTENT_OPTIONS.find((o) => o.value === settings.formContent?.mode)?.label ||
                 String(settings.formContent?.mode)
@@ -740,12 +740,12 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                   else setSettingKey(d.key);
                 }}
               />
-              {isConfigured(d) && <CheckCircleFilled style={{ color: '#52c41a' }} />}
+              {isConfigured(d) && <CheckCircleFilled style={{ color: 'var(--th-success, #52c41a)' }} />}
             </Space>
           </div>
         ))}
       </div>
-      <div style={{ color: '#999', fontSize: 12, marginTop: 6 }}>
+      <div style={{ color: 'var(--th-text-tertiary, #999)', fontSize: 12, marginTop: 6 }}>
         设置项即时写入节点扩展属性（extJson.settings），点击齿轮图标配置。
       </div>
     </>
@@ -769,11 +769,11 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
         {node ? `（${node.nodeName}）` : ''}
       </Button>
       {!formId && (
-        <div style={{ color: '#999', marginTop: 8, fontSize: 12 }}>
+        <div style={{ color: 'var(--th-text-tertiary, #999)', marginTop: 8, fontSize: 12 }}>
           该流程尚未绑定表单，无法生成 Excel 布局
         </div>
       )}
-      {formName && <div style={{ color: '#888', marginTop: 8, fontSize: 12 }}>当前绑定表单：{formName}</div>}
+      {formName && <div style={{ color: 'var(--th-text-tertiary, #888)', marginTop: 8, fontSize: 12 }}>当前绑定表单：{formName}</div>}
     </div>
   );
 

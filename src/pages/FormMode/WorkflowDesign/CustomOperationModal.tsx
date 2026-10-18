@@ -152,7 +152,7 @@ const CustomOperationModal: React.FC<{
         <div>
           {data.length === 0 && <Empty description="暂无自定义操作" />}
           {data.map((d, i) => (
-            <div key={i} style={{ border: '1px solid #eee', borderRadius: 6, padding: 12, marginBottom: 12 }}>
+            <div key={i} style={{ border: '1px solid var(--th-border, #eee)', borderRadius: 6, padding: 12, marginBottom: 12 }}>
               <Space wrap size={12}>
                 <span>按钮名</span>
                 <Input

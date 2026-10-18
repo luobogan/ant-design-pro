@@ -795,15 +795,64 @@ const toAntdTheme = (s: ThemeSnapshot) => {
 
 /** 全局主题 Provider：主色/暗黑/紧凑变化时全站（含 ProLayout 菜单树）即时刷新 */
 const ThemeTokenProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [snapshot, setSnapshot] = useState<ThemeSnapshot>(themeSnapshot);
+	const [snapshot, setSnapshot] = useState<ThemeSnapshot>(themeSnapshot);
 
-  useEffect(() => {
-    const onChange = () => setSnapshot({ ...themeSnapshot });
-    window.addEventListener(THEME_TOKEN_EVENT, onChange);
-    return () => window.removeEventListener(THEME_TOKEN_EVENT, onChange);
-  }, []);
+	useEffect(() => {
+		const onChange = () => setSnapshot({ ...themeSnapshot });
+		window.addEventListener(THEME_TOKEN_EVENT, onChange);
+		return () => window.removeEventListener(THEME_TOKEN_EVENT, onChange);
+	}, []);
 
-  return <ConfigProvider theme={toAntdTheme(snapshot)}>{children}</ConfigProvider>;
+	return (
+		<ConfigProvider theme={toAntdTheme(snapshot)}>
+			{/* 设计令牌 → CSS 变量：让页面自有样式与传送门内容也能跟随主题 */}
+			<ThemeCssVarBridge />
+			{children}
+		</ConfigProvider>
+	);
+};
+
+/**
+ * 主题令牌 → :root CSS 变量桥接。
+ *
+ * <p>antd 的 ConfigProvider 只对 React 组件生效；页面自有 CSS 与行内硬编码色
+ * （尤其 Modal 渲染到 body 传送门里的内容）拿不到令牌，改主色/开暗黑时
+ * 就表现为「页面不跟随主题」。这里把当前生效的设计令牌镜像成一组
+ * {@code --th-*} 变量挂到 documentElement，任意位置（含 portal）都能用
+ * {@code var(--th-*, 回退值)} 消费；主题变化时 effect 依赖 token 自动同步。</p>
+ */
+const ThemeCssVarBridge: React.FC = () => {
+	const { token } = antdTheme.useToken();
+	useEffect(() => {
+		const root = document.documentElement;
+		const vars: Record<string, string> = {
+			'--th-primary': token.colorPrimary,
+			'--th-primary-bg': token.colorPrimaryBg,
+			'--th-primary-bg-hover': token.colorPrimaryBgHover,
+			'--th-primary-border': token.colorPrimaryBorder,
+			'--th-success': token.colorSuccess,
+			'--th-success-bg': token.colorSuccessBg,
+			'--th-warning': token.colorWarning,
+			'--th-warning-bg': token.colorWarningBg,
+			'--th-warning-border': token.colorWarningBorder,
+			'--th-error': token.colorError,
+			'--th-error-bg': token.colorErrorBg,
+			'--th-bg-container': token.colorBgContainer,
+			'--th-fill-quaternary': token.colorFillQuaternary,
+			'--th-border': token.colorBorderSecondary,
+			'--th-text': token.colorText,
+			'--th-text-secondary': token.colorTextSecondary,
+			'--th-text-tertiary': token.colorTextTertiary,
+			'--th-text-quaternary': token.colorTextQuaternary,
+		};
+		Object.entries(vars).forEach(([k, v]) => {
+			if (v) root.style.setProperty(k, v);
+		});
+		return () => {
+			Object.keys(vars).forEach((k) => root.style.removeProperty(k));
+		};
+	}, [token]);
+	return null;
 };
 
 /**

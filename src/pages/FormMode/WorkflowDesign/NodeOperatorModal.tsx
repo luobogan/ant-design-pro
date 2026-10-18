@@ -750,11 +750,11 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
         return (
           <Space size={8}>
             <Select style={{ width: 110 }} value={bhxj} options={BHXJ} onChange={setBhxj} />
-            <span style={{ color: '#999' }}>办理人所在部门成员</span>
+            <span style={{ color: 'var(--th-text-tertiary, #999)' }}>办理人所在部门成员</span>
           </Space>
         );
       default:
-        return <span style={{ color: '#999' }}>无需选择对象</span>;
+        return <span style={{ color: 'var(--th-text-tertiary, #999)' }}>无需选择对象</span>;
     }
   };
 
@@ -773,19 +773,19 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16 }}>
         {renderPicker()}
         <Space size={4}>
-          <span style={{ color: '#666' }}>安全级别：</span>
+          <span style={{ color: 'var(--th-text-secondary, #666)' }}>安全级别：</span>
           <InputNumber style={{ width: 64 }} min={0} max={100} value={levelMin} onChange={(v) => setLevelMin(v ?? undefined)} />
-          <span style={{ color: '#bbb' }}>-</span>
+          <span style={{ color: 'var(--th-text-quaternary, #bbb)' }}>-</span>
           <InputNumber style={{ width: 64 }} min={0} max={100} value={levelMax} onChange={(v) => setLevelMax(v ?? undefined)} />
         </Space>
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16, marginTop: 12 }}>
         <Space size={4}>
-          <span style={{ color: '#666' }}>会签属性：</span>
+          <span style={{ color: 'var(--th-text-secondary, #666)' }}>会签属性：</span>
           <Select style={{ width: 120 }} value={signOrder} options={SIGN_ORDERS} onChange={setSignOrder} />
         </Space>
         <Space size={4}>
-          <span style={{ color: '#666' }}>批次：</span>
+          <span style={{ color: 'var(--th-text-secondary, #666)' }}>批次：</span>
           <InputNumber style={{ width: 80 }} min={0} value={batchNo} onChange={(v) => setBatchNo(v ?? 0)} />
         </Space>
       </div>
@@ -794,7 +794,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
       <Divider titlePlacement="left" style={{ margin: '16px 0 8px' }}>生效条件</Divider>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16 }}>
         <Space size={4}>
-          <span style={{ color: '#666' }}>逻辑关系：</span>
+          <span style={{ color: 'var(--th-text-secondary, #666)' }}>逻辑关系：</span>
           <Radio.Group
             value={condLogic}
             onChange={(e) => setCondLogic(e.target.value)}
@@ -855,7 +855,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
             添加条件
           </Button>
         </div>
-        <div style={{ color: '#999', fontSize: 12, marginTop: 6 }}>
+        <div style={{ color: 'var(--th-text-tertiary, #999)', fontSize: 12, marginTop: 6 }}>
           {condDesc(condLogic, rules, legacyExpr)}
         </div>
       </div>
@@ -865,7 +865,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
       <Space direction="vertical" size={8} style={{ width: '100%' }}>
         <Space size={8}>
           <Switch checked={isCoadjutant} onChange={setIsCoadjutant} />
-          <span style={{ color: '#666' }}>启用协办/征询（非阻塞知会，生成协办待办，不门禁流转）</span>
+          <span style={{ color: 'var(--th-text-secondary, #666)' }}>启用协办/征询（非阻塞知会，生成协办待办，不门禁流转）</span>
         </Space>
         {isCoadjutant && (
           <>
@@ -877,11 +877,11 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
             />
             <Space size={16}>
               <Space size={4}>
-                <span style={{ color: '#666' }}>生成待办：</span>
+                <span style={{ color: 'var(--th-text-secondary, #666)' }}>生成待办：</span>
                 <Switch checked={isPending === 1} onChange={(v) => setIsPending(v ? 1 : 0)} />
               </Space>
               <Space size={4}>
-                <span style={{ color: '#666' }}>可改表单：</span>
+                <span style={{ color: 'var(--th-text-secondary, #666)' }}>可改表单：</span>
                 <Switch checked={isModify === 1} onChange={(v) => setIsModify(v ? 1 : 0)} />
               </Space>
             </Space>
@@ -918,9 +918,9 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
           placeholder="请输入操作组名称"
           onChange={(e) => setGroupName(e.target.value)}
         />
-        <span style={{ color: '#ff4d4f' }}>*</span>
+        <span style={{ color: 'var(--th-error, #ff4d4f)' }}>*</span>
         <Space size={6} style={{ marginLeft: 16 }}>
-          <span style={{ color: '#666' }}>可见性：</span>
+          <span style={{ color: 'var(--th-text-secondary, #666)' }}>可见性：</span>
           <Select
             style={{ width: 120 }}
             value={canView}
@@ -945,7 +945,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
               <Space direction="vertical" style={{ width: '100%' }} size="middle">
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center' }}>
                   <Space size={4}>
-                    <span style={{ color: '#666' }}>选择矩阵：</span>
+                    <span style={{ color: 'var(--th-text-secondary, #666)' }}>选择矩阵：</span>
                     <Select
                       style={{ width: 260 }}
                       showSearch
@@ -957,7 +957,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
                     />
                   </Space>
                   <Space size={4}>
-                    <span style={{ color: '#666' }}>操作者（结果维度）：</span>
+                    <span style={{ color: 'var(--th-text-secondary, #666)' }}>操作者（结果维度）：</span>
                     <Select
                       style={{ width: 200 }}
                       value={valueField}
@@ -971,7 +971,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
                 </div>
 
                 <div>
-                  <div style={{ marginBottom: 6, color: '#666' }}>
+                  <div style={{ marginBottom: 6, color: 'var(--th-text-secondary, #666)' }}>
                     条件（多条件为「并且」关系，流程到该节点时按这些条件取值，到矩阵里匹配数据行）：
                   </div>
                   {condRows.length === 0 && <Empty description="该矩阵暂无条件维度" />}
@@ -982,7 +982,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
                       style={{ marginBottom: 6, display: 'flex', alignItems: 'center' }}
                     >
                       <span style={{ width: 110 }}>{matrixFieldLabel(row.condField)}</span>
-                      <span style={{ color: '#bbb' }}>属于</span>
+                      <span style={{ color: 'var(--th-text-quaternary, #bbb)' }}>属于</span>
                       <Select
                         style={{ width: 120 }}
                         value={row.source}
@@ -1098,14 +1098,14 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
             dataIndex: 'objId',
             render: (_: any, r: WfNodeOperator) => {
               const name = nameOf(r);
-              return name ? <span style={{ color: '#1890ff' }}>{name}</span> : <span style={{ color: '#bbb' }}>—</span>;
+              return name ? <span style={{ color: 'var(--th-primary, #1890ff)' }}>{name}</span> : <span style={{ color: 'var(--th-text-quaternary, #bbb)' }}>—</span>;
             },
           },
           {
             title: '级别',
             width: 90,
             render: (_: any, r: WfNodeOperator) =>
-              r.levelMin != null && r.levelMax != null ? `${r.levelMin}-${r.levelMax}` : <span style={{ color: '#bbb' }}>—</span>,
+              r.levelMin != null && r.levelMax != null ? `${r.levelMin}-${r.levelMax}` : <span style={{ color: 'var(--th-text-quaternary, #bbb)' }}>—</span>,
           },
           { title: '会签属性', width: 100, render: (_: any, r: WfNodeOperator) => (r.signOrder ? SIGN_ORDERS.find((s) => s.value === r.signOrder)?.label ?? r.signOrder : '') },
           {
@@ -1114,7 +1114,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
             ellipsis: true,
             render: (_: any, r: WfNodeOperator) => {
               const m = condMetaOf(r);
-              return <span style={{ color: '#666' }}>{condDesc(m.logic, m.rules, m.expr)}</span>;
+              return <span style={{ color: 'var(--th-text-secondary, #666)' }}>{condDesc(m.logic, m.rules, m.expr)}</span>;
             },
           },
           { title: '批次', width: 70, render: (_: any, r: WfNodeOperator) => r.batchNo ?? 0 },
@@ -1122,11 +1122,11 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
             title: '协办',
             width: 70,
             render: (_: any, r: WfNodeOperator) =>
-              r.isCoadjutant === 1 ? <span style={{ color: '#fa8c16' }}>是</span> : '',
+              r.isCoadjutant === 1 ? <span style={{ color: 'var(--th-warning, #fa8c16)' }}>是</span> : '',
           },
         ]}
       />
-      <div style={{ color: '#999', fontSize: 12, marginTop: 8 }}>
+      <div style={{ color: 'var(--th-text-tertiary, #999)', fontSize: 12, marginTop: 8 }}>
         保存为整体覆盖：保存后该节点的操作者以本列表为准（写入 BPMN wf: 扩展，画布自动保存时随流程定义落库）。
       </div>
 
@@ -1142,7 +1142,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
         okText="同 步"
         cancelText="取消"
       >
-        <div style={{ marginBottom: 8, color: '#666' }}>选择目标节点（整体覆盖写入 BPMN 扩展）：</div>
+        <div style={{ marginBottom: 8, color: 'var(--th-text-secondary, #666)' }}>选择目标节点（整体覆盖写入 BPMN 扩展）：</div>
         <Select
           mode="multiple"
           style={{ width: '100%' }}

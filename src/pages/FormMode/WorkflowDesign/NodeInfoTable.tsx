@@ -421,7 +421,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
     return (
       <Space size={2}>
         <span
-          style={{ color: summary ? undefined : '#bbb', fontSize: 12 }}
+          style={{ color: summary ? undefined : 'var(--th-text-quaternary, #bbb)', fontSize: 12 }}
           title={summary || undefined}
         >
           {summary || '未设置'}
@@ -463,7 +463,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
             title={draft ? '保存后可拖动排序' : '按住拖动调整节点顺序'}
             style={{
               cursor: draft ? 'not-allowed' : 'grab',
-              color: draft ? '#d9d9d9' : '#8c8c8c',
+              color: draft ? 'var(--th-border, #d9d9d9)' : 'var(--th-text-quaternary, #8c8c8c)',
               display: 'inline-flex',
               alignItems: 'center',
             }}
@@ -576,7 +576,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
           isDraft(r) ? setOpDraftIndex(r._draftIndex as number) : setOpNodeKey(r.nodeKey!);
         return (
           <Space size={2}>
-            <span style={{ color: ops.length ? undefined : '#bbb', fontSize: 12 }}>
+            <span style={{ color: ops.length ? undefined : 'var(--th-text-quaternary, #bbb)', fontSize: 12 }}>
               {ops.length ? `${ops.length} 项` : '未设置'}
             </span>
             <Button type="link" size="small" onClick={onEdit}>
@@ -616,7 +616,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
             {draft ? (
               // ⚠️ 节点未保存（草稿行）禁止进入布局设计：草稿没有真实 nodeKey，
               // 进入设计器保存会以无效的草稿 key 落库，造成孤立布局。
-              <span style={{ color: '#bbb', fontSize: 12 }} title="请先保存节点后再进行布局设计">
+              <span style={{ color: 'var(--th-text-quaternary, #bbb)', fontSize: 12 }} title="请先保存节点后再进行布局设计">
                 保存节点后可设计
               </span>
             ) : formId ? (
@@ -634,7 +634,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
                 设计
               </Button>
             ) : (
-              <span style={{ color: '#bbb', fontSize: 12 }} title="该流程尚未绑定表单">
+              <span style={{ color: 'var(--th-text-quaternary, #bbb)', fontSize: 12 }} title="该流程尚未绑定表单">
                 未绑定表单
               </span>
             )}
@@ -659,7 +659,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
          */
         if (r.nodeType === 3) {
           return (
-            <span style={{ color: '#bbb', fontSize: 12 }} title="归档（结束）事件不生成任务，操作菜单不适用">
+            <span style={{ color: 'var(--th-text-quaternary, #bbb)', fontSize: 12 }} title="归档（结束）事件不生成任务，操作菜单不适用">
               —
             </span>
           );
@@ -670,7 +670,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
         return (
           <Space size={2}>
             <span
-              style={{ color: labels.length ? undefined : '#bbb', fontSize: 12 }}
+              style={{ color: labels.length ? undefined : 'var(--th-text-quaternary, #bbb)', fontSize: 12 }}
               title={labels.join('/')}
             >
               {labels.length ? labels.join('/') : '默认'}
@@ -705,10 +705,10 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
             : setSettingCell({ nodeKey: r.nodeKey!, key: def.key });
         return (
           <Space size={2}>
-            <span style={{ color: done ? undefined : '#bbb', fontSize: 12 }}>
+            <span style={{ color: done ? undefined : 'var(--th-text-quaternary, #bbb)', fontSize: 12 }}>
               {done ? settingSummary(def, val) : '未设置'}
             </span>
-            {done && <CheckCircleFilled style={{ color: '#52c41a', fontSize: 12 }} />}
+            {done && <CheckCircleFilled style={{ color: 'var(--th-success, #52c41a)', fontSize: 12 }} />}
             <Button type="link" size="small" onClick={onSet}>
               设置
             </Button>
@@ -721,7 +721,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
       width: 110,
       render: (_: any, r: WfProcessNode) =>
         isDraft(r) ? (
-          <span style={{ color: '#bbb', fontSize: 12 }}>草稿</span>
+          <span style={{ color: 'var(--th-text-quaternary, #bbb)', fontSize: 12 }}>草稿</span>
         ) : (
           <Button type="link" size="small" onClick={() => setTimeoutNode(r)}>
             超时规则
@@ -733,7 +733,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
       width: 110,
       render: (_: any, r: WfProcessNode) =>
         isDraft(r) ? (
-          <span style={{ color: '#bbb', fontSize: 12 }}>草稿</span>
+          <span style={{ color: 'var(--th-text-quaternary, #bbb)', fontSize: 12 }}>草稿</span>
         ) : (
           <Button type="link" size="small" onClick={() => setCustomNode(r)}>
             自定义操作
@@ -858,7 +858,7 @@ const NodeInfoTable: React.FC<NodeInfoTableProps> = ({
         </Button>
         {draftRows.length > 0 && (
           <>
-            <div style={{ color: '#d46b08', fontSize: 12, lineHeight: '18px' }}>
+            <div style={{ color: 'var(--th-warning, #d46b08)', fontSize: 12, lineHeight: '18px' }}>
               草稿行（黄底）尚未落库：填好名称、操作者、表单内容、各项设置后，点「保存新增」一次性创建节点并保存。
             </div>
             <Button

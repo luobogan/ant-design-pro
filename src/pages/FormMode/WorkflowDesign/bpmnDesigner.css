@@ -66,9 +66,9 @@
   right: 0;
   width: 340px;
   z-index: 20;
-  background: #fff;
-  border-left: 1px solid #e5e7eb;
-  border-top: 1px solid #e5e7eb;
+  background: var(--th-bg-container, #fff);
+  border-left: 1px solid var(--th-border, #e5e7eb);
+  border-top: 1px solid var(--th-border, #e5e7eb);
   overflow: auto;
   display: block !important;
 }
@@ -80,12 +80,12 @@
 }
 
 .wf-props ::-webkit-scrollbar-thumb {
-  background: #d9d9d9;
+  background: var(--th-border, #d9d9d9);
   border-radius: 4px;
 }
 
 .wf-props ::-webkit-scrollbar-thumb:hover {
-  background: #bfbfbf;
+  background: var(--th-text-quaternary, #bfbfbf);
 }
 
 /* ───────── 「定位」闪烁高亮 ─────────
@@ -94,11 +94,11 @@
 @keyframes wfFlashPulse {
   0%,
   100% {
-    stroke: #1677ff;
+    stroke: var(--th-primary, #1677ff);
     stroke-width: 2.5;
   }
   50% {
-    stroke: #69b1ff;
+    stroke: var(--th-primary-bg-hover, #69b1ff);
     stroke-width: 4;
   }
 }
@@ -141,8 +141,8 @@
 .wf-sim-node .djs-visual > rect,
 .wf-sim-node .djs-visual > circle,
 .wf-sim-node .djs-visual > polygon {
-  fill: #d9f7be !important;
-  stroke: #52c41a !important;
+  fill: var(--th-success-bg, #d9f7be) !important;
+  stroke: var(--th-success, #52c41a) !important;
   stroke-width: 2 !important;
 }
 
@@ -154,7 +154,7 @@
 }
 
 .wf-sim-flow .djs-visual path {
-  stroke: #52c41a !important;
+  stroke: var(--th-success, #52c41a) !important;
   stroke-width: 3 !important;
   stroke-linecap: round !important;
   stroke-dasharray: 12 8 !important;
@@ -164,7 +164,7 @@
 
 /* 上游节点未通过 → 该出口走不通：红色虚线（与绿线同形，仅换色） */
 .wf-sim-flow-fail .djs-visual path {
-  stroke: #ff4d4f !important;
+  stroke: var(--th-error, #ff4d4f) !important;
   stroke-width: 3 !important;
   stroke-linecap: round !important;
   stroke-dasharray: 12 8 !important;
@@ -189,8 +189,8 @@
 .wf-sim-fail .djs-visual > rect,
 .wf-sim-fail .djs-visual > circle,
 .wf-sim-fail .djs-visual > polygon {
-  fill: #ffccc7 !important;
-  stroke: #ff4d4f !important;
+  fill: var(--th-error-bg, #ffccc7) !important;
+  stroke: var(--th-error, #ff4d4f) !important;
   stroke-width: 2 !important;
 }
 
@@ -213,8 +213,8 @@
   max-height: 46%;
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border: 1px solid #91caff;
+  background: var(--th-bg-container, #fff);
+  border: 1px solid var(--th-primary-border, #91caff);
   border-radius: 6px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
   overflow: hidden;
@@ -227,15 +227,15 @@
   align-items: center;
   justify-content: space-between;
   padding: 7px 10px;
-  background: #e6f4ff;
-  color: #1677ff;
+  background: var(--th-primary-bg, #e6f4ff);
+  color: var(--th-primary, #1677ff);
   font-weight: 600;
-  border-bottom: 1px solid #91caff;
+  border-bottom: 1px solid var(--th-primary-border, #91caff);
 }
 
 .wf-sim-log-head .anticon {
   cursor: pointer;
-  color: #1677ff;
+  color: var(--th-primary, #1677ff);
 }
 
 .wf-sim-log-body {
@@ -248,7 +248,7 @@
   align-items: center;
   gap: 6px;
   padding: 4px 2px;
-  border-bottom: 1px dashed #f0f0f0;
+  border-bottom: 1px dashed var(--th-border, #f0f0f0);
 }
 
 .wf-sim-log-row:last-child {
@@ -271,11 +271,11 @@
 }
 
 .wf-sim-log-ico.ok {
-  background: #52c41a;
+  background: var(--th-success, #52c41a);
 }
 
 .wf-sim-log-ico.fail {
-  background: #ff4d4f;
+  background: var(--th-error, #ff4d4f);
 }
 
 .wf-sim-log-name {
@@ -284,7 +284,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #333;
+  color: var(--th-text, #333);
 }
 
 .wf-sim-log-extra {
@@ -293,7 +293,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #999;
+  color: var(--th-text-tertiary, #999);
   font-size: 11px;
 }
 
@@ -307,13 +307,13 @@
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: #1677ff;
-  color: #fff;
+  background: var(--th-primary, #1677ff);
+  color: var(--th-bg-container, #fff);
   font-size: 10px;
   line-height: 16px;
   text-align: center;
   cursor: default;
-  box-shadow: 0 0 0 1px #fff;
+  box-shadow: 0 0 0 1px var(--th-bg-container, #fff);
   pointer-events: auto;
 }
 

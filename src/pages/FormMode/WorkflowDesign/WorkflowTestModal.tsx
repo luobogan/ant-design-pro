@@ -281,7 +281,7 @@ const WorkflowTestModal: React.FC<WorkflowTestModalProps> = ({
           style={{ marginBottom: 12 }}
         >
           {formLoading ? (
-            <div style={{ color: '#999' }}>加载中...</div>
+            <div style={{ color: 'var(--th-text-tertiary, #999)' }}>加载中...</div>
           ) : (
             <Form form={form} layout="vertical">
               {formFields.map((f) => (
@@ -299,7 +299,7 @@ const WorkflowTestModal: React.FC<WorkflowTestModalProps> = ({
                 </Form.Item>
               ))}
               {formFields.length === 0 && (
-                <div style={{ color: '#999', fontSize: 12 }}>该表单暂无字段</div>
+                <div style={{ color: 'var(--th-text-tertiary, #999)', fontSize: 12 }}>该表单暂无字段</div>
               )}
             </Form>
           )}
@@ -371,7 +371,7 @@ const WorkflowTestModal: React.FC<WorkflowTestModalProps> = ({
                                 .join('、')}
                             </span>
                           ) : (
-                            <span style={{ color: '#999' }}>无</span>
+                            <span style={{ color: 'var(--th-text-tertiary, #999)' }}>无</span>
                           ),
                       },
                       {
@@ -395,7 +395,7 @@ const WorkflowTestModal: React.FC<WorkflowTestModalProps> = ({
                 />
               </Space>
             ) : (
-              <div style={{ color: '#999', fontSize: 12 }}>
+              <div style={{ color: 'var(--th-text-tertiary, #999)', fontSize: 12 }}>
                 选择测试发起人、填写测试表单后点「开始测试」，将展示逐节点的经过次数、操作者与测试日志。
               </div>
             ),

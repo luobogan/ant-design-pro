@@ -193,7 +193,7 @@ const NodeOperateMenuModal: React.FC<NodeOperateMenuModalProps> = ({
             title="按住拖动调整顺序"
             style={{
               cursor: 'grab',
-              color: '#8c8c8c',
+              color: 'var(--th-text-quaternary, #8c8c8c)',
               marginRight: 2,
               display: 'inline-flex',
               alignItems: 'center',
@@ -350,7 +350,7 @@ const NodeOperateMenuModal: React.FC<NodeOperateMenuModalProps> = ({
           },
         })}
       />
-      <div style={{ color: '#999', fontSize: 12, marginTop: 8 }}>
+      <div style={{ color: 'var(--th-text-tertiary, #999)', fontSize: 12, marginTop: 8 }}>
         可改显示名称、启停与顺序（按住左侧拖柄可鼠标拖动排序，也可用上移/下移按钮）；
         「默认」指定打开表单时默认选中的操作（需先启用）。
       </div>

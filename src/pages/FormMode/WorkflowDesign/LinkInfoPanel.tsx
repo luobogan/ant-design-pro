@@ -243,7 +243,7 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
       width: '16%',
       ellipsis: true,
       render: (_: any, r: WfNodeLink) =>
-        r.id === -1 ? <span style={{ color: '#999' }}>待保存</span> : linkName(r),
+        r.id === -1 ? <span style={{ color: 'var(--th-text-tertiary, #999)' }}>待保存</span> : linkName(r),
     },
     {
       title: '是否退回',
@@ -306,7 +306,7 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
                 </Tag>
               </Tooltip>
             ) : (
-              <span style={{ color: '#bbb', fontSize: 12 }}>未设置</span>
+              <span style={{ color: 'var(--th-text-quaternary, #bbb)', fontSize: 12 }}>未设置</span>
             )}
           </Space>
         );
@@ -400,7 +400,7 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
         >
           + 新增出口
         </Button>
-        <span style={{ color: '#888', fontSize: 12 }}>
+        <span style={{ color: 'var(--th-text-tertiary, #888)', fontSize: 12 }}>
           {`共 ${visibleLinks.length} 条出口。行内可直接改目标节点 / 退回 / 必经 / 排序；画布上连好线保存后会自动出现在此处。`}
         </span>
       </div>

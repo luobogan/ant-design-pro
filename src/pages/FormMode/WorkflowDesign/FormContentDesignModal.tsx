@@ -196,7 +196,7 @@ const BrowserBox: React.FC<{
       style={{ width, cursor: disabled ? 'not-allowed' : 'pointer' }}
       suffix={
         <SearchOutlined
-          style={{ color: disabled ? '#bfbfbf' : '#1677ff', cursor: disabled ? 'not-allowed' : 'pointer' }}
+          style={{ color: disabled ? 'var(--th-text-quaternary, #bfbfbf)' : 'var(--th-primary, #1677ff)', cursor: disabled ? 'not-allowed' : 'pointer' }}
           onClick={onClick}
         />
       }
@@ -209,7 +209,7 @@ const BrowserBox: React.FC<{
 
 const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div style={{ display: 'flex', alignItems: 'center', margin: '10px 0', paddingLeft: 32 }}>
-    <div style={{ width: 150, color: '#333' }}>{label}：</div>
+    <div style={{ width: 150, color: 'var(--th-text, #333)' }}>{label}：</div>
     <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
   </div>
 );
@@ -217,8 +217,8 @@ const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, ch
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <div
     style={{
-      background: '#fafafa',
-      border: '1px solid #f0f0f0',
+      background: 'var(--th-fill-quaternary, #fafafa)',
+      border: '1px solid var(--th-border, #f0f0f0)',
       borderRadius: 4,
       padding: '4px 16px 12px',
       marginBottom: 12,
@@ -254,7 +254,7 @@ const DetailFilterEditor: React.FC<{
   const remove = (i: number) => onChange(value.filter((_, idx) => idx !== i));
   return (
     <Section title={title}>
-      <div style={{ marginBottom: 8, color: '#888', fontSize: 12 }}>
+      <div style={{ marginBottom: 8, color: 'var(--th-text-tertiary, #888)', fontSize: 12 }}>
         多条规则间为「且」关系：仅当明细行满足全部规则时才对该操作者显示 / 打印出来。
       </div>
       {value.map((r, i) => (
@@ -262,7 +262,7 @@ const DetailFilterEditor: React.FC<{
           key={i}
           style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '6px 0', flexWrap: 'wrap' }}
         >
-          <span style={{ color: '#666' }}>明细表 dt</span>
+          <span style={{ color: 'var(--th-text-secondary, #666)' }}>明细表 dt</span>
           <InputNumber
             size="small"
             min={0}
@@ -270,7 +270,7 @@ const DetailFilterEditor: React.FC<{
             value={r.dtIndex}
             onChange={(v) => update(i, { dtIndex: v ?? 0 })}
           />
-          <span style={{ color: '#666' }}>字段</span>
+          <span style={{ color: 'var(--th-text-secondary, #666)' }}>字段</span>
           <Input
             size="small"
             style={{ width: 150 }}
@@ -341,16 +341,16 @@ const DetailTablePermEditor: React.FC<{
   const remove = (i: number) => onChange(value.filter((_, idx) => idx !== i));
   return (
     <Section title={title}>
-      <div style={{ marginBottom: 8, color: '#888', fontSize: 12 }}>
+      <div style={{ marginBottom: 8, color: 'var(--th-text-tertiary, #888)', fontSize: 12 }}>
         按明细表序号（dtIndex，1 起）分别设置该节点操作者对此明细表的整表行为；留空 / 不配置即沿用表单默认。
       </div>
       {value.map((r, i) => (
         <div
           key={i}
-          style={{ border: '1px solid #f0f0f0', borderRadius: 4, padding: 8, margin: '6px 0' }}
+          style={{ border: '1px solid var(--th-border, #f0f0f0)', borderRadius: 4, padding: 8, margin: '6px 0' }}
         >
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ color: '#666' }}>明细表 dt</span>
+            <span style={{ color: 'var(--th-text-secondary, #666)' }}>明细表 dt</span>
             <InputNumber
               size="small"
               min={1}
@@ -358,7 +358,7 @@ const DetailTablePermEditor: React.FC<{
               value={parseInt(r.dtIndex ?? '1', 10) || 1}
               onChange={(v) => update(i, { dtIndex: String(v ?? 1) })}
             />
-            <span style={{ color: '#666' }}>默认行数</span>
+            <span style={{ color: 'var(--th-text-secondary, #666)' }}>默认行数</span>
             <InputNumber
               size="small"
               min={0}
@@ -378,7 +378,7 @@ const DetailTablePermEditor: React.FC<{
                   checked={r[f.key] === '1'}
                   onChange={(v) => toggle(i, f.key, v)}
                 />
-                <span style={{ fontSize: 12, color: '#666' }}>{f.label}</span>
+                <span style={{ fontSize: 12, color: 'var(--th-text-secondary, #666)' }}>{f.label}</span>
               </span>
             ))}
           </div>
@@ -633,7 +633,7 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
             options={FORM_CONTENT_OPTIONS}
             onChange={(v) => patch({ mode: v })}
           />
-          <span style={{ marginLeft: 12, color: '#999', fontSize: 12 }}>
+          <span style={{ marginLeft: 12, color: 'var(--th-text-tertiary, #999)', fontSize: 12 }}>
             「普通模式」已屏蔽，请选择「节点布局」
           </span>
         </Row>
@@ -650,16 +650,16 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
               onAdd={design}
               addTooltip={canLayout ? '进入节点布局设计器（初始化）' : '请先绑定表单'}
             />
-            <a onClick={design} style={{ color: canLayout ? '#1677ff' : '#bfbfbf' }}>
+            <a onClick={design} style={{ color: canLayout ? 'var(--th-primary, #1677ff)' : 'var(--th-text-quaternary, #bfbfbf)' }}>
               初始化
             </a>
             {/* 「设置字段属性」入口已下线（2026-10-10）：字段权限唯一入口收敛到布局设计器，
                 布局保存自动联动 BPMN 字段权限；原跳转目标（节点详情 perm 页签）已隐藏 */}
-            <span style={{ color: '#bfbfbf', fontSize: 12 }}>字段属性在布局中设置</span>
+            <span style={{ color: 'var(--th-text-quaternary, #bfbfbf)', fontSize: 12 }}>字段属性在布局中设置</span>
             <Tooltip title={onPreview ? '' : NOT_YET}>
               <a
                 onClick={() => onPreview && nodeKey && onPreview(nodeKey)}
-                style={{ color: onPreview ? '#1677ff' : '#bfbfbf' }}
+                style={{ color: onPreview ? 'var(--th-primary, #1677ff)' : 'var(--th-text-quaternary, #bfbfbf)' }}
               >
                 预览
               </a>
@@ -675,7 +675,7 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
               onChange={(v) => patch({ margin: { ...margin, custom: v, type: v ? margin.type ?? 0 : 1 } })}
             />
             <Tooltip title="不启用，则采用流程表单默认页边距设置。">
-              <QuestionCircleOutlined style={{ color: '#faad14' }} />
+              <QuestionCircleOutlined style={{ color: 'var(--th-warning, #faad14)' }} />
             </Tooltip>
           </Space>
         </Row>
@@ -693,7 +693,7 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
               <Space size={8} wrap>
                 {(['top', 'bottom', 'left', 'right'] as const).map((k, i) => (
                   <span key={k}>
-                    <span style={{ color: '#888', marginRight: 4 }}>
+                    <span style={{ color: 'var(--th-text-tertiary, #888)', marginRight: 4 }}>
                       {['上', '下', '左', '右'][i]}
                     </span>
                     <InputNumber
@@ -706,7 +706,7 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
                   </span>
                 ))}
                 <Tooltip title={NOT_YET}>
-                  <QuestionCircleOutlined style={{ color: '#faad14' }} />
+                  <QuestionCircleOutlined style={{ color: 'var(--th-warning, #faad14)' }} />
                 </Tooltip>
               </Space>
             </Row>
@@ -733,7 +733,7 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
               同步
             </Button>
             <Tooltip title="把本节点的「节点布局」复制到所选节点（目标节点即使用同一份布局），并一并同步「显示模式 / 页边距 / 明细过滤」设置。">
-              <QuestionCircleOutlined style={{ color: '#faad14' }} />
+              <QuestionCircleOutlined style={{ color: 'var(--th-warning, #faad14)' }} />
             </Tooltip>
           </Space>
         </Row>
@@ -795,12 +795,12 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
       <Section title="节点意见">
         <Row label="签字意见设置">
           <Space size={8}>
-            <span style={{ color: '#888', fontSize: 12 }}>
+            <span style={{ color: 'var(--th-text-tertiary, #888)', fontSize: 12 }}>
               复用「节点设置 → 签字意见设置」（是否必填 / 默认模板）
             </span>
             <a
               onClick={() => nodeKey && onOpenNodeSetting?.(nodeKey)}
-              style={{ color: nodeKey ? '#1677ff' : '#bfbfbf' }}
+              style={{ color: nodeKey ? 'var(--th-primary, #1677ff)' : 'var(--th-text-quaternary, #bfbfbf)' }}
             >
               去设置
             </a>
@@ -813,7 +813,7 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
             checked={od.viewTypeAll === undefined || od.viewTypeAll === null ? true : !!od.viewTypeAll}
             onChange={(v) => patch({ opinionDisplay: { ...od, viewTypeAll: v ? 1 : 0 } })}
           />
-          <span style={{ marginLeft: 8, color: '#999', fontSize: 12 }}>
+          <span style={{ marginLeft: 8, color: 'var(--th-text-tertiary, #999)', fontSize: 12 }}>
             关闭则仅显示最后一次签字意见
           </span>
         </Row>
@@ -847,7 +847,7 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
       </Section>
 
       {!formId && (
-        <div style={{ color: '#999', fontSize: 12, marginTop: 8 }}>
+        <div style={{ color: 'var(--th-text-tertiary, #999)', fontSize: 12, marginTop: 8 }}>
           该流程尚未绑定表单，无法进入布局设计。
           {formName ? `（当前表单：${formName}）` : ''}
         </div>
@@ -859,7 +859,7 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
     <>
       <Section title="打印模板">
         <Row label="打印模板">
-          <span style={{ color: '#999', fontSize: 12 }}>
+          <span style={{ color: 'var(--th-text-tertiary, #999)', fontSize: 12 }}>
             打印模板设计器未纳入本次范围：打印输出沿用本节点的显示模板（节点布局）。
             如需更换打印版式，请在「显示模板」页签调整节点布局。
           </span>
@@ -892,7 +892,7 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
               onChange={(v) => patch({ printSet: { ...pSet, remarkColumn: v } })}
             />
             <Tooltip title="打印时签字意见区分栏展示的列数（对齐 ecology PRINTREMARKCOLUMN）。">
-              <QuestionCircleOutlined style={{ color: '#faad14' }} />
+              <QuestionCircleOutlined style={{ color: 'var(--th-warning, #faad14)' }} />
             </Tooltip>
           </Space>
         </Row>
@@ -904,7 +904,7 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
               onChange={(v) => patch({ printSet: { ...pSet, stNull: v } })}
             />
             <Tooltip title="开启后，没有签字意见的节点不会出现在打印结果里。">
-              <QuestionCircleOutlined style={{ color: '#faad14' }} />
+              <QuestionCircleOutlined style={{ color: 'var(--th-warning, #faad14)' }} />
             </Tooltip>
           </Space>
         </Row>
@@ -924,12 +924,12 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
               onChange={(v) => patch({ printSet: { ...pSet, viewTypes: v } })}
             />
             <Tooltip title="对齐 ecology printviewtype：可整体「沿用显示模板」，或按意见类型逐项勾选（提交 / 退回 / 抄送 / 转办 …）决定打印哪些意见。">
-              <QuestionCircleOutlined style={{ color: '#faad14' }} />
+              <QuestionCircleOutlined style={{ color: 'var(--th-warning, #faad14)' }} />
             </Tooltip>
           </Space>
         </Row>
         <Row label="同步到其它节点">
-          <span style={{ color: '#888', fontSize: 12 }}>
+          <span style={{ color: 'var(--th-text-tertiary, #888)', fontSize: 12 }}>
             打印内容随「显示模板」页签的「同步节点」一并同步（同属本节点表单内容）。
           </span>
         </Row>

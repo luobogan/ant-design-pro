@@ -49,8 +49,8 @@ const SectionTitle: React.FC<{ title: string; extra?: React.ReactNode }> = ({ ti
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
-      background: '#fafafa',
-      border: '1px solid #f0f0f0',
+      background: 'var(--th-fill-quaternary, #fafafa)',
+      border: '1px solid var(--th-border, #f0f0f0)',
       borderRadius: 4,
       padding: '6px 12px',
       margin: '14px 0 10px',
@@ -280,7 +280,7 @@ const CustomActionRegisterModal: React.FC<CustomActionRegisterModalProps> = ({
         />
 
         <SectionTitle title="说明" />
-        <Typography.Paragraph style={{ color: '#666', marginBottom: 0 }}>
+        <Typography.Paragraph style={{ color: 'var(--th-text-secondary, #666)', marginBottom: 0 }}>
           <div>1、在节点前后附加操作中可设置接口动作，完成流程自定义附加操作。</div>
           <div>
             2、接口动作标识不能重复；接口动作类文件必须是<strong>类全名</strong>，该类必须实现接口
@@ -300,13 +300,13 @@ const CustomActionRegisterModal: React.FC<CustomActionRegisterModalProps> = ({
         footer={<Button type="primary" onClick={() => setTplOpen(false)}>知道了</Button>}
         width={780}
       >
-        <Typography.Paragraph style={{ color: '#666' }}>
+        <Typography.Paragraph style={{ color: 'var(--th-text-secondary, #666)' }}>
           把类加入工程（<Typography.Text code>blade-workflow</Typography.Text> 模块）并重启服务后，即可在「注册自定义接口」里登记它的类全名。
         </Typography.Paragraph>
         <pre
           style={{
-            background: '#f6f8fa',
-            border: '1px solid #eee',
+            background: 'var(--th-fill-quaternary, #f6f8fa)',
+            border: '1px solid var(--th-border, #eee)',
             borderRadius: 4,
             padding: 12,
             maxHeight: 420,
