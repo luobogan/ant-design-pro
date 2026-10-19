@@ -16,8 +16,8 @@ import {
 } from '@ant-design/icons';
 import { Button, Empty, Spin, Typography } from 'antd';
 import { history } from '@umijs/max';
-import { portalApi } from '@/services/portal';
-import type { PortalMenuNode } from '@/services/portal';
+import { dynamicRoutes } from '@/services/system/menu';
+import { pickPayload } from '@/utils/utils';
 
 const { Text } = Typography;
 
@@ -27,7 +27,7 @@ const APP_TILE_COLORS = [
   '#1098ad', '#e64980', '#f76707', '#1971c2', '#2f9e44', '#e8590c',
 ];
 
-/** 门户菜单 icon -> 磁贴图标（未命中回退 Appstore） */
+/** 菜单 icon -> 磁贴图标（未命中回退 Appstore） */
 const APP_ICON_MAP: Record<string, React.ReactNode> = {
   home: <HomeOutlined />,
   message: <MessageOutlined />,
@@ -55,18 +55,78 @@ interface AnchorRect {
 }
 
 /**
+ * 取节点（及其子树）第一个可跳转的路由 path。
+ * 顶级菜单常常是「纯分组」（自身无 path），此时下钻到第一个子页面，
+ * 跳转后 ProLayout 会自动在左侧展开该顶级下的子菜单。
+ */
+const kidsOf = (n: any): any[] => (n?.routes || n?.children) || [];
+
+/**
+ * 优先：左侧菜单里「真实可见」的第一个页面地址。
+ * 组件型菜单（category=2，如 /workflow/create/start）只是路由载体，已被 stripComponentMenus
+ * 从菜单剔除，跳过去菜单无匹配 → 不展开/不高亮，故这类节点整棵跳过。
+ */
+/**
+ * 最优先：叶子节点（无子级）的可见页面。
+ * 有子级的节点常被路由层渲染成「分组重定向」（<Navigate to="" />），push 过去会被弹回首页
+ * （实测 /workflow/create 有子路由 /workflow/create/start，push 后跳到 / 再 redirect 回门户），
+ * 所以目标必须优先落在真正的叶子页面上。
+ */
+const firstLeafPath = (node: any): string | undefined => {
+  if (Number(node?.category) === 2) return undefined;
+  const kids = kidsOf(node);
+  if (!kids.length) return node?.path ? String(node.path) : undefined;
+  for (const c of kids) {
+    const p = firstLeafPath(c);
+    if (p) return p;
+  }
+  return undefined;
+};
+
+const firstVisiblePath = (node: any): string | undefined => {
+  if (Number(node?.category) === 2) return undefined;
+  const kids = kidsOf(node);
+  // 深度优先：先找子级里第一个「可见页面」
+  for (const c of kids) {
+    const p = firstVisiblePath(c);
+    if (p) return p;
+  }
+  // 子级里没有可见页面时，分组节点自身的 path 也是合法目标
+  // （例如「表单列表」/formmode/formmanage 下面挂的都是 category=2 的按钮页，
+  //   但它自己就是真实页面，应当作为该顶级下的第一个页面）
+  if (node?.path) return String(node.path);
+  return undefined;
+};
+
+/** 兜底：整棵子树里第一个有 path 的地址（含组件型），保证点击总有跳转反馈 */
+const firstAnyPath = (node: any): string | undefined => {
+  const kids = kidsOf(node);
+  for (const c of kids) {
+    const p = firstAnyPath(c);
+    if (p) return p;
+  }
+  if (node?.path) return String(node.path);
+  return undefined;
+};
+
+/** 目标地址：优先菜单可见页，拿不到就退到任意有 path 的页 */
+const resolveTarget = (node: any): string | undefined =>
+  firstLeafPath(node) || firstVisiblePath(node) || firstAnyPath(node);
+
+/**
  * 门户应用启动器：标题栏里的「门户小图标」。
  *
  * - 点击后就地展开应用宫格，不新开窗口、不弹页面；
  * - 面板用 createPortal 挂到 body 并以 fixed 定位，规避标题栏 overflow 裁切与层级问题；
- * - 磁贴点击一律走应用内路由 history.push，门户始终渲染在当前 app 内，
- *   不做整页刷新；已在目标页时直接跳过，避免「又跳一遍」；
- * - 菜单首次展开时懒加载，来源与左侧原始菜单一致（系统菜单优先，门户私有菜单兜底）。
+ * - 磁贴一律走应用内路由 history.push，门户始终渲染在当前 app 内，不做整页刷新；
+ * - **只展示「授权的顶级菜单」**（与左侧 ProLayout 同源，取 /menu/routes 顶层，
+ *   并剔除组件型菜单 category=2），不再把整棵菜单树平铺成宫格；
+ * - 点击某顶级菜单 → 跳到该顶级下第一个可访问页面，左侧菜单随之展开其子菜单。
  */
 const PortalAppLauncher: React.FC<PortalAppLauncherProps> = ({ align = 'right' }) => {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [entries, setEntries] = useState<PortalMenuNode[]>([]);
+  const [entries, setEntries] = useState<any[]>([]);
   const [anchor, setAnchor] = useState<AnchorRect | null>(null);
   const loadedRef = useRef(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -74,25 +134,17 @@ const PortalAppLauncher: React.FC<PortalAppLauncherProps> = ({ align = 'right' }
 
   const load = useCallback(async () => {
     setLoading(true);
-    let nodes: PortalMenuNode[] = [];
+    let tops: any[] = [];
     try {
-      nodes = (await portalApi.getSystemMenuTree('front')) || [];
+      // 与左侧 ProLayout 完全同源：/menu/routes（已按当前用户角色授权过滤）
+      const raw = await dynamicRoutes();
+      const tree = (pickPayload(raw) as any[]) || [];
+      // 只取「顶级」，并剔除组件型菜单（category=2，如 Excel 预览 / 流程审批等路由载体）
+      tops = tree.filter((n: any) => n && Number(n.category) !== 2);
     } catch {
-      try {
-        nodes = (await portalApi.getMenuTree('front')) || [];
-      } catch {
-        nodes = [];
-      }
+      tops = [];
     }
-    const out: PortalMenuNode[] = [];
-    const walk = (list: PortalMenuNode[]) => {
-      (list || []).forEach((n) => {
-        if (n?.routeUrl) out.push(n);
-        if (n?.children?.length) walk(n.children);
-      });
-    };
-    walk(nodes);
-    setEntries(out);
+    setEntries(tops);
     loadedRef.current = true;
     setLoading(false);
   }, []);
@@ -128,9 +180,9 @@ const PortalAppLauncher: React.FC<PortalAppLauncherProps> = ({ align = 'right' }
   }, [open]);
 
   /** 应用内跳转：不新开窗口、不整页刷新；已在目标页则不重复跳转 */
-  const openEntry = (node: PortalMenuNode) => {
+  const openEntry = (node: any) => {
     setOpen(false);
-    const url = node.routeUrl;
+    const url = resolveTarget(node);
     if (!url) return;
     const target = url.split('#')[0];
     const current = history.location.pathname + (history.location.search || '');
@@ -138,7 +190,10 @@ const PortalAppLauncher: React.FC<PortalAppLauncherProps> = ({ align = 'right' }
     history.push(url);
   };
 
-  const toggle = () => {
+  const toggle = (e: React.MouseEvent) => {
+    // 必须阻止冒泡：本组件渲染在 ProLayout 的 Logo/标题区里，点击该区域会跳 "/"，
+    // 再被重定向回门户首页（表现为"点了没反应/又回到首页"）。
+    e.stopPropagation();
     if (!open && wrapRef.current) {
       const r = wrapRef.current.getBoundingClientRect();
       setAnchor({ top: r.top, left: r.left, right: r.right, bottom: r.bottom });
@@ -151,6 +206,9 @@ const PortalAppLauncher: React.FC<PortalAppLauncherProps> = ({ align = 'right' }
       ? createPortal(
           <div
             ref={panelRef}
+            // 面板虽 createPortal 到 body，React 事件仍沿 React 树冒泡到 Logo/标题区，
+            // 必须在这里截断，否则磁贴点击会被 ProLayout 的"回首页"覆盖。
+            onClick={(e) => e.stopPropagation()}
             style={{
               position: 'fixed',
               top: anchor.bottom + 8,
@@ -178,10 +236,10 @@ const PortalAppLauncher: React.FC<PortalAppLauncherProps> = ({ align = 'right' }
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(92px, 1fr))', gap: 10 }}>
                 {entries.map((node, idx) => (
                   <button
-                    key={String(node.id ?? node.routeUrl + '-' + idx)}
+                    key={String(node.id ?? node.path ?? idx)}
                     type="button"
                     onClick={() => openEntry(node)}
-                    title={node.menuName}
+                    title={node.name}
                     style={{
                       display: 'flex',
                       flexDirection: 'column',
@@ -202,7 +260,7 @@ const PortalAppLauncher: React.FC<PortalAppLauncherProps> = ({ align = 'right' }
                       {APP_ICON_MAP[node.icon || ''] || <AppstoreOutlined />}
                     </span>
                     <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {node.menuName}
+                      {node.name || '未命名'}
                     </span>
                   </button>
                 ))}
