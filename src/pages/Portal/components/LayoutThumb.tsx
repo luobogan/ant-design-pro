@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Empty, Typography } from 'antd';
+import { Empty, Typography, theme } from 'antd';
 import { ELEMENT_TYPE_META } from '@/services/portal';
 import type { ElementType } from '@/services/portal';
 
@@ -58,6 +58,7 @@ export interface LayoutThumbProps {
  * 纯前端解析 elementsJson，无额外请求。
  */
 const LayoutThumb: React.FC<LayoutThumbProps> = ({ elementsJson, width = 200, rowHeight = 16 }) => {
+  const { token } = theme.useToken();
   const rows = useMemo(() => parseRows(elementsJson), [elementsJson]);
 
   if (!rows.length) {
@@ -68,10 +69,10 @@ const LayoutThumb: React.FC<LayoutThumbProps> = ({ elementsJson, width = 200, ro
     <div
       style={{
         width,
-        border: '1px solid #f0f0f0',
+        border: `1px solid ${token.colorBorderSecondary}`,
         borderRadius: 6,
         padding: 6,
-        background: '#fafafa',
+        background: token.colorBgContainer,
       }}
     >
       {rows.map((row) => (

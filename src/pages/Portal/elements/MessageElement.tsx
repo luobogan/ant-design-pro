@@ -1,4 +1,4 @@
-import { Badge, Button, Empty, List, Space, Statistic, Typography } from 'antd';
+import { Badge, Button, Empty, List, Space, Statistic, Typography, theme } from 'antd';
 import { MessageOutlined } from '@ant-design/icons';
 import { useNavigate } from '@umijs/max';
 import dayjs from 'dayjs';
@@ -24,6 +24,7 @@ const CATEGORY_LABEL: Record<string, string> = {
  * 数据源：blade-portal → Feign → blade-message /feign/client/message/*
  */
 const MessageElement: React.FC<MessageElementProps> = ({ rows, perPage }) => {
+  const { token } = theme.useToken();
   const navigate = useNavigate();
   if (!rows.length) {
     return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无消息" />;
@@ -38,7 +39,7 @@ const MessageElement: React.FC<MessageElementProps> = ({ rows, perPage }) => {
       <Statistic
         title={
           <Space size={6}>
-            <MessageOutlined style={{ color: '#1677FF' }} />
+            <MessageOutlined style={{ color: token.colorPrimary }} />
             <Text type="secondary">未读消息</Text>
             {unread > 0 ? <Badge count={unread} overflowCount={999} /> : null}
           </Space>

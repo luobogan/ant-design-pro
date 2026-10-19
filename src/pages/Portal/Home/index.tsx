@@ -623,7 +623,7 @@ const PortalPage: React.FC = () => {
               <img
                 src={logoUrl}
                 alt="logo"
-                style={{ height: 40, borderRadius: 8, background: isDarkTheme ? 'rgba(255,255,255,0.85)' : '#fff', padding: 4 }}
+                style={{ height: 40, borderRadius: 8, background: isDarkTheme ? 'rgba(255,255,255,0.12)' : '#fff', padding: 4 }}
               />
             )}
             <div>

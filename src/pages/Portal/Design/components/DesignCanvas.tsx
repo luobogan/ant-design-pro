@@ -1,4 +1,4 @@
-import { Col, Empty, Row, Space, Tag, Typography } from 'antd';
+import { Col, Empty, Row, Space, Tag, Typography, theme } from 'antd';
 import { HolderOutlined } from '@ant-design/icons';
 import { useDroppable } from '@dnd-kit/core';
 import { useSortable } from '@dnd-kit/sortable';
@@ -22,6 +22,7 @@ const CanvasItem: React.FC<CanvasItemProps> = ({ element, selected, onSelect, on
     data: { from: 'canvas', uid: element.uid },
   });
   const meta = ELEMENT_TYPE_META[element.elementType];
+  const { token } = theme.useToken();
 
   return (
     <Col xs={24} xl={element.colSpan || 12} style={{ marginBottom: 16 }}>
@@ -33,10 +34,10 @@ const CanvasItem: React.FC<CanvasItemProps> = ({ element, selected, onSelect, on
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.5 : 1,
-          background: '#FFFFFF',
+          background: token.colorBgContainer,
           borderRadius: 10,
-          border: selected ? '1px solid #1677FF' : '1px solid #E6EDF5',
-          boxShadow: selected ? '0 4px 14px rgba(22,119,255,.18)' : '0 2px 8px rgba(31,39,51,.06)',
+          border: selected ? `1px solid ${token.colorPrimary}` : `1px solid ${token.colorBorderSecondary}`,
+          boxShadow: selected ? '0 4px 14px rgba(0,0,0,.12)' : '0 2px 8px rgba(0,0,0,.06)',
           padding: 14,
           cursor: 'grab',
           height: '100%',
@@ -48,7 +49,7 @@ const CanvasItem: React.FC<CanvasItemProps> = ({ element, selected, onSelect, on
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Space size={6}>
-            <HolderOutlined style={{ color: '#86909C' }} />
+            <HolderOutlined style={{ color: token.colorTextSecondary }} />
             <Text strong style={{ fontSize: 14 }}>
               {meta?.icon} {element.elementName || meta?.label}
             </Text>
@@ -99,6 +100,7 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({
   onRemove,
 }) => {
   const { setNodeRef, isOver } = useDroppable({ id: 'canvas-drop', data: { from: 'canvas' } });
+  const { token } = theme.useToken();
 
   const rows = new Map<number, DesignerElement[]>();
   elements.forEach((el) => {
@@ -116,9 +118,9 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({
         flex: 1,
         padding: 20,
         overflowY: 'auto',
-        background: isOver ? '#EAF3FF' : '#F5F7FA',
+        background: isOver ? token.colorPrimaryBg : token.colorBgLayout,
         backgroundImage:
-          'linear-gradient(rgba(22,119,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(22,119,255,.05) 1px, transparent 1px)',
+          `linear-gradient(${token.colorPrimary}0d 1px, transparent 1px), linear-gradient(90deg, ${token.colorPrimary}0d 1px, transparent 1px)`,
         backgroundSize: '24px 24px',
         transition: 'background .15s ease',
       }}

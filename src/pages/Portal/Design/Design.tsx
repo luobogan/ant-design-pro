@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Input, Modal, Select, Space, Spin, Typography, message, App } from 'antd';
+import { Alert, Button, Input, Modal, Select, Space, Spin, Typography, message, App, theme } from 'antd';
 import { ArrowLeftOutlined, EyeOutlined, SaveOutlined } from '@ant-design/icons';
 import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
@@ -29,6 +29,7 @@ const { Text } = Typography;
  *          候选含 ./pages/Portal/Design/Design.tsx
  */
 const PortalDesigner: React.FC = () => {
+  const { token } = theme.useToken();
   const [pageId, setPageId] = useState<number | undefined>(undefined);
   const [searchParams] = useSearchParams();
 
@@ -315,7 +316,7 @@ const PortalDesigner: React.FC = () => {
 
   return (
     <App>
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#F5F7FA' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: token.colorBgLayout }}>
         {/* 顶栏 */}
         <div
           style={{
@@ -325,8 +326,8 @@ const PortalDesigner: React.FC = () => {
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: '0 16px',
-            background: '#FFFFFF',
-            borderBottom: '1px solid #E6EDF5',
+            background: token.colorBgContainer,
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
           }}
         >
           <Space size={12}>
@@ -463,10 +464,10 @@ const PortalDesigner: React.FC = () => {
                   style={{
                     padding: '8px 14px',
                     borderRadius: 8,
-                    background: '#1677FF',
-                    color: '#FFFFFF',
+                    background: token.colorPrimary,
+                    color: token.colorTextLightSolid,
                     fontSize: 13,
-                    boxShadow: '0 6px 16px rgba(22,119,255,.35)',
+                    boxShadow: '0 6px 16px rgba(0,0,0,.18)',
                   }}
                 >
                   {ELEMENT_TYPE_META[dragType]?.icon} {ELEMENT_TYPE_META[dragType]?.label}

@@ -1,4 +1,4 @@
-import { Empty } from 'antd';
+import { Empty, theme } from 'antd';
 import type { ElementDataRow } from '@/services/portal';
 
 export interface RichElementProps {
@@ -10,6 +10,7 @@ export interface RichElementProps {
  * 数据来自元素私有配置 config.html（由设计器富文本编辑区维护）
  */
 const RichElement: React.FC<RichElementProps> = ({ rows }) => {
+  const { token } = theme.useToken();
   const row = rows[0] || {};
   const html = row.html as string | undefined;
   if (!html) {
@@ -17,7 +18,7 @@ const RichElement: React.FC<RichElementProps> = ({ rows }) => {
   }
   return (
     <div
-      style={{ lineHeight: 1.8, color: '#1F2733', fontSize: 14 }}
+      style={{ lineHeight: 1.8, color: token.colorText, fontSize: 14 }}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

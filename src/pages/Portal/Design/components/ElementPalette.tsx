@@ -1,4 +1,4 @@
-import { Typography } from 'antd';
+import { Typography, theme } from 'antd';
 import { useDraggable } from '@dnd-kit/core';
 import { ELEMENT_TYPE_META } from '@/services/portal';
 import type { ElementType } from '@/services/portal';
@@ -14,6 +14,7 @@ interface PaletteItemProps {
 /** 单个可拖拽元素卡片 */
 const PaletteItem: React.FC<PaletteItemProps> = ({ type, onAdd }) => {
   const meta = ELEMENT_TYPE_META[type];
+  const { token } = theme.useToken();
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `palette-${type}`,
     data: { from: 'palette', type },
@@ -35,26 +36,26 @@ const PaletteItem: React.FC<PaletteItemProps> = ({ type, onAdd }) => {
         padding: '10px 12px',
         borderRadius: 8,
         cursor: 'grab',
-        background: '#1F2733',
+        background: token.colorBgElevated,
         border: '1px solid #333B49',
         opacity: isDragging ? 0.55 : 1,
         transition: 'transform .15s ease, border-color .15s ease',
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = '#1677FF';
+        e.currentTarget.style.borderColor = token.colorPrimary;
         e.currentTarget.style.transform = 'translateY(-1px)';
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = '#333B49';
+        e.currentTarget.style.borderColor = token.colorBorder;
         e.currentTarget.style.transform = 'none';
       }}
     >
       <span style={{ fontSize: 16, lineHeight: '20px' }}>{meta?.icon}</span>
       <div style={{ minWidth: 0 }}>
-        <div style={{ color: '#FFFFFF', fontSize: 13, fontWeight: 500 }}>{meta?.label}</div>
+        <div style={{ color: token.colorText, fontSize: 13, fontWeight: 500 }}>{meta?.label}</div>
         <Text
           type="secondary"
-          style={{ fontSize: 12, color: '#86909C', display: 'block', lineHeight: 1.4 }}
+          style={{ fontSize: 12, color: token.colorTextSecondary, display: 'block', lineHeight: 1.4 }}
         >
           {meta?.desc}
         </Text>
@@ -76,6 +77,7 @@ interface ElementPaletteProps {
  * 支持「拖拽到画布」与「点击添加」两种方式（后者同时作为触屏/自动化环境的降级路径）。
  */
 const ElementPalette: React.FC<ElementPaletteProps> = ({ types, onAdd }) => {
+  const { token } = theme.useToken();
   const dataGroup: ElementType[] = types.filter((t) =>
     ['todo', 'notice', 'message'].includes(t),
   );
@@ -88,7 +90,7 @@ const ElementPalette: React.FC<ElementPaletteProps> = ({ types, onAdd }) => {
       style={{
         width: 236,
         flex: 'none',
-        background: '#1F2733',
+        background: token.colorBgElevated,
         padding: 16,
         display: 'flex',
         flexDirection: 'column',
@@ -97,14 +99,14 @@ const ElementPalette: React.FC<ElementPaletteProps> = ({ types, onAdd }) => {
       }}
     >
       <div>
-        <div style={{ color: '#FFFFFF', fontWeight: 600, fontSize: 14, marginBottom: 4 }}>元素面板</div>
-        <Text type="secondary" style={{ fontSize: 12, color: '#86909C' }}>
+        <div style={{ color: token.colorText, fontWeight: 600, fontSize: 14, marginBottom: 4 }}>元素面板</div>
+        <Text type="secondary" style={{ fontSize: 12, color: token.colorTextSecondary }}>
           拖拽元素到右侧画布即可添加
         </Text>
       </div>
 
       <div>
-        <div style={{ color: '#4E5969', fontSize: 12, marginBottom: 8 }}>数据类</div>
+        <div style={{ color: token.colorTextSecondary, fontSize: 12, marginBottom: 8 }}>数据类</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {dataGroup.map((t) => (
             <PaletteItem key={t} type={t} onAdd={onAdd} />
@@ -113,7 +115,7 @@ const ElementPalette: React.FC<ElementPaletteProps> = ({ types, onAdd }) => {
       </div>
 
       <div>
-        <div style={{ color: '#4E5969', fontSize: 12, marginBottom: 8 }}>展示类</div>
+        <div style={{ color: token.colorTextSecondary, fontSize: 12, marginBottom: 8 }}>展示类</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {displayGroup.map((t) => (
             <PaletteItem key={t} type={t} onAdd={onAdd} />
