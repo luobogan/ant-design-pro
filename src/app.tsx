@@ -265,10 +265,14 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
       const formattedPath = Func.formatRoutePath(item.path);
       const pathParts = formattedPath.split('/').filter(Boolean);
 
-      if (pathParts.length >= 2) {
-          const rawPage = pathParts[pathParts.length - 1];
-          const [module, page] = [toPascalCase(pathParts[0]), toPascalCase(rawPage)];
+      const rawPage = pathParts[pathParts.length - 1];
+      const [module, page] = [toPascalCase(pathParts[0]), toPascalCase(rawPage)];
 
+      // 子按钮组件页收集：对**所有带 path 的菜单**执行（含顶级单段菜单），
+      // 否则其子组件页永远不会被收集 → 直接访问 404。
+      // 原逻辑只在 pathParts.length >= 2 分支内执行，导致挂在顶级菜单
+      // （单段路径，如 /workflowmodeling）下的组件页注册不了。
+      {
         const buttonsData = getButtons();
         console.log('从 localStorage 获取按钮数据:', buttonsData);
 
@@ -403,6 +407,9 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
               }
         });
 
+      } // 子组件收集块结束
+
+      if (pathParts.length >= 2) {
         // 组件加载候选（按命中概率排序）：
         // ① ./pages/{Module}/{Mid}/{Page}.tsx    嵌套：/workflow/create/start → ./pages/Workflow/Create/Start.tsx
         // ② ./pages/{Module}/{Page}/{Page}.tsx   常规：/system/user → ./pages/System/User/User.tsx
@@ -442,7 +449,7 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
         // 多段路径在上方按 module/page 两级推导组件，单段路径拆不出两级，
         // 此前直接跳过导致 Component=null ⇒ 路由命中但页面空白（2026-10-07 消息中心踩坑）。
         // 约定单段路径解析模块级页面：./pages/{Module}/index.tsx 或 ./pages/{Module}/{Module}.tsx。
-        const module = toPascalCase(pathParts[0]);
+        // （module 已由上方统一推导，此处不再重复声明）
         const loaders: Array<() => Promise<any>> = [
           () => import(`./pages/${module}/index.tsx`),
           () => import(`./pages/${module}/${module}.tsx`),

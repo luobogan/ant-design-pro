@@ -3,7 +3,7 @@ import { PageContainer } from '@ant-design/pro-components';
 import { useNavigate, useSearchParams } from '@umijs/max';
 import { Button, Card, message, Spin, Modal } from 'antd';
 import React, { useEffect, useState } from 'react';
-import { formApi } from '@/services/formmode';
+import { formApi, formModeApi } from '@/services/formmode';
 import type { WorkflowBill, WorkflowBillFormData } from '@/services/formmode/typings';
 import FormManageForm from './components/FormManageForm';
 
@@ -53,17 +53,24 @@ const FormAae: React.FC = () => {
         message.success('表单更新成功');
         navigate('/formmode/formmanage');
       } else {
-        const result = await formApi.create(data);
-        message.success('表单创建成功');
+        // 新增：走 createFormMode，表单与模块（modeinfo）一同创建，
+        // 因此新建表单即自带模块，权限抽屉不会再报「尚未创建模块」。
+        const result = await formModeApi.create({
+          billname: data.formName,
+          modename: data.modename || data.formName,
+          modedescription: data.description,
+          status: data.status,
+        });
+        message.success('表单创建成功（已自动创建模块）');
         // 显示下一步选项
         Modal.confirm({
           title: '表单创建成功',
-          content: '表单已创建成功，是否立即配置字段？',
+          content: '表单与模块已创建成功，是否立即配置字段？',
           okText: '下一步：配置字段',
           cancelText: '返回列表',
           onOk: () => {
-            // 跳转到字段管理的新增页面，并传递表单ID
-            navigate(`/formmode/fieldmanage/aae?mode=add&formId=${result.id}`);
+            // 跳转到字段管理的新增页面，并传递表单ID（新建模块的 billid）
+            navigate(`/formmode/fieldmanage/aae?mode=add&formId=${result.billid}`);
           },
           onCancel: () => {
             navigate('/formmode/formmanage');

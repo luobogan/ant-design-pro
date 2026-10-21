@@ -6,6 +6,7 @@ import React, { useState, useEffect } from 'react';
 import { formApi, dataApi } from '@/services/formmode';
 import type { FieldDefinition, FormDataFormData } from '@/services/formmode/typings';
 import FieldRenderer from './components/FieldRenderer';
+import { useFieldPerm } from './hooks/useFieldPerm';
 
 /**
  * 表单数据新增/编辑页面（AAE模式）
@@ -23,6 +24,7 @@ const DataAae: React.FC = () => {
   const mode = searchParams.get('mode') || 'add';
   const dataId = searchParams.get('id');
   const formId = searchParams.get('formId');
+  const nodePermission = useFieldPerm(formId);
   const isEditMode = mode === 'edit' && dataId;
 
   // 页面标题
@@ -49,8 +51,11 @@ const DataAae: React.FC = () => {
         const formData = await dataApi.getById(formId, dataId);
         if (formData) {
           const formDataValues: Record<string, any> = {};
+          const valueMap = (formData as any).fieldValues;
           fields?.forEach((field) => {
-            formDataValues[field.fieldName] = formData[field.fieldName];
+            // 详情返回 FormDataVO：字段值嵌套在 fieldValues（key=DB 列名 fielddbname）
+            const key = (field.fieldDbName || field.fieldName) as string;
+            formDataValues[key] = valueMap ? valueMap[key] : (formData as any)[key];
           });
           form.setFieldsValue(formDataValues);
         }
@@ -133,15 +138,15 @@ const DataAae: React.FC = () => {
             {formFields.map((field) => (
               <Form.Item
                 key={field.id}
-                name={field.fieldName}
-                label={field.fieldLabel}
+                name={field.fieldDbName || field.fieldName}
+                label={field.fieldName || field.fieldLabel}
                 rules={
                   field.isRequired === 1
                     ? [{ required: true, message: `请输入${field.fieldLabel}` }]
                     : []
                 }
               >
-                <FieldRenderer field={field} disabled={field.isReadOnly === 1} />
+                <FieldRenderer field={field} disabled={field.isReadOnly === 1} nodePermission={nodePermission} />
               </Form.Item>
             ))}
 

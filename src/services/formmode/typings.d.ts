@@ -430,50 +430,6 @@ export interface FormDataFormData {
   [key: string]: any;
 }
 
-// ==================== 模块管理 ====================
-
-/** 模块定义（对应泛微的模块/应用） */
-export interface ModuleDefinition {
-  /** 模块ID */
-  id: string;
-  /** 模块名称 */
-  moduleName: string;
-  /** 模块描述 */
-  description?: string;
-  /** 父模块ID */
-  parentId?: string;
-  /** 模块图标 */
-  icon?: string;
-  /** 排序 */
-  sort: number;
-  /** 状态：0-禁用，1-启用 */
-  status: FormStatus;
-  /** 创建时间 */
-  createTime: string;
-  /** 更新时间 */
-  updateTime?: string;
-  /** 子模块 */
-  children?: ModuleDefinition[];
-}
-
-/** 模块表单数据（新增/编辑） */
-export interface ModuleDefinitionFormData {
-  /** 模块ID（编辑时必填） */
-  id?: string;
-  /** 模块名称 */
-  moduleName: string;
-  /** 模块描述 */
-  description?: string;
-  /** 父模块ID */
-  parentId?: string;
-  /** 模块图标 */
-  icon?: string;
-  /** 排序 */
-  sort?: number;
-  /** 状态：0-禁用，1-启用 */
-  status?: FormStatus;
-}
-
 // ==================== 通用类型 ====================
 
 /** 分页参数 */

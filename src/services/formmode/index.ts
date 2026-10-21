@@ -6,8 +6,6 @@ import type {
   FieldDefinitionFormData,
   FormDataRecord,
   FormDataFormData,
-  ModuleDefinition,
-  ModuleDefinitionFormData,
   PageParams,
   PageResponse,
   ApiResponse,
@@ -29,8 +27,6 @@ export type {
   FieldDefinitionFormData,
   FormDataRecord,
   FormDataFormData,
-  ModuleDefinition,
-  ModuleDefinitionFormData,
   PageParams,
   PageResponse,
   ApiResponse,
@@ -49,7 +45,6 @@ const API_BASE_PATH = '/api/blade-formmode';
 const FORM_DEFINITION_BASE_URL = `${API_BASE_PATH}/form-definition`;
 const FIELD_DEFINITION_BASE_URL = `${API_BASE_PATH}/field-definition`;
 const FORM_DATA_BASE_URL = `${API_BASE_PATH}/form-data`;
-const MODULE_DEFINITION_BASE_URL = `${API_BASE_PATH}/module-definition`;
 
 // SpringBlade 响应格式
 interface BladeResponse<T> {
@@ -631,22 +626,27 @@ export const formDataApi = {
    * 获取表单数据列表
    */
   getList: async (formId: string, params: PageParams & Record<string, any>) => {
-    const response = await request<BladeResponse<PageResponse<FormDataRecord>>>(
-      `${FORM_DATA_BASE_URL}/${formId}`,
+    // 后端契约对齐：列表走 POST /form-data/page/{formId}（pageFormData，按 workflow_bill.table_name
+    // 解析真实表名，可传 formId）。current/size 走查询参数，过滤条件走请求体。
+    // 返回 Spring IPage 原生形态：{ records, total, size, current, pages }。
+    const { current = 1, pageSize = 20, ...filters } = params || {};
+    const response = await request<BladeResponse<any>>(
+      `${FORM_DATA_BASE_URL}/page/${formId}`,
       {
-        method: 'GET',
-        params,
+        method: 'POST',
+        params: { current, size: pageSize },
+        data: filters,
       },
     );
     return response.data;
   },
 
   /**
-   * 获取表单数据详情
+   * 获取表单数据详情（按「表单ID + 数据ID」，不依赖模块，对应后端 GET /by-form）
    */
   getById: async (formId: string, id: string) => {
-    const response = await request<BladeResponse<FormDataRecord>>(
-      `${FORM_DATA_BASE_URL}/${formId}/${id}`,
+    const response = await request<BladeResponse<any>>(
+      `${FORM_DATA_BASE_URL}/by-form?formId=${formId}&dataId=${id}`,
       {
         method: 'GET',
       },
@@ -686,7 +686,8 @@ export const formDataApi = {
    * 删除表单数据
    */
   delete: async (formId: string, id: string) => {
-    return request(`${FORM_DATA_BASE_URL}/${formId}/${id}`, {
+    // 后端契约对齐：按「表单ID + 数据ID」删除（不依赖模块），对应后端 DELETE /by-form
+    return request(`${FORM_DATA_BASE_URL}/by-form?formId=${formId}&dataId=${id}`, {
       method: 'DELETE',
     });
   },
@@ -705,102 +706,36 @@ export const formDataApi = {
    * 获取表单字段定义
    */
   getFieldDefinitions: async (formId: string) => {
-    const response = await request<BladeResponse<FieldDefinition[]>>(
-      `${FORM_DATA_BASE_URL}/${formId}/fields`,
-      {
-        method: 'GET',
-      },
-    );
-    return response.data;
+    // 后端契约对齐：改用字段管理已验证可用的 by-form 端点（按 workflow_billfield.billid 查字段），
+    // 避免 form-data/{formId}/fields 把 formId 误当 modeId 查询导致永远返回空的问题；
+    // 同时兼容无模块的迁移表单。
+    return fieldDefinitionApi.getByFormId(formId);
   },
 };
 
 /**
- * 模块定义 API
+ * 表单模块 API（真实后端：FormModeController @ /api/blade-formmode/mode）
+ *
+ * 可创建「表单 + 模块 + 物理表」（对应 ecology 的 FormmodeFormAction）。
  */
-export const moduleDefinitionApi = {
+export const formModeApi = {
   /**
-   * 获取模块列表
+   * 创建表单模块（表单 + 模块 + 可选字段，自生成负数 billId 与物理表 formtable_main_{billId}）。
+   * 返回的 data.billid 即新建表单（workflow_bill）的 ID，可用于后续字段配置跳转。
    */
-  getList: async (params: PageParams & { moduleName?: string; status?: number }) => {
-    const response = await request<BladeResponse<PageResponse<ModuleDefinition>>>(
-      MODULE_DEFINITION_BASE_URL,
-      {
-        method: 'GET',
-        params,
-      },
-    );
-    return response.data;
-  },
-
-  /**
-   * 获取模块树形结构
-   */
-  getTree: async () => {
-    const response = await request<BladeResponse<ModuleDefinition[]>>(
-      `${MODULE_DEFINITION_BASE_URL}/tree`,
-      {
-        method: 'GET',
-      },
-    );
-    return response.data;
-  },
-
-  /**
-   * 获取模块详情
-   */
-  getById: async (id: string) => {
-    const response = await request<BladeResponse<ModuleDefinition>>(
-      `${MODULE_DEFINITION_BASE_URL}/${id}`,
-      {
-        method: 'GET',
-      },
-    );
-    return response.data;
-  },
-
-  /**
-   * 创建模块
-   */
-  create: async (data: ModuleDefinitionFormData) => {
-    const response = await request<BladeResponse<ModuleDefinition>>(MODULE_DEFINITION_BASE_URL, {
+  create: async (data: {
+    billname: string;
+    modename: string;
+    modedescription?: string;
+    status?: number;
+    modeTreeField?: number | null;
+    fields?: any[] | null;
+  }) => {
+    const response = await request<BladeResponse<any>>(`${API_BASE_PATH}/mode`, {
       method: 'POST',
       data,
     });
     return response.data;
-  },
-
-  /**
-   * 更新模块
-   */
-  update: async (id: string, data: ModuleDefinitionFormData) => {
-    const response = await request<BladeResponse<ModuleDefinition>>(
-      `${MODULE_DEFINITION_BASE_URL}/${id}`,
-      {
-        method: 'PUT',
-        data,
-      },
-    );
-    return response.data;
-  },
-
-  /**
-   * 删除模块
-   */
-  delete: async (id: string) => {
-    return request(`${MODULE_DEFINITION_BASE_URL}/${id}`, {
-      method: 'DELETE',
-    });
-  },
-
-  /**
-   * 批量删除模块
-   */
-  batchDelete: async (ids: string[]) => {
-    return request(`${MODULE_DEFINITION_BASE_URL}/batch-delete`, {
-      method: 'POST',
-      data: { ids },
-    });
   },
 };
 
@@ -992,5 +927,4 @@ export {
   workflowBillApi as formApi,
   fieldDefinitionApi as fieldApi,
   formDataApi as dataApi,
-  moduleDefinitionApi as moduleApi,
 };

@@ -68,7 +68,16 @@ export type ElementType =
   | 'tab'
   | 'note'
   | 'barcode'
-  | 'portal';
+  | 'portal'
+  // ↓ 对齐泛微 E9 设计器「单元格内容类型 etype」补齐（E9 全集 1–23）
+  | 'detailTitle'    // etype 8  明细标题
+  | 'detailTail'     // etype 9  明细尾
+  | 'detailButtons'  // etype 10 明细按钮（新增/删除/复制行）
+  | 'sumName'        // etype 18 合计字段标签（如「金额（合计）」）
+  | 'sumValue'       // etype 19 合计字段值
+  | 'checkAll'       // etype 20 明细全选
+  | 'checkSingle'    // etype 21 明细单选
+  | 'serialNum';     // etype 22 明细序号
 
 export interface RegisterRibbonOptions {
   onSave: () => void;
@@ -318,6 +327,16 @@ export const registerDesignerRibbon = (opts: RegisterRibbonOptions): boolean => 
   insertEl('note', '说明', 9, 'note');
   insertEl('barcode', '二维/条形码', 10, 'barcode');
   insertEl('portal', '门户元素', 11, 'portal');
+  // ↓ 对齐 ecology etype：明细表周边元素（8/9/10、18/19、20/21/22）
+  // 图标暂复用既有 iconKey（避免新增图标映射缺失导致渲染空白），后续可补专属图标。
+  insertEl('detailTitle', '明细标题', 16, 'text');
+  insertEl('detailTail', '明细尾', 17, 'text');
+  insertEl('detailButtons', '明细按钮', 18, 'code');
+  insertEl('sumName', '合计标签', 19, 'text');
+  insertEl('sumValue', '合计字段', 20, 'text');
+  insertEl('checkAll', '明细全选', 21, 'text');
+  insertEl('checkSingle', '明细单选', 22, 'text');
+  insertEl('serialNum', '明细序号', 23, 'text');
   addItem(TAB.INSERT, 'ins', 'insert.row', '插入行', () => callGrid('rowColOp', 'insertRow'), '插入行', 12, 'insRow');
   addItem(TAB.INSERT, 'ins', 'insert.col', '插入列', () => callGrid('rowColOp', 'insertCol'), '插入列', 13, 'insCol');
   addItem(TAB.INSERT, 'ins', 'insert.removeRow', '删除行', () => callGrid('rowColOp', 'removeRow'), '删除行', 14, 'rmRow');

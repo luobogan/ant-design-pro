@@ -16,14 +16,31 @@
  * `setFieldAttr(row, col, attr)`，改完本面板会随 layoutData 回流同步刷新，
  * 因此这里的展示与画布实际状态始终一致。
  */
-import React, { useMemo } from 'react';
-import { App, Button, Empty, Popconfirm, Tag, Tooltip } from 'antd';
+import React, { useMemo, useState } from 'react';
+import { App, Button, Empty, Modal, Popconfirm, Space, Switch, Tag, Tooltip } from 'antd';
 import {
   ApartmentOutlined,
   DeleteOutlined,
+  SettingOutlined,
   TableOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
+import { getModeFormGroup, saveModeFormGroup } from '@/services/formmode/modeFormGroupApi';
+
+/**
+ * 明细表组属性（**设计期开关**），取值 1允许 / 0禁止，与后端 ModeFormGroup 字段一致。
+ *
+ * ⚠️ 与「流程节点级明细权限」(blade-workflow 的 wf:detailTablePerm) 不是同一层：
+ * 运行期最终可用 = 设计期开关 AND 节点权限。
+ */
+interface GroupFormState {
+  isadd?: number;
+  isedit?: number;
+  isdelete?: number;
+  iscopy?: number;
+  isprintserial?: number;
+  allowscroll?: number;
+}
 
 /**
  * 字段属性三态元数据（值与 layoutJson `fieldMeta.fieldAttr` 完全一致：1只读/2编辑/3必填）。
@@ -104,6 +121,13 @@ export interface LayoutStructurePanelProps {
   onOpenDetail?: (idx: number) => void;
   /** 删除字段（还原初始状态） */
   onDeleteField?: (f: StructField) => void;
+  /**
+   * 表单ID（明细表组属性的定位维度之一）。
+   *
+   * 设计器只有 formId（布局按表单归属），拿不到 modeId，故组属性按
+   * 「formId + 明细表序号」读写；缺省时「明细表属性」按钮不可用（提示缺少表单ID）。
+   */
+  formId?: string | number;
 }
 
 const LayoutStructurePanel: React.FC<LayoutStructurePanelProps> = ({
@@ -113,8 +137,67 @@ const LayoutStructurePanel: React.FC<LayoutStructurePanelProps> = ({
   editingDetail,
   onOpenDetail,
   onDeleteField,
+  formId,
 }) => {
   const { message } = App.useApp();
+
+  // ── 明细表组属性（设计期开关）弹窗 ──
+  const [groupIdx, setGroupIdx] = useState<number | null>(null);
+  const [groupForm, setGroupForm] = useState<GroupFormState>({});
+  const [groupSaving, setGroupSaving] = useState(false);
+
+  /** 打开某明细表的属性弹窗：按 formId + 序号加载（后端无配置时返回默认值，不落库） */
+  const openGroupProps = async (idx: number) => {
+    if (formId == null || formId === '') {
+      message.warning('缺少表单ID，无法编辑明细表属性');
+      return;
+    }
+    setGroupIdx(idx);
+    try {
+      const res: any = await getModeFormGroup(formId, idx);
+      const d = res?.data || {};
+      setGroupForm({
+        isadd: d.isadd ?? 1,
+        isedit: d.isedit ?? 1,
+        isdelete: d.isdelete ?? 1,
+        iscopy: d.iscopy ?? 1,
+        isprintserial: d.isprintserial ?? 0,
+        allowscroll: d.allowscroll ?? 0,
+      });
+    } catch (e) {
+      // 接口异常时按默认值兜底，保证弹窗可用（与后端默认值一致：增删改复制允许，序号/滚动关闭）
+      setGroupForm({
+        isadd: 1,
+        isedit: 1,
+        isdelete: 1,
+        iscopy: 1,
+        isprintserial: 0,
+        allowscroll: 0,
+      });
+    }
+  };
+
+  /** 保存组属性（后端按 formId + dsporder 做 upsert） */
+  const saveGroupProps = async () => {
+    if (formId == null || formId === '' || groupIdx == null) {
+      return;
+    }
+    setGroupSaving(true);
+    try {
+      await saveModeFormGroup({
+        formId,
+        dsporder: groupIdx,
+        grouptype: 2, // 2 = 明细表（后端固定）
+        ...groupForm,
+      });
+      message.success('明细表属性已保存');
+      setGroupIdx(null);
+    } catch (e) {
+      message.error('保存失败');
+    } finally {
+      setGroupSaving(false);
+    }
+  };
 
   const mainFields = useMemo(() => parseLayoutFields(mainLayout, 'main'), [mainLayout]);
   const detailNodes = useMemo(
@@ -201,6 +284,8 @@ const LayoutStructurePanel: React.FC<LayoutStructurePanelProps> = ({
     count: number,
     active: boolean,
     onClick?: () => void,
+    /** 节点右侧额外操作区（如明细表的「属性」按钮） */
+    extra?: React.ReactNode,
   ) => (
     <div
       onClick={onClick}
@@ -220,6 +305,7 @@ const LayoutStructurePanel: React.FC<LayoutStructurePanelProps> = ({
       {icon}
       <span style={{ flex: 1 }}>{title}</span>
       <Tag style={{ marginInlineEnd: 0, fontSize: 11 }}>{count}</Tag>
+      {extra}
     </div>
   );
 
@@ -283,6 +369,18 @@ const LayoutStructurePanel: React.FC<LayoutStructurePanelProps> = ({
                     onOpenDetail?.(idx);
                   }
                 },
+                // 明细表「设计期属性」入口（对齐 ecology modeformgroup）
+                <Tooltip title="明细表属性（可新增/编辑/删除/复制、打印序号、横向滚动）">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<SettingOutlined />}
+                    onClick={(e) => {
+                      e.stopPropagation(); // 避免触发外层「进入该明细表画布」
+                      openGroupProps(idx);
+                    }}
+                  />
+                </Tooltip>,
               )}
               {fields.map(renderField)}
             </div>
@@ -295,7 +393,45 @@ const LayoutStructurePanel: React.FC<LayoutStructurePanelProps> = ({
         设完这里与画布同步刷新
         <br />· 删除字段会一并清除属性底色，字段回到左侧面板可再次拖入
         <br />· 点击「明细表N」节点可直接进入该明细表画布
+        <br />· 点明细表右侧「⚙」可设置该明细表的<b>设计期属性</b>
       </div>
+
+      {/* 明细表组属性弹窗（设计期开关，对齐 ecology modeformgroup） */}
+      <Modal
+        title={groupIdx != null ? `明细表${groupIdx} 属性` : '明细表属性'}
+        open={groupIdx != null}
+        onCancel={() => setGroupIdx(null)}
+        onOk={saveGroupProps}
+        confirmLoading={groupSaving}
+        okText="保存"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          {(
+            [
+              ['isadd', '允许新增行'],
+              ['isedit', '允许编辑行'],
+              ['isdelete', '允许删除行'],
+              ['iscopy', '允许复制行'],
+              ['isprintserial', '打印显示序号'],
+              ['allowscroll', '允许横向滚动'],
+            ] as [keyof GroupFormState, string][]
+          ).map(([key, label]) => (
+            <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ flex: 1, fontSize: 13 }}>{label}</span>
+              <Switch
+                checked={(groupForm[key] ?? 0) === 1}
+                onChange={(checked) => setGroupForm({ ...groupForm, [key]: checked ? 1 : 0 })}
+              />
+            </div>
+          ))}
+        </Space>
+        <div style={{ marginTop: 12, fontSize: 11, color: '#999', lineHeight: 1.6 }}>
+          说明：以上为<b>设计期开关</b>；运行期还会与「流程节点级明细权限」叠加，
+          <b>两者都允许</b>时对应操作才可用。
+        </div>
+      </Modal>
     </div>
   );
 };

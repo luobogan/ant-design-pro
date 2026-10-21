@@ -27,6 +27,22 @@ interface FieldRendererProps {
   instanceId?: any;
   /** 流程定义ID */
   defId?: any;
+  /**
+   * 字段级权限解析器（**非流程场景**运行期消费）。
+   *
+   * <p>签名与 `ExcelDesign/components/ExcelPreview.tsx` 的 `NodePermissionResolver` 完全一致，
+   * 因此流程侧（blade-workflow 渲染包）与非流程侧（本页面 + formmode 字段权限接口）
+   * 可共用同一解析结果，无需两套逻辑。</p>
+   *
+   * <p>语义（与流程侧一致）：`hidden` → 不渲染；`readonly` → 降级为只读态；
+   * `required` → 必填提示（需控件层支持，当前由页面 Form.Item rules 承担）。</p>
+   *
+   * <p>纯增量：不传时行为与原来完全一致（按字段定义的 isReadOnly 渲染）。</p>
+   */
+  nodePermission?: (
+    fieldName: string,
+    scope?: string,
+  ) => { readonly?: boolean; hidden?: boolean; required?: boolean } | undefined;
 }
 
 /**
@@ -56,8 +72,18 @@ const FieldRenderer: React.FC<FieldRendererProps> = (props) => {
   const browserType = resolveBrowserType(field);
   const { fieldLabel, fieldLen, options } = field;
 
+  // ── 字段级权限（非流程场景）──
+  // 与流程侧 NodePermissionResolver 同签名；scope 固定 'main'（非流程无明细行级 scope）。
+  const fieldPerm = props.nodePermission ? props.nodePermission(field.fieldName, 'main') : undefined;
+  // 权限要求隐藏 → 不渲染（与流程侧 hidden 语义一致）
+  if (fieldPerm?.hidden) {
+    return null;
+  }
+  // 只读态 = 页面只读 OR 字段定义只读 OR 权限只读（任一为真即只读）
+  const effectiveReadOnly = readOnly || fieldPerm?.readonly === true;
+
   // 只读态：不渲染可编辑控件，浏览按钮需把 id 串反查为名称
-  if (readOnly) {
+  if (effectiveReadOnly) {
     if (controlType === 'browser') {
       return <PersonOrgValueText browserType={browserType} value={value} />;
     }

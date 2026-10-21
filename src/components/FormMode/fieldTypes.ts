@@ -394,3 +394,282 @@ export const mapFieldToControlType = (field: any): ControlType => {
       return 'text';
   }
 };
+
+// ============================================================
+// E9（泛微 ecology）原生字段类型 ↔ 本项目自有编码 · 双向映射层
+// ============================================================
+/**
+ * 为什么需要这一层
+ *
+ * 本项目自有编码（1–9，见 `FIELD_HTML_TYPE_LABEL_MAP`）与泛微 E9 原生
+ * `fieldhtmltype`（**全集 1–9**，`FieldValue.java` 仅特判 3/4/5/6、其余走 else）
+ * **不是同一套编码**，且语义存在错位：
+ *
+ *  - E9 `8 = 公共选择框(radio)`、`9 = 位置` —— 自有 8/9 却是「布局组件 / 正文」；
+ *  - E9 日期/时间用「浏览按钮 3 + fieldType 2/19」表达，本项目用「3 + 98/99」；
+ *  - 自有「正文(9) / 布局(8)」在 E9 无直接对应（布局属单元格 etype，正文≈富文本）。
+ *
+ * 因此**严禁按数字直接等同**。本模块把两套编码的互转收敛到一处（对齐文件头
+ * 「单一来源」规范），供：Ecology 表单导入（E9→自有）、导出/对接（自有→E9）、
+ * 以及后续通用字段类型服务使用。
+ *
+ * 设计约束：
+ *  1. 纯映射、无副作用，不改动既有 1–9 语义与 `mapFieldToControlType` 行为；
+ *  2. 无法无损表达时返回 `lossy: true` 并附 `note`，由调用方决定降级策略，
+ *     绝不静默丢信息；
+ *  3. E9 `9 位置` 在本项目暂无渲染控件，映射落到「预留类型 10」（见
+ *     `E9_POSITION_HTML_TYPE`），渲染支持随后续迭代补齐，不阻塞映射落地。
+ */
+
+/** E9 原生 fieldhtmltype 全集（1–9） */
+export const E9_FIELD_HTML_TYPE = {
+  /** 单行文本（按 fieldType 细分：1文本 2整数 3浮点 4金额转换 5金额千分位） */
+  TEXT: 1,
+  /** 多行文本（可 isHtmlEditor 富文本） */
+  TEXTAREA: 2,
+  /** 浏览框（按 fieldType 二次分派：1/17人、2日期、19时间、4/57部门、164分部…） */
+  BROWSER: 3,
+  /** 复选框（值=1 显示 √） */
+  CHECKBOX: 4,
+  /** 选择框 select */
+  SELECT: 5,
+  /** 附件上传 */
+  AFFIX: 6,
+  /** 特殊字段（fieldType：1 自定义链接 / 其它 描述性文字） */
+  ESPECIAL: 7,
+  /** 公共选择框 radio */
+  PUBLIC_SELECT: 8,
+  /** 位置 */
+  POSITION: 9,
+} as const;
+
+/**
+ * E9「位置(9)」在本项目对应的预留自有编码。
+ * 当前仅登记映射关系（保证双向可逆），渲染控件待后续迭代补齐。
+ */
+export const E9_POSITION_HTML_TYPE = 10;
+
+/** 映射结果：E9 侧（`toE9Type` 的返回） */
+export interface E9SideMapping {
+  /** E9 原生 fieldhtmltype（1–9） */
+  e9HtmlType: number;
+  /** E9 原生 fieldType（子类型 / 浏览按钮类型） */
+  e9FieldType?: number;
+  /** E9 浏览按钮类型（e9HtmlType===3 时有效） */
+  e9BrowserType?: number;
+  /** 存在语义降级时为 true，详见 note；绝不静默丢信息 */
+  lossy?: boolean;
+  /** 降级/特殊说明 */
+  note?: string;
+}
+
+/** 映射结果：自有侧（`fromE9Type` 的返回） */
+export interface SelfTypeMapping {
+  /** 自有编码体系下的 fieldHtmlType（1–9，见 FIELD_HTML_TYPE_LABEL_MAP） */
+  htmlType: number;
+  /** 自有编码体系下的 fieldType（子类型） */
+  type?: number;
+  /** 浏览按钮类型（htmlType===3 时有效） */
+  browserType?: number;
+  /** 存在语义降级时为 true，详见 note */
+  lossy?: boolean;
+  /** 降级/特殊说明 */
+  note?: string;
+}
+
+/**
+ * 自有编码 → E9 原生编码。
+ *
+ * @param htmlType     自有 fieldHtmlType（1–9）
+ * @param type         自有 fieldType（子类型），可选
+ * @param browserType  浏览按钮类型（htmlType===3 时优先使用），可选
+ */
+export const toE9Type = (
+  htmlType?: number | string,
+  type?: number | string,
+  browserType?: number | string,
+): E9SideMapping | null => {
+  const ht = Number(htmlType ?? 0) || 0;
+  const t = Number(type ?? 0) || 0;
+  const bt = Number(browserType ?? 0) || 0;
+
+  switch (ht) {
+    case 1: // 文本字段（自有：1单行 2多行 3保密 4整数 5浮点 6金额转换 7金额千分位）
+      if (t === 2) return { e9HtmlType: E9_FIELD_HTML_TYPE.TEXTAREA, e9FieldType: 1 };
+      if (t === 3)
+        return {
+          e9HtmlType: E9_FIELD_HTML_TYPE.TEXT,
+          e9FieldType: 1,
+          lossy: true,
+          note: 'E9 无「保密字段」子类型，降级为单行文本；加密需由字段加密能力承载',
+        };
+      // 4整数→2、5浮点→3、6金额转换→4、7金额千分位→5、默认(1单行)→1
+      return {
+        e9HtmlType: E9_FIELD_HTML_TYPE.TEXT,
+        e9FieldType: t === 4 ? 2 : t === 5 ? 3 : t === 6 ? 4 : t === 7 ? 5 : 1,
+      };
+    case 2: // 多行文本
+      return { e9HtmlType: E9_FIELD_HTML_TYPE.TEXTAREA, e9FieldType: 1 };
+    case 3: {
+      // 浏览按钮：本项目 98/99 为日期/时间，E9 用 2/19
+      const e9Browser = bt || t;
+      if (e9Browser === 98) return { e9HtmlType: E9_FIELD_HTML_TYPE.BROWSER, e9FieldType: 2, e9BrowserType: 2 };
+      if (e9Browser === 99) return { e9HtmlType: E9_FIELD_HTML_TYPE.BROWSER, e9FieldType: 19, e9BrowserType: 19 };
+      return {
+        e9HtmlType: E9_FIELD_HTML_TYPE.BROWSER,
+        e9FieldType: e9Browser || 1,
+        e9BrowserType: e9Browser || 1,
+      };
+    }
+    case 4: // 选择框：1下拉 2单选 3复选
+      if (t === 2) return { e9HtmlType: E9_FIELD_HTML_TYPE.PUBLIC_SELECT, e9FieldType: 1 }; // 单选≈公共选择框
+      if (t === 3)
+        return {
+          e9HtmlType: E9_FIELD_HTML_TYPE.CHECKBOX,
+          lossy: true,
+          note: '多选下拉在 E9 无直接对应，降级为复选框',
+        };
+      return { e9HtmlType: E9_FIELD_HTML_TYPE.SELECT, e9FieldType: 1 };
+    case 5: // 附件上传
+      return { e9HtmlType: E9_FIELD_HTML_TYPE.AFFIX, e9FieldType: t === 2 ? 2 : 1 };
+    case 6: // 复选框
+      return { e9HtmlType: E9_FIELD_HTML_TYPE.CHECKBOX };
+    case 7: // 特殊字段：1链接 2描述 3日期 4时间
+      if (t === 3) return { e9HtmlType: E9_FIELD_HTML_TYPE.BROWSER, e9FieldType: 2, e9BrowserType: 2 };
+      if (t === 4) return { e9HtmlType: E9_FIELD_HTML_TYPE.BROWSER, e9FieldType: 19, e9BrowserType: 19 };
+      return { e9HtmlType: E9_FIELD_HTML_TYPE.ESPECIAL, e9FieldType: t === 1 ? 1 : 2 };
+    case E9_POSITION_HTML_TYPE: // 预留：位置
+      return { e9HtmlType: E9_FIELD_HTML_TYPE.POSITION };
+    default:
+      // 8 布局组件、9 正文：E9 无直接对应
+      return {
+        e9HtmlType: E9_FIELD_HTML_TYPE.TEXT,
+        lossy: true,
+        note: `自有类型 ${ht}（布局/正文）在 E9 无直接对应，降级为单行文本`,
+      };
+  }
+};
+
+/**
+ * E9 原生编码 → 自有编码。
+ *
+ * @param e9HtmlType  E9 fieldhtmltype（1–9）
+ * @param e9FieldType E9 fieldType（子类型），可选
+ */
+/**
+ * 判断 E9 侧数据库类型是否像「日期/时间」。
+ *
+ * 对齐后端 `EcologyFormImportServiceImpl#isDateLike`。必要性：E9 中「部门」与
+ * 「日期」同为 TYPE=2，只能靠 dbType 区分，否则会把部门误判成日期。
+ */
+const isE9DateLike = (dbType?: string): boolean => {
+  if (!dbType) return false;
+  const r = String(dbType).toLowerCase().replace(/\s+/g, '');
+  if (r.includes('date') || r.includes('datetime') || r.includes('smalldatetime')) return true;
+  const m = /char\((\d+)\)/.exec(r);
+  if (m) {
+    const len = Number(m[1]);
+    return len >= 8 && len <= 11;
+  }
+  return false;
+};
+
+/**
+ * E9 浏览按钮 TYPE → 本项目浏览按钮类型（**实测映射表**）。
+ *
+ * ⚠️ 必须与后端 `EcologyFormImportServiceImpl#mapBrowserType` 保持一致：
+ * 该部署实测语义与 E9 标准字典**不同**（字典 4=文档，实测 4=部门；9/37=文档；
+ * 17=多人力资源而非多部门；164=分部而非「自定义浏览按钮」），
+ * 因此**禁止照搬标准字典**，一律以实测为准。
+ */
+const E9_BROWSER_TYPE_MAP: Record<number, number> = {
+  1: 1,    // 人员 → 人力资源
+  2: 2,    // 组织 → 部门（非日期场景；日期场景走 dbType 分支）
+  3: 3,    // 角色
+  4: 2,    // 部门（本库 经办部门/报销部门 均用 4）
+  7: 8,    // 项目
+  8: 7,    // 资产
+  9: 24,   // 文档（相关文档/正文/合同文件）
+  12: 1,   // 集成 → 无对应项，兜底人力资源
+  16: 30,  // 相关客户/流程 → 流程
+  17: 161, // 多人力资源（本部署 TYPE=17 表示多人力资源，非多部门）
+  18: 18,  // 分部
+  19: 19,  // 分权单部门（日期型 19 走上方时间分支）
+  20: 20,
+  21: 21,
+  22: 22,
+  23: 23,
+  37: 24,  // 文档（自定义：合同文档/PDF 正文）
+  164: 18, // 分部（本部署，非「自定义浏览按钮」）
+};
+
+export const fromE9Type = (
+  e9HtmlType?: number | string,
+  e9FieldType?: number | string,
+  /** E9 侧数据库类型串（如 char(10)/datetime），用于区分「日期 vs 部门」（二者 TYPE 均为 2） */
+  e9DbType?: string,
+): SelfTypeMapping | null => {
+  const e9 = Number(e9HtmlType ?? 0) || 0;
+  const ft = Number(e9FieldType ?? 0) || 0;
+
+  switch (e9) {
+    case E9_FIELD_HTML_TYPE.TEXT: // 1 单行文本
+      // E9：1文本 2整数 3浮点 4金额转换 5金额千分位
+      return { htmlType: 1, type: ft === 2 ? 4 : ft === 3 ? 5 : ft === 4 ? 6 : ft === 5 ? 7 : 1 };
+    case E9_FIELD_HTML_TYPE.TEXTAREA: // 2 多行文本
+      return { htmlType: 2, type: 1 };
+    case E9_FIELD_HTML_TYPE.BROWSER: {
+      // 1) 日期/时间优先按 dbType 判定（TYPE=2→日期；TYPE=3/19→时间）
+      if (isE9DateLike(e9DbType)) {
+        if (ft === 2) return { htmlType: 3, type: 98, browserType: 98 };
+        if (ft === 3 || ft === 19) return { htmlType: 3, type: 99, browserType: 99 };
+      }
+      // 2) 未传 dbType：按 E9 标准语义兜底并标注歧义（调用方应尽量传 dbType）
+      if (ft === 2 && e9DbType == null) {
+        return {
+          htmlType: 3,
+          type: 98,
+          browserType: 98,
+          lossy: true,
+          note: '未传 dbType，TYPE=2 按「日期」处理；若实际为部门请传 dbType 消歧',
+        };
+      }
+      if (ft === 19 && e9DbType == null) {
+        return {
+          htmlType: 3,
+          type: 99,
+          browserType: 99,
+          lossy: true,
+          note: '未传 dbType，TYPE=19 按「时间」处理；若实际为分权单部门请传 dbType 消歧',
+        };
+      }
+      const mapped = E9_BROWSER_TYPE_MAP[ft];
+      const browserType = mapped ?? (ft || 1);
+      return {
+        htmlType: 3,
+        type: browserType,
+        browserType,
+        lossy: mapped == null && ft > 0,
+        note: mapped == null && ft > 0 ? `未知浏览按钮类型 ${ft}，按原值兜底` : undefined,
+      };
+    }
+    case E9_FIELD_HTML_TYPE.CHECKBOX: // 4 复选框
+      return { htmlType: 6, type: 1 };
+    case E9_FIELD_HTML_TYPE.SELECT: // 5 选择框
+      return { htmlType: 4, type: 1 };
+    case E9_FIELD_HTML_TYPE.AFFIX: // 6 附件
+      return { htmlType: 5, type: 1 };
+    case E9_FIELD_HTML_TYPE.ESPECIAL: // 7 特殊字段
+      return { htmlType: 7, type: ft === 1 ? 1 : 2 };
+    case E9_FIELD_HTML_TYPE.PUBLIC_SELECT: // 8 公共选择框(radio) → 复用自有「选择框+单选」
+      return { htmlType: 4, type: 2, lossy: true, note: 'E9 公共选择框复用自有「选择框(4)+单选(2)」表达' };
+    case E9_FIELD_HTML_TYPE.POSITION: // 9 位置 → 预留自有类型 10
+      return {
+        htmlType: E9_POSITION_HTML_TYPE,
+        lossy: true,
+        note: 'E9 位置字段在本项目暂无渲染控件，映射至预留类型 10，渲染待补齐',
+      };
+    default:
+      return null;
+  }
+};

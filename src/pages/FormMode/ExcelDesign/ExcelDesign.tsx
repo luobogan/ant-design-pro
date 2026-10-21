@@ -10,6 +10,7 @@ import {
   Tooltip,
   Modal,
   Dropdown,
+  Select,
 } from 'antd';
 import {
   SaveOutlined,
@@ -120,10 +121,44 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
   const { message } = App.useApp();
 
   const [selectedField, setSelectedField] = useState<any>(null);
+  // 表单字段选项（供「属性面板 → 合计字段选择器」使用：合计字段需指定对哪个字段求和）
+  const [fieldOptions, setFieldOptions] = useState<{ label: string; value: string }[]>([]);
+
+  useEffect(() => {
+    if (!formId) {
+      setFieldOptions([]);
+      return;
+    }
+    let alive = true;
+    (async () => {
+      try {
+        const list: any = await fieldDefinitionApi.getByFormId(String(formId));
+        const arr = Array.isArray(list) ? list : list?.records || [];
+        if (!alive) return;
+        setFieldOptions(
+          arr.map((f: any) => ({
+            label: `${f.fieldLabel || f.fieldName}（${f.fieldName}）`,
+            value: f.fieldName,
+          })),
+        );
+      } catch (e) {
+        if (alive) setFieldOptions([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [formId]);
   const [layoutData, setLayoutData] = useState<any>({});
   // 镜像 ref：在异步回调里读取最新的 layoutData，避免闭包捕获到初始空对象
   const layoutDataRef = useRef(layoutData);
   layoutDataRef.current = layoutData;
+  // 布局类型（本项目自有值：0=编辑(默认，亦承载新建) 1=显示 3=监控 4=打印）
+  //
+  // ⚠️ 与泛微 E9 layouttype（0显示 1新建 2编辑 3监控 4打印）不是同一套编码：
+  //    同为「0」时，本项目是「编辑」、E9 是「显示」，语义相反。
+  //    后端互转统一走 utils.E9LayoutTypeMapper；此处 UI 与接口均使用自有值，避免歧义。
+  const [layoutType, setLayoutType] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [pendingField, setPendingField] = useState<any>(null);
@@ -215,6 +250,27 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
   }, []);
 
   // 侧栏属性面板回调：按字段名直接回写字段属性（attr: 0-3）与禁止手工编辑（免坐标解析）
+  // 元素格配置变更（如「合计字段」指定对哪个明细字段求和）→ 写回网格 elementConfig 并本地同步
+  const handleElementConfigChange = useCallback(
+    (patch: Record<string, any>) => {
+      const selection = univerGrid.getSelection?.() || univerGrid.getContextCell?.();
+      if (!selection) {
+        message.warning('请先选中要配置的单元格');
+        return;
+      }
+      const ok = univerGrid.setElementConfig?.(selection.row, selection.col, patch);
+      if (ok) {
+        // selectedField 是 getCellFieldMeta 的快照，本地同步才能让面板立即回显
+        setSelectedField((prev: any) =>
+          prev ? { ...prev, elementConfig: { ...(prev.elementConfig || {}), ...patch } } : prev,
+        );
+      } else {
+        message.warning('仅支持配置「插入」类元素单元格');
+      }
+    },
+    [message],
+  );
+
   const handlePanelFieldAttrChange = useCallback((attr: number, onlyShow: boolean) => {
     const univerGrid = (window as any).univerExcelGrid;
     const name = selectedField?.fieldName;
@@ -324,7 +380,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     };
   }, []);
 
-  const loadFormLayout = async (force = false) => {
+  const loadFormLayout = async (force = false, typeOverride?: number) => {
     if (!formId) return;
     setLoading(true);
     try {
@@ -333,7 +389,9 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
       //    节点没配过自己的布局 → 后端直接返回空 → 设计器打开空白（新建流程不会被
       //    该表单已配的"通用布局"预填内容），供该节点从零独立设计；与该节点保存的 nodeKey 隔离。
       //    运行时渲染走的仍是默认 inherit=true（未配布局的节点继续用通用布局，不会渲染成空表单）。
-      const result = await getFormLayout(String(formId), undefined, nodeKey, false);
+      // 第 2 参 = layoutType（自有值）。切换布局类型时由 typeOverride 传入新值，
+      // 避免异步回调闭包读到切换前的旧 state（表现为「切了类型却加载旧布局」）。
+      const result = await getFormLayout(String(formId), typeOverride ?? layoutType, nodeKey, false);
       if (result && result.data) {
         // layoutJson 是字符串，需要解析为对象
         let layoutJson = result.data.layoutJson;
@@ -502,6 +560,8 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         // 必须编码后提交：后端 XSS 过滤会剥掉明文里的 <script> 标签。
         layoutConfig: JSON.stringify({ script: encodeScriptForStorage(layoutScriptRef.current) }),
         status: 1,
+        // 布局类型（自有值）：此前恒为后端默认 0（编辑），导致「显示/监控/打印」布局无法分别保存。
+        layoutType,
         // 绑定流程节点：按节点隔离布局（后端 getByFormId 支持 nodeKey 回退到表单级通用）
         nodeKey: nodeKey ? String(nodeKey) : undefined,
       };
@@ -1534,6 +1594,27 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
             {/* 中间 Univer Excel 区域 */}
             <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
               <Card>
+                {/* 布局类型切换：按「编辑 / 显示 / 监控 / 打印」分别设计与保存布局（自有值）。
+                    读取与保存均带上 layoutType，后端按 (form_id, layout_type, node_key) 回退取布局。 */}
+                <Space style={{ marginBottom: 8 }} align="center">
+                  <span style={{ fontSize: 13, color: '#666' }}>布局类型</span>
+                  <Select
+                    size="small"
+                    style={{ width: 170 }}
+                    value={layoutType}
+                    onChange={(v: number) => {
+                      setLayoutType(v);
+                      // 立即以新类型重新加载（typeOverride 规避闭包读到切换前的旧值）
+                      loadFormLayout(true, v);
+                    }}
+                    options={[
+                      { label: '编辑（含新建）', value: 0 },
+                      { label: '显示', value: 1 },
+                      { label: '监控', value: 3 },
+                      { label: '打印', value: 4 },
+                    ]}
+                  />
+                </Space>
                 {/* 操作区：模板 / 格式 / 插入 / 字段属性 / 明细表。
                     优先用 Univer 原生 Ribbon（registerDesignerRibbon 注册的「模板/格式/插入/字段属性/明细表」
                     5 个页签，紧贴原生「开始」之后）；原生注册成功时本 React 工具条隐藏（仅保留弹窗承载），
@@ -1604,9 +1685,11 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
                   editingDetail={editingDetail}
                   onOpenDetail={openDetailCanvas}
                   onDeleteField={handleStructureDelete}
+                  // 明细表组属性按「formId + 明细表序号」读写（设计器只有 formId）
+                  formId={formId}
                 />
               </div>
-              <PropertyPanel selectedField={selectedField} onFieldAttrChange={handlePanelFieldAttrChange} />
+              <PropertyPanel selectedField={selectedField} onFieldAttrChange={handlePanelFieldAttrChange} fieldOptions={fieldOptions} onElementConfigChange={handleElementConfigChange} />
             </div>
           </div>
         </Spin>
@@ -1692,7 +1775,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
 
             {/* 右侧属性面板 */}
             <div style={{ width: 300, borderLeft: '1px solid #f0f0f0', overflow: 'auto' }}>
-              <PropertyPanel selectedField={selectedField} onFieldAttrChange={handlePanelFieldAttrChange} />
+              <PropertyPanel selectedField={selectedField} onFieldAttrChange={handlePanelFieldAttrChange} fieldOptions={fieldOptions} onElementConfigChange={handleElementConfigChange} />
             </div>
           </div>
         )}

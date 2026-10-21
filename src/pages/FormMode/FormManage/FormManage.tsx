@@ -22,6 +22,7 @@ import type { ColumnsType } from 'antd/es/table';
 import React, { useEffect, useState } from 'react';
 import { formApi, ecologyImportApi } from '@/services/formmode';
 import type { WorkflowBill, PageParams } from '@/services/formmode/typings';
+import FormRightDrawer from '@/pages/FormMode/FormRight/FormRightDrawer';
 
 const { Search } = Input;
 
@@ -37,6 +38,10 @@ const FormManageList: React.FC = () => {
   const [ecologyForms, setEcologyForms] = useState<any[]>([]);
   const [ecologyLoading, setEcologyLoading] = useState(false);
   const [ecologySelectedKeys, setEcologySelectedKeys] = useState<React.Key[]>([]);
+
+  // 权限配置抽屉状态
+  const [rightVisible, setRightVisible] = useState(false);
+  const [rightFormId, setRightFormId] = useState<string>();
 
   const [searchForm] = Form.useForm();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -114,12 +119,18 @@ const FormManageList: React.FC = () => {
 
   // 查看
   const handleView = (record: FormDefinition) => {
-    navigate(`/formmode/formview/${record.id}`);
+    navigate(`/formmode/formview?formId=${record.id}`);
   };
 
   // Excel设计
   const handleExcelDesign = (record: FormDefinition) => {
     navigate(`/formmode/exceldesign/ExcelDesign?formId=${record.id}&formName=${encodeURIComponent(record.formName)}`);
+  };
+
+  // 权限配置
+  const handleRightConfig = (record: FormDefinition) => {
+    setRightFormId(record.id);
+    setRightVisible(true);
   };
 
   // 删除：先校验流程绑定，再二次确认（删除会级联清理关联数据）
@@ -370,7 +381,7 @@ const FormManageList: React.FC = () => {
           checkedChildren="启用"
           unCheckedChildren="禁用"
           onChange={(checked) => handleStatusChange(record, checked)}
-          disabled={!hasPermission('formmode_edit')}
+          disabled={!hasPermission('formmanage_aae')}
         />
       ),
     },
@@ -415,6 +426,16 @@ const FormManageList: React.FC = () => {
               onClick={() => handleExcelDesign(record)}
             >
               Excel设计
+            </Button>
+          )}
+          {hasPermission('formmanage_aae') && (
+            <Button
+              type="link"
+              size="small"
+              icon={<SettingOutlined />}
+              onClick={() => handleRightConfig(record)}
+            >
+              权限
             </Button>
           )}
           {hasPermission('formmanage_delete') && (
@@ -539,6 +560,13 @@ const FormManageList: React.FC = () => {
           ]}
         />
       </Modal>
+
+      {/* 权限配置抽屉（模块权限 / 字段权限 / 数据范围） */}
+      <FormRightDrawer
+        formId={rightFormId}
+        open={rightVisible}
+        onClose={() => setRightVisible(false)}
+      />
     </PageContainer>
   );
 };

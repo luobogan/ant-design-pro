@@ -1,4 +1,4 @@
-import { PlusOutlined, ReloadOutlined, DeleteOutlined, EyeOutlined, EditOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, DeleteOutlined, EyeOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { useNavigate, useSearchParams } from '@umijs/max';
 import { usePageButtons } from '@/hooks/usePageButtons';
@@ -90,10 +90,11 @@ const FormDataList: React.FC = () => {
       };
 
       const result = await dataApi.getList(formId, queryParams);
-      setData(result.list || []);
+      // 后端 IPage 原生形态：records / total / size / current
+      setData(result.records || result.list || []);
       setPagination({
         current: result.current || 1,
-        pageSize: result.pageSize || 20,
+        pageSize: result.size || result.pageSize || 20,
         total: result.total || 0,
       });
     } catch (error) {
@@ -148,9 +149,9 @@ const FormDataList: React.FC = () => {
     navigate(`/formmode/formview/aae?mode=edit&id=${record.id}&formId=${formId}`);
   };
 
-  // 查看
+  // 查看（复用 FormViewAae 的详情加载，已对齐 GET /by-form 端点）
   const handleView = (record: FormDataRecord) => {
-    navigate(`/formmode/dataview/${record.id}?formId=${formId}`);
+    navigate(`/formmode/formview/aae?mode=edit&id=${record.id}&formId=${formId}`);
   };
 
   // 删除
@@ -206,12 +207,12 @@ const FormDataList: React.FC = () => {
       },
     ];
 
-    // 根据字段定义生成列
+    // 根据字段定义生成列（dataIndex 用 fieldDbName=DB 列名，与列表记录/保存/详情真键一致）
     formFields.forEach((field) => {
       columns.push({
-        title: field.fieldLabel,
-        dataIndex: field.fieldName,
-        key: field.fieldName,
+        title: field.fieldName || field.fieldLabel,
+        dataIndex: field.fieldDbName || field.fieldName,
+        key: field.fieldDbName || field.fieldName,
         width: 150,
         ellipsis: true,
         render: (text: any) => {

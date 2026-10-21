@@ -59,18 +59,30 @@ const FormManageForm: React.FC<FormManageFormProps> = ({
       />
 
       <ProFormText
-        name="tableName"
-        label="数据库表名"
-        placeholder="请输入数据库表名"
+        name="modename"
+        label="模块名称"
+        placeholder="默认与表单名称相同"
+        tooltip="新建表单会同时创建对应的模块（权限/数据范围均以模块为单位配置）。留空则默认取表单名称。"
         rules={[
-          { required: true, message: '请输入数据库表名' },
-          { max: 50, message: '数据库表名不能超过50个字符' },
-          {
-            pattern: /^[a-zA-Z][a-zA-Z0-9_]*$/,
-            message: '数据库表名只能包含字母、数字和下划线，且必须以字母开头',
-          },
+          { max: 50, message: '模块名称不能超过50个字符' },
         ]}
       />
+
+      {mode === 'edit' && (
+        <ProFormText
+          name="tableName"
+          label="数据库表名"
+          placeholder="请输入数据库表名"
+          rules={[
+            { required: true, message: '请输入数据库表名' },
+            { max: 50, message: '数据库表名不能超过50个字符' },
+            {
+              pattern: /^[a-zA-Z][a-zA-Z0-9_]*$/,
+              message: '数据库表名只能包含字母、数字和下划线，且必须以字母开头',
+            },
+          ]}
+        />
+      )}
 
       <ProFormTextArea
         name="description"
@@ -89,12 +101,14 @@ const FormManageForm: React.FC<FormManageFormProps> = ({
         initialValue={1}
       />
 
-      <ProFormDigit
-        name="moduleId"
-        label="模块ID"
-        placeholder="请输入模块ID"
-        min={0}
-      />
+      {mode === 'edit' && (
+        <ProFormDigit
+          name="moduleId"
+          label="模块ID"
+          placeholder="请输入模块ID"
+          min={0}
+        />
+      )}
     </ProForm>
   );
 };
