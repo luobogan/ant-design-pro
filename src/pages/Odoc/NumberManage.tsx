@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Form, Input, InputNumber, Modal, Switch, Table, Tag, message } from 'antd';
+import { Button, Form, Input, InputNumber, Modal, Select, Switch, Table, Tag, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
-import { numberApi, type OdocNumber } from '@/services/workflow';
+import { numberApi, odocDictApi, type OdocNumber } from '@/services/workflow';
 
 /** 年份格式串：〔 + (显示年份? YYYY : '') + 〕 */
 function yearText(r: OdocNumber): string {
@@ -31,6 +31,8 @@ const OdocNumberManage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [current, setCurrent] = useState<OdocNumber | null>(null);
   const [form] = Form.useForm();
+  const [orgAbbrOptions, setOrgAbbrOptions] = useState<{ value: any; label: string }[]>([]);
+  const [orgAbbrNameMap, setOrgAbbrNameMap] = useState<Record<string, string>>({});
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -44,6 +46,27 @@ const OdocNumberManage: React.FC = () => {
     }
   }, []);
 
+  // 机构代字字典（org_abbr），供文号「机关代字」下拉选择（对齐 E9 机构代字主数据）
+  useEffect(() => {
+    odocDictApi
+      .list('org_abbr')
+      .then((r) => {
+        const arr = (r?.data as any[]) || [];
+        setOrgAbbrOptions(
+          arr.map((d) => ({ value: d.id, label: `${d.name}${d.code ? `（${d.code}）` : ''}` })),
+        );
+        const m: Record<string, string> = {};
+        arr.forEach((d) => {
+          if (d.id != null) m[String(d.id)] = d.name;
+        });
+        setOrgAbbrNameMap(m);
+      })
+      .catch(() => {
+        setOrgAbbrOptions([]);
+        setOrgAbbrNameMap({});
+      });
+  }, []);
+
   useEffect(() => {
     reload();
   }, [reload]);
@@ -51,13 +74,15 @@ const OdocNumberManage: React.FC = () => {
   const openAdd = () => {
     setCurrent(null);
     form.resetFields();
-    form.setFieldsValue({ showYear: true, fillZero: true, digit: 3, isOpen: true, serial: 0 });
+    form.setFieldsValue({ showYear: true, fillZero: true, digit: 3, isOpen: true, yearReset: true, serial: 0 });
     setEditOpen(true);
   };
   const openEdit = (r: OdocNumber) => {
     setCurrent(r);
     form.setFieldsValue({
       ...r,
+      orgAbbrId: r.orgAbbrId != null ? String(r.orgAbbrId) : undefined,
+      yearReset: r.yearReset !== 0,
       showYear: r.showYear === 1,
       fillZero: r.fillZero === 1,
       isOpen: r.isOpen === 1,
@@ -72,6 +97,8 @@ const OdocNumberManage: React.FC = () => {
         id: current?.id,
         typeName: v.typeName,
         prefix: v.prefix,
+        orgAbbrId: v.orgAbbrId ? Number(v.orgAbbrId) : undefined,
+        yearReset: v.yearReset ? 1 : 0,
         yearPre: v.yearPre,
         yearEnd: v.yearEnd,
         showYear: v.showYear ? 1 : 0,
@@ -164,8 +191,25 @@ const OdocNumberManage: React.FC = () => {
           <Form.Item name="typeName" label="文号名称" rules={[{ required: true, message: '请输入文号名称' }]}>
             <Input placeholder="如：普发文件" />
           </Form.Item>
-          <Form.Item name="prefix" label="机关代字" rules={[{ required: true, message: '请输入机关代字' }]}>
-            <Input placeholder="如：X政发" />
+          <Form.Item
+            name="orgAbbrId"
+            label="机构代字（字典）"
+            tooltip="从机构代字主数据下拉选择，选后自动填入下方「机关代字」；也可手填下方文本"
+          >
+            <Select
+              allowClear
+              placeholder="选择机构代字"
+              options={orgAbbrOptions}
+              onChange={(val) => {
+                if (val != null) {
+                  const name = orgAbbrNameMap[String(val)];
+                  if (name) form.setFieldsValue({ prefix: name });
+                }
+              }}
+            />
+          </Form.Item>
+          <Form.Item name="prefix" label="机关代字" rules={[{ required: true, message: '请输入或选择机关代字' }]}>
+            <Input placeholder="如：X政发（与机构代字字典一致）" />
           </Form.Item>
           <Form.Item name="showYear" label="显示年份" valuePropName="checked">
             <Switch />
@@ -189,6 +233,14 @@ const OdocNumberManage: React.FC = () => {
             <Input placeholder="留空对所有流程生效" />
           </Form.Item>
           <Form.Item name="isOpen" label="启用" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Form.Item
+            name="yearReset"
+            label="跨年流水归零"
+            valuePropName="checked"
+            tooltip="开=进入新历年流水从 1 重计；关=跨年累计不断号（如档案类文号）"
+          >
             <Switch />
           </Form.Item>
           {current ? (

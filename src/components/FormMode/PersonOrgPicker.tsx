@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Empty, Input, Modal, Spin, Table, Tag, Tooltip, Tree, message } from 'antd';
+import { Alert, Empty, Form, Input, Modal, Spin, Table, Tag, Tooltip, Tree, message } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { Button, CheckList, Empty as AdmEmpty, NavBar, Popup, SearchBar, Selector, Toast } from 'antd-mobile';
 import type { FieldVariant } from './fieldTokens';
@@ -11,12 +11,15 @@ import {
   PersonOrgItem,
   USER_PAGE_SIZE,
   collectDeptIds,
+  fetchAllowedUnitIds,
   itemsOfCategory,
   joinIds,
   loadPersonOrgData,
   queryUsers,
   resolveItemNames,
   splitIds,
+  OdocPersonOrgConfig,
+  resolveOdocPersonOrgConfig,
 } from './personOrg';
 
 /**
@@ -46,6 +49,12 @@ export interface PersonOrgPickerProps {
   multiple?: boolean;
   /** 当前值（id 逗号串） */
   value?: string;
+  /**
+   * 公文密级名（公开/秘密/机密/绝密）。仅对「收发文单位」(cat=unit) 生效：
+   * 传入后按 wf_odoc_secret_rule 过滤出「允许该密级收发」的单位，候选与左侧树同步收敛。
+   * 为空/不传则不限制（展示全部单位）。
+   */
+  secretLevel?: string;
   title?: string;
   /**
    * 外观变体：desktop=antd Modal（左右分栏表格）｜mobile=antd-mobile 底部弹层
@@ -71,6 +80,7 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
   category,
   multiple,
   value,
+  secretLevel,
   title,
   variant = 'desktop',
   onOk,
@@ -93,6 +103,22 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<string[]>([]);
   const [nameMap, setNameMap] = useState<Record<string, string>>({});
+  // 按密级过滤：允许收发的单位 id 集合（null = 不限制 / 加载中）
+  const [allowedIds, setAllowedIds] = useState<string[] | null>(null);
+
+  /** 递归裁剪单位树：仅保留 id 在 allowed 中、或含有 allowed 子孙的节点 */
+  const pruneUnitTree = (nodes: any[], allowed: Set<string>): any[] => {
+    const walk = (arr: any[]): any[] =>
+      (arr || [])
+        .map((n) => {
+          const children = n.children ? walk(n.children) : undefined;
+          if (allowed.has(String(n.key))) return { ...n, children: children && children.length ? children : undefined };
+          if (children && children.length) return { ...n, children };
+          return null;
+        })
+        .filter(Boolean);
+    return walk(nodes);
+  };
 
   // 打开时：加载数据 + 回显已选
   useEffect(() => {
@@ -123,6 +149,23 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // 收发文单位：按密级过滤（仅 cat=unit 且传入了 secretLevel 时生效）
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    if (cat === 'unit' && secretLevel) {
+      fetchAllowedUnitIds(secretLevel).then((ids) => {
+        if (alive) setAllowedIds(ids);
+      });
+    } else {
+      setAllowedIds(null);
+    }
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, cat, secretLevel]);
 
   const allItems: PersonOrgItem[] = useMemo(
     () => (data ? itemsOfCategory(data, cat) : []),
@@ -183,10 +226,12 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
       return itemsOfCategory(data, 'branch').map((i) => ({ key: i.id, title: i.name }));
     }
     if (cat === 'unit') {
-      return data.unitTree || [];
+      const t = data.unitTree || [];
+      if (allowedIds) return pruneUnitTree(t, new Set(allowedIds));
+      return t;
     }
     return data.deptTree || [];
-  }, [data, cat]);
+  }, [data, cat, allowedIds]);
 
   const filtered = useMemo(() => {
     // 人员由服务端返回当前页（rows），不再做客户端过滤/分页
@@ -200,6 +245,11 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
       const unitIds = collectDeptIds(data.unitTree, treeKey);
       list = list.filter((i) => unitIds.has(i.id));
     }
+    // 按密级过滤（仅 cat=unit 且已取到允许集合时生效）
+    if (cat === 'unit' && allowedIds) {
+      const set = new Set(allowedIds);
+      list = list.filter((i) => set.has(i.id));
+    }
     const kw = keyword.trim().toLowerCase();
     if (kw) {
       list = list.filter(
@@ -210,7 +260,7 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
       );
     }
     return list;
-  }, [allItems, data, treeKey, keyword, cat, isHrm, rows]);
+  }, [allItems, data, treeKey, keyword, cat, isHrm, rows, allowedIds]);
 
   useEffect(() => {
     setPage(1);
@@ -242,7 +292,10 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
   const addGroup = (groupId: string) => {
     const g = (data?.groups || []).find((x: any) => String(x.id) === groupId);
     if (!g) return;
-    const memberIds: string[] = (g.unitIds || []).map((x: any) => String(x));
+    const set = allowedIds ? new Set(allowedIds) : null;
+    const memberIds: string[] = (g.unitIds || [])
+      .map((x: any) => String(x))
+      .filter((id: string) => !set || set.has(id));
     if (memberIds.length === 0) {
       if (isMobile) Toast.show({ content: '该公共组暂无成员单位' });
       else message.warning('该公共组暂无成员单位');
@@ -475,6 +528,16 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
           message={data.errors.join('；')}
         />
       )}
+      {secretLevel && cat === 'unit' && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 8 }}
+          message={`已按密级「${secretLevel}」仅展示允许收发的单位${
+            allowedIds ? `（${allowedIds.length} 个）` : '（加载中或接口不可用，暂未过滤）'
+          }`}
+        />
+      )}
       <Spin spinning={loading}>
         <div style={{ display: 'flex', gap: 12, minHeight: 380 }}>
           {/* 左侧分类树：按部门分类（人员/部门/分部） */}
@@ -638,6 +701,16 @@ export interface PersonOrgFieldProps {
   onChange?: (value: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  /**
+   * 公文密级名（公开/秘密/机密/绝密）。传入后「收发文单位」候选按密级过滤（见 PersonOrgPicker）。
+   * 若不传，内部会自动读取表单字段 `mj`（收发文密级约定字段名）的值。
+   */
+  secretLevel?: string;
+  /**
+   * 密级字段名（表单字段）。仅当 secretLevel 未显式传入、且 category=unit 时生效，
+   * 用于从表单读取密级值。默认取 OdocPersonOrgConfig.secretLevelFieldName（'mj'）。
+   */
+  secretLevelFieldName?: string;
   /** 是否只展示（禁用交互）。命名规范：统一驼峰 `readOnly`，与 FieldControl / BrowserControl 一致 */
   readOnly?: boolean;
   /**
@@ -664,6 +737,10 @@ export const PersonOrgField: React.FC<PersonOrgFieldProps> = (props) => {
   const [open, setOpen] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
   const ids = splitIds(value);
+  // 表单上下文（PersonOrgField 始终渲染在 Form 内）；用于按密级过滤单位时读取密级字段值
+  const form = Form.useFormInstance();
+  // 实际生效的密级（显式传入优先；否则单位类自动从表单 'mj' 字段读取）
+  const [sl, setSl] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (!cat || !ids.length) {
@@ -695,6 +772,20 @@ export const PersonOrgField: React.FC<PersonOrgFieldProps> = (props) => {
 
   const disabledAll = disabled || readOnly;
 
+  /** 打开选择器：单位类自动把表单密级字段(mj)的当前值作为 secretLevel 传入 */
+  const openPicker = () => {
+    if (disabledAll) return;
+    resolveOdocPersonOrgConfig();
+    const level =
+      props.secretLevel ??
+      (cat === 'unit'
+        ? form?.getFieldValue(props.secretLevelFieldName || OdocPersonOrgConfig.secretLevelFieldName) ??
+          undefined
+        : undefined);
+    setSl(level || undefined);
+    setOpen(true);
+  };
+
   return (
     <div
       style={{
@@ -707,7 +798,7 @@ export const PersonOrgField: React.FC<PersonOrgFieldProps> = (props) => {
     >
       {/* 值显示区：field{id}span */}
       <div
-        onClick={() => !disabledAll && setOpen(true)}
+        onClick={openPicker}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -748,7 +839,7 @@ export const PersonOrgField: React.FC<PersonOrgFieldProps> = (props) => {
       </div>
       {/* 浏览按钮：field{id}_browserbtn */}
       <span
-        onClick={() => !disabledAll && setOpen(true)}
+        onClick={openPicker}
         title={`选择${meta?.label || CATEGORY_LABEL[cat]}`}
         style={{
           display: 'inline-flex',
@@ -776,6 +867,7 @@ export const PersonOrgField: React.FC<PersonOrgFieldProps> = (props) => {
         category={category}
         multiple={multiple}
         value={joinIds(ids)}
+        secretLevel={sl}
         variant={variant}
         onOk={(nextIds, items) => {
           const m: Record<string, string> = { ...names };

@@ -175,6 +175,7 @@ const PAGE_DIR_ALIAS: Record<string, string> = {
   'odoc/receiveunit': 'ReceiveUnitManage',
   'odoc/receivegroup': 'ReceiveGroupManage',
   'odoc/number': 'NumberManage',
+  'odoc/numberreserved': 'NumberReservedManage',
   'odoc/secretrule': 'SecretRuleManage',
   // 门户「菜单样式库」：菜单 path=/portal/menustylelib，磁盘目录 MenuStyleLib。
   // style 不在 commonWords，toPascalCase 会推成 MenustyleLib（Windows 大小写不敏感能裸跑，

@@ -15,7 +15,42 @@ import * as userApi from '@/services/system/user';
 import * as deptApi from '@/services/system/dept';
 import * as roleApi from '@/services/authority/role';
 import * as postApi from '@/pages/System/Post/service';
-import { odocReceiveGroupApi, odocReceiveUnitApi } from '@/services/workflow';
+import { odocReceiveGroupApi, odocReceiveUnitApi, odocSecretRuleApi, odocConfigApi } from '@/services/workflow';
+
+// ==================== 公文密级字段名（可配置） ====================
+/**
+ * 发文/收文表单中「密级」字段的字段名，用于在发文选主送/抄送单位时按密级过滤候选。
+ * 默认值 'mj'（泛微公文密级 browseType=260 的约定字段名）；后端 /odoc/config 可经 Nacos
+ * 覆盖（blade.workflow.odoc.secret-level-field），无需改前端代码。若贵司表单把密级放在别的
+ * 字段，也可给 PersonOrgField 传 secretLevelFieldName 属性逐字段覆盖。
+ * 注意：该字段的值必须是密级**名**（公开/秘密/机密/绝密），与后端 OdocSecretLevel.levelOf 对齐。
+ */
+export const OdocPersonOrgConfig = {
+  secretLevelFieldName: 'mj',
+};
+
+let configFetched = false;
+/**
+ * 从后端 /odoc/config 拉取可覆盖项（密级字段名等），覆盖前端默认值。幂等：只拉一次。
+ * 模块加载即触发（无需等待结果）；选择器 openPicker 也会调用一次兜底。
+ */
+export function resolveOdocPersonOrgConfig(): void {
+  if (configFetched) return;
+  configFetched = true;
+  odocConfigApi
+    .getConfig()
+    .then((res: any) => {
+      const v = res?.data?.secretLevelFieldName;
+      if (v && typeof v === 'string' && v.trim()) {
+        OdocPersonOrgConfig.secretLevelFieldName = v.trim();
+      }
+    })
+    .catch(() => {
+      configFetched = false; // 失败时允许下次重试
+    });
+}
+// 模块加载即异步拉取一次（fire-and-forget；未完成前 openPicker 读取回退默认 'mj'）
+resolveOdocPersonOrgConfig();
 
 /**
  * 统一「人员与组织」浏览框数据层（对齐 ecology BrowserBean）。
@@ -604,6 +639,33 @@ export function clearPersonOrgCache() {
   userNameCache.clear();
   allUsersByListLoaded = false;
   loaded = false;
+}
+
+// ==================== 收发文单位「按密级过滤」 ====================
+
+/**
+ * 给定公文密级名（公开/秘密/机密/绝密），返回「允许收发的收文单位 id 集合」（字符串数组）。
+ *
+ * 后端 {@code WfOdocSecretRuleServiceImpl.allowedUnitIds} 已按 wf_odoc_secret_rule
+ * （单位规则 / 公共组规则从严）算出允许集合；此处仅做前端缓存 + 容错（失败返回 null=不过滤）。
+ *
+ * ⚠️ 密级名必须与后端 {@code OdocSecretLevel.levelOf} 对齐，否则后端返回全部（不限制）。
+ */
+const allowedUnitIdsCache: Record<string, string[]> = {};
+
+export async function fetchAllowedUnitIds(secretLevel?: string): Promise<string[] | null> {
+  if (!secretLevel) return null;
+  if (allowedUnitIdsCache[secretLevel]) return allowedUnitIdsCache[secretLevel];
+  try {
+    const res: any = await odocSecretRuleApi.allowedUnits(secretLevel);
+    const ids = (pickPayload(res) || []) as number[];
+    const strIds = ids.map((x) => String(x));
+    allowedUnitIdsCache[secretLevel] = strIds;
+    return strIds;
+  } catch {
+    // 接口不可用（如 blade-workflow 未重启）→ 不限制，避免把选单位卡死
+    return null;
+  }
 }
 
 /** 按类别取候选列表 */

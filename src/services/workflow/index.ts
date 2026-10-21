@@ -1580,6 +1580,12 @@ export const odocApi = {
 export const odocContentUrl = (versionId: any) =>
   `${WORKFLOW}/odoc/doc/version/${versionId}/content`;
 
+// 公文前端全局可配置项（后端经 Nacos 可覆盖，缺省 mj）
+export const odocConfigApi = {
+  getConfig: () =>
+    request<ApiResponse<Record<string, string>>>(`${WORKFLOW}/odoc/config`, { method: 'GET' }),
+};
+
 // ───────────── 公文待办 / 已办 / 我的请求（odoc todo） ─────────────
 // 对应后端 WfOdocTodoController。办理/退回等动作复用通用 /task/**。
 export interface PageResult<T> {
@@ -1760,6 +1766,7 @@ export interface OdocReceiveUnit {
   unitCode?: string;
   superiorId?: any;
   unitLevel?: number;
+  subcompanyId?: any;
   companyType?: number;
   isMain?: number;
   canStartChildRequest?: number;
@@ -1778,6 +1785,10 @@ export const odocReceiveUnitApi = {
     request<ApiResponse<OdocReceiveUnit[]>>(`${WORKFLOW}/odoc/receive-unit/children`, {
       method: 'GET',
       params: { superiorId },
+    }),
+  orgTree: () =>
+    request<ApiResponse<any[]>>(`${WORKFLOW}/odoc/receive-unit/org-tree`, {
+      method: 'GET',
     }),
   get: (id: any) =>
     request<ApiResponse<OdocReceiveUnit>>(`${WORKFLOW}/odoc/receive-unit/${id}`, { method: 'GET' }),
@@ -1815,6 +1826,8 @@ export interface OdocSetting {
   defaultLayoutFormat?: number;
   defaultMustTaohong?: number;
   defaultSealRequired?: number;
+  defaultTaohongMouldId?: any;
+  defaultProcessDefId?: string;
   remark?: string;
 }
 export const odocSettingApi = {
@@ -1842,6 +1855,11 @@ export const odocSecretRuleApi = {
     request<ApiResponse<string>>(`${WORKFLOW}/odoc/secret-rule/check`, {
       method: 'POST',
       params: { docSecretLevel, receiveUnitIds },
+    }),
+  allowedUnits: (docSecretLevel?: string) =>
+    request<ApiResponse<number[]>>(`${WORKFLOW}/odoc/secret-rule/allowed-units`, {
+      method: 'GET',
+      params: { docSecretLevel },
     }),
 };
 
@@ -2104,6 +2122,8 @@ export interface OdocNumber {
   id?: string;
   typeName?: string;
   prefix?: string;
+  orgAbbrId?: any;
+  yearReset?: number;
   yearPre?: string;
   yearEnd?: string;
   showYear?: number;
@@ -2130,6 +2150,30 @@ export const numberApi = {
     request<ApiResponse<OdocNumber>>(`${WORKFLOW}/odoc/number/rule`, { method: 'PUT', data: rule }),
   removeRule: (id: any) =>
     request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/number/rule/${id}`, { method: 'DELETE' }),
+};
+
+// ───────────── 文号保留号（odoc number reserved） ─────────────
+export interface OdocNumberReserved {
+  id?: string;
+  numberId?: any;
+  serial?: number;
+  reservedBy?: any;
+  expireTime?: string;
+}
+
+export const numberReservedApi = {
+  list: (numberId: any) =>
+    request<ApiResponse<OdocNumberReserved[]>>(`${WORKFLOW}/odoc/number-reserved/list`, {
+      method: 'GET',
+      params: { numberId },
+    }),
+  reserve: (numberId: any, startSerial: number, endSerial: number, expireTime?: string) =>
+    request<ApiResponse<number>>(`${WORKFLOW}/odoc/number-reserved`, {
+      method: 'POST',
+      params: { numberId, startSerial, endSerial, expireTime },
+    }),
+  release: (id: any) =>
+    request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/number-reserved/${id}`, { method: 'DELETE' }),
 };
 
 // ───────────── AI 增强 L1（智能排版/范文/敏感词） ─────────────

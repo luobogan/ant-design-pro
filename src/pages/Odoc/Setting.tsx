@@ -27,6 +27,8 @@ const OdocSettingPage: React.FC = () => {
         defaultLayoutFormat: s.defaultLayoutFormat ?? 0,
         defaultMustTaohong: s.defaultMustTaohong !== 0,
         defaultSealRequired: s.defaultSealRequired === 1,
+        defaultTaohongMouldId: s.defaultTaohongMouldId != null ? String(s.defaultTaohongMouldId) : undefined,
+        defaultProcessDefId: s.defaultProcessDefId,
         remark: s.remark,
       });
     } catch (e: any) {
@@ -49,6 +51,8 @@ const OdocSettingPage: React.FC = () => {
         defaultLayoutFormat: v.defaultLayoutFormat,
         defaultMustTaohong: v.defaultMustTaohong ? 1 : 0,
         defaultSealRequired: v.defaultSealRequired ? 1 : 0,
+        defaultTaohongMouldId: v.defaultTaohongMouldId ? Number(v.defaultTaohongMouldId) : undefined,
+        defaultProcessDefId: v.defaultProcessDefId || undefined,
         remark: v.remark,
       });
       message.success('已保存');
@@ -79,6 +83,20 @@ const OdocSettingPage: React.FC = () => {
           </Form.Item>
           <Form.Item name="defaultSealRequired" label="新建流程默认必须电子签章" valuePropName="checked">
             <Switch />
+          </Form.Item>
+          <Form.Item
+            name="defaultTaohongMouldId"
+            label="新建流程默认红头模板"
+            tooltip="新建公文流程时自动带入的红头模板；留空表示不默认（仍可在流程建文设置里改）"
+          >
+            <Input placeholder="红头模板ID（关联 wf_odoc_mould）" />
+          </Form.Item>
+          <Form.Item
+            name="defaultProcessDefId"
+            label="默认流程"
+            tooltip="新建公文默认带入的流程定义ID或流程key；留空表示不默认"
+          >
+            <Input placeholder="如：odocFaWen 或 proc_def_id" />
           </Form.Item>
           <Form.Item name="remark" label="备注">
             <Input />
