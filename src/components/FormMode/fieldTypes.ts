@@ -75,7 +75,7 @@ export const BROWSER_TYPE_ORDER: number[] = [
 ];
 
 /** 非浏览按钮的「类型（fieldType）」→ 中文名，按 fieldHtmlType 分组 */
-const FIELD_TYPE_LABEL_MAP: Record<number, Record<number, string>> = {
+export const FIELD_TYPE_LABEL_MAP: Record<number, Record<number, string>> = {
   // 文本字段
   1: { 1: '单行文本', 2: '多行文本', 3: '保密字段', 4: '整数', 5: '浮点数', 6: '金额转换', 7: '金额千分位' },
   // 多行文本
@@ -90,6 +90,38 @@ const FIELD_TYPE_LABEL_MAP: Record<number, Record<number, string>> = {
   7: { 1: '自定义链接', 2: '描述性文字', 3: '日期', 4: '时间' },
   // 布局组件
   8: { 14: '布局组件' },
+};
+
+/** 字段HTML类型（fieldHtmlType）下拉选项（单一来源：1文本 2多行 3浏览按钮 4选择框 5附件 6复选框 7特殊 8布局） */
+export const getFieldHtmlTypeOptions = (): { value: number; label: string }[] =>
+  Object.keys(FIELD_HTML_TYPE_LABEL_MAP)
+    .map((k) => ({ value: Number(k), label: `${k}-${FIELD_HTML_TYPE_LABEL_MAP[Number(k)]}` }))
+    .sort((a, b) => a.value - b.value);
+
+/**
+ * 「详细类型（fieldType）」下拉选项（单一来源）。
+ *
+ * <p>- {@code htmlType=3} 浏览按钮：选项即**浏览按钮类型**（ecology 35+ 编号空间），
+ * 取 {@link BROWSER_TYPE_ORDER} + {@link BROWSER_TYPE_LABEL_MAP}，与运行时选择器同一编号空间；</p>
+ * <p>- 其余 htmlType：取 {@link FIELD_TYPE_LABEL_MAP}[htmlType]。</p>
+ *
+ * 字段管理等页面一律走此函数，禁止再各写一套编码解释
+ * （历史 bug：把 3 浏览按钮当成选择框，导致人力资源字段渲染成空 Select）。
+ */
+export const getFieldTypeOptions = (htmlType?: number): { value: number; label: string }[] => {
+  const ht = Number(htmlType ?? 0);
+  if (!ht) return [];
+  if (ht === 3) {
+    return BROWSER_TYPE_ORDER.map((t) => ({
+      value: t,
+      label: `${t}-${BROWSER_TYPE_LABEL_MAP[t] ?? '未知'}`,
+    }));
+  }
+  const sub = FIELD_TYPE_LABEL_MAP[ht];
+  if (!sub) return [];
+  return Object.keys(sub)
+    .map((k) => ({ value: Number(k), label: `${k}-${sub[Number(k)]}` }))
+    .sort((a, b) => a.value - b.value);
 };
 
 /** 预览 / 设计器使用的控件类型（与 FieldControl 的渲染分支一一对应） */

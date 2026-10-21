@@ -12,6 +12,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { fieldApi, fieldOptionApi, fieldExtendApi } from '@/services/formmode';
 import type { FieldDefinitionFormData, FieldTypeInfo, FieldOption, FieldExtend } from '@/services/formmode/typings';
 import { BROWSER_TYPE_META } from '@/components/FormMode/personOrg';
+import { getFieldHtmlTypeOptions, getFieldTypeOptions } from '@/components/FormMode/fieldTypes';
 import FieldOptionManager from './FieldOptionManager';
 import FieldExtendConfig from './FieldExtendConfig';
 
@@ -182,74 +183,15 @@ const FieldManageForm: React.FC<FieldManageFormProps> = ({
         label="字段HTML类型（fieldhtmltype）"
         placeholder="请选择字段HTML类型"
         rules={[{ required: true, message: '请选择字段HTML类型' }]}
-        options={[
-          { value: 1, label: '1-文本字段' },
-          { value: 2, label: '2-浏览按钮' },
-          { value: 3, label: '3-选择框' },
-          { value: 4, label: '4-附件上传' },
-          { value: 5, label: '5-特殊字段' },
-          { value: 6, label: '6-复选框' },
-          { value: 8, label: '8-下拉选择框' },
-          { value: 9, label: '9-树形选择' },
-        ]}
+        options={getFieldHtmlTypeOptions()}
         readonly={readonly}
       />
 
       <ProFormDependency name={['fieldHtmlType']}>
         {({ fieldHtmlType }) => {
-          let typeOptions: { value: number; label: string }[] = [];
-          if (fieldHtmlType === 1) {
-            typeOptions = [
-              { value: 1, label: '1-单行文本' },
-              { value: 2, label: '2-多行文本' },
-              { value: 3, label: '3-保密字段' },
-            ];
-          } else if (fieldHtmlType === 2) {
-            typeOptions = [
-              { value: 1, label: '1-人力资源' },
-              { value: 2, label: '2-部门' },
-              { value: 3, label: '3-角色' },
-              { value: 4, label: '4-资产' },
-              { value: 5, label: '5-客户' },
-              { value: 6, label: '6-项目' },
-              { value: 7, label: '7-文档' },
-              { value: 8, label: '8-流程' },
-              { value: 9, label: '9-自定义浏览框' },
-            ];
-          } else if (fieldHtmlType === 3) {
-            typeOptions = [
-              { value: 1, label: '1-单选框' },
-              { value: 2, label: '2-多选框' },
-              { value: 3, label: '3-下拉框' },
-              { value: 4, label: '4-单选下拉框' },
-              { value: 5, label: '5-多选下拉框' },
-            ];
-          } else if (fieldHtmlType === 4) {
-            typeOptions = [
-              { value: 1, label: '1-附件上传' },
-              { value: 2, label: '2-图片上传' },
-            ];
-          } else if (fieldHtmlType === 5) {
-            typeOptions = [
-              { value: 1, label: '1-日期' },
-              { value: 2, label: '2-时间' },
-              { value: 3, label: '3-说明' },
-              { value: 4, label: '4-分割线' },
-              { value: 5, label: '5-关联字段' },
-            ];
-          } else if (fieldHtmlType === 6) {
-            typeOptions = [
-              { value: 1, label: '1-复选框' },
-            ];
-          } else if (fieldHtmlType === 8) {
-            typeOptions = [
-              { value: 1, label: '1-下拉选择框' },
-            ];
-          } else if (fieldHtmlType === 9) {
-            typeOptions = [
-              { value: 1, label: '1-树形选择' },
-            ];
-          }
+          // 单一来源：编码解释统一走 fieldTypes.getFieldTypeOptions，禁止本页再自定义一套
+          // （历史 bug：本页把 2 当浏览按钮、4 当附件上传，与权威编码错位 → 字段渲染成空 Select）
+          const typeOptions = getFieldTypeOptions(fieldHtmlType);
           return (
             <ProFormSelect
               name="fieldType"

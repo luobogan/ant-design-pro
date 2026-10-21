@@ -702,6 +702,43 @@ export async function getInstance(id: string | number) {
   return request<ApiResponse<any>>(`${WORKFLOW}/instance/${id}`, { method: 'GET' });
 }
 
+/**
+ * 流程实例选择器数据源（表单「相关流程」浏览按钮 30/31/32 用）。
+ *
+ * 与「我的请求」(/instance/mine) 同源同构，但**不按发起人收口** —— 返回全部可见实例，
+ * 供「关联流程」选择任意流程单（可排除当前实例自身，避免自关联）。
+ */
+export async function instancePicker(params: {
+  current?: number;
+  pageSize?: number;
+  keyword?: string;
+  excludeId?: string;
+}) {
+  return request<ApiResponse<{ records?: any[]; total?: number }>>(`${WORKFLOW}/instance/picker`, {
+    method: 'GET',
+    params,
+  });
+}
+
+/** 实例「相关资源」条目（对齐 ecology 相关资源页签：按表单资源字段抽取，只读汇总） */
+export interface WfInstanceResource {
+  /** 1相关流程 2相关文档 3相关附件 */
+  resType?: number;
+  resId?: string;
+  resName?: string;
+  creator?: string;
+  createTime?: string;
+  extraId?: string;
+}
+
+/** 实例相关资源：type=0 全部 1相关流程 2相关文档 3相关附件 */
+export async function instanceResources(instId: string, type: number = 0) {
+  return request<ApiResponse<WfInstanceResource[]>>(`${WORKFLOW}/instance/${instId}/resources`, {
+    method: 'GET',
+    params: { type },
+  });
+}
+
 /** 「界面新鲜度」复检结果：判定已打开的页面是否已过期（流程已回退/流转/结束） */
 export interface InstanceFreshResult {
   instanceId?: string;
@@ -1558,6 +1595,15 @@ export const odocApi = {
     request<ApiResponse<OdocDocInit>>(`${WORKFLOW}/odoc/doc/init`, {
       method: 'POST',
       params: { instanceId, defId, title, edit },
+    }),
+  /** 正文主记录（「相关文档」字段回显用：id → 标题） */
+  getDoc: (docId: any) =>
+    request<ApiResponse<{ id?: string; title?: string }>>(`${WORKFLOW}/odoc/doc/${docId}`, { method: 'GET' }),
+  /** 公文文档选择器数据源（表单「相关文档」浏览按钮 24/26 用；可按标题检索、可排除指定实例的文档） */
+  picker: (params: { current?: number; pageSize?: number; keyword?: string; excludeInstanceId?: string }) =>
+    request<ApiResponse<{ records?: any[]; total?: number }>>(`${WORKFLOW}/odoc/doc/picker`, {
+      method: 'GET',
+      params,
     }),
   /** 版本历史 */
   versions: (docId: any) =>

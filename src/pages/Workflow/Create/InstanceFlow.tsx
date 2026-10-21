@@ -15,6 +15,7 @@ import {
   Upload,
 } from 'antd';
 import { DeploymentUnitOutlined, EllipsisOutlined } from '@ant-design/icons';
+import RelatedResources from './RelatedResources';
 import RichTextEditor, {
   RichTextView,
   focusRichText,
@@ -266,7 +267,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
 }) => {
   const { message } = App.useApp();
   const [pkg, setPkg] = useState<any>(null);
-  const [tab, setTab] = useState<'form' | 'diagram' | 'status'>('form');
+  const [tab, setTab] = useState<'form' | 'diagram' | 'status' | 'resource'>('form');
   const [logs, setLogs] = useState<any[]>([]);
   /** nodeKey → 操作者分组（流程图节点「谁批的」+ 悬浮「操作者」面板） */
   const [nodeOps, setNodeOps] = useState<Record<string, any>>({});
@@ -1356,7 +1357,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
         <Tabs
           size="small"
           activeKey={tab}
-          onChange={(v) => setTab(v as 'form' | 'diagram' | 'status')}
+          onChange={(v) => setTab(v as 'form' | 'diagram' | 'status' | 'resource')}
           style={{ marginBottom: 0 }}
           items={[
             {
@@ -1590,6 +1591,17 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                 </div>
               ),
             },
+            // 相关资源：**实例存在才显示**（对齐 ecology requestid>0 才渲染该页签）。
+            // 内容由后端按「资源类表单字段」从业务数据抽取（相关流程/相关文档/附件），只读汇总。
+            ...(instanceId
+              ? [
+                  {
+                    key: 'resource',
+                    label: '相关资源',
+                    children: <RelatedResources instanceId={String(instanceId)} />,
+                  },
+                ]
+              : []),
           ]}
         />
       </div>

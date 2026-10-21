@@ -16,6 +16,10 @@ import * as deptApi from '@/services/system/dept';
 import * as roleApi from '@/services/authority/role';
 import * as postApi from '@/pages/System/Post/service';
 import { odocReceiveGroupApi, odocReceiveUnitApi, odocSecretRuleApi, odocConfigApi } from '@/services/workflow';
+// 「相关资源」类浏览按钮的名称解析（流程标题 / 文档标题）。
+// 二者只依赖 services，不反向依赖本文件，故无循环引用。
+import { resolveInstanceNames } from './WfInstancePicker';
+import { resolveDocNames } from './OdocDocPicker';
 
 // ==================== 公文密级字段名（可配置） ====================
 /**
@@ -70,7 +74,23 @@ resolveOdocPersonOrgConfig();
 
 // ==================== 类型元信息 ====================
 
-export type PersonOrgCategory = 'hrm' | 'dept' | 'branch' | 'role' | 'post' | 'unit';
+/**
+ * 浏览按钮候选类别。
+ *
+ * <p>前 6 类（hrm/dept/branch/role/post/unit）走组织架构数据 {@link OrgData}；
+ * 后 3 类（wf/doc/file）是「相关资源」类浏览按钮（流程/文档/附件），候选来自各自业务接口
+ * （流程实例检索 / 文档检索 / 附件上传），**不走 OrgData**，故 {@link itemsOfCategory} 返回空。</p>
+ */
+export type PersonOrgCategory =
+  | 'hrm'
+  | 'dept'
+  | 'branch'
+  | 'role'
+  | 'post'
+  | 'unit'
+  | 'wf'
+  | 'doc'
+  | 'file';
 
 export interface PersonOrgItem {
   /** 主键（字符串，雪花 ID 防精度丢失） */
@@ -140,12 +160,25 @@ export const BROWSER_TYPE_META: Record<number, BrowserTypeMeta> = {
   263: { browserType: 263, label: '主题分类', multiple: false, tree: false, browse: 'dict', dictType: 'topic_type' },
   // 发文字号（odoc，走 DictNumberField：取文号规则）
   264: { browserType: 264, label: '发文字号', multiple: false, tree: false, browse: 'number' },
+  // 相关流程（对齐 ecology 30/31/32）：候选 = 流程实例，走实例检索接口（可复用 /instance/mine 口径）
+  30: { browserType: 30, label: '流程', category: 'wf', multiple: false, tree: false },
+  31: { browserType: 31, label: '多流程', category: 'wf', multiple: true, tree: false },
+  32: { browserType: 32, label: '归档流程', category: 'wf', multiple: false, tree: false },
+  // 相关文档（对齐 ecology 24/26）
+  24: { browserType: 24, label: '文档', category: 'doc', multiple: false, tree: false },
+  26: { browserType: 26, label: '多文档', category: 'doc', multiple: true, tree: false },
+  // 附件（对齐 ecology 57）
+  57: { browserType: 57, label: '附件', category: 'file', multiple: true, tree: false },
 };
 
 /**
- * 表单字段（fieldhtmltype=2 浏览按钮）的 type 映射到浏览按钮编号。
- * 注意：这是字段定义的 10 类编号（1人力资源 2部门 3角色 4资产 5客户 6项目 7文档 8流程 9自定义），
- * 与浏览按钮 35+ 编号不是同一空间，仅前 3 项有对应实现。
+ * 【历史兜底】表单字段（**fieldhtmltype=3** 浏览按钮，权威编码见 fieldTypes.ts）的
+ * 「10 类编号」→ 浏览按钮 35+ 编号映射。
+ *
+ * 注意：10 类编号（1人力资源 2部门 3角色 4资产 5客户 6项目 7文档 8流程 9自定义）与浏览按钮
+ * 35+ 编号**不是同一空间**。按权威编码，fieldHtmlType=3 时 fieldType 本身即 35+ 编号，
+ * 应优先直接命中 {@link BROWSER_TYPE_META}（见 {@link resolveBrowserMeta}）；
+ * 本表仅用于兼容历史脏数据（仅前 3 项有对应实现）。
  */
 const FIELD_TYPE_TO_BROWSER: Record<number, number> = {
   1: 1, // 人力资源
@@ -168,7 +201,12 @@ export const FIELD_SEMANTIC_TO_BROWSER: Record<string, number> = {
 export function resolveBrowserMeta(fieldType?: any, browType?: any): BrowserTypeMeta | undefined {
   const bt = Number(browType);
   if (bt && BROWSER_TYPE_META[bt]) return BROWSER_TYPE_META[bt];
-  const mapped = FIELD_TYPE_TO_BROWSER[Number(fieldType)];
+  // 权威编码：fieldHtmlType=3 时 fieldType 本身就是浏览按钮编号（35+ 空间）→ 直接命中。
+  // 这是「相关流程(30/31/32)/相关文档(24/26)/附件(57)」能被识别的关键：
+  // 旧逻辑只查 10 类编号映射表，导致这些类型永远解析不出选择器（表现为字段渲染成空下拉/不可填）。
+  const ft = Number(fieldType);
+  if (ft && BROWSER_TYPE_META[ft]) return BROWSER_TYPE_META[ft];
+  const mapped = FIELD_TYPE_TO_BROWSER[ft];
   return mapped ? BROWSER_TYPE_META[mapped] : undefined;
 }
 
@@ -724,6 +762,26 @@ export async function resolveItemNames(
   ids: string[],
 ): Promise<{ id: string; name: string }[]> {
   if (!ids.length) return [];
+  // 相关流程（30/31/32）：id → 流程实例标题
+  if (category === 'wf') {
+    try {
+      return await resolveInstanceNames(ids);
+    } catch {
+      return ids.map((id) => ({ id, name: id }));
+    }
+  }
+  // 相关文档（24/26）：id → 公文正文标题
+  if (category === 'doc') {
+    try {
+      return await resolveDocNames(ids);
+    } catch {
+      return ids.map((id) => ({ id, name: id }));
+    }
+  }
+  // 附件（57）：暂按 id 回显（附件语义为「上传」，名称随上传时写入）
+  if (category === 'file') {
+    return ids.map((id) => ({ id, name: id }));
+  }
   if (category === 'hrm') {
     try {
       return await fetchUserNames(ids);

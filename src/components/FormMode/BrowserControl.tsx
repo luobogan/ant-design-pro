@@ -5,6 +5,8 @@ import type { FieldVariant } from './fieldTokens';
 import { PersonOrgField } from './PersonOrgPicker';
 import { BROWSER_TYPE_META } from './personOrg';
 import { DictNumberField } from './DictNumberPicker';
+import { WfInstanceField } from './WfInstancePicker';
+import { OdocDocField } from './OdocDocPicker';
 
 /**
  * 浏览按钮字段统一壳（唯一入口）
@@ -56,8 +58,84 @@ export const BrowserControl: React.FC<BrowserControlProps> = ({
   const typeLabel =
     meta?.label || getBrowserTypeLabel(browserType) || '浏览按钮';
 
+  // 相关流程（30/31/32）→ 流程实例选择器（数据源 GET /instance/picker，全部可见实例）
+  if (meta?.category === 'wf') {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          width: '100%',
+          minWidth: 0,
+          ...style,
+        }}
+      >
+        <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+          <WfInstanceField
+            // 单选/多选按类型语义显式传入（31 多流程 = 多选）
+            multiple={isBrowserTypeMultiple(browserType)}
+            value={value}
+            onChange={(v: any) => onChange?.(v)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder || `请选择${typeLabel}`}
+          />
+        </div>
+        {showTypeTag && (
+          <Tag
+            color="blue"
+            title={`字段类型：${typeLabel}`}
+            style={{ margin: 0, flexShrink: 0, fontSize: 11, lineHeight: '16px' }}
+          >
+            {typeLabel}
+          </Tag>
+        )}
+      </div>
+    );
+  }
+
+  // 相关文档（24/26）→ 公文文档选择器（数据源 GET /odoc/doc/picker）
+  if (meta?.category === 'doc') {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          width: '100%',
+          minWidth: 0,
+          ...style,
+        }}
+      >
+        <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+          <OdocDocField
+            // 单选/多选按类型语义显式传入（26 多文档 = 多选）
+            multiple={isBrowserTypeMultiple(browserType)}
+            value={value}
+            onChange={(v: any) => onChange?.(v)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder || `请选择${typeLabel}`}
+          />
+        </div>
+        {showTypeTag && (
+          <Tag
+            color="blue"
+            title={`字段类型：${typeLabel}`}
+            style={{ margin: 0, flexShrink: 0, fontSize: 11, lineHeight: '16px' }}
+          >
+            {typeLabel}
+          </Tag>
+        )}
+      </div>
+    );
+  }
+
   // 未接入数据的类型 → 带类型提示的输入框（降级，保证字段始终可见可交互）
-  if (!meta) {
+  // 注：附件(57) 语义是「上传」而非「选已有」，由 htmlType=5 的附件上传字段承担，
+  //     该浏览按钮类型暂不接入选择器，先降级，避免误落到组织选择器
+  if (!meta || meta.category === 'file') {
     return (
       <Tooltip title={`浏览按钮类型 ${browserType ?? '-'}（${typeLabel}）暂未接入数据`}>
         <Input

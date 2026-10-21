@@ -25,6 +25,7 @@ import type { NodePermissionResolver } from '@/pages/FormMode/ExcelDesign/compon
 import { buildSubmitValues } from '@/pages/FormMode/ExcelDesign/utils/collectFieldValues';
 import FlowDiagram from '@/pages/FormMode/Test/components/FlowDiagram';
 import InstanceFlow from './InstanceFlow';
+import RelatedResources from './RelatedResources';
 import { MENUS_OPTIONS } from '@/pages/FormMode/WorkflowDesign/wfDict';
 import {
   getBpmn,
@@ -212,7 +213,7 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
   const [pkg, setPkg] = useState<any>(null);
   const [layoutData, setLayoutData] = useState<any>(null);
   const [nodePermission, setNodePermission] = useState<NodePermissionResolver | undefined>();
-  const [tab, setTab] = useState<'form' | 'diagram' | 'status'>('form');
+  const [tab, setTab] = useState<'form' | 'diagram' | 'status' | 'resource'>('form');
   const [opinion, setOpinion] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [done, setDone] = useState<boolean>(false);
@@ -935,12 +936,14 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
                   <Tabs
                     size="small"
                     activeKey={tab}
-                    onChange={(v) => setTab(v as 'form' | 'diagram' | 'status')}
+                    onChange={(v) => setTab(v as 'form' | 'diagram' | 'status' | 'resource')}
                     style={{ marginBottom: 0 }}
                     items={[
                       { key: 'form', label: '流程表单' },
                       { key: 'diagram', label: '流程图' },
                       { key: 'status', label: '流程状态' },
+                      // 相关资源：**实例存在才显示**（对齐 ecology requestid>0 才渲染该页签）
+                      ...(effectiveInstanceId ? [{ key: 'resource', label: '相关资源' }] : []),
                     ]}
                   />
                 </Space>
@@ -1064,6 +1067,10 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
                       ]}
                     />
                   </div>
+                )}
+
+                {tab === 'resource' && effectiveInstanceId && (
+                  <RelatedResources instanceId={String(effectiveInstanceId)} />
                 )}
               </div>
             </>
