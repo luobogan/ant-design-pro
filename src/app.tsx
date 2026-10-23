@@ -131,7 +131,7 @@ const toPascalCase = (str: string): string => {
   // ⚠️ 收录原则：只收「磁盘目录/文件名里真实出现、且小写化后无法还原」的复合词。
   // 缺词会导致复合词目录推导错误（tenantpackage → Tenantpackage ✗ → TenantPackage ✓），
   // 此时优先补词典，而不是在 PAGE_DIR_ALIAS 打补丁。
-  const commonWords = ['Form', 'Mode', 'Manage', 'Data', 'View', 'Field', 'Edit', 'Add', 'List', 'Detail', 'System', 'Mall', 'Product', 'Category', 'User', 'Role', 'Menu', 'Exception', 'Table', 'Design', 'Tenant', 'Package', 'Preview', 'Page', 'Portal', 'Lib', 'Template', 'Search', 'Element', 'Register', 'Synergy'];
+  const commonWords = ['Form', 'Mode', 'Manage', 'Data', 'View', 'Field', 'Edit', 'Add', 'List', 'Detail', 'System', 'Mall', 'Product', 'Category', 'User', 'Role', 'Menu', 'Exception', 'Table', 'Design', 'Tenant', 'Package', 'Preview', 'Page', 'Portal', 'Lib', 'Template', 'Search', 'Element', 'Register', 'Synergy', 'Engine', 'Config'];
 
   let result = str.toLowerCase();
 

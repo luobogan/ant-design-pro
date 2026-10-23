@@ -228,8 +228,10 @@ const OdocField: React.FC<OdocFieldProps> = ({ value, instanceId, defId, fieldTi
                 <Tooltip title="下载当前版本">
                   <Button
                     icon={<DownloadOutlined />}
-                    href={odocContentUrl(current.id)}
-                    target="_blank"
+                    onClick={async () => {
+                      const u = await odocContentUrl(current.id);
+                      if (u) window.open(u, '_blank');
+                    }}
                   >
                     下载当前
                   </Button>
@@ -284,7 +286,13 @@ const OdocField: React.FC<OdocFieldProps> = ({ value, instanceId, defId, fieldTi
               renderItem={(v) => (
                 <List.Item
                   actions={[
-                    <a key="dl" href={odocContentUrl(v.id)} target="_blank">
+                    <a
+                      key="dl"
+                      onClick={async () => {
+                        const u = await odocContentUrl(v.id);
+                        if (u) window.open(u, '_blank');
+                      }}
+                    >
                       下载
                     </a>,
                     !locked && v.id !== current?.id ? (

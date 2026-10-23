@@ -112,7 +112,13 @@ const OdocLayoutSeal: React.FC<OdocLayoutSealProps> = ({ docId, currentVersion, 
                 <a key="pv" onClick={() => setPreview({ id: lf.id, format: lf.format || 12 })}>
                   预览
                 </a>,
-                <a key="dl" href={odocLayoutContentUrl(lf.id)} target="_blank">
+                <a
+                  key="dl"
+                  onClick={async () => {
+                    const u = await odocLayoutContentUrl(lf.id);
+                    if (u) window.open(u, '_blank');
+                  }}
+                >
                   下载
                 </a>,
                 sealAvail && !locked ? (

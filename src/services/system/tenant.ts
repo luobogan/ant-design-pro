@@ -91,7 +91,10 @@ export const tenantPackageApi = {
   }),
   
   // 删除产品包
-  remove: (id: number) => request(`/api/blade-system/tenant-package/remove?id=${id}`),
+  remove: (id: number) => request('/api/blade-system/tenant-package/remove', {
+    method: 'POST',
+    params: { id },
+  }),
   
   // 获取菜单权限分配树
   menuGrantTree: () => request('/api/blade-system/tenant-package/menu-grant-tree'),

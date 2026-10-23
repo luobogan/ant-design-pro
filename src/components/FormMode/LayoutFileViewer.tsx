@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button, Modal, Space } from 'antd';
 import { odocLayoutContentUrl } from '@/services/workflow';
 
@@ -16,7 +16,24 @@ interface LayoutFileViewerProps {
  * - OFD(13)：需信创 OFD 阅读器控件（另行集成），此处提供下载入口。
  */
 const LayoutFileViewer: React.FC<LayoutFileViewerProps> = ({ open, layoutFileId, format, onClose }) => {
-  const url = layoutFileId != null ? odocLayoutContentUrl(layoutFileId) : '';
+  const [url, setUrl] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    if (layoutFileId != null) {
+      odocLayoutContentUrl(layoutFileId)
+        .then((u) => {
+          if (!cancelled) setUrl(u);
+        })
+        .catch(() => {
+          if (!cancelled) setUrl('');
+        });
+    } else {
+      setUrl('');
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [layoutFileId]);
   const isPdf = format === 12;
   return (
     <Modal

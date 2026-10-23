@@ -1622,9 +1622,11 @@ export const odocApi = {
     }),
 };
 
-/** 版本内容原始下载地址（字节流，浏览器直连；不走 request 的 JSON 解析） */
-export const odocContentUrl = (versionId: any) =>
-  `${WORKFLOW}/odoc/doc/version/${versionId}/content`;
+/** 版本内容原始下载地址（字节流，浏览器直连）。须先经签名端点换取带 token 的 URL，闭合 DOC-P0-4 */
+export const odocContentUrl = async (versionId: any): Promise<string> => {
+  const r = await request<any>(`${WORKFLOW}/odoc/sign-url?type=version&id=${versionId}`);
+  return typeof r === 'string' ? r : r?.data;
+};
 
 // 公文前端全局可配置项（后端经 Nacos 可覆盖，缺省 mj）
 export const odocConfigApi = {
@@ -2298,9 +2300,11 @@ export interface OdocSeal {
   verifyResult?: string;
 }
 
-/** 版式文件内容原始地址（浏览器直连预览/下载，不走 request JSON 解析） */
-export const odocLayoutContentUrl = (layoutFileId: any) =>
-  `${WORKFLOW}/odoc/layout/${layoutFileId}/content`;
+/** 版式文件内容原始地址（浏览器直连预览/下载）。须先经签名端点换取带 token 的 URL，闭合 DOC-P0-4 */
+export const odocLayoutContentUrl = async (layoutFileId: any): Promise<string> => {
+  const r = await request<any>(`${WORKFLOW}/odoc/sign-url?type=layout&id=${layoutFileId}`);
+  return typeof r === 'string' ? r : r?.data;
+};
 
 export const layoutApi = {
   available: () => request<ApiResponse<boolean>>(`${WORKFLOW}/odoc/layout/available`, { method: 'GET' }),
