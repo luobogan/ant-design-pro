@@ -50,4 +50,20 @@ export interface ImageUploaderProps {
    * 不传则自动从当前登录用户获取
    */
   tenantId?: string;
+  /**
+   * 目标服务（后端 blade-file 通用上传组件；默认 blade-resource）
+   */
+  service?: string;
+  /**
+   * 是否展示「上传选项」面板（压缩 / 加密 / 存储方式）
+   */
+  showOptions?: boolean;
+  /**
+   * 默认是否打包 ZIP（不传则取服务端 /file/config 的默认值）
+   */
+  defaultNeedZip?: boolean;
+  /**
+   * 默认是否 AES 加密（不传则取服务端 /file/config 的默认值）
+   */
+  defaultNeedEncrypt?: boolean;
 }

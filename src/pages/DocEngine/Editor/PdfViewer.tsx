@@ -72,8 +72,13 @@ const PdfViewer: React.FC<Props> = ({ cfg }) => {
         };
         const res = await fetch(apiUrl, { headers });
         if (!res.ok) {
+          let detail = '';
+          try {
+            const j = await res.json();
+            if (j && j.msg) detail = '：' + j.msg;
+          } catch (e) { /* ignore */ }
           setStatus('error');
-          setMsg(`PDF 加载失败（HTTP ${res.status}）：无权限或文件不可读`);
+          setMsg(`PDF 加载失败（HTTP ${res.status}）${detail || '：无权限或文件不可读'}`);
           return;
         }
         const blob = await res.blob();

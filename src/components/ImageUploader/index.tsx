@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Upload, Modal, Spin, App } from 'antd';
-import { PlusOutlined, LoadingOutlined } from '@ant-design/icons';
+import { Upload, Modal, Spin, App, Button, Checkbox, Popover, Select, Space, Tooltip } from 'antd';
+import { PlusOutlined, LoadingOutlined, SettingOutlined } from '@ant-design/icons';
 import type { UploadFile, UploadProps } from 'antd/es/upload/interface';
 import { ImageUploaderProps, UploadResult, ImageValue } from './types';
 import { getTenantId, getToken } from '@/utils/authority';
+import { buildDownloadUrl, getFileConfig, resolveFileUrl, type FileStorageConfig } from '@/services/file';
 
 /**
  * fetchImageAsBlob 的"settle-once"封装
@@ -104,12 +105,35 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
   returnObject = false,
   uploadParams,
   tenantId: propTenantId,
+  service = 'blade-resource',
+  showOptions = true,
+  defaultNeedZip,
+  defaultNeedEncrypt,
 }) => {
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [uploadLoading, setUploadLoading] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImage, setPreviewImage] = useState('');
   const prevValueRef = useRef(value);
+  // 上传选项（压缩 / 加密 / 存储方式）：可选项范围由服务端 /file/config 决定
+  const [fileConfig, setFileConfig] = useState<FileStorageConfig | undefined>();
+  const [needZip, setNeedZip] = useState<boolean>(!!defaultNeedZip);
+  const [needEncrypt, setNeedEncrypt] = useState<boolean>(!!defaultNeedEncrypt);
+  const [storage, setStorage] = useState<'LOCAL' | 'OSS'>('LOCAL');
+
+  useEffect(() => {
+    let mounted = true;
+    getFileConfig(service).then((cfg) => {
+      if (!mounted || !cfg) return;
+      setFileConfig(cfg);
+      if (defaultNeedZip === undefined) setNeedZip(cfg.defaultNeedZip);
+      if (defaultNeedEncrypt === undefined) setNeedEncrypt(cfg.defaultNeedEncrypt);
+      setStorage(cfg.defaultStorage);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [service, defaultNeedZip, defaultNeedEncrypt]);
 
   // 追踪所有创建的 blob URL，用于组件卸载时释放内存
   const blobUrlsRef = useRef<Set<string>>(new Set());
@@ -354,6 +378,16 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
       } else {
         const formData = new FormData();
         formData.append('file', file as any);
+        // 统一上传组件的可选项：压缩（ZIP）/ 加密（AES）/ 存储方式
+        if (fileConfig?.allowZip !== false) {
+          formData.append('needZip', String(needZip));
+        }
+        if (fileConfig?.allowEncrypt !== false) {
+          formData.append('needEncrypt', String(needEncrypt));
+        }
+        if (fileConfig?.allowStorageSwitch !== false && fileConfig?.ossAvailable) {
+          formData.append('storage', storage);
+        }
         if (uploadParams) {
           Object.entries(uploadParams).forEach(([key, val]) => {
             formData.append(key, val);
@@ -380,8 +414,8 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
           if (typeof result.data === 'string') {
             fileUrl = result.data;
           } else {
-            fileUrl = result.data.link || result.data.url || '';
             fileId = result.data.id;
+            fileUrl = resolveFileUrl(result.data.link || result.data.url, fileId, service);
             isZip = result.data.isZip || false;
           }
           if (fileUrl) {
@@ -427,8 +461,8 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
           if (typeof file.response.data === 'string') {
             fileUrl = file.response.data;
           } else {
-            fileUrl = file.response.data.link || file.response.data.url || '';
             fileId = file.response.data.id;
+            fileUrl = resolveFileUrl(file.response.data.link || file.response.data.url, fileId, service);
           }
           if (fileUrl) {
             file.url = '';
@@ -494,7 +528,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
         previewAbortRef.current = controller;
         const fileId = file.response?.data?.id;
         const downloadUrl = fileId
-          ? `/api/blade-mall/file/download/${fileId}`
+          ? buildDownloadUrl(fileId, service)
           : file.url;
         const token = getToken() || '';
         const uploadTenantId = propTenantId || getTenantId() || '000000';
@@ -548,7 +582,11 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
   const getServerUrl = (file: UploadFile): string | undefined => {
     if (file.response?.data) {
       if (typeof file.response.data === 'string') return file.response.data;
-      return file.response.data.link || file.response.data.url;
+      return resolveFileUrl(
+        file.response.data.link || file.response.data.url,
+        file.response.data.id,
+        service,
+      );
     }
     if (file.url && !file.url.startsWith('blob:')) return file.url;
     return undefined;
@@ -629,30 +667,72 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
     </div>
   );
 
+  const uploadOptionsPanel = (
+    <div style={{ width: 220 }}>
+      <Checkbox
+        checked={needZip}
+        disabled={fileConfig?.allowZip === false}
+        onChange={(e) => setNeedZip(e.target.checked)}
+      >
+        压缩（打包为 ZIP）
+      </Checkbox>
+      <br />
+      <Checkbox
+        checked={needEncrypt}
+        disabled={fileConfig?.allowEncrypt === false}
+        onChange={(e) => setNeedEncrypt(e.target.checked)}
+      >
+        加密（AES）
+      </Checkbox>
+      <div style={{ marginTop: 8 }}>
+        <Select
+          size="small"
+          style={{ width: '100%' }}
+          value={storage}
+          disabled={fileConfig?.allowStorageSwitch === false || !fileConfig?.ossAvailable}
+          onChange={(v) => setStorage(v)}
+          options={[
+            { label: '本地存储', value: 'LOCAL' },
+            { label: '对象存储（OSS）', value: 'OSS', disabled: !fileConfig?.ossAvailable },
+          ]}
+        />
+      </div>
+    </div>
+  );
+
   return (
     <div>
-      <Upload
-        name="file"
-        listType="picture-card"
-        className="avatar-uploader"
-        showUploadList={{
-          showPreviewIcon: true,
-          showRemoveIcon: true,
-          showDownloadIcon: false,
-        }}
-        customRequest={handleUpload}
-        onChange={handleChange}
-        onPreview={handlePreview}
-        onRemove={handleRemove}
-        multiple={multiple}
-        maxCount={maxCount}
-        accept={accept}
-        fileList={fileList}
-        disabled={loading}
-        itemRender={customItemRender}
-      >
-        {fileList.length < maxCount && uploadButton}
-      </Upload>
+      <Space align="start">
+        <Upload
+          name="file"
+          listType="picture-card"
+          className="avatar-uploader"
+          showUploadList={{
+            showPreviewIcon: true,
+            showRemoveIcon: true,
+            showDownloadIcon: false,
+          }}
+          customRequest={handleUpload}
+          onChange={handleChange}
+          onPreview={handlePreview}
+          onRemove={handleRemove}
+          multiple={multiple}
+          maxCount={maxCount}
+          accept={accept}
+          fileList={fileList}
+          disabled={loading}
+          itemRender={customItemRender}
+        >
+          {fileList.length < maxCount && uploadButton}
+        </Upload>
+        {showOptions && (
+          <Tooltip title="上传选项：压缩 / 加密 / 存储方式">
+            <Popover content={uploadOptionsPanel} trigger="click" placement="bottomLeft">
+              <Button icon={<SettingOutlined />} />
+            </Popover>
+          </Tooltip>
+        )}
+      </Space>
 
       <Modal
         open={previewVisible}

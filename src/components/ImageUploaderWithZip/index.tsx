@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Button, Modal, message, Form, Space, Tag, Tooltip } from 'antd';
-import { PlusOutlined, LoadingOutlined, EyeOutlined, FileImageOutlined } from '@ant-design/icons';
+import { Upload, Button, Modal, message, Form, Space, Tag, Tooltip, Checkbox, Popover, Select } from 'antd';
+import { PlusOutlined, LoadingOutlined, EyeOutlined, FileImageOutlined, SettingOutlined } from '@ant-design/icons';
 import type { UploadFile, UploadProps } from 'antd/es/upload/interface';
 import ZipImagePreview from '@/components/ZipImagePreview';
 import type { ZipImageInfo } from '@/components/ZipImagePreview';
 import { getTenantId, getToken } from '@/utils/authority';
+import { getFileConfig, resolveFileUrl, type FileStorageConfig } from '@/services/file';
 
 export interface ImageUploaderWithZipProps {
   name?: string;
@@ -28,6 +29,14 @@ export interface ImageUploaderWithZipProps {
   uploadParams?: Record<string, string>;
   tenantId?: string;
   imageInfo?: ZipImageInfo | null;
+  /** 目标服务（后端 blade-file 通用上传组件） */
+  service?: string;
+  /** 是否展示「上传选项」面板（压缩 / 加密 / 存储方式） */
+  showOptions?: boolean;
+  /** 默认是否打包 ZIP（不传则取服务端 /file/config 默认值） */
+  defaultNeedZip?: boolean;
+  /** 默认是否 AES 加密 */
+  defaultNeedEncrypt?: boolean;
 }
 
 const ImageUploaderWithZip: React.FC<ImageUploaderWithZipProps> = ({
@@ -52,12 +61,35 @@ const ImageUploaderWithZip: React.FC<ImageUploaderWithZipProps> = ({
   uploadParams,
   tenantId: propTenantId,
   imageInfo: propImageInfo,
+  service = 'blade-mall',
+  showOptions = true,
+  defaultNeedZip,
+  defaultNeedEncrypt,
 }) => {
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [uploadLoading, setUploadLoading] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
   const [zipPreviewVisible, setZipPreviewVisible] = useState(false);
   const [currentImageInfo, setCurrentImageInfo] = useState<ZipImageInfo | null>(null);
+  // 上传选项（压缩 / 加密 / 存储方式）
+  const [fileConfig, setFileConfig] = useState<FileStorageConfig | undefined>();
+  const [needZip, setNeedZip] = useState<boolean>(!!defaultNeedZip);
+  const [needEncrypt, setNeedEncrypt] = useState<boolean>(!!defaultNeedEncrypt);
+  const [storage, setStorage] = useState<'LOCAL' | 'OSS'>('LOCAL');
+
+  useEffect(() => {
+    let mounted = true;
+    getFileConfig(service).then((cfg) => {
+      if (!mounted || !cfg) return;
+      setFileConfig(cfg);
+      if (defaultNeedZip === undefined) setNeedZip(cfg.defaultNeedZip);
+      if (defaultNeedEncrypt === undefined) setNeedEncrypt(cfg.defaultNeedEncrypt);
+      setStorage(cfg.defaultStorage);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [service, defaultNeedZip, defaultNeedEncrypt]);
 
   useEffect(() => {
     if (value && fileList.length === 0) {
@@ -124,6 +156,16 @@ const ImageUploaderWithZip: React.FC<ImageUploaderWithZipProps> = ({
       } else {
         const formData = new FormData();
         formData.append('file', file as any);
+        // 统一上传组件的可选项：压缩（ZIP）/ 加密（AES）/ 存储方式
+        if (fileConfig?.allowZip !== false) {
+          formData.append('needZip', String(needZip));
+        }
+        if (fileConfig?.allowEncrypt !== false) {
+          formData.append('needEncrypt', String(needEncrypt));
+        }
+        if (fileConfig?.allowStorageSwitch !== false && fileConfig?.ossAvailable) {
+          formData.append('storage', storage);
+        }
 
         if (uploadParams) {
           Object.entries(uploadParams).forEach(([key, value]) => {
@@ -157,10 +199,10 @@ const ImageUploaderWithZip: React.FC<ImageUploaderWithZipProps> = ({
             setCurrentImageInfo({
               id: imageData.id,
               filename: imageData.filename || file.name,
-              url: imageData.url || '',
+              url: resolveFileUrl(imageData.url, imageData.id, service),
               filesize: imageData.filesize || 0,
               filetype: imageData.filetype || '',
-              iszip: imageData.iszip || 0,
+              iszip: imageData.isZip ? 1 : 0,
               encrypt: imageData.isEncrypt || false,
             });
           }
@@ -269,6 +311,55 @@ const ImageUploaderWithZip: React.FC<ImageUploaderWithZipProps> = ({
             <Tag color="blue" icon={<FileImageOutlined />}>
               ZIP压缩
             </Tag>
+          )}
+
+          {showOptions && (
+            <Tooltip title="上传选项：压缩 / 加密 / 存储方式">
+              <Popover
+                content={
+                  <div style={{ width: 220 }}>
+                    <Checkbox
+                      checked={needZip}
+                      disabled={fileConfig?.allowZip === false}
+                      onChange={(e) => setNeedZip(e.target.checked)}
+                    >
+                      压缩（打包为 ZIP）
+                    </Checkbox>
+                    <br />
+                    <Checkbox
+                      checked={needEncrypt}
+                      disabled={fileConfig?.allowEncrypt === false}
+                      onChange={(e) => setNeedEncrypt(e.target.checked)}
+                    >
+                      加密（AES）
+                    </Checkbox>
+                    <div style={{ marginTop: 8 }}>
+                      <Select
+                        size="small"
+                        style={{ width: '100%' }}
+                        value={storage}
+                        disabled={
+                          fileConfig?.allowStorageSwitch === false || !fileConfig?.ossAvailable
+                        }
+                        onChange={(v) => setStorage(v)}
+                        options={[
+                          { label: '本地存储', value: 'LOCAL' },
+                          {
+                            label: '对象存储（OSS）',
+                            value: 'OSS',
+                            disabled: !fileConfig?.ossAvailable,
+                          },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                }
+                trigger="click"
+                placement="bottomLeft"
+              >
+                <Button icon={<SettingOutlined />} size="small" />
+              </Popover>
+            </Tooltip>
           )}
         </div>
 
