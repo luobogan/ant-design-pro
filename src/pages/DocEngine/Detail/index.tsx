@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { history, useLocation } from 'umi';
-import { Button, Card, Descriptions, Input, List, Select, Space, Table, Tabs, Tag, Upload, message } from 'antd';
+import { Button, Card, Checkbox, Descriptions, Input, List, Modal, Select, Space, Table, Tabs, Tag, Upload, message } from 'antd';
 import {
   getDocDetail, getDocContent, saveDocContent,
   listAttachment, uploadAttachment, deleteAttachment, listVersions,
@@ -36,6 +36,9 @@ const DocDetailPage: React.FC = () => {
   const [score, setScore] = useState<{ avg?: number; count?: number; myScore?: number | null }>({});
   const [replyText, setReplyText] = useState('');
   const [myScore, setMyScore] = useState<number | undefined>();
+  // 删除附件：目标行 + 是否同时删除物理文件
+  const [delTarget, setDelTarget] = useState<any>(null);
+  const [delPhysical, setDelPhysical] = useState<boolean>(true);
 
   const loadAll = useCallback(async (id?: string) => {
     if (!id) return;
@@ -66,7 +69,20 @@ const DocDetailPage: React.FC = () => {
     }
     return false;
   };
-  const onDelAttach = (id: any) => run(() => deleteAttachment(id), '附件删除');
+  const onDelAttach = (row: any) => {
+    setDelTarget(row);
+    setDelPhysical(true);
+  };
+  const onConfirmDel = async () => {
+    try {
+      await deleteAttachment(delTarget?.id, delPhysical);
+      message.success('附件删除成功');
+      setDelTarget(null);
+      loadAll(docId);
+    } catch (e: any) {
+      message.error(e?.msg || '附件删除失败');
+    }
+  };
 
   const onSendReply = async () => {
     if (!docId || !replyText.trim()) return;
@@ -176,7 +192,7 @@ const DocDetailPage: React.FC = () => {
                         >
                           打开预览
                         </Button>
-                        <Button size="small" type="link" danger onClick={() => onDelAttach(r.id)}>删除</Button>
+                        <Button size="small" type="link" danger onClick={() => onDelAttach(r)}>删除</Button>
                       </Space>
                     ) },
                   ]}
@@ -260,6 +276,25 @@ const DocDetailPage: React.FC = () => {
           },
         ]}
       />
+      <Modal
+        title="删除附件"
+        open={!!delTarget}
+        onOk={onConfirmDel}
+        onCancel={() => setDelTarget(null)}
+        okText="删除"
+        cancelText="取消"
+        okButtonProps={{ danger: true }}
+        destroyOnClose
+      >
+        <div>确定删除附件「{delTarget?.fileName ?? delTarget?.fileId ?? ''}」吗？</div>
+        <Checkbox
+          checked={delPhysical}
+          onChange={(e) => setDelPhysical(e.target.checked)}
+          style={{ marginTop: 12 }}
+        >
+          同时删除文件（取消勾选则只移除记录、保留文件）
+        </Checkbox>
+      </Modal>
     </Card>
   );
 };

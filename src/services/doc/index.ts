@@ -190,8 +190,11 @@ export async function uploadAttachment(docId: number | string, file: File, docFi
   });
   return r?.data;
 }
-export async function deleteAttachment(id: number | string): Promise<boolean> {
-  const r: any = await request(`${DOC}/doc/attach/delete`, { method: 'POST', params: { id } });
+export async function deleteAttachment(id: number | string, physical?: boolean): Promise<boolean> {
+  const params: any = { id };
+  // physical 不传时由后端引擎设置 attach_delete_physical 决定
+  if (physical !== undefined) params.physical = physical;
+  const r: any = await request(`${DOC}/doc/attach/delete`, { method: 'POST', params });
   return !!r?.success;
 }
 /** 文档版本/文件列表 */
