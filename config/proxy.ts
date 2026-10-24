@@ -30,6 +30,15 @@ export default {
       target: 'http://127.0.0.1:81/',
       changeOrigin: true,
     },
+    // WPS WebOffice 服务端回调（/v3/3rd/files/**）与文件内容下载（/doc/file/**）→ 直连 blade-doc:8120
+    '/v3/3rd': {
+      target: 'http://127.0.0.1:8120',
+      changeOrigin: true,
+    },
+    '/doc/file': {
+      target: 'http://127.0.0.1:8120',
+      changeOrigin: true,
+    },
   },
   /**
    * @name 详细的代理配置
