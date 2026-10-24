@@ -192,6 +192,32 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
     });
     editorRef.current = editor;
 
+    // 工具栏按钮中文悬停提示（按 ql-* class 加 title）
+    const TOOLBAR_TIPS: Record<string, string> = {
+      'ql-undo': '撤销', 'ql-redo': '重做', 'ql-clean': '清除格式',
+      'ql-bold': '加粗', 'ql-italic': '斜体', 'ql-underline': '下划线', 'ql-strike': '删除线',
+      'ql-blockquote': '引用', 'ql-code-block': '代码块',
+      'ql-header': '标题', 'ql-font': '字体', 'ql-size': '字号',
+      'ql-color': '文字颜色', 'ql-background': '背景色',
+      'ql-script': '上标/下标', 'ql-list': '列表', 'ql-indent': '缩进', 'ql-align': '对齐',
+      'ql-link': '插入链接', 'ql-image': '插入图片', 'ql-file': '上传文件',
+      'ql-table': '插入表格', 'ql-formula': '插入公式', 'ql-emoji': '插入表情',
+      'ql-reminder': '@提醒', 'ql-fullscreen': '全屏', 'ql-direction': '文字方向',
+    };
+    const applyToolbarTips = () => {
+      const tb = (editor.getModule('toolbar') as any)?.container as HTMLElement | undefined;
+      if (!tb) return;
+      tb.querySelectorAll<HTMLElement>('button, select, .ql-picker, .ql-picker-label, [class*="ql-"]').forEach((el) => {
+        for (const c of Array.from(el.classList)) {
+          if (TOOLBAR_TIPS[c]) {
+            el.setAttribute('title', TOOLBAR_TIPS[c]);
+            break;
+          }
+        }
+      });
+    };
+    applyToolbarTips();
+
     // 图片拖拽调整大小（FluentEditor/Quill2 未内置 resize）：点击图片显示右下角手柄，拖拽改宽度
     let resizeHandle: HTMLElement | null = null;
     let currentImg: HTMLImageElement | null = null;
