@@ -1,0 +1,43 @@
+/* 富文本字体：中文字体族定义 */
+.ql-font-simsun { font-family: 'SimSun', '宋体', serif; }
+.ql-font-simhei { font-family: 'SimHei', '黑体', sans-serif; }
+.ql-font-yahei { font-family: 'Microsoft YaHei', '微软雅黑', sans-serif; }
+.ql-font-kaiti { font-family: 'KaiTi', '楷体', serif; }
+.ql-font-fangsong { font-family: 'FangSong', '仿宋', serif; }
+.ql-font-arial { font-family: Arial, Helvetica, sans-serif; }
+.ql-font-times-new-roman { font-family: 'Times New Roman', Times, serif; }
+
+/* 默认字体：黑体 */
+.ql-editor {
+  font-family: 'SimHei', '黑体', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* 标题字体与字号（H1~H6） */
+.ql-editor h1 { font-family: 'SimHei', '黑体', sans-serif; font-size: 24px; font-weight: 700; }
+.ql-editor h2 { font-family: 'SimHei', '黑体', sans-serif; font-size: 20px; font-weight: 700; }
+.ql-editor h3 { font-family: 'SimHei', '黑体', sans-serif; font-size: 18px; font-weight: 700; }
+.ql-editor h4 { font-family: 'SimHei', '黑体', sans-serif; font-size: 16px; font-weight: 700; }
+.ql-editor h5 { font-family: 'SimHei', '黑体', sans-serif; font-size: 14px; font-weight: 700; }
+.ql-editor h6 { font-family: 'SimHei', '黑体', sans-serif; font-size: 12px; font-weight: 700; }
+
+/* 字体下拉显示中文名 */
+.ql-snow .ql-picker.ql-font .ql-picker-label[data-value='simsun']::before,
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value='simsun']::before { content: '宋体'; }
+.ql-snow .ql-picker.ql-font .ql-picker-label[data-value='simhei']::before,
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value='simhei']::before { content: '黑体'; }
+.ql-snow .ql-picker.ql-font .ql-picker-label[data-value='yahei']::before,
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value='yahei']::before { content: '微软雅黑'; }
+.ql-snow .ql-picker.ql-font .ql-picker-label[data-value='kaiti']::before,
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value='kaiti']::before { content: '楷体'; }
+.ql-snow .ql-picker.ql-font .ql-picker-label[data-value='fangsong']::before,
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value='fangsong']::before { content: '仿宋'; }
+.ql-snow .ql-picker.ql-font .ql-picker-label[data-value='arial']::before,
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value='arial']::before { content: 'Arial'; }
+.ql-snow .ql-picker.ql-font .ql-picker-label[data-value='times-new-roman']::before,
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value='times-new-roman']::before { content: 'Times New Roman'; }
+
+/* 行高下拉显示（如使用自定义行高按钮） */
+.ql-snow .ql-picker.ql-lineheight .ql-picker-label::before,
+.ql-snow .ql-picker.ql-lineheight .ql-picker-item::before { content: '行高'; }
