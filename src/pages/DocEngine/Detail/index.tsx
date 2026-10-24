@@ -9,6 +9,7 @@ import {
   listReply, saveReply, deleteReply, praiseInfo, togglePraise, scoreInfo, saveScore,
   type DocDetail,
 } from '@/services/doc';
+import RichTextEditor from '@/components/RichTextEditor';
 
 /**
  * 内容引擎 - 文档详情页（菜单 path=/docengine/detail，经 ?docId= 进入）。
@@ -132,7 +133,7 @@ const DocDetailPage: React.FC = () => {
             key: 'content', label: '正文',
             children: (
               <>
-                <Input.TextArea rows={12} value={content} onChange={(e) => setContent(e.target.value)} />
+                <RichTextEditor value={content} onChange={setContent} height={360} placeholder="请输入正文..." />
                 <Button type="primary" style={{ marginTop: 8 }} onClick={onSaveContent}>保存正文</Button>
               </>
             ),
@@ -147,6 +148,20 @@ const DocDetailPage: React.FC = () => {
                 <Table rowKey="id" size="small" dataSource={attaches} pagination={false}
                   columns={[
                     { title: '文件名', dataIndex: 'fileName' },
+                    {
+                      title: '版本', key: 'ver', width: 90,
+                      render: (_: any, r: any) => {
+                        // 上传的附件无版本链(versionId 为空)；WPS 在线编辑保存产生 versionId 递增的版本流水
+                        if (r.versionId == null) {
+                          return <Tag color="blue">附件</Tag>;
+                        }
+                        // 版本流水号：比当前 versionId 小的个数 + 1（v1 最早 → vN 最新）
+                        const rank =
+                          attaches.filter((a: any) => a.versionId != null && Number(a.versionId) < Number(r.versionId)).length + 1;
+                        const isCur = String(r.fileId ?? r.id) === String(detail?.mainFileId);
+                        return <Tag color={isCur ? 'green' : undefined}>v{rank}</Tag>;
+                      },
+                    },
                     { title: '大小(字节)', dataIndex: 'fileSize' },
                     { title: '操作', key: 'op', render: (_: any, r: any) => (
                       <Space>

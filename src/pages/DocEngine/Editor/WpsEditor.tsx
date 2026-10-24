@@ -62,6 +62,8 @@ const WpsEditor: React.FC<Props> = ({ cfg }) => {
             fileId: cfg?.wpsFileId,
             mount: mountRef.current,
             token: cfg?.wpsToken,
+            // 透传当前用户：WPS 回调经 X-User-Query 带回，供 permission.user_id 与 users 昵称使用
+            customArgs: { userId: cfg?.wpsUserId || cfg?.userId, userName: cfg?.userName },
           });
         }
         setStatus('ready');

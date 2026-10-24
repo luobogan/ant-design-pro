@@ -1,0 +1,14 @@
+name: Security Gate (E9 guardrails)
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+jobs:
+  frontend-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/security-gate.mjs
