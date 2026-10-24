@@ -236,6 +236,13 @@ export interface InstanceFlowProps {
   previewFormId?: number | string;
   /** 内嵌（父页提供外壳与返回）：不再渲染「返回」按钮（与发起页 `!embedded` 口径一致） */
   embedded?: boolean;
+  /**
+   * 监控只读模式（流程监控详情抽屉，设计 §5.3 / §11.10）：
+   * 仍按 instanceId 加载真实实例的表单 / 流程图 / 流转记录，但**隐藏全部办理按钮**
+   * （提交/退回/转办/自定义操作等），监管动作由抽屉底部单独提供。
+   * 与 `preview` 的区别：preview 会改走 `/form/preview` 不读实例数据，监控详情不能用它。
+   */
+  readOnly?: boolean;
   /** 外层自增键：每次办理成功 +1，用于强制本面板重新拉取节点操作者等运行态数据 */
   refreshKey?: number | string;
 }
@@ -263,6 +270,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   previewDefId,
   previewFormId,
   embedded,
+  readOnly,
   refreshKey,
 }) => {
   const { message } = App.useApp();
@@ -1294,7 +1302,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
             </span>
           )}
         </Space>
-        {!preview && (
+        {!preview && !readOnly && (
           <Space size={6} wrap>
             {/* 过期页面：操作按钮整体停用，只保留「刷新页面」（与顶部横幅同一处理） */}
             {stale ? (

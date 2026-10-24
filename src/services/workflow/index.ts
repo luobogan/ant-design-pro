@@ -1094,6 +1094,130 @@ export async function monitorCount(assignee?: number) {
   });
 }
 
+// ───────────── 流程监控（管理员视角，全租户） ─────────────
+// 端点前缀 /api/blade-workflow/monitor（见 WfMonitorController）。
+// 说明：实例 ID 为 19 位雪花，后端以 number 下发时可能超 JS 安全整数，
+//       前端统一按字符串传参（与 Request 页一致）；如后端已开启 Long→String 序列化则更稳妥。
+
+/** 监控列表项（复用后端 InstanceVO 语义，补充 overdue / anomalyTags） */
+export interface MonitorInstanceItem {
+  /** 实例ID（雪花，字符串承载） */
+  id?: string;
+  /** 流程标题 */
+  title?: string;
+  /** 流程定义名称 */
+  defName?: string;
+  /** 流程定义ID */
+  defId?: string;
+  /** 发起人 */
+  starter?: string;
+  /** 发起人姓名 */
+  starterName?: string;
+  /** 当前节点名称 */
+  currentNodeName?: string;
+  /** 当前节点Key */
+  currentNodeKey?: string;
+  /** 实例状态 0运行中 1通过 2不通过 3撤销 4暂停 5草稿 */
+  status?: number;
+  /** 是否超时（运行中且存在已过期未办任务） */
+  overdue?: boolean;
+  /** 异常标记（业务行缺失 / requestId未回填 / 部署漂移） */
+  anomalyTags?: string[];
+  /** 是否测试态 1测试 0正式 */
+  isTest?: number;
+  /** 紧急程度 0/1/2 */
+  urgency?: number;
+  /** 当前待办任务ID（任务级监管动作 转办/催办 用；无待办时为空） */
+  taskId?: string;
+  /** 发起时间 */
+  startTime?: string;
+  /** 结束时间 */
+  endTime?: string;
+  /** L3 自检：业务行就绪 0/1（NULL=存量未自检） */
+  businessRowReady?: number;
+  /** L3 自检：requestId 已回填 0/1 */
+  requestIdBound?: number;
+  /** L3 自检：引擎部署匹配 0/1 */
+  engineDeploymentMatched?: number;
+}
+
+/** 批量监管动作结果（后端 MonitorBatchResult） */
+export interface MonitorBatchResult {
+  /** 成功处理的实例ID */
+  success?: string[];
+  /** 失败的实例ID -> 失败原因 */
+  failed?: Record<string, string>;
+}
+
+/** 流程监控列表（管理员全租户，筛选条件由 MonitorInstanceQuery 从请求参数绑定） */
+export async function monitorList(params: Record<string, any>) {
+  return request<ApiResponse<{ records?: MonitorInstanceItem[]; total?: number }>>(
+    `${WORKFLOW}/monitor/instances`,
+    { method: 'GET', params, skipErrorHandler: true },
+  );
+}
+
+/** 流程监控「异常」聚合计数（异常 Tab 数据源，含引擎对账差异） */
+export interface MonitorAnomalySummary {
+  /** 超时实例数（存在已过期未办任务） */
+  overdue?: number;
+  /** 业务行缺失 */
+  businessRowMissing?: number;
+  /** requestId 未回填 */
+  requestIdUnbound?: number;
+  /** 部署漂移 */
+  deploymentDrift?: number;
+  /** 测试态实例数 */
+  testInstances?: number;
+  /** 引擎对账差异总数（ledger-shadow，内存计数、重启清零） */
+  ledgerTotalDiff?: number;
+  /** 台账监听是否已注册 */
+  ledgerListenerRegistered?: boolean;
+}
+
+export async function monitorAnomalySummary() {
+  return request<ApiResponse<MonitorAnomalySummary>>(`${WORKFLOW}/monitor/anomaly-summary`, {
+    method: 'GET',
+    skipErrorHandler: true,
+  });
+}
+
+/**
+ * 强制收回(收回重填)：方案A 原地回退——把引擎 token 移回目标节点（缺省=创建节点），
+ * 实例不终止、ID 与流转历史连续，由发起人重新填写提交。
+ * @param targetNodeKey 可选，指定收回到的节点；不传则回到「创建」节点
+ */
+export async function forceRecallInstance(id: string, opinion?: string, targetNodeKey?: string) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/monitor/instances/${id}/force-recall`, {
+    method: 'POST',
+    params: { opinion, targetNodeKey },
+  });
+}
+
+/** 强制归档(强制办结)：terminate(intent=APPROVED)，保留历史 */
+export async function forceArchiveInstance(id: string, opinion?: string) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/monitor/instances/${id}/force-archive`, {
+    method: 'POST',
+    params: { opinion },
+  });
+}
+
+/** 强制删除实例：逻辑删业务行 + 清引擎运行态 + 清历史 */
+export async function deleteInstanceById(id: string) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/monitor/instances/${id}`, { method: 'DELETE' });
+}
+
+/**
+ * 批量监管动作（stop/resume/archive/recall/delete）。
+ * ids 以逗号串下发，后端 List<Long> 可直接绑定（兼容重复参数与逗号串两种形态）。
+ */
+export async function batchMonitorAction(action: string, ids: string[]) {
+  return request<ApiResponse<MonitorBatchResult>>(`${WORKFLOW}/monitor/instances/batch`, {
+    method: 'POST',
+    params: { action, ids: ids.join(',') },
+  });
+}
+
 // ───────────── 浏览框服务（对齐 ecology BrowserBean） ─────────────
 // 前端「路径类型」等字段以 BROWSER 控件呈现：点击弹出选择弹窗，经此接口取数。
 export const workflowBrowserApi = {
@@ -1367,6 +1491,44 @@ export async function cleanupWorkflowTest(defId?: any) {
     method: 'POST',
     params: { defId },
   });
+}
+
+/* ============ 流程监控委托范围（§1.3 部门级委托监控） ============ */
+
+export interface MonitorScopeItem {
+  id?: string;
+  /** -1 或空 = 全部流程定义 */
+  defId?: number;
+  /** 范围类型 1分部 2部门 3人员 */
+  scopeType?: number;
+  /** 人员ID 或 部门/分部ID（-1 表示未设置） */
+  scopeValue?: number;
+  /** 被委托人ID列表，逗号分隔 */
+  monitorUserIds?: string;
+  remark?: string;
+}
+
+/** 分页查询委托范围配置 */
+export async function monitorScopeList(params: Record<string, any>) {
+  return request<ApiResponse<{ records?: MonitorScopeItem[]; total?: number }>>(
+    `${WORKFLOW}/monitor/scope`,
+    { method: 'GET', params },
+  );
+}
+
+/** 新增委托范围 */
+export async function saveMonitorScope(data: MonitorScopeItem) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/monitor/scope`, { method: 'POST', data });
+}
+
+/** 更新委托范围 */
+export async function updateMonitorScope(data: MonitorScopeItem) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/monitor/scope`, { method: 'PUT', data });
+}
+
+/** 删除委托范围 */
+export async function removeMonitorScope(id: number | string) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/monitor/scope/${id}`, { method: 'DELETE' });
 }
 
 export interface ShadowSummary {
