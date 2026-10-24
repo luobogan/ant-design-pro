@@ -133,7 +133,7 @@ const DocDetailPage: React.FC = () => {
             key: 'content', label: '正文',
             children: (
               <>
-                <RichTextEditor value={content} onChange={setContent} height={360} placeholder="请输入正文..." />
+                <RichTextEditor value={content} onChange={setContent} height={360} placeholder="请输入正文..." docId={docId} />
                 <Button type="primary" style={{ marginTop: 8 }} onClick={onSaveContent}>保存正文</Button>
               </>
             ),
