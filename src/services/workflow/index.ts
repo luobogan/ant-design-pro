@@ -2038,12 +2038,123 @@ export interface OdocSetting {
   defaultSealRequired?: number;
   defaultTaohongMouldId?: any;
   defaultProcessDefId?: string;
+  /** 签章方案 0自研印章(本地) 1第三方电子签章 */
+  sealMode?: number;
+  sealEsignOrgId?: string;
+  sealEsignDefaultSealId?: string;
+  sealEsignNotifyUrl?: string;
   remark?: string;
 }
 export const odocSettingApi = {
   get: () => request<ApiResponse<OdocSetting>>(`${WORKFLOW}/odoc/setting`, { method: 'GET' }),
   save: (data: OdocSetting) =>
     request<ApiResponse<OdocSetting>>(`${WORKFLOW}/odoc/setting`, { method: 'POST', data }),
+};
+
+/** 可选签章方案 */
+export interface OdocSealMode {
+  value: number;
+  label: string;
+  /** 是否可选（未就绪时禁用并给出原因） */
+  selectable?: boolean;
+  reason?: string;
+}
+
+/** 电子签章方案配置（业务表设置 + Nacos 第三方接入参数合并视图） */
+export interface OdocSealConfig {
+  /** 签章方案 0自研印章(本地) 1第三方电子签章 */
+  sealMode?: number;
+  /** 方案标识 local / esign */
+  vendor?: string;
+  esignOrgId?: string;
+  esignDefaultSealId?: string;
+  esignNotifyUrl?: string;
+  /** 第三方总开关（Nacos） */
+  esignEnabled?: boolean;
+  /** 第三方是否就绪 */
+  esignReady?: boolean;
+  esignHost?: string;
+  esignAppIdMasked?: string;
+  modes?: OdocSealMode[];
+}
+export const odocSealConfigApi = {
+  get: () => request<ApiResponse<OdocSealConfig>>(`${WORKFLOW}/odoc/setting/seal`, { method: 'GET' }),
+  save: (data: Partial<OdocSealConfig>) =>
+    request<ApiResponse<OdocSealConfig>>(`${WORKFLOW}/odoc/setting/seal`, { method: 'POST', data }),
+};
+
+/** 流程设置里的签署方（对应 wf_odoc_process_set.seal_config.signers） */
+export interface OdocSealSignerItem {
+  /** 签署方类型 0个人 1企业 */
+  signerType?: number;
+  /** 签署顺序 */
+  order?: number;
+  /** 已有 e签宝账号时传（psnId / orgId） */
+  accountId?: string;
+  /** 个人账号（手机号） */
+  psnAccount?: string;
+  /** 个人姓名 */
+  psnName?: string;
+  /** 个人证件号 */
+  psnIdCardNum?: string;
+  /** 企业名称 */
+  orgName?: string;
+  /** 企业统一社会信用代码 */
+  orgIdCardNum?: string;
+  /** 指定印章ID */
+  sealId?: string;
+  /** 是否后台自动落章 */
+  autoSign?: boolean;
+}
+
+/** 流程设置里的用印位置与签署方配置（seal_config JSON） */
+export interface OdocSealConfigItem {
+  /** 页码 */
+  page?: number;
+  /** 用印位置 X（毫米） */
+  offsetX?: number;
+  /** 用印位置 Y（毫米） */
+  offsetY?: number;
+  /** 章型 1个人签字 2单位公章 3时间戳 */
+  sealType?: number;
+  /** 签署方列表 */
+  signers?: OdocSealSignerItem[];
+}
+
+/** 第三方印章（统一选项，屏蔽 local/esign 差异） */
+export interface OdocSealOption {
+  sealId?: string;
+  sealName?: string;
+  sealType?: string;
+  orgId?: string;
+  defaultSeal?: boolean;
+  mode?: string;
+}
+
+/** 公文签署状态 */
+export interface OdocSealStatus {  docId?: string;
+  /** 用印方案 0自研印章(本地) 1第三方电子签章 */
+  sealMode?: number;
+  /** 0待发起 1进行中 2已完成 3已撤销 4已拒签 5已过期 9失败 */
+  signStatus?: number;
+  signStatusText?: string;
+  signFlowId?: string;
+  esignFlowId?: string;
+  /** 签署链接（去签署） */
+  signUrl?: string;
+  /** 归档后的公文版本ID */
+  archiveVersionId?: string;
+  finished?: boolean;
+}
+export const odocEsignApi = {
+  /** 按公文ID查签署状态 */
+  status: (docId: string | number) =>
+    request<ApiResponse<OdocSealStatus>>(`${WORKFLOW}/odoc/esign/status?docId=${docId}`, { method: 'GET' }),
+  /** 按本地签署流程ID取签署链接 */
+  signUrl: (signFlowId: string | number) =>
+    request<ApiResponse<string>>(`${WORKFLOW}/odoc/esign/sign-url/${signFlowId}`, { method: 'GET' }),
+  /** 查第三方可用印章列表 */
+  seals: () => request<ApiResponse<OdocSealOption[]>>(`${WORKFLOW}/odoc/esign/seals`, { method: 'GET' }),
 };
 
 export interface OdocSecretRule {

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Form, Input, InputNumber, Modal, Select, Space, Spin, Switch, message } from 'antd';
-import { listNodes, mouldApi, odocSettingApi, processSetApi, type OdocMould, type OdocProcessSet, type WfProcessNode } from '@/services/workflow';
+import { Button, Divider, Form, Input, InputNumber, Modal, Select, Space, Spin, Switch, message } from 'antd';
+import { listNodes, mouldApi, odocSettingApi, processSetApi, type OdocMould, type OdocProcessSet, type OdocSealConfigItem, type OdocSealSignerItem, type WfProcessNode } from '@/services/workflow';
 
 interface ProcessSetModalProps {
   open: boolean;
@@ -25,6 +25,50 @@ const layoutFormatOptions = [
 /** 逗号分隔 <-> 多选数组 */
 const splitCsv = (v?: string) => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : []);
 const joinCsv = (v?: any[]) => (v && v.length ? v.join(',') : undefined);
+
+const signerTypeOptions = [
+  { label: '个人', value: 0 },
+  { label: '企业', value: 1 },
+];
+
+const sealTypeOptions = [
+  { label: '个人签字', value: 1 },
+  { label: '单位公章', value: 2 },
+  { label: '时间戳', value: 3 },
+];
+
+/** seal_config(JSON) → 表单值 */
+const parseSealConfig = (raw?: string): OdocSealConfigItem | undefined => {
+  if (!raw) return undefined;
+  try {
+    const o = JSON.parse(raw);
+    if (!o || typeof o !== 'object') return undefined;
+    return {
+      page: o.page,
+      offsetX: o.offsetX,
+      offsetY: o.offsetY,
+      sealType: o.sealType,
+      signers: Array.isArray(o.signers) ? o.signers : [],
+    };
+  } catch {
+    return undefined;
+  }
+};
+
+/** 表单值 → seal_config(JSON)；无有效内容时返回 undefined（不覆盖库里已有值） */
+const buildSealConfig = (v?: OdocSealConfigItem): string | undefined => {
+  if (!v) return undefined;
+  const signers = (v.signers || []).filter((s) => s && (s.psnAccount || s.orgName || s.accountId));
+  const hasPosition = v.page != null || v.offsetX != null || v.offsetY != null || v.sealType != null;
+  if (!hasPosition && signers.length === 0) return undefined;
+  return JSON.stringify({
+    page: v.page,
+    offsetX: v.offsetX,
+    offsetY: v.offsetY,
+    sealType: v.sealType,
+    signers,
+  });
+};
 
 /**
  * 流程建文设置弹窗：按流程定义配置公文开关（正文/标题字段、套红节点与强制套红、
@@ -70,7 +114,7 @@ const ProcessSetModal: React.FC<ProcessSetModalProps> = ({ open, defId, onClose,
           printNodeKeys: splitCsv(s.printNodeKeys),
           cleanCopyNodeKeys: splitCsv(s.cleanCopyNodeKeys),
           signatureNodeKeys: splitCsv(s.signatureNodeKeys),
-          sealConfig: s.sealConfig,
+          sealCfgItem: parseSealConfig(s.sealConfig),
         });
       })
       .finally(() => setLoading(false));
@@ -97,7 +141,7 @@ const ProcessSetModal: React.FC<ProcessSetModalProps> = ({ open, defId, onClose,
         printNodeKeys: joinCsv(v.printNodeKeys),
         cleanCopyNodeKeys: joinCsv(v.cleanCopyNodeKeys),
         signatureNodeKeys: joinCsv(v.signatureNodeKeys),
-        sealConfig: v.sealConfig,
+        sealConfig: buildSealConfig(v.sealCfgItem),
       };
       await processSetApi.save(payload);
       message.success('流程建文设置已保存');
@@ -197,6 +241,77 @@ const ProcessSetModal: React.FC<ProcessSetModalProps> = ({ open, defId, onClose,
               <Switch checkedChildren="必须" unCheckedChildren="否" />
             </Form.Item>
           </Space>
+
+          <Divider orientation="left" plain>
+            用印位置与签署方
+          </Divider>
+          <Form.Item
+            label="用印位置与签署方"
+            extra="第三方电子签章（e签宝）按此发起签署：坐标为毫米；未配置签署方时流程会跳过用印并告警"
+          >
+            <div style={{ width: '100%' }}>
+              <Form.List name={['sealCfgItem', 'signers']}>
+                {(fields, { add, remove }) => (
+                  <>
+                    {fields.map((field) => (
+                      <Space key={field.key} wrap align="baseline" style={{ marginBottom: 8 }}>
+                        <Form.Item {...field} name="signerType" label="类型" style={{ marginBottom: 0 }}>
+                          <Select options={signerTypeOptions} style={{ width: 100 }} />
+                        </Form.Item>
+                        <Form.Item {...field} name="order" label="顺序" style={{ marginBottom: 0 }}>
+                          <InputNumber min={1} style={{ width: 80 }} placeholder="顺序" />
+                        </Form.Item>
+                        <Form.Item {...field} name="accountId" label="账号ID" style={{ marginBottom: 0 }}>
+                          <Input style={{ width: 150 }} placeholder="psnId/orgId" />
+                        </Form.Item>
+                        <Form.Item {...field} name="psnAccount" label="手机号" style={{ marginBottom: 0 }}>
+                          <Input style={{ width: 140 }} placeholder="个人" />
+                        </Form.Item>
+                        <Form.Item {...field} name="psnName" label="姓名" style={{ marginBottom: 0 }}>
+                          <Input style={{ width: 110 }} placeholder="个人" />
+                        </Form.Item>
+                        <Form.Item {...field} name="psnIdCardNum" label="证件号" style={{ marginBottom: 0 }}>
+                          <Input style={{ width: 150 }} placeholder="个人" />
+                        </Form.Item>
+                        <Form.Item {...field} name="orgName" label="企业名称" style={{ marginBottom: 0 }}>
+                          <Input style={{ width: 180 }} placeholder="企业" />
+                        </Form.Item>
+                        <Form.Item {...field} name="orgIdCardNum" label="统一信用代码" style={{ marginBottom: 0 }}>
+                          <Input style={{ width: 170 }} placeholder="企业" />
+                        </Form.Item>
+                        <Form.Item {...field} name="sealId" label="印章ID" style={{ marginBottom: 0 }}>
+                          <Input style={{ width: 150 }} placeholder="可选" />
+                        </Form.Item>
+                        <Form.Item {...field} name="autoSign" label="自动落章" valuePropName="checked" style={{ marginBottom: 0 }}>
+                          <Switch checkedChildren="是" unCheckedChildren="否" />
+                        </Form.Item>
+                        <Button type="link" danger onClick={() => remove(field.name)}>
+                          删除
+                        </Button>
+                      </Space>
+                    ))}
+                    <Button type="dashed" onClick={() => add({ signerType: 0, order: fields.length + 1, autoSign: false })}>
+                      添加签署方
+                    </Button>
+                  </>
+                )}
+              </Form.List>
+              <Space wrap style={{ marginTop: 12 }}>
+                <Form.Item {...{ name: ['sealCfgItem', 'page'] }} label="页码" style={{ marginBottom: 0 }}>
+                  <InputNumber min={1} style={{ width: 100 }} placeholder="页码" />
+                </Form.Item>
+                <Form.Item {...{ name: ['sealCfgItem', 'offsetX'] }} label="X(毫米)" style={{ marginBottom: 0 }}>
+                  <InputNumber style={{ width: 110 }} placeholder="横坐标" />
+                </Form.Item>
+                <Form.Item {...{ name: ['sealCfgItem', 'offsetY'] }} label="Y(毫米)" style={{ marginBottom: 0 }}>
+                  <InputNumber style={{ width: 110 }} placeholder="纵坐标" />
+                </Form.Item>
+                <Form.Item {...{ name: ['sealCfgItem', 'sealType'] }} label="章型" style={{ marginBottom: 0 }}>
+                  <Select options={sealTypeOptions} style={{ width: 140 }} placeholder="章型" />
+                </Form.Item>
+              </Space>
+            </div>
+          </Form.Item>
         </Form>
       </Spin>
     </Modal>
