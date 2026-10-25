@@ -130,7 +130,7 @@ const SimulateModal: React.FC<SimulateModalProps> = ({
           </Button>
         </Space>
       }
-      destroyOnClose
+      destroyOnHidden
     >
       <Alert
         type="info"

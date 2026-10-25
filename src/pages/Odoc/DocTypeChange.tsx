@@ -207,7 +207,7 @@ const OdocDocTypeChangePage: React.FC = () => {
         ]}
       />
 
-      <Modal title="新增转换目标" open={addOpen} onOk={handleAdd} onCancel={() => setAddOpen(false)} confirmLoading={submitting} destroyOnClose>
+      <Modal title="新增转换目标" open={addOpen} onOk={handleAdd} onCancel={() => setAddOpen(false)} confirmLoading={submitting} destroyOnHidden>
         <Form form={form} layout="vertical">
           <Form.Item name="targetDefId" label="目标流程定义ID" rules={[{ required: true }]}>
             <Input />

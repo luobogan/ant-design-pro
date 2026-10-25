@@ -197,6 +197,12 @@ export async function deleteAttachment(id: number | string, physical?: boolean):
   const r: any = await request(`${DOC}/doc/attach/delete`, { method: 'POST', params });
   return !!r?.success;
 }
+
+/** 重命名附件（canManage 校验） */
+export async function renameAttachment(id: number | string, fileName: string): Promise<DocAttachment | undefined> {
+  const r: any = await request(`${DOC}/doc/attach/rename`, { method: 'POST', params: { id, fileName } });
+  return r?.data;
+}
 /** 文档版本/文件列表 */
 export async function listVersions(docId: number | string): Promise<DocAttachment[]> {
   const r: any = await request(`${DOC}/doc/version/${docId}`, { method: 'GET' });
@@ -334,6 +340,7 @@ export async function deleteMould(ids: (number | string)[]): Promise<boolean> {
 export interface DocRecycleItem {
   id?: number | string;
   docId?: number | string;
+  docSubject?: string;
   deleteUser?: number | string;
   deleteTime?: string;
 }
@@ -353,6 +360,12 @@ export async function restoreDoc(docId: number | string): Promise<boolean> {
 
 export async function purgeDoc(docId: number | string): Promise<boolean> {
   const r: any = await request(`${DOC}/doc/recycle/purge`, { method: 'POST', params: { docId } });
+  return !!r?.success;
+}
+
+/** 移入回收站（删除文档，逻辑删除；可在回收站恢复） */
+export async function removeDocToRecycle(docId: number | string): Promise<boolean> {
+  const r: any = await request(`${DOC}/doc/recycle/remove`, { method: 'POST', params: { docId } });
   return !!r?.success;
 }
 

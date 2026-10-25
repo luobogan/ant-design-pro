@@ -4,7 +4,15 @@ import type { Settings as LayoutSettings, MenuDataItem } from '@ant-design/pro-c
 import { SettingDrawer } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
 import { history, Link, Navigate, request as httpRequest } from '@umijs/max';
-import { message, Spin, Button, Space, ConfigProvider, theme as antdTheme } from 'antd';
+import {
+  message,
+  Spin,
+  Button,
+  Space,
+  ConfigProvider,
+  App as AntApp,
+  theme as antdTheme,
+} from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -79,6 +87,16 @@ interface RouteItem {
   parentId?: number | string;
   element?: JSX.Element;
   children?: RouteItem[];
+  /**
+   * 路由级国际化开关。
+   *
+   * <p>菜单名来自 blade_menu（数据库里就是最终展示的中文名），若不显式关掉，
+   * ProLayout 会把菜单名当成 intl key（顶层为 menu.<菜单名>）去查 locale，
+   * 而 locale 文件没有这些 key，控制台会刷 "Missing message: menu.xxx" 告警
+   * （且每加一个菜单就多一条）。置 false 后 transformRoute 直接用 name，
+   * 不再走 intl 查找。</p>
+   */
+  locale?: boolean;
 }
 
 let extraRoutes: any[] = [];
@@ -362,6 +380,8 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
               const componentRoute: any = {
                 path: item1.path,
                 name: item1.name,
+                // 菜单名即数据库文案，不走 intl 查找（避免控制台刷 Missing message 告警）
+                locale: false,
                 id: item1.id,
                 parentId: item1.parentId,
                 // ⚠️ 必须显式 hideInMenu：本项目的 ProLayout 是 route 模式（.umi/plugin-layout/Layout.tsx
@@ -504,6 +524,8 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
       {
         path: item.path,
         name: item.name,
+        // 菜单名即数据库中的最终文案，不再走 intl 查找（否则控制台刷 Missing message 告警）
+        locale: false,
         icon: item.icon,
         id: item.id,
         parentId: pId,
@@ -729,10 +751,20 @@ export async function getInitialState(): Promise<{
 }
 
 const loopMenuItem1 = (menus: MenuDataItem[]): MenuDataItem[] =>
-  menus.map(({ icon, routes, ...item }) => ({
+  menus.map(({ icon, routes, children, ...item }) => ({
     ...item,
+    // 菜单名来自 blade_menu（数据库里就是最终展示文案），显式关掉路由级国际化：
+    // 否则 ProLayout 会把菜单名当 intl key（顶层 menu.<名>、多层 menu.<父>.<子>）去查，
+    // 控制台每页刷上百条 "Missing message" 告警。
+    locale: false,
     icon: icon && icons[icon as keyof typeof icons] ? React.createElement(icons[icon as keyof typeof icons]) : undefined,
+    // ⚠️ children 与 routes 都要递归处理：
+    // formatRoutes（utils.ts）把后端的 item.children 原样挂在 item.routes 旁边，两者是同一批节点，
+    // 但 transformRoute 优先读 item.children 作为子菜单（bigfishCompatibleConversions 会删掉 routes）。
+    // 此前只递归了 routes，导致 children 子树里的节点没有 locale:false，
+    // 其 intl key 变成 "menu.<父>.<子>"，控制台继续刷 Missing message 告警。
     routes: routes && loopMenuItem1(routes),
+    children: children && loopMenuItem1(children),
   }));
 
 /**
@@ -784,7 +816,11 @@ const syncThemeSettings = (settings: any) => {
   if (sameTheme(themeSnapshot, next)) return;
   themeSnapshot = next;
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new Event(THEME_TOKEN_EVENT));
+    // ⚠️ 必须把事件派发挪出渲染阶段：syncThemeSettings 是在布局函数体（渲染期）被调用的，
+    // 若同步 dispatch，ThemeTokenProvider 的监听器会在「别的组件正在渲染」时 setSnapshot，
+    // 触发 React 告警 "Cannot update a component (ThemeTokenProvider) while rendering
+    // a different component"，且首屏每个页面都会报一次。改为微任务派发即可避开。
+    Promise.resolve().then(() => window.dispatchEvent(new Event(THEME_TOKEN_EVENT)));
   }
 };
 
@@ -813,9 +849,15 @@ const ThemeTokenProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
 	return (
 		<ConfigProvider theme={toAntdTheme(snapshot)}>
-			{/* 设计令牌 → CSS 变量：让页面自有样式与传送门内容也能跟随主题 */}
-			<ThemeCssVarBridge />
-			{children}
+			{/* antd <App>：提供 message/modal/notification 的上下文。
+			 * 静态方法（message.xxx / Modal.confirm）拿不到 ConfigProvider 的动态主题，
+			 * antd 会告警 "Static function can not consume context like dynamic theme"，
+			 * 且暗黑/紧凑模式下弹层不跟随主题。页面内改用 App.useApp() 取实例。 */}
+			<AntApp>
+				{/* 设计令牌 → CSS 变量：让页面自有样式与传送门内容也能跟随主题 */}
+				<ThemeCssVarBridge />
+				{children}
+			</AntApp>
 		</ConfigProvider>
 	);
 };
@@ -1041,6 +1083,17 @@ export const layout: RunTimeLayoutConfig = ({
     splitMenus: false,
     headerContentRender: () => <TopNavMenu />,
     menu: {
+      // ⚠️ 必须显式关掉菜单国际化（locale: false）。
+      // 本页面的 ProLayout 来自 .umi/plugin-layout/Layout.tsx，它虽然传了
+      // menu={{ locale: userConfig.locale }}，但 config/config.ts 的 layout.locale 只对
+      // 「生成期」生效；运行期 app.tsx 导出的 layout() 返回值会以 {...runtimeConfig} 展开在
+      // 其后，把 menu 整个覆盖成 { request } —— 于是 pro-components 里的
+      //   · getPageTitleInfo： menu.locale !== false && currRouterData.locale → formatMessage('menu.<菜单名>')
+      //   · renderItemLocal：   item.locale && menu?.locale !== false      → formatMessage('menu.<菜单名>')
+      // 都会被触发，而 locale 语言包里根本没有 menu.* 这些 key（菜单名本身就是数据库中文名），
+      // 控制台每页刷上百条 "[React Intl] Missing message: menu.xxx" 告警。
+      // 置 false 后菜单名直接用数据库文案，不再走 intl 查找。
+      locale: false,
       params: {
         userId: initialState?.currentUser?.userid,
       },

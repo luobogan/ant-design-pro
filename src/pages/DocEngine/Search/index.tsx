@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Card, Input, Modal, Table, Tag, Upload, message } from 'antd';
+import { Button, Card, Input, Modal, Popconfirm, Table, Tag, TreeSelect, Upload, App } from 'antd';
 import { history } from 'umi';
-import { searchDocPage, publishDoc, invalidateDoc, archiveDoc, reopenDoc, voidDoc, getDocContent, saveDocContent, checkOutDoc, checkInDoc, listAttachment, uploadAttachment, deleteAttachment, type DocDetail } from '@/services/doc';
+import { searchDocPage, publishDoc, invalidateDoc, archiveDoc, reopenDoc, voidDoc, getDocContent, saveDocContent, checkOutDoc, checkInDoc, listAttachment, uploadAttachment, deleteAttachment, removeDocToRecycle, listCategoryTree, saveDoc, type DocDetail, type DocSecCategory } from '@/services/doc';
 import CategoryTree, { syncCatToUrl } from '../components/CategoryTree';
 
 /**
@@ -9,6 +9,7 @@ import CategoryTree, { syncCatToUrl } from '../components/CategoryTree';
  * 分页 + 标题关键字；DataScope 分部隔离后端兜底。
  */
 const DocSearch: React.FC = () => {
+  const { message } = App.useApp();
   const [list, setList] = useState<DocDetail[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -24,6 +25,11 @@ const DocSearch: React.FC = () => {
   const [attachOpen, setAttachOpen] = useState(false);
   const [attachDocId, setAttachDocId] = useState<number | string | undefined>();
   const [attaches, setAttaches] = useState<any[]>([]);
+  // 新建文档
+  const [newOpen, setNewOpen] = useState(false);
+  const [newSubject, setNewSubject] = useState('');
+  const [newCatId, setNewCatId] = useState<number | string | undefined>();
+  const [catTree, setCatTree] = useState<any[]>([]);
 
   const load = useCallback(
     async (page = current, ps = size, kw = keyword, catId = secCategoryId) => {
@@ -68,6 +74,71 @@ const DocSearch: React.FC = () => {
       load(current, size, keyword);
     } catch (e: any) {
       message.error(e?.msg || `${label}失败`);
+    }
+  };
+
+  const onDeleteDoc = async (id: number | string) => {
+    try {
+      await removeDocToRecycle(id);
+      message.success('已移入回收站，可在回收站恢复');
+      load(current, size, keyword);
+    } catch (e: any) {
+      message.error(e?.msg || '删除失败');
+    }
+  };
+
+  /** 目录扁平列表 → TreeSelect 下拉 */
+  const buildCatTree = (cats: DocSecCategory[]) => {
+    const map = new Map<string, any>();
+    cats.forEach((c) => {
+      if (c.id !== undefined && c.id !== null) {
+        map.set(String(c.id), { title: c.name, value: c.id, key: String(c.id), children: [] });
+      }
+    });
+    const roots: any[] = [];
+    map.forEach((node) => {
+      const parent = node.parentId !== undefined && node.parentId !== null ? map.get(String(node.parentId)) : undefined;
+      if (parent) parent.children.push(node);
+      else roots.push(node);
+    });
+    const prune = (nodes: any[]): any[] =>
+      nodes.map((n) => {
+        if (n.children && n.children.length) n.children = prune(n.children);
+        else delete n.children;
+        return n;
+      });
+    return prune(roots);
+  };
+
+  const openNewDoc = async () => {
+    try {
+      const cats = await listCategoryTree();
+      setCatTree(buildCatTree(cats || []));
+      // 默认选中当前左侧目录（若有）
+      setNewCatId(secCategoryId);
+      setNewSubject('');
+      setNewOpen(true);
+    } catch (e: any) {
+      message.error(e?.msg || '目录加载失败');
+    }
+  };
+
+  const onCreateDoc = async () => {
+    if (!newSubject.trim()) {
+      message.error('文档标题不能为空');
+      return;
+    }
+    try {
+      const doc = await saveDoc({
+        docSubject: newSubject.trim(),
+        secCategoryId: newCatId,
+      } as DocDetail);
+      message.success('文档创建成功');
+      setNewOpen(false);
+      load(current, size, keyword);
+      if (doc?.id) history.push(`/docengine/detail?docId=${doc.id}`);
+    } catch (e: any) {
+      message.error(e?.msg || '文档创建失败');
     }
   };
 
@@ -189,7 +260,7 @@ const DocSearch: React.FC = () => {
             {[5, 7, 8].includes(s) && (
               <Button size="small" type="link" onClick={() => onAction('reopen', id, '重新打开')}>重新打开</Button>
             )}
-            {[0, 1, 2, 4, 6].includes(s) && (
+            {[0, 1, 2, 4, 5, 6].includes(s) && (
               <Button size="small" type="link" danger onClick={() => onAction('void', id, '作废')}>作废</Button>
             )}
             <Button size="small" type="link" onClick={() => history.push(`/docengine/detail?docId=${id}`)}>详情</Button>
@@ -200,6 +271,15 @@ const DocSearch: React.FC = () => {
             ) : (
               <Button size="small" type="link" onClick={() => onCheckOut(id, '签出')}>签出</Button>
             )}
+            <Popconfirm
+              title="确认删除该文档？"
+          description="删除后进入回收站，可从回收站恢复。"
+              okText="删除"
+              cancelText="取消"
+              onConfirm={() => onDeleteDoc(id)}
+            >
+              <Button size="small" type="link" danger>删除</Button>
+            </Popconfirm>
           </span>
         );
       },
@@ -231,6 +311,7 @@ const DocSearch: React.FC = () => {
         <Button type="primary" onClick={onSearch}>
           搜索
         </Button>
+        <Button onClick={openNewDoc}>新建文档</Button>
       </div>
       <Table
         rowKey="id"
@@ -256,7 +337,7 @@ const DocSearch: React.FC = () => {
         onCancel={() => setContentOpen(false)}
         onOk={onSaveContent}
         width={720}
-        destroyOnClose
+        destroyOnHidden
       >
         <Input.TextArea
           rows={14}
@@ -272,7 +353,7 @@ const DocSearch: React.FC = () => {
         onCancel={() => setAttachOpen(false)}
         footer={null}
         width={720}
-        destroyOnClose
+        destroyOnHidden
       >
         <Upload beforeUpload={onUploadAttach} showUploadList={false}>
           <Button style={{ marginBottom: 12 }}>上传附件</Button>
@@ -293,6 +374,38 @@ const DocSearch: React.FC = () => {
             },
           ]}
         />
+      </Modal>
+      <Modal
+        title="新建文档"
+        open={newOpen}
+        onOk={onCreateDoc}
+        onCancel={() => setNewOpen(false)}
+        okText="创建"
+        cancelText="取消"
+        destroyOnHidden
+      >
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ marginBottom: 6 }}>文档标题</div>
+          <Input
+            value={newSubject}
+            onChange={(e) => setNewSubject(e.target.value)}
+            placeholder="请输入文档标题"
+            maxLength={500}
+          />
+        </div>
+        <div>
+        <div style={{ marginBottom: 6 }}>所属目录</div>
+          <TreeSelect
+            value={newCatId}
+            onChange={(v) => setNewCatId(v)}
+            treeData={catTree}
+            allowClear
+            showSearch
+            treeNodeFilterProp="title"
+            placeholder="请选择所属目录"
+            style={{ width: '100%' }}
+          />
+        </div>
       </Modal>
     </Card>
     </div>

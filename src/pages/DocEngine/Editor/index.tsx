@@ -6,7 +6,7 @@ import {
   Descriptions,
   Form,
   Input,
-  message,
+  App,
   Modal,
   Radio,
   Select,
@@ -31,6 +31,7 @@ import PdfViewer from './PdfViewer';
  * 文档ID 支持手动输入，也可点「选择文档」弹出检索框从文档中心挑选（按标题/编号搜索）。
  */
 const DocEditor: React.FC = () => {
+  const { message } = App.useApp();
   const [cfg, setCfg] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [editor, setEditor] = useState<string>('auto');
@@ -357,7 +358,7 @@ const DocEditor: React.FC = () => {
         onCancel={() => setPickerOpen(false)}
         footer={null}
         width={760}
-        destroyOnClose
+        destroyOnHidden
       >
         <Space style={{ marginBottom: 12 }} wrap>
           <select

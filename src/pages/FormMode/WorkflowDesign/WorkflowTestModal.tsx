@@ -253,7 +253,7 @@ const WorkflowTestModal: React.FC<WorkflowTestModalProps> = ({
           </Button>
         </Space>
       }
-      destroyOnClose
+      destroyOnHidden
     >
       <Alert
         type="info"
@@ -448,7 +448,7 @@ const WorkflowTestModal: React.FC<WorkflowTestModalProps> = ({
         onCancel={() => setLogView(null)}
         footer={<Button onClick={() => setLogView(null)}>关闭</Button>}
         width={720}
-        destroyOnClose
+        destroyOnHidden
       >
         <div
           style={{

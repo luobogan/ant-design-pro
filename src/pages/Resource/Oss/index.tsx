@@ -252,7 +252,7 @@ const OssPage: React.FC = () => {
         formRef={formRef}
         onFinish={handleSubmit}
         submitter={readonly ? false : undefined}
-        modalProps={{ destroyOnClose: true, maskClosable: false }}
+        modalProps={{ destroyOnHidden: true, maskClosable: false }}
         disabled={readonly}
       >
         <ProFormRadio.Group

@@ -307,7 +307,7 @@ const NodeOperateMenuModal: React.FC<NodeOperateMenuModalProps> = ({
       onCancel={onClose}
       onOk={handleOk}
       confirmLoading={saving}
-      destroyOnClose
+      destroyOnHidden
       width={720}
       okText="保存"
       cancelText="取消"

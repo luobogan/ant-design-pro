@@ -800,7 +800,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
         open={!!settingKey}
         onCancel={() => setSettingKey(undefined)}
         onOk={saveSetting}
-        destroyOnClose
+        destroyOnHidden
         width={440}
       >
         {/* 同上：必须带 name，否则字段 id 会污染 window 的命名属性 */}

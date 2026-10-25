@@ -471,7 +471,7 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
         onCancel={onClose}
         onOk={handleOk}
         confirmLoading={saving}
-        destroyOnClose
+        destroyOnHidden
         width={920}
         okText="保存"
         cancelText="取消"
@@ -667,7 +667,7 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
         open={!!editing}
         onCancel={() => setEditing(undefined)}
         onOk={commitDetail}
-        destroyOnClose
+        destroyOnHidden
         width={640}
         okText="确定"
         cancelText="取消"

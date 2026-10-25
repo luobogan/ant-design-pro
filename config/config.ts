@@ -165,7 +165,11 @@ export default defineConfig({
    */
   title: '流程引擎系统',
   layout: {
-    locale: true,
+    // 菜单完全由 blade_menu 驱动（菜单名即数据库中的中文名，已是最终展示文案），
+    // 若开启 locale，ProLayout 会把菜单名当作 intl key（menu.<菜单名>）去查，
+    // 而 locale 文件里没有这些 key，控制台会刷 "Missing message: menu.xxx" 告警。
+    // 故关闭菜单国际化：菜单标题直接用数据库名称。
+    locale: false,
     ...defaultSettings,
   },
   /**

@@ -138,7 +138,7 @@ const OdocDictManage: React.FC = () => {
         onOk={handleSubmit}
         onCancel={() => setEditOpen(false)}
         confirmLoading={submitting}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item name="code" label="编码" rules={[{ required: true, message: '请输入编码' }]}>

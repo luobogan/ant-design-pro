@@ -405,7 +405,7 @@ const LayoutStructurePanel: React.FC<LayoutStructurePanelProps> = ({
         confirmLoading={groupSaving}
         okText="保存"
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
       >
         <Space direction="vertical" size={8} style={{ width: '100%' }}>
           {(

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Card, Col, Row, Select, Space, Statistic, Table, Tabs, message } from 'antd';
+import { Card, Col, Row, Select, Space, Statistic, Table, Tabs, App } from 'antd';
 import { statOverview, statCount, type StatRow } from '@/services/doc';
 
 /**
@@ -16,6 +16,7 @@ const dimLabel: Record<string, string> = {
 };
 
 const DocStat: React.FC = () => {
+  const { message } = App.useApp();
   const [ov, setOv] = useState<{ total?: number; draft?: number; effective?: number; recycled?: number }>({});
   const [dim, setDim] = useState<string>('author');
   const [rows, setRows] = useState<StatRow[]>([]);

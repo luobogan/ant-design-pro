@@ -126,7 +126,7 @@ const FormSelectControl: React.FC<{
             </Button>
           ) : null
         }
-        destroyOnClose
+        destroyOnHidden
       >
         <Input.Search
           placeholder="搜索表单名称"
@@ -257,7 +257,7 @@ const BrowserBox: React.FC<{
         onCancel={() => setOpen(false)}
         width={640}
         footer={null}
-        destroyOnClose
+        destroyOnHidden
       >
         <Input.Search
           placeholder="搜索"

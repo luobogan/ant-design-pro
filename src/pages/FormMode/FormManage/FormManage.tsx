@@ -542,7 +542,7 @@ const FormManageList: React.FC = () => {
         confirmLoading={ecologyLoading}
         width={960}
         style={{ top: 40 }}
-        destroyOnClose
+        destroyOnHidden
       >
         <Table
           rowKey="ecologyFormId"

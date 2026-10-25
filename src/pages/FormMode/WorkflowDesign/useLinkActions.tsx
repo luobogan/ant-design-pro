@@ -151,7 +151,7 @@ export function useLinkActions(
       confirmLoading={savingCond}
       onCancel={() => setCondLink(undefined)}
       width={720}
-      destroyOnClose
+      destroyOnHidden
     >
       <ConditionBuilder rows={condRows} onChange={setCondRows} fields={condFields} />
       <div style={{ marginTop: 12, color: condPreview.expr ? 'var(--th-primary, #1677ff)' : 'var(--th-text-tertiary, #999)', fontSize: 12 }}>

@@ -348,7 +348,7 @@ const BrowserTypePicker: React.FC<BrowserTypePickerProps> = ({
       onCancel={onCancel}
       footer={null}
       width={560}
-      destroyOnClose
+      destroyOnHidden
       bodyStyle={{ paddingTop: 0, minHeight: 320 }}
     >
       {/* 主分类Tabs */}

@@ -185,7 +185,7 @@ const OdocNumberManage: React.FC = () => {
         onOk={handleSubmit}
         onCancel={() => setEditOpen(false)}
         confirmLoading={submitting}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item name="typeName" label="文号名称" rules={[{ required: true, message: '请输入文号名称' }]}>

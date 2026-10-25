@@ -162,7 +162,7 @@ const NodeTimeoutModal: React.FC<NodeTimeoutModalProps> = ({ open, nodeKey, node
       onOk={onSave}
       confirmLoading={saving}
       okText="保存"
-      destroyOnClose
+      destroyOnHidden
     >
       {loading ? (
         <Empty description="加载中…" />

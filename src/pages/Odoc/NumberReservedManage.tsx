@@ -137,7 +137,7 @@ const OdocNumberReservedManage: React.FC = () => {
         onOk={handleReserve}
         confirmLoading={submitting}
         onCancel={() => setModalOpen(false)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item

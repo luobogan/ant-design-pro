@@ -216,7 +216,7 @@ const NodeSettingModal: React.FC<NodeSettingModalProps> = ({
       onCancel={onClose}
       onOk={handleOk}
       confirmLoading={saving}
-      destroyOnClose
+      destroyOnHidden
       width={440}
       okText="保存"
       cancelText="取消"

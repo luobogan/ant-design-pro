@@ -294,7 +294,7 @@ const WorkflowDefForm: React.FC<WorkflowDefFormProps> = ({
         style={{ top: 24 }}
         styles={{ body: { height: '78vh', padding: 0 } }}
         footer={null}
-        destroyOnClose
+        destroyOnHidden
       >
         {designOpen && designFormId ? (
           <TableDesign

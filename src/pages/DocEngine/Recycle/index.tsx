@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Card, Popconfirm, Table, message } from 'antd';
+import { Button, Card, Popconfirm, Table, App } from 'antd';
 import { listRecycle, restoreDoc, purgeDoc, type DocRecycleItem } from '@/services/doc';
 import CategoryTree, { syncCatToUrl } from '../components/CategoryTree';
 
@@ -8,6 +8,7 @@ import CategoryTree, { syncCatToUrl } from '../components/CategoryTree';
  * 后端 @PreAuth(HAS_ROLE_DOC) 门禁（修 DET-P0-1）。
  */
 const DocRecycle: React.FC = () => {
+  const { message } = App.useApp();
   const [list, setList] = useState<DocRecycleItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [secCategoryId, setSecCategoryId] = useState<number | string | undefined>(
@@ -36,6 +37,7 @@ const DocRecycle: React.FC = () => {
   };
 
   const columns = [
+    { title: '文档标题', dataIndex: 'docSubject' },
     { title: '文档ID', dataIndex: 'docId' },
     { title: '删除人', dataIndex: 'deleteUser' },
     { title: '删除时间', dataIndex: 'deleteTime' },

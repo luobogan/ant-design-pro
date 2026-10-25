@@ -580,7 +580,7 @@ const TopMenuPage: React.FC = () => {
         onCancel={() => setGrantModalVisible(false)}
         onOk={handleGrantOk}
         width={800}
-        destroyOnClose
+        destroyOnHidden
       >
         <div style={{ padding: '24px' }}>
           <div style={{ marginBottom: 16 }}>

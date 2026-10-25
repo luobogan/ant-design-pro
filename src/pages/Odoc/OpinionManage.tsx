@@ -124,7 +124,7 @@ const OdocOpinionManage: React.FC = () => {
         onOk={handleSubmit}
         onCancel={() => setEditOpen(false)}
         confirmLoading={submitting}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item name="phraseShort" label="标题/常用语名">

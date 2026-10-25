@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Button, Card, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, message,
+  Button, Card, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, App,
 } from 'antd';
 import {
   listCategoryTree,
@@ -17,6 +17,7 @@ import {
 type Kind = 'coder' | 'property' | 'approve';
 
 const CategoryConfig: React.FC = () => {
+  const { message } = App.useApp();
   const [cats, setCats] = useState<DocSecCategory[]>([]);
   const [catId, setCatId] = useState<number | string | undefined>();
   const [coders, setCoders] = useState<DocCategoryCoder[]>([]);
@@ -151,7 +152,7 @@ const CategoryConfig: React.FC = () => {
         title={editing ? '编辑' : '新增'}
         onCancel={() => setOpen(false)}
         onOk={onSubmit}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           {kind === 'coder' && (

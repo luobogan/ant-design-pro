@@ -176,7 +176,7 @@ const OdocSupervise: React.FC = () => {
         onOk={handleAdd}
         onCancel={() => setAddOpen(false)}
         confirmLoading={submitting}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item name="instanceId" label="流程实例ID" rules={[{ required: true, message: '请输入实例ID' }]}>

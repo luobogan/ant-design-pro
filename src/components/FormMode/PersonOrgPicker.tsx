@@ -375,7 +375,7 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
         visible={open}
         position="bottom"
         closeOnMaskClick
-        destroyOnClose
+        destroyOnHidden
         onClose={onCancel}
         onMaskClick={onCancel}
         bodyStyle={{
@@ -517,7 +517,7 @@ export const PersonOrgPicker: React.FC<PersonOrgPickerProps> = ({
       okText="确定"
       cancelText="取消"
       width={780}
-      destroyOnClose
+      destroyOnHidden
       bodyStyle={{ paddingTop: 12 }}
     >
       {data?.errors?.length > 0 && (

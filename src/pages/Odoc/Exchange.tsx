@@ -234,7 +234,7 @@ const OdocExchange: React.FC = () => {
         ]}
       />
 
-      <Modal title="发送公文" open={sendOpen} onOk={handleSend} onCancel={() => setSendOpen(false)} confirmLoading={submitting} destroyOnClose>
+      <Modal title="发送公文" open={sendOpen} onOk={handleSend} onCancel={() => setSendOpen(false)} confirmLoading={submitting} destroyOnHidden>
         <Form form={form} layout="vertical">
           <Form.Item name="instanceId" label="流程实例ID" rules={[{ required: true }]}>
             <Input />
@@ -248,7 +248,7 @@ const OdocExchange: React.FC = () => {
         </Form>
       </Modal>
 
-      <Modal title="新增外部平台" open={setOpen} onOk={saveSetting} onCancel={() => setSetOpen(false)} destroyOnClose>
+      <Modal title="新增外部平台" open={setOpen} onOk={saveSetting} onCancel={() => setSetOpen(false)} destroyOnHidden>
         <Form form={setForm} layout="vertical">
           <Form.Item name="platformCode" label="平台编码" rules={[{ required: true }]}>
             <Input />

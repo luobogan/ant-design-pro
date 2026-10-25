@@ -129,7 +129,7 @@ const WorkflowFormAddModal: React.FC<WorkflowFormAddModalProps> = ({
       title="新建自定义表单"
       open={open}
       onCancel={onCancel}
-      destroyOnClose
+      destroyOnHidden
       maskClosable={false}
       confirmLoading={submitting}
       onOk={handleOk}

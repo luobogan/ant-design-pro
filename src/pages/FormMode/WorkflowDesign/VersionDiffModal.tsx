@@ -195,7 +195,7 @@ const VersionDiffModal: React.FC<VersionDiffModalProps> = ({
       onCancel={onCancel}
       footer={null}
       width={860}
-      destroyOnClose
+      destroyOnHidden
     >
       <Space direction="vertical" style={{ width: '100%' }} size="middle">
         <Descriptions size="small" column={2} bordered>

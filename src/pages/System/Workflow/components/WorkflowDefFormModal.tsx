@@ -38,7 +38,7 @@ const WorkflowDefFormModal: React.FC<WorkflowDefFormModalProps> = ({
       open={open}
       onCancel={onCancel}
       width={720}
-      destroyOnClose
+      destroyOnHidden
       maskClosable={false}
       footer={null}
     >

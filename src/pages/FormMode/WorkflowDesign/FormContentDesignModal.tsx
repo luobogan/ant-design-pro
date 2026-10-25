@@ -951,7 +951,7 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
       width={1000}
       style={{ top: 40 }}
       maskClosable={false}
-      destroyOnClose
+      destroyOnHidden
       footer={
         <Space>
           <Button type="primary" loading={saving} onClick={save} disabled={!nodeKey}>

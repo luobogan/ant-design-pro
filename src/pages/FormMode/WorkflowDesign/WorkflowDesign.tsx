@@ -1253,7 +1253,7 @@ const WorkflowDesignPage: React.FC = () => {
         style={{ top: 24 }}
         styles={{ body: { height: '78vh', padding: 0 } }}
         footer={null}
-        destroyOnClose
+        destroyOnHidden
       >
         {formDesignOpen && formDesignId ? (
           <TableDesign
@@ -1344,7 +1344,7 @@ const WorkflowDesignPage: React.FC = () => {
             </Button>
           </Space>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         {excelDesignOpen && excelDesignNodeKey && current?.formId ? (
           <React.Suspense fallback={<div style={{ padding: 24 }}>设计器加载中...</div>}>

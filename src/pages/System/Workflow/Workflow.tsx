@@ -413,7 +413,7 @@ const Workflow: React.FC = () => {
         onCancel={() => setImportOpen(false)}
         confirmLoading={importing}
         okText="导入"
-        destroyOnClose
+        destroyOnHidden
       >
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
           <Input

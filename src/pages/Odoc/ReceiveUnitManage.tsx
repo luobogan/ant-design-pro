@@ -266,7 +266,7 @@ const OdocReceiveUnitManage: React.FC = () => {
         onOk={handleSubmit}
         onCancel={() => setEditOpen(false)}
         confirmLoading={submitting}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item name="unitName" label="单位名称" rules={[{ required: true, message: '请输入单位名称' }]}>

@@ -626,7 +626,7 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
         onOk={submitInsert}
         onCancel={() => setInsertDef(null)}
         width={insertDef?.mode === 'script' ? 720 : 520}
-        destroyOnClose
+        destroyOnHidden
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
           {insertDef?.mode === 'script' && (

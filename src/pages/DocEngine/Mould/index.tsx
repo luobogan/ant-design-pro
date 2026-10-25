@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Form, Input, InputNumber, Modal, Popconfirm, Table, Tag, message } from 'antd';
+import { Button, Form, Input, InputNumber, Modal, Popconfirm, Table, Tag, App } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { listMould, saveMould, deleteMould, type DocMould } from '@/services/doc';
 
@@ -8,6 +8,7 @@ import { listMould, saveMould, deleteMould, type DocMould } from '@/services/doc
  * 批量删除走后端参数化 in (?)（修 DOC-P0-5）。
  */
 const DocMouldPage: React.FC = () => {
+  const { message } = App.useApp();
   const [list, setList] = useState<DocMould[]>([]);
   const [loading, setLoading] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -97,7 +98,7 @@ const DocMouldPage: React.FC = () => {
         open={editOpen}
         onOk={handleSubmit}
         onCancel={() => setEditOpen(false)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item name="mouldName" label="模板名" rules={[{ required: true, message: '请输入模板名' }]}>

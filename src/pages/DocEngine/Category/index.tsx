@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Card, Form, Input, InputNumber, Modal, Select, Table, Tag, message } from 'antd';
+import { Button, Card, Form, Input, InputNumber, Modal, Select, Table, Tag, App } from 'antd';
 import CategoryTree, { syncCatToUrl } from '../components/CategoryTree';
 import { PlusOutlined } from '@ant-design/icons';
 import {
@@ -17,6 +17,7 @@ import {
  * 写操作用 POST/DELETE（守 G1）；数据经 @/services/doc 服务层。
  */
 const DocCategory: React.FC = () => {
+  const { message, modal } = App.useApp();
   const [list, setList] = useState<DocSecCategory[]>([]);
   const [loading, setLoading] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -45,15 +46,25 @@ const DocCategory: React.FC = () => {
 
   const openAdd = () => {
     setCurrent(null);
-    form.resetFields();
-    form.setFieldsValue({ parentId: 0, maxUploadFileSize: 5, nodownload: 0, editionIsOpen: 0 });
     setEditOpen(true);
   };
 
   const openEdit = (r: DocSecCategory) => {
     setCurrent(r);
-    form.setFieldsValue({ ...r });
     setEditOpen(true);
+  };
+
+  // 表单初始化必须在弹窗打开之后做：弹窗未打开时 <Form> 尚未挂载，
+  // 此时调用 form.resetFields()/setFieldsValue() 会触发 antd 告警
+  // "Instance created by useForm is not connected to any Form element"。
+  const afterOpenChange = (open: boolean) => {
+    if (!open) return;
+    if (current) {
+      form.setFieldsValue({ ...current });
+    } else {
+      form.resetFields();
+      form.setFieldsValue({ parentId: 0, maxUploadFileSize: 5, nodownload: 0, editionIsOpen: 0 });
+    }
   };
 
   const handleSubmit = async () => {
@@ -72,13 +83,13 @@ const DocCategory: React.FC = () => {
   };
 
   const handleDelete = (r: DocSecCategory) => {
-    Modal.confirm({
+    modal.confirm({
       title: `确认删除目录「${r.name}」？`,
       content: '存在下级目录将禁止删除',
       onOk: async () => {
         try {
           await removeCategory(r.id as number | string);
-          message.success('已删除');
+      message.success('已删除');
           reload();
         } catch (e: any) {
           message.error(e?.msg || '删除失败');
@@ -166,7 +177,7 @@ const DocCategory: React.FC = () => {
         onOk={handleSubmit}
         confirmLoading={submitting}
         onCancel={() => setEditOpen(false)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item
@@ -174,7 +185,7 @@ const DocCategory: React.FC = () => {
             label="目录名"
             rules={[{ required: true, message: '请输入目录名' }]}
           >
-            <Input placeholder="目录名" />
+          <Input placeholder="目录名" />
           </Form.Item>
           <Form.Item name="parentId" label="上级目录ID" initialValue={0}>
             <InputNumber style={{ width: '100%' }} min={0} />

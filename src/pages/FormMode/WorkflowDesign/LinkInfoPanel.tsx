@@ -435,7 +435,7 @@ const LinkInfoPanel: React.FC<LinkInfoPanelProps> = ({
           setDraftFrom(addFrom);
           setAddOpen(false);
         }}
-        destroyOnClose
+        destroyOnHidden
         width={420}
       >
         <Form layout="vertical">

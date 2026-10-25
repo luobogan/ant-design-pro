@@ -1740,7 +1740,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
           </Space>
         }
         onCancel={closeDetailCanvas}
-        destroyOnClose
+        destroyOnHidden
         maskClosable={false}
       >
         {editingDetail !== null && (

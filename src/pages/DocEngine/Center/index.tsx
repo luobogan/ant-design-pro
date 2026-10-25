@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Card, Col, Row, Statistic, Table, Tabs, Tag, message } from 'antd';
+import { Card, Col, Row, Statistic, Table, Tabs, Tag, App } from 'antd';
 import { history } from 'umi';
 import { centerRank, centerLatest, centerRecommend, centerMine, type RankRow } from '@/services/doc';
 
@@ -15,6 +15,7 @@ const statusMap: Record<number, { t: string; c?: string }> = {
 };
 
 const DocCenter: React.FC = () => {
+  const { message } = App.useApp();
   const [rank, setRank] = useState<RankRow[]>([]);
   const [latest, setLatest] = useState<any[]>([]);
   const [recommend, setRecommend] = useState<RankRow[]>([]);

@@ -146,7 +146,7 @@ const OdocReceiveGroupManage: React.FC = () => {
         onOk={handleSubmit}
         onCancel={() => setEditOpen(false)}
         confirmLoading={submitting}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item name="groupName" label="公共组名称" rules={[{ required: true, message: '请输入名称' }]}>

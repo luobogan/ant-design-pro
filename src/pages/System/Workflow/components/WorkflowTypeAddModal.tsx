@@ -59,7 +59,7 @@ const WorkflowTypeAddModal: React.FC<WorkflowTypeAddModalProps> = ({
       title="新增路径类型"
       open={open}
       onCancel={onCancel}
-      destroyOnClose
+      destroyOnHidden
       maskClosable={false}
       footer={
         <Space>

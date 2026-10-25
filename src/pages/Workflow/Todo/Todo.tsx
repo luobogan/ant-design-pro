@@ -205,7 +205,7 @@ const TodoList: React.FC = () => {
         open={!!modal}
         onOk={handleModalOk}
         onCancel={() => setModal(null)}
-        destroyOnClose
+        destroyOnHidden
       >
         {modal?.type === 'sign' && (
           <Space style={{ marginBottom: 12 }}>

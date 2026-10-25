@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { history, useLocation } from 'umi';
-import { Button, Card, Checkbox, Descriptions, Input, List, Modal, Select, Space, Table, Tabs, Tag, Upload, message } from 'antd';
+import { Button, Card, Checkbox, Descriptions, Input, List, Modal, Select, Space, Table, Tabs, Tag, Upload, App } from 'antd';
 import {
   getDocDetail, getDocContent, saveDocContent,
-  listAttachment, uploadAttachment, deleteAttachment, listVersions,
+  listAttachment, uploadAttachment, deleteAttachment, renameAttachment, listVersions,
   publishDoc, invalidateDoc, archiveDoc, reopenDoc, voidDoc,
   checkOutDoc, checkInDoc, forceCheckInDoc,
   listReply, saveReply, deleteReply, praiseInfo, togglePraise, scoreInfo, saveScore,
@@ -24,6 +24,7 @@ const statusMap: Record<number, { t: string; c?: string }> = {
 };
 
 const DocDetailPage: React.FC = () => {
+  const { message } = App.useApp();
   const location = useLocation();
   const docId = new URLSearchParams(location.search).get('docId') || undefined;
 
@@ -39,6 +40,9 @@ const DocDetailPage: React.FC = () => {
   // 删除附件：目标行 + 是否同时删除物理文件
   const [delTarget, setDelTarget] = useState<any>(null);
   const [delPhysical, setDelPhysical] = useState<boolean>(true);
+  // 删除附件：目标行 + 是否同时删除物理文件
+  const [renTarget, setRenTarget] = useState<any>(null);
+  const [renName, setRenName] = useState<string>('');
 
   const loadAll = useCallback(async (id?: string) => {
     if (!id) return;
@@ -72,6 +76,24 @@ const DocDetailPage: React.FC = () => {
   const onDelAttach = (row: any) => {
     setDelTarget(row);
     setDelPhysical(true);
+  };
+  const onRenAttach = (row: any) => {
+    setRenTarget(row);
+    setRenName(row?.fileName ?? '');
+  };
+  const onConfirmRen = async () => {
+    if (!renTarget || !renName.trim()) {
+      message.error('文件名不能为空');
+      return;
+    }
+    try {
+      await renameAttachment(renTarget.id, renName.trim());
+      message.success('附件重命名成功');
+      setRenTarget(null);
+      loadAll(docId);
+    } catch (e: any) {
+      message.error(e?.msg || '附件重命名失败');
+    }
   };
   const onConfirmDel = async () => {
     try {
@@ -163,17 +185,20 @@ const DocDetailPage: React.FC = () => {
                 </Upload>
                 <Table rowKey="id" size="small" dataSource={attaches} pagination={false}
                   columns={[
-                    { title: '文件名', dataIndex: 'fileName' },
+                          { title: '文件名', dataIndex: 'fileName' },
                     {
                       title: '版本', key: 'ver', width: 90,
                       render: (_: any, r: any) => {
-                        // 上传的附件无版本链(versionId 为空)；WPS 在线编辑保存产生 versionId 递增的版本流水
-                        if (r.versionId == null) {
+                        // 说明：后端 versionId 目前未真正维护（接口返回 -1），不能作为流水依据；
+                        // 故按「主文件(docFileType=2)在列表中的顺序」编流水：v1 最早 → vN 最新；
+                        // 上传的附件(docFileType=1/3)不占流水，标“附件”；
+                        const isMain = Number(r.docFileType) === 2;
+                        if (!isMain) {
                           return <Tag color="blue">附件</Tag>;
                         }
-                        // 版本流水号：比当前 versionId 小的个数 + 1（v1 最早 → vN 最新）
-                        const rank =
-                          attaches.filter((a: any) => a.versionId != null && Number(a.versionId) < Number(r.versionId)).length + 1;
+                        const mainList = attaches.filter((a: any) => Number(a.docFileType) === 2);
+                        const idx = mainList.findIndex((a: any) => String(a.id) === String(r.id));
+                        const rank = idx >= 0 ? idx + 1 : 1;
                         const isCur = String(r.fileId ?? r.id) === String(detail?.mainFileId);
                         return <Tag color={isCur ? 'green' : undefined}>v{rank}</Tag>;
                       },
@@ -192,6 +217,7 @@ const DocDetailPage: React.FC = () => {
                         >
                           打开预览
                         </Button>
+                        <Button size="small" type="link" onClick={() => onRenAttach(r)}>重命名</Button>
                         <Button size="small" type="link" danger onClick={() => onDelAttach(r)}>删除</Button>
                       </Space>
                     ) },
@@ -206,7 +232,7 @@ const DocDetailPage: React.FC = () => {
               <Table rowKey="id" size="small" dataSource={versions} pagination={false}
                 columns={[
                   { title: '版本ID', dataIndex: 'versionId' },
-                  { title: '文件名', dataIndex: 'fileName' },
+            { title: '文件名', dataIndex: 'fileName' },
                   { title: '大小(字节)', dataIndex: 'fileSize' },
                   { title: '版本说明', dataIndex: 'versionDetail' },
                 ]}
@@ -267,7 +293,7 @@ const DocDetailPage: React.FC = () => {
                 {[1, 2, 5].includes(s) && <Button onClick={() => run(() => invalidateDoc(docId), '失效')}>失效</Button>}
                 {[1, 2, 7].includes(s) && <Button onClick={() => run(() => archiveDoc(docId), '归档')}>归档</Button>}
                 {[5, 7, 8].includes(s) && <Button onClick={() => run(() => reopenDoc(docId), '重新打开')}>重新打开</Button>}
-                {[0, 1, 2, 4, 6].includes(s) && <Button danger onClick={() => run(() => voidDoc(docId), '作废')}>作废</Button>}
+                {[0, 1, 2, 4, 5, 6].includes(s) && <Button danger onClick={() => run(() => voidDoc(docId), '作废')}>作废</Button>}
                 <Button onClick={() => run(() => checkOutDoc(docId), '签出')}>签出</Button>
                 <Button onClick={() => run(() => checkInDoc(docId), '签入')}>签入</Button>
                 <Button onClick={() => run(() => forceCheckInDoc(docId), '强制签入')}>强制签入</Button>
@@ -284,7 +310,7 @@ const DocDetailPage: React.FC = () => {
         okText="删除"
         cancelText="取消"
         okButtonProps={{ danger: true }}
-        destroyOnClose
+        destroyOnHidden
       >
         <div>确定删除附件「{delTarget?.fileName ?? delTarget?.fileId ?? ''}」吗？</div>
         <Checkbox
@@ -294,6 +320,21 @@ const DocDetailPage: React.FC = () => {
         >
           同时删除文件（取消勾选则只移除记录、保留文件）
         </Checkbox>
+      </Modal>
+      <Modal
+        title="重命名附件"
+        open={!!renTarget}
+        onOk={onConfirmRen}
+        onCancel={() => setRenTarget(null)}
+        okText="确定"
+        cancelText="取消"
+        destroyOnHidden
+      >
+        <Input
+          value={renName}
+          onChange={(e) => setRenName(e.target.value)}
+          placeholder="请输入新的文件名"
+        />
       </Modal>
     </Card>
   );

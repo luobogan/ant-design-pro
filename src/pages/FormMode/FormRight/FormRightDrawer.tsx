@@ -551,7 +551,7 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       width={920}
       open={open}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
       extra={
         <Button type="primary" onClick={handleSave} loading={saving} disabled={disabled}>
           保存

@@ -905,7 +905,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
       onOk={handleSave}
       confirmLoading={saving}
       width={1080}
-      destroyOnClose
+      destroyOnHidden
       okText="保 存"
       cancelText="取消"
     >
@@ -1138,7 +1138,7 @@ const NodeOperatorModal: React.FC<NodeOperatorModalProps> = ({
         onOk={handleSync}
         confirmLoading={syncing}
         width={520}
-        destroyOnClose
+        destroyOnHidden
         okText="同 步"
         cancelText="取消"
       >

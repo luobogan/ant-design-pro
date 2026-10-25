@@ -1670,7 +1670,7 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
         onOk={handleImport}
         onCancel={() => setImportOpen(false)}
         width={800}
-        destroyOnClose
+        destroyOnHidden
       >
         <Input.TextArea
           rows={16}

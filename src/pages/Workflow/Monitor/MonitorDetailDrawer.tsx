@@ -84,7 +84,7 @@ const MonitorDetailDrawer: React.FC<MonitorDetailDrawerProps> = ({
       open={open}
       onClose={onClose}
       width={1100}
-      destroyOnClose
+      destroyOnHidden
       title={`流程监控详情${record?.title ? ` - ${record.title}` : ''}`}
       footer={
         <Space>

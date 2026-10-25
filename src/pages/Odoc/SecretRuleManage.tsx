@@ -174,7 +174,7 @@ const OdocSecretRuleManage: React.FC = () => {
         onOk={handleSubmit}
         onCancel={() => setEditOpen(false)}
         confirmLoading={submitting}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item name="targetType" label="目标类型" rules={[{ required: true }]}>

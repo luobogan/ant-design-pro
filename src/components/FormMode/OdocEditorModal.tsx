@@ -93,7 +93,7 @@ const OdocEditorModal: React.FC<OdocEditorModalProps> = ({ open, config, onClose
       width="82%"
       style={{ top: 24 }}
       onCancel={() => onSaved()}
-      destroyOnClose
+      destroyOnHidden
     >
       <div ref={containerRef} style={{ height: '72vh', border: '1px solid #eee' }} />
     </Modal>

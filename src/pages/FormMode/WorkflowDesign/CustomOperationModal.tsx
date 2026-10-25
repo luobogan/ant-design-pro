@@ -144,7 +144,7 @@ const CustomOperationModal: React.FC<{
       onOk={onSave}
       confirmLoading={saving}
       okText="保存"
-      destroyOnClose
+      destroyOnHidden
     >
       {loading ? (
         <Empty description="加载中…" />
