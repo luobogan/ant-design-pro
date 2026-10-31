@@ -1,4 +1,4 @@
-import { PageContainer } from '@ant-design/pro-components';
+import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { Button, Form, Input, Modal, Popconfirm, Select, Tag, TreeSelect, message } from 'antd';
 import { useEffect, useRef, useState } from 'react';
@@ -21,14 +21,14 @@ const SCOPE_TYPE: Record<number, { text: string; color: string }> = {
 const toTreeData = (nodes: any[]): any[] =>
   (nodes || []).map((n) => ({
     value: n.id ?? n.value,
-    title: n.title ?? n.name ?? n.id,
+    title: n.title ?? n.name ?? n.deptName ?? n.id,
     children: n.children && n.children.length ? toTreeData(n.children) : undefined,
   }));
 
 /** 在部门树中递归查找节点名称 */
 const findDeptName = (nodes: any[], id: any): string | undefined => {
   for (const n of nodes || []) {
-    if (String(n.id ?? n.value) === String(id)) return n.title ?? n.name ?? String(id);
+    if (String(n.id ?? n.value) === String(id)) return n.title ?? n.name ?? n.deptName ?? String(id);
     if (n.children?.length) {
       const r = findDeptName(n.children, id);
       if (r) return r;
@@ -252,7 +252,7 @@ const MonitorScopePage: React.FC = () => {
         okText="保存"
         cancelText="取消"
         width={560}
-        destroyOnHidden
+        destroyOnClose
       >
         <Form form={form} layout="vertical">
           <Form.Item
