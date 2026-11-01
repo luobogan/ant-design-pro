@@ -1182,6 +1182,31 @@ export async function monitorAnomalySummary() {
   });
 }
 
+/** 流程监控看板统计（状态分布 / 超时 / 异常 / 按流程定义分布 / 平均耗时） */
+export interface MonitorStats {
+  /** 总实例数 */
+  total?: number;
+  /** 各状态计数：0运行中 1通过 2不通过 3撤销 4暂停 5草稿 */
+  statusCounts?: number[];
+  /** 运行中数 */
+  running?: number;
+  /** 超时实例数（存在已过期未办任务） */
+  overdue?: number;
+  /** 异常总数（业务行缺失/requestId未回填/部署漂移） */
+  anomalyTotal?: number;
+  /** 按流程定义分布 */
+  byDef?: Array<{ defId?: number; defName?: string; count?: number; running?: number }>;
+  /** 已办结平均耗时（分钟） */
+  avgDurationMinutes?: number;
+}
+
+export async function monitorStats() {
+  return request<ApiResponse<MonitorStats>>(`${WORKFLOW}/monitor/stats`, {
+    method: 'GET',
+    skipErrorHandler: true,
+  });
+}
+
 /**
  * 强制收回(收回重填)：方案A 原地回退——把引擎 token 移回目标节点（缺省=创建节点），
  * 实例不终止、ID 与流转历史连续，由发起人重新填写提交。
@@ -1497,8 +1522,8 @@ export async function cleanupWorkflowTest(defId?: any) {
 
 export interface MonitorScopeItem {
   id?: string;
-  /** -1 或空 = 全部流程定义 */
-  defId?: number;
+  /** -1 或空 = 全部流程定义（雪花 ID，前端保持字符串，勿 Number() 转换） */
+  defId?: number | string;
   /** 范围类型 1分部 2部门 3人员 */
   scopeType?: number;
   /** 人员ID 或 部门/分部ID（-1 表示未设置） */

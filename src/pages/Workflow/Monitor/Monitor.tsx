@@ -2,7 +2,7 @@ import { useModel, useAccess } from '@umijs/max';
 import { PageContainer } from '@ant-design/pro-components';
 import StandardTable from '@/components/StandardTable';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Badge, Button, Card, Popconfirm, Modal, Input, Select, Statistic, Tag, message, Space } from 'antd';
+import { Badge, Button, Card, Popconfirm, Modal, Input, Select, Statistic, Tag, message, Space, Row, Col, Table } from 'antd';
 import type { ProFormInstance } from '@ant-design/pro-components';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -19,16 +19,27 @@ import {
   monitorAnomalySummary,
   cleanupWorkflowTest,
   listDefinitions,
+  monitorStats,
 } from '@/services/workflow';
 import { list as userList } from '@/services/system/user';
+import { tree as deptTree } from '@/services/system/dept';
 import type {
   MonitorInstanceItem,
   MonitorBatchResult,
   MonitorAnomalySummary,
+  MonitorStats,
   WfProcessNode,
 } from '@/services/workflow';
 import MonitorDetailDrawer from './MonitorDetailDrawer';
 import { pickPayload } from '@/utils/utils';
+
+/** 把部门树节点转换为 antd TreeSelect 的 treeData（兼容 id/value、title/name） */
+const toTreeData = (nodes: any[]): any[] =>
+  (nodes || []).map((n) => ({
+    value: n.id ?? n.value,
+    title: n.title ?? n.name ?? n.deptName ?? n.id,
+    children: n.children && n.children.length ? toTreeData(n.children) : undefined,
+  }));
 
 /** 实例状态：0运行中 1通过 2不通过 3撤销 4暂停 5草稿 */
 const INSTANCE_STATUS: Record<number, { text: string; color: string }> = {
@@ -66,6 +77,12 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [detailRecord, setDetailRecord] = useState<MonitorInstanceItem | undefined>(undefined);
   // 异常聚合（异常 Tab 卡片）
   const [anomaly, setAnomaly] = useState<MonitorAnomalySummary | undefined>(undefined);
+  // 看板统计（状态分布 / 超时 / 异常 / 按流程定义分布 / 平均耗时）
+  const [stats, setStats] = useState<MonitorStats | undefined>(undefined);
+  // 部门树（部门筛选用）
+  const [deptTreeData, setDeptTreeData] = useState<any[]>([]);
+  // 选中的部门（用于按部门过滤发起人：部门→用户ID串→后端 startersStr）
+  const [deptId, setDeptId] = useState<number | string | undefined>(undefined);
   const formRef = useRef<ProFormInstance>();
   // 检索下拉：流程定义 / 发起人
   const [defOptions, setDefOptions] = useState<{ label: string; value: string | number }[]>([]);
@@ -79,6 +96,12 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
   useEffect(() => {
     loadAnomaly();
+    monitorStats()
+      .then((res: any) => setStats(pickPayload(res) || {}))
+      .catch(() => setStats(undefined));
+    deptTree()
+      .then((res: any) => setDeptTreeData(toTreeData(pickPayload(res))))
+      .catch(() => setDeptTreeData([]));
     listDefinitions()
       .then((res: any) => {
         const list = pickPayload(res) || [];
@@ -291,6 +314,21 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
       search: { transform: (v) => (v != null ? { defId: v } : {}) },
     },
     { title: '发起人', dataIndex: 'starterName', hideInSearch: true },
+    {
+      title: '部门',
+      dataIndex: 'deptId',
+      hideInTable: true,
+      valueType: 'treeSelect',
+      fieldProps: {
+        treeData: deptTreeData,
+        allowClear: true,
+        showSearch: true,
+        treeNodeFilterProp: 'title',
+        placeholder: '按部门筛选发起人',
+        onChange: (v: any) => setDeptId(v ?? undefined),
+      },
+      search: { transform: (v) => (v != null ? { deptId: v } : {}) },
+    },
     {
       title: '发起人',
       dataIndex: 'starter',
@@ -512,6 +550,28 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
         )}
       </Space>
 
+      {/* 统计看板：状态分布 / 超时 / 异常 / 按流程定义分布 / 平均耗时 */}
+      <Card size="small" title="流程统计看板" style={{ marginBottom: 16 }}>
+        <Row gutter={24} style={{ marginBottom: 12 }}>
+          <Col><Statistic title="总实例" value={stats?.total ?? 0} /></Col>
+          <Col><Statistic title="运行中" value={stats?.running ?? 0} valueStyle={{ color: '#1890ff' }} /></Col>
+          <Col><Statistic title="超时" value={stats?.overdue ?? 0} valueStyle={{ color: (stats?.overdue ?? 0) > 0 ? '#cf1322' : undefined }} /></Col>
+          <Col><Statistic title="异常" value={stats?.anomalyTotal ?? 0} valueStyle={{ color: (stats?.anomalyTotal ?? 0) > 0 ? '#cf1322' : undefined }} /></Col>
+          <Col><Statistic title="平均耗时(分钟)" value={stats?.avgDurationMinutes ?? 0} precision={1} /></Col>
+        </Row>
+        <Table
+          size="small"
+          rowKey="defId"
+          pagination={false}
+          dataSource={stats?.byDef || []}
+          columns={[
+            { title: '流程定义', dataIndex: 'defName' },
+            { title: '总数', dataIndex: 'count', align: 'right' },
+            { title: '运行中', dataIndex: 'running', align: 'right' },
+          ]}
+        />
+      </Card>
+
       <StandardTable<MonitorInstanceItem>
         actionRef={actionRef}
         formRef={formRef}
@@ -523,10 +583,24 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
         rowSelection={canAdmin ? { selectedRowKeys, onChange: setSelectedRowKeys } : undefined}
         request={async (params) => {
           try {
+            const q: any = { ...params };
+            // 部门筛选：部门 → 该部门下用户 ID 串 → 后端 startersStr（in starter）
+            if (deptId != null) {
+              try {
+                const uRes: any = await userList({ deptId, current: 1, size: 1000 });
+                const records: any[] = (pickPayload(uRes) || {}).records || [];
+                const ids = records
+                  .map((u: any) => u.id)
+                  .filter((v: any) => v != null && v !== '');
+                q.startersStr = ids.length ? ids.join(',') : '-1';
+              } catch {
+                q.startersStr = '-1';
+              }
+            }
             const res: any = await monitorList({
               current: params.current,
               pageSize: params.pageSize,
-              ...params,
+              ...q,
             });
             const page: any = pickPayload(res) || {};
             const list: MonitorInstanceItem[] = Array.isArray(page) ? page : page.records || [];

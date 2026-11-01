@@ -72,7 +72,7 @@ const MonitorScopePage: React.FC = () => {
     listDefinitions()
       .then((res: any) => {
         const list = pickPayload(res) || [];
-        setDefOptions(list.map((d: any) => ({ label: d.name || d.id, value: Number(d.id) })));
+        setDefOptions(list.map((d: any) => ({ label: d.name || d.id, value: d.id })));
       })
       .catch(() => setDefOptions([]));
     userList({ current: 1, size: 500 })
@@ -118,7 +118,7 @@ const MonitorScopePage: React.FC = () => {
     const v = await form.validateFields();
     const payload: MonitorScopeItem = {
       id: editing?.id,
-      defId: v.defId === -1 || v.defId == null ? undefined : Number(v.defId),
+      defId: v.defId === -1 || v.defId == null ? undefined : v.defId,
       scopeType: v.scopeType,
       scopeValue:
         v.scopeValue == null || v.scopeValue === '' || v.scopeValue === -1
