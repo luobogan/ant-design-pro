@@ -50,7 +50,7 @@ const MonitorScopePage: React.FC = () => {
   const [form] = Form.useForm();
   const [scopeType, setScopeType] = useState<number>(3);
 
-  const [defOptions, setDefOptions] = useState<{ label: string; value: number }[]>([]);
+  const [defOptions, setDefOptions] = useState<{ label: string; value: number | string }[]>([]);
   const [userMap, setUserMap] = useState<Record<string, string>>({});
   const [deptTreeData, setDeptTreeData] = useState<any[]>([]);
 
@@ -123,7 +123,7 @@ const MonitorScopePage: React.FC = () => {
       scopeValue:
         v.scopeValue == null || v.scopeValue === '' || v.scopeValue === -1
           ? undefined
-          : Number(v.scopeValue),
+          : v.scopeValue,
       monitorUserIds: v.monitorUserIds ? String(v.monitorUserIds) : '',
       remark: v.remark || '',
     };

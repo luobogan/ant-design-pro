@@ -1526,8 +1526,8 @@ export interface MonitorScopeItem {
   defId?: number | string;
   /** 范围类型 1分部 2部门 3人员 */
   scopeType?: number;
-  /** 人员ID 或 部门/分部ID（-1 表示未设置） */
-  scopeValue?: number;
+  /** 人员ID 或 部门/分部ID（-1 表示未设置，雪花 ID 前端保持字符串，勿 Number() 转换） */
+  scopeValue?: number | string;
   /** 被委托人ID列表，逗号分隔 */
   monitorUserIds?: string;
   remark?: string;

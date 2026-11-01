@@ -256,7 +256,7 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
     try {
       await deleteInstanceById(record.id as string);
       message.success('已强制删除');
-      actionRef.current?.reload();
+      actionRef.current?.reloadAndRest();
     } catch (e: any) {
       message.error(e?.msg || '强制删除失败');
     }
@@ -287,7 +287,7 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
             );
           }
           setSelectedRowKeys([]);
-          actionRef.current?.reload();
+          actionRef.current?.reloadAndRest();
         } catch (e: any) {
           message.error(e?.msg || '批量操作失败');
         }
