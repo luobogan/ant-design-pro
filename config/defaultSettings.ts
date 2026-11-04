@@ -43,8 +43,9 @@ const Settings: ProLayoutProps & {
   clientSecret: 'sword_secret',
   // 租户模式
   tenantMode: true,
-  // 验证码模式：兜底默认值（true=开启）；实际以数据库参数「captcha_mode」为准
-  captchaMode: true,
+  // 验证码模式：兜底默认值（false=关闭，即默认不显示验证码）。
+  // 仅当后台对应租户显式配置「captcha_mode」= true 时才显示（见 src/utils/captchaSetting.ts）
+  captchaMode: false,
   // SM2加密公钥配置
   auth: {
     // 使用后端工程 @org.springblade.test.Sm2KeyGenerator 获取

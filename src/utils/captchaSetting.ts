@@ -15,6 +15,7 @@ export const DEFAULT_TENANT_ID = '000000';
 /**
  * 按租户从数据库加载「是否开启登录验证码」，并覆盖 defaultSettings 中的兜底默认值。
  * 登录页在用户选择/填写租户后调用，实现各租户独立控制。
+ * 语义：默认不显示验证码；只有该租户显式配置 captcha_mode=true 才显示（未配置/接口异常均按关闭处理）。
  * @param tenantId 目标租户（默认 000000）
  */
 export async function loadCaptchaMode(
@@ -22,16 +23,18 @@ export async function loadCaptchaMode(
 ): Promise<boolean> {
   try {
     const value = await getParamPublicValue(CAPTCHA_PARAM_KEY, tenantId);
-    // 后端无值时 data 为 {}（空对象），需当作“未配置”回落到安全默认值 true（显示验证码）
+    // 后端无值时 data 为 null / {}（空对象），一律当作「未配置」→ 默认不显示验证码。
+    // 只有对应租户显式配置 param_value='true' 才开启，与登录页「默认不显示」及后端 fail-open 语义一致。
     const isEmpty =
       value == null ||
       value === '' ||
       (typeof value === 'object' && Object.keys(value).length === 0);
-    const enabled = isEmpty ? true : String(value).toLowerCase() === 'true';
+    const enabled = !isEmpty && String(value).toLowerCase() === 'true';
     Settings.captchaMode = enabled;
   } catch (e) {
-    // 公开接口不可用时（如后端尚未部署）沿用默认值，不影响登录
-    console.warn('[captcha] 从数据库加载验证码开关失败，沿用默认值', e);
+    // 公开接口不可用时（如后端尚未部署）回落到默认关闭，不影响登录
+    console.warn('[captcha] 从数据库加载验证码开关失败，默认不显示验证码', e);
+    Settings.captchaMode = false;
   }
   return Settings.captchaMode === true;
 }

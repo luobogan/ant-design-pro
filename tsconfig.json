@@ -16,7 +16,8 @@
       "@/*": ["./src/*"],
       "@@/*": ["./src/.umi/*"],
       "@@test/*": ["./src/.umi-test/*"],
-      "@root/*": ["./*"]
+      "@root/*": ["./*"],
+      "history": ["./node_modules/history"]
     },
     "baseUrl": "."
   },

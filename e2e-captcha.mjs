@@ -38,7 +38,7 @@ try {
   await page.waitForTimeout(2000);
   result.testA.tenant888888 = await vis();
 
-  // 切到 999999（无配置 → 默认 true）→ 显示
+  // 切到 999999（无配置 → 默认不显示）
   await tenant.fill('999999');
   await page.waitForTimeout(2000);
   result.testA.tenant999999 = await vis();
@@ -51,7 +51,7 @@ try {
   const aPass =
     result.testA.tenant000000_initial === false &&
     result.testA.tenant888888 === true &&
-    result.testA.tenant999999 === true &&
+    result.testA.tenant999999 === false &&
     result.testA.tenant000000_back === false;
   result.testA.pass = aPass;
   log('Test A 结果', result.testA);

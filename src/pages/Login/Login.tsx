@@ -269,7 +269,10 @@ const Login: React.FC = () => {
         setLoginError(
           errorData.msg || `登录失败，服务器错误 (${response.status})`,
         );
-        fetchCaptcha();
+        // 仅当前租户开启验证码时才刷新图片；默认关闭时不再请求验证码接口
+        if (captchaEnabled) {
+          fetchCaptcha();
+        }
         return;
       }
 
@@ -347,7 +350,10 @@ const Login: React.FC = () => {
         window.location.href = redirectUrl;
       } else {
         setLoginError(data.msg || '登录失败,请检查您的凭据');
-        fetchCaptcha();
+        // 仅当前租户开启验证码时才刷新图片；默认关闭时不再请求验证码接口
+        if (captchaEnabled) {
+          fetchCaptcha();
+        }
       }
     } catch (error) {
       console.error('Login error:', error);
