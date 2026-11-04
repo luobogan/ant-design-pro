@@ -736,8 +736,8 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
         formRef={formRef}
         rowKey={(r) => r.id || `${r.title}`}
         columns={columns}
-        scroll={{ x: 1200 }}
         search={{ labelWidth: 'auto' }}
+        scroll={{ x: 1200 }}
         pagination={{ defaultPageSize: 20 }}
         rowSelection={canAdmin ? { selectedRowKeys, onChange: setSelectedRowKeys } : undefined}
         request={async (params) => {
@@ -763,7 +763,6 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
             });
             const page: any = pickPayload(res) || {};
             const list: MonitorInstanceItem[] = Array.isArray(page) ? page : page.records || [];
-            console.log('[MON_DEBUG] overdue=', q.overdue, 'recLen=', Array.isArray(page) ? page.length : (page && page.records ? page.records.length : -1), 'total=', page && page.total, 'resType=', res && res.constructor && res.constructor.name);
             return {
               data: list,
               success: true,
