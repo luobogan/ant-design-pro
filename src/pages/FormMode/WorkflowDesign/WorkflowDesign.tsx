@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
+import FreePoolSetting from './FreePoolSetting';
 import { Button, Card, Descriptions, Empty, message, Modal, Select, Slider, Space, Switch, Table, Tag, Tabs } from 'antd';
 import {
   activateVersion,
@@ -109,9 +110,57 @@ const NODE_TYPE = ['创建', '审批', '提交', '归档', '等待', '自动'];
  * <p>新建 / 从未保存画布的流程在打开设计器时自动初始化，节点信息列表即带「创建」「结束」节点，
  * 不必等用户点保存才由 saveBpmn 从画布反推生成。</p>
  */
+/**
+ * 自由流程节点池：与后端 WfFreeFlowManager.POOL_NODE_PREFIX 保持一致的命名约定。
+ * 每个 Free_k 都是真实 UserTask（引擎可停留、moveActivity 可跳入），并带一条到 EndEvent 的
+ * 默认出口，供末步 completeTask 干净归档；中间步骤靠 moveActivity 迁移，不走默认出口。
+ */
+const FREE_POOL_PREFIX = 'Free_';
+const DEFAULT_FREE_POOL_SIZE = 5;
+
+const freePoolSizeOf = (def: WfProcessDefinition): number => {
+  const raw = Number(def.freeNodePoolSize ?? DEFAULT_FREE_POOL_SIZE);
+  if (!Number.isFinite(raw)) return DEFAULT_FREE_POOL_SIZE;
+  return Math.min(20, Math.max(1, Math.trunc(raw)));
+};
+
 const buildDefaultBpmn = (def: WfProcessDefinition): string => {
   const pid =
     def.procKey && /^[A-Za-z_]/.test(def.procKey) ? def.procKey : `Process_${def.id}`;
+  const freeEnabled = Number(def.isFree ?? 0) === 1;
+  const poolSize = freeEnabled ? freePoolSizeOf(def) : 0;
+  const endX = 460 + poolSize * 150;
+
+  const freeTasks = Array.from({ length: poolSize }, (_, i) => {
+    const k = i + 1;
+    return `    <bpmn:userTask id="Free_${k}" name="通用审批${k}">
+      <bpmn:extensionElements>
+        <wf:node xmlns:wf="http://www.springblade.org/workflow" nodeType="1" sortOrder="${10 + k}">
+          <wf:operator opType="17" groupNo="1" signOrder="0" />
+        </wf:node>
+      </bpmn:extensionElements>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_Free_${k}_end" sourceRef="Free_${k}" targetRef="EndEvent_1" />`;
+  }).join('\n');
+
+  const freeShapes = Array.from({ length: poolSize }, (_, i) => {
+    const k = i + 1;
+    const x = 460 + i * 150;
+    return `      <bpmndi:BPMNShape id="Free_${k}_di" bpmnElement="Free_${k}">
+        <dc:Bounds x="${x}" y="240" width="100" height="80" />
+      </bpmndi:BPMNShape>`;
+  }).join('\n');
+
+  const freeEdges = Array.from({ length: poolSize }, (_, i) => {
+    const k = i + 1;
+    const x = 460 + i * 150;
+    return `      <bpmndi:BPMNEdge id="Flow_Free_${k}_end_di" bpmnElement="Flow_Free_${k}_end">
+        <di:waypoint x="${x + 100}" y="280" />
+        <di:waypoint x="${endX + 18}" y="280" />
+        <di:waypoint x="${endX + 18}" y="118" />
+      </bpmndi:BPMNEdge>`;
+  }).join('\n');
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_${pid}" targetNamespace="http://bpmn.io/schema/bpmn">
   <bpmn:process id="${pid}" isExecutable="true">
@@ -126,7 +175,7 @@ const buildDefaultBpmn = (def: WfProcessDefinition): string => {
     </bpmn:userTask>
     <bpmn:sequenceFlow id="Flow_2" sourceRef="UserTask_1" targetRef="EndEvent_1" />
     <bpmn:endEvent id="EndEvent_1" name="结束" />
-  </bpmn:process>
+${freeTasks ? `${freeTasks}\n` : ''}  </bpmn:process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${pid}">
       <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
@@ -137,18 +186,18 @@ const buildDefaultBpmn = (def: WfProcessDefinition): string => {
         <dc:Bounds x="270" y="78" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="EndEvent_1_di" bpmnElement="EndEvent_1">
-        <dc:Bounds x="460" y="100" width="36" height="36" />
-        <bpmndi:BPMNLabel><dc:Bounds x="460" y="140" width="36" height="14" /></bpmndi:BPMNLabel>
+        <dc:Bounds x="${endX}" y="100" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="${endX}" y="140" width="36" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
+${freeShapes ? `${freeShapes}\n` : ''}      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
         <di:waypoint x="196" y="118" />
         <di:waypoint x="270" y="118" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_2_di" bpmnElement="Flow_2">
         <di:waypoint x="370" y="118" />
-        <di:waypoint x="460" y="118" />
+        <di:waypoint x="${endX}" y="118" />
       </bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
+${freeEdges ? `${freeEdges}\n` : ''}    </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
 };
@@ -765,6 +814,18 @@ const WorkflowDesignPage: React.FC = () => {
             reloadCurrent();
           }}
           onSaveAsNewVersion={(id) => handleSaveAsNewVersion(id)}
+        />
+      )}
+      {current && Number(current.isFree ?? 0) === 1 && (
+        <FreePoolSetting
+          key={`pool-${current.id}-${current.freeNodePoolSize ?? 5}`}
+          def={current}
+          onRebuild={(size) => {
+            const next = { ...current, freeNodePoolSize: size };
+            setCurrent(next);
+            setBpmn(buildDefaultBpmn(next));
+            message.info('已按新数量重建默认画布，请保存并点「发布」刷新流程部署');
+          }}
         />
       )}
     </Card>

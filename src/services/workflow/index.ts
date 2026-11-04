@@ -22,6 +22,8 @@ export interface WfProcessDefinition {
   draftRevision?: number;
   status?: number; // 0草稿 1已发布 3测试（2停用已废除，仅存量数据）
   isFree?: number;
+  /** 自由流程预置通用审批节点数量（NULL=后端按默认 5 处理） */
+  freeNodePoolSize?: number;
   /** 路径类型（对齐 ecology path_type 字典 code） */
   type?: string;
   /** 对应表单类型：0自定义表单 1系统表单 */
@@ -2805,3 +2807,63 @@ export const sealApi = {
   list: (docId: any) =>
     request<ApiResponse<OdocSeal[]>>(`${WORKFLOW}/odoc/seal/list`, { method: 'GET', params: { docId } }),
 };
+
+// ───────────── 自由流程（P0+P1+P2） ─────────────
+/** 流转设定中的单个步骤行 */
+export interface FreeFlowStep {
+  flowOrder?: number;
+  nodeName?: string;
+  /** 办理人ID：雪花 ID 用字符串承载（禁止 Number 转换），后端 Jackson 转为 Long */
+  operatorIds?: (number | string)[];
+  signType?: number;
+  isFinalize?: boolean;
+  mustTaohong?: boolean;
+  parallelGroup?: string;
+  extJson?: string;
+}
+
+/** 下一步候选节点（服务端白名单下发，前端不可伪造） */
+export interface NextNodeCandidate {
+  nodeKey: string;
+  nodeName: string;
+  selectable: boolean;
+  disabledReason?: string;
+  allowedUserIds?: number[];
+  assigneeEditable?: boolean;
+  signTypeDefault?: number;
+}
+
+export interface NextNodesResult {
+  freeFlow: boolean;
+  currentNodeKey: string;
+  appointFlowMode: number;
+  poolSize: number;
+  nodes: NextNodeCandidate[];
+}
+
+/** 步骤编排回显（含乐观锁 version 与池容量） */
+export async function getFreeFlowSteps(instId: string | number) {
+  return request<ApiResponse<{ steps: FreeFlowStep[]; version: number; poolSize: number }>>(
+    `${WORKFLOW}/free-flow/steps`,
+    { method: 'GET', params: { instId } },
+  );
+}
+
+/** 整包保存步骤（服务端单事务 + version 乐观锁 + saveToken 幂等） */
+export async function saveFreeFlowSteps(data: {
+  instId: string | number;
+  steps: FreeFlowStep[];
+  version?: number;
+  saveToken?: string;
+}) {
+  return request<ApiResponse<number>>(`${WORKFLOW}/free-flow/save`, { method: 'POST', data });
+}
+
+/** 下一步候选节点；非自由实例返回 freeFlow=false，前端回落既有链路 */
+export async function getNextNodes(taskId: string | number) {
+  return request<ApiResponse<NextNodesResult>>(`${WORKFLOW}/free-flow/next-nodes`, {
+    method: 'GET',
+    params: { taskId },
+    skipErrorHandler: true,
+  });
+}

@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import NextStepModal from './components/NextStepModal';
+import FreeFlowSetModal from './components/FreeFlowSetModal';
 import {
   Alert,
   App,
@@ -1732,6 +1734,27 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
           </>
         )}
       </Modal>
+
+      {/* 自由流程：下一步设置（提交时自选节点/办理人）与流转设定（按本次单据编排步骤） */}
+      <Space style={{ marginTop: 12 }} wrap>
+        <Button onClick={() => setModalType('nextStep')} disabled={!taskId}>
+          下一步设置
+        </Button>
+        <Button onClick={() => setModalType('freeFlowSet')} disabled={!instanceId}>
+          流转设定
+        </Button>
+      </Space>
+      <NextStepModal
+        open={modalType === 'nextStep'}
+        taskId={taskId ? String(taskId) : undefined}
+        opinion={opinion}
+        onClose={closeModal}
+      />
+      <FreeFlowSetModal
+        open={modalType === 'freeFlowSet'}
+        instId={instanceId ? String(instanceId) : undefined}
+        onClose={closeModal}
+      />
     </div>
   );
 };

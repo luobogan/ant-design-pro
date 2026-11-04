@@ -350,7 +350,12 @@ const SchemaForm: React.FC<SchemaFormProps> = ({
     const w = f.visibleWhen;
     if (!w) return true;
     const v = values[w.key];
-    if (w.in) return w.in.map(String).includes(String(v));
+    // 后端 VisibleWhenVO.in 即使未配置也会序列化成空数组 []，而 [] 是 truthy。
+    // 若直接 if (w.in) 会短路到 [].includes(...) === false，
+    // 导致所有仅用 equals 的联动字段（如 isFree 下的自由流程类型/节点数量）被整体隐藏。
+    if (Array.isArray(w.in) && w.in.length > 0) {
+      return w.in.map(String).includes(String(v));
+    }
     if (Object.prototype.hasOwnProperty.call(w, 'equals')) {
       return String(v) === String(w.equals);
     }
