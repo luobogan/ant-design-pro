@@ -273,6 +273,14 @@ export const SETTING_DEFS: SettingDef[] = [
         type: 'nodeMultiSelect',
         placeholder: '不填=全部上游历史节点',
       },
+      {
+        // 「排除选择」（对齐 E9 节点退回设置）：打开后 nodeKeys 由「包含」语义切换为「排除」语义 ——
+        // 即清单内节点被排除在可退回节点之外，其余上游历史节点均可退回。
+        // 两种语义共用同一个 nodeKeys 字段，由本开关切换，避免新增第二个清单造成配置歧义。
+        name: 'excludeMode',
+        label: '排除选择（清单内节点不可退回）',
+        type: 'switch',
+      },
       { name: 'remind', label: '提醒已走过节点', type: 'switch' },
       { name: 'changeNode', label: '允许变更退回节点', type: 'switch' },
     ],

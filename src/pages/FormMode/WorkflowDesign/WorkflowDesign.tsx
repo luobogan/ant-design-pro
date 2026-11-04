@@ -26,6 +26,7 @@ import WorkflowDefForm from '@/pages/System/Workflow/components/WorkflowDefForm'
 import TableDesign from '@/pages/FormMode/TableDesign/TableDesign';
 import NodeInfoPanel from './NodeInfoPanel';
 import NodeDetail from './NodeDetail';
+import ArchiveRecallPanel from './ArchiveRecallPanel';
 import LinkDetail from './LinkDetail';
 import { configuredBadges } from './nodeSettings';
 import LinkInfoPanel from './LinkInfoPanel';
@@ -1180,6 +1181,24 @@ const WorkflowDesignPage: React.FC = () => {
     />
   );
 
+  const renderArchiveRecall = () => (
+    <Card title="归档与撤回">
+      {current && (
+        <ArchiveRecallPanel
+          key={`${current.id}-${formRefresh}`}
+          defId={current.id}
+          archiveManage={current.archiveManage}
+          recallManage={current.recallManage}
+          nodes={nodes}
+          onSaved={() => {
+            setFormRefresh((f) => f + 1);
+            reloadCurrent();
+          }}
+        />
+      )}
+    </Card>
+  );
+
   const renderAdvanced = () => (
     <Card
       title={`节点列表（${current?.name}）`}
@@ -1237,6 +1256,7 @@ const WorkflowDesignPage: React.FC = () => {
             { key: 'basic', label: '基础设置', children: renderBasic() },
             { key: 'formManage', label: '表单管理', children: renderFormManage() },
             { key: 'flow', label: '流转设置', children: renderFlow() },
+            { key: 'archiveRecall', label: '归档与撤回', children: renderArchiveRecall() },
             { key: 'advanced', label: '高级设置', children: renderAdvanced() },
           ]}
         />

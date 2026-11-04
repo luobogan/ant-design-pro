@@ -34,7 +34,160 @@ export interface WfProcessDefinition {
   freeWfType?: number;
   /** 版本组锚点：指向当前激活版本的 defId（后端 ToString 序列化为字符串；NULL=单版本流程） */
   activeVersionId?: string;
+  /** 归档管理策略JSON：强制归档/可归档节点范围/归档后可强制收回/归档后可流程干预 */
+  archiveManage?: string;
+  /** 撤回管理策略JSON：允许强制收回/允许监控回退/提醒选择总闸/强制收回落点范围 */
+  recallManage?: string;
 }
+
+/**
+ * 归档管理策略（解析 {@code archive_manage} JSON）。
+ *
+ * 对标 E9 {@code workflow_base.isoverrb}（归档可强制收回）/ {@code isoveriv}（归档可干预）。
+ */
+export interface ArchiveManagePolicy {
+  /** 是否允许「强制归档」 */
+  forceArchiveEnabled?: boolean;
+  /** 可归档节点范围；['*'] = 任意节点，否则为 nodeKey 白名单 */
+  archiveApplicableNodeKeys?: string[];
+  /** 归档后允许「强制收回」 */
+  recallFromArchiveEnabled?: boolean;
+  /** 归档后允许「流程干预」（回退 / 流转到指定节点） */
+  interveneFromArchiveEnabled?: boolean;
+}
+
+/**
+ * 撤回管理策略（解析 {@code recall_manage} JSON，流程级）。
+ *
+ * 节点级退回配置（允许被撤回的节点 / 排除选择 / 节点前附加操作）在 BPMN 节点
+ * {@code extJson.settings.reject.*} 与 {@code preOperate}，不在此结构内。
+ */
+export interface RecallManagePolicy {
+  /** 是否允许「强制收回」 */
+  recallEnabled?: boolean;
+  /** 是否允许「监控回退」 */
+  rejectEnabled?: boolean;
+  /** 允许前端用户选择是否提醒（总闸；节点级 settings.reject.remind 为节点覆盖） */
+  remindSelect?: boolean;
+  /** 强制收回落点范围：create 仅创建节点 / history 已办+创建 / all 任意可停节点 / specified 指定清单 */
+  recallTargetScope?: 'create' | 'history' | 'all' | 'specified';
+  /** 强制收回落点范围 = specified 时的指定清单（nodeKey） */
+  recallTargetNodeKeys?: string[];
+}
+
+/** 节点范围通配符：可归档节点范围含此值表示任意节点均可归档 */
+export const ARCHIVE_NODE_KEY_ANY = '*';
+
+/**
+ * 解析归档管理策略 JSON。
+ *
+ * <p>容错口径与后端 {@code WfArchiveRecallPolicy} 一致：空 / 非法 JSON 一律返回 null
+ * （= **未配置**，注意区分于「配置了但开关关闭」），非法 JSON 不抛异常打断页面。</p>
+ */
+export const parseArchiveManage = (json?: string | null): ArchiveManagePolicy | null => {
+  if (!json || !json.trim()) return null;
+  try {
+    const obj = JSON.parse(json);
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+    return obj as ArchiveManagePolicy;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * 解析撤回管理策略 JSON（容错口径同 {@link parseArchiveManage}）。
+ */
+export const parseRecallManage = (json?: string | null): RecallManagePolicy | null => {
+  if (!json || !json.trim()) return null;
+  try {
+    const obj = JSON.parse(json);
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+    return obj as RecallManagePolicy;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * 判定某节点是否在「可归档节点范围」内（口径与后端一致）。
+ *
+ * <p>范围含 {@link ARCHIVE_NODE_KEY_ANY} → 任意节点；范围为空 → 视为不限制
+ * （是否允许归档仍由 forceArchiveEnabled 决定）。</p>
+ */
+export const isNodeArchiveApplicable = (
+  policy: ArchiveManagePolicy | null,
+  nodeKey?: string,
+): boolean => {
+  const keys = policy?.archiveApplicableNodeKeys;
+  if (!keys || keys.length === 0) return true;
+  if (keys.includes(ARCHIVE_NODE_KEY_ANY)) return true;
+  return !!nodeKey && keys.includes(nodeKey);
+};
+
+/**
+ * 归一化后的流程级策略（已按「未配置 = 保持既有行为」口径解析）。
+ *
+ * <p><b>与后端 {@code WfArchiveRecallPolicy} 完全同口径</b>，监控端显隐与后端强校验必须一致：</p>
+ * <ul>
+ *   <li><b>既有能力</b>（允许强制归档 / 允许强制收回 / 允许监控回退）：缺省 <b>true</b>，
+ *       只有<b>显式 false</b> 才关闭 → 存量流程不受影响；</li>
+ *   <li><b>全新能力</b>（归档后允许强制收回 / 归档后允许流程干预）：缺省 <b>false</b>，
+ *       必须显式开启才可用。</li>
+ * </ul>
+ */
+export interface ResolvedArchiveRecall {
+  /** 是否已显式配置归档策略（仅用于诊断展示） */
+  archiveConfigured: boolean;
+  /** 是否已显式配置撤回策略（仅用于诊断展示） */
+  recallConfigured: boolean;
+  /** 允许强制归档 */
+  forceArchiveEnabled: boolean;
+  /** 归档后允许强制收回 */
+  recallFromArchiveEnabled: boolean;
+  /** 归档后允许流程干预 */
+  interveneFromArchiveEnabled: boolean;
+  /** 允许强制收回 */
+  recallEnabled: boolean;
+  /** 允许监控回退 */
+  rejectEnabled: boolean;
+  /** 允许前端用户选择是否提醒（总闸） */
+  remindSelect: boolean;
+  /** 强制收回落点范围 */
+  recallTargetScope: 'create' | 'history' | 'all' | 'specified';
+  /** 强制收回落点「指定清单」（recallTargetScope=specified 时生效） */
+  recallTargetNodeKeys: string[];
+  /** 可归档节点范围 */
+  archiveApplicableNodeKeys: string[];
+}
+
+/**
+ * 归一化流程级策略：把两列 JSON 解析成「可直接用于显隐裁决」的判定值。
+ *
+ * @param def 流程定义（只需 archiveManage / recallManage 两个字段）
+ */
+export const resolveArchiveRecall = (def?: {
+  archiveManage?: string;
+  recallManage?: string;
+} | null): ResolvedArchiveRecall => {
+  const a = parseArchiveManage(def?.archiveManage);
+  const r = parseRecallManage(def?.recallManage);
+  return {
+    archiveConfigured: !!a,
+    recallConfigured: !!r,
+    // 既有能力：显式 false 才关闭
+    forceArchiveEnabled: a?.forceArchiveEnabled !== false,
+    recallEnabled: r?.recallEnabled !== false,
+    rejectEnabled: r?.rejectEnabled !== false,
+    // 全新能力：必须显式开启
+    recallFromArchiveEnabled: a?.recallFromArchiveEnabled === true,
+    interveneFromArchiveEnabled: a?.interveneFromArchiveEnabled === true,
+    remindSelect: r?.remindSelect === true,
+    recallTargetScope: r?.recallTargetScope || 'all',
+    recallTargetNodeKeys: r?.recallTargetNodeKeys || [],
+    archiveApplicableNodeKeys: a?.archiveApplicableNodeKeys || [],
+  };
+};
 
 // ───────────── 用户侧流程列表项（前端复用 WfTaskVO / InstanceVO 结构） ─────────────
 /** 待办 / 已办任务项（对齐后端 WfTaskVO：标题/节点/发起人/状态等语义信息） */
@@ -1216,6 +1369,26 @@ export async function forceRecallInstance(id: string, opinion?: string, targetNo
   return request<ApiResponse<boolean>>(`${WORKFLOW}/monitor/instances/${id}/force-recall`, {
     method: 'POST',
     params: { opinion, targetNodeKey },
+  });
+}
+
+/** 监控-可回退节点：本实例已办理过的节点 + 创建节点（按 ecology 退回口径，不允许退到未到达节点） */
+export async function monitorRejectableNodes(id: string | number) {
+  return request<ApiResponse<any>>(
+    `${WORKFLOW}/monitor/instances/${id}/rejectable-nodes`,
+    { method: 'GET' },
+  );
+}
+
+/** 监控-回退到指定节点：实例保持运行、不终止；意见必填；resubmitMode 1=逐级(缺省) 2=直达本节点；
+ *  runPreOperate 控制回退后是否执行目标节点的「节点前附加操作」（缺省 true） */
+export async function monitorRejectTo(
+  id: string | number,
+  params: { targetNodeKey: string; opinion: string; resubmitMode?: number; runPreOperate?: boolean },
+) {
+  return request<ApiResponse<boolean>>(`${WORKFLOW}/monitor/instances/${id}/reject-to`, {
+    method: 'POST',
+    params,
   });
 }
 

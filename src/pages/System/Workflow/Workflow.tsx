@@ -3,7 +3,7 @@ import type { ProColumns } from '@ant-design/pro-components';
 import { PageContainer } from '@ant-design/pro-components';
 import StandardTable from '@/components/StandardTable';
 import { history, useRequest } from '@umijs/max';
-import { Button, message, Modal, Tag, Upload, Input, Space } from 'antd';
+import { Button, message, Modal, Tag, Upload, Input, Space, Dropdown } from 'antd';
 import React, { useMemo, useState, useRef } from 'react';
 import * as workflowApi from '@/services/workflow';
 import { workflowBrowserApi, FormFieldOption } from '@/services/workflow';
@@ -125,11 +125,43 @@ const Workflow: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 280,
-      render: (_: any, record: WorkflowDef) => (
-        <>
-          {hasPerm('workflow_view') && (
+      width: 110,
+      render: (_: any, record: WorkflowDef) => {
+        // 强制动作（编辑/发布/测试/撤回/进入设计/删除）收进「更多 ▾」，避免按钮过多挤不下；
+        // 「查看」常驻；各动作仍按原有权限位（hasPerm）与状态（撤回仅已发布/测试中可见）控制。
+        const menuItems: any[] = [];
+        if (hasPerm('workflow_edit')) {
+          menuItems.push({
+            key: 'edit',
+            label: '编辑',
+            onClick: () => {
+              setCurrent(record);
+              setEditVisible(true);
+            },
+          });
+        }
+        if (hasPerm('workflow_deploy')) {
+          menuItems.push({ key: 'publish', label: '发布', onClick: () => handlePublish(record) });
+          menuItems.push({ key: 'test', label: '测试', onClick: () => handleTest(record) });
+        }
+        if (hasPerm('workflow_enable') && (record.status === 1 || record.status === 3)) {
+          menuItems.push({ key: 'withdraw', label: '撤回', danger: true, onClick: () => handleWithdraw(record) });
+        }
+        if (hasPerm('workflow_design')) {
+          menuItems.push({
+            key: 'design',
+            label: '进入设计',
+            onClick: () => history.push(`/formmode/workflowdesign?defId=${record.id}`),
+          });
+        }
+        if (hasPerm('workflow_delete')) {
+          menuItems.push({ key: 'delete', label: '删除', danger: true, onClick: () => handleRemove(record) });
+        }
+        const actions: React.ReactNode[] = [];
+        if (hasPerm('workflow_view')) {
+          actions.push(
             <Button
+              key="view"
               type="link"
               onClick={() => {
                 setCurrent(record);
@@ -137,46 +169,18 @@ const Workflow: React.FC = () => {
               }}
             >
               查看
-            </Button>
-          )}
-          {hasPerm('workflow_edit') && (
-            <Button
-              type="link"
-              onClick={() => {
-                setCurrent(record);
-                setEditVisible(true);
-              }}
-            >
-              编辑
-            </Button>
-          )}
-          {hasPerm('workflow_deploy') && (
-            <Button type="link" onClick={() => handlePublish(record)}>
-              发布
-            </Button>
-          )}
-          {hasPerm('workflow_deploy') && (
-            <Button type="link" onClick={() => handleTest(record)}>
-              测试
-            </Button>
-          )}
-          {hasPerm('workflow_enable') && (record.status === 1 || record.status === 3) && (
-            <Button type="link" danger onClick={() => handleWithdraw(record)}>
-              撤回
-            </Button>
-          )}
-          {hasPerm('workflow_design') && (
-            <Button type="link" onClick={() => history.push(`/formmode/workflowdesign?defId=${record.id}`)}>
-              进入设计
-            </Button>
-          )}
-          {hasPerm('workflow_delete') && (
-            <Button type="link" danger onClick={() => handleRemove(record)}>
-              删除
-            </Button>
-          )}
-        </>
-      ),
+            </Button>,
+          );
+        }
+        if (menuItems.length > 0) {
+          actions.push(
+            <Dropdown key="more" menu={{ items: menuItems }} trigger={['click']}>
+              <Button type="link">更多 ▾</Button>
+            </Dropdown>,
+          );
+        }
+        return <>{actions}</>;
+      },
     },
   ];
 

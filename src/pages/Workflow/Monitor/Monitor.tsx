@@ -2,7 +2,7 @@ import { useModel, useAccess } from '@umijs/max';
 import { PageContainer } from '@ant-design/pro-components';
 import StandardTable from '@/components/StandardTable';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Badge, Button, Card, Popconfirm, Modal, Input, Select, Statistic, Tag, message, Space, Row, Col, Table } from 'antd';
+import { Badge, Button, Card, Popconfirm, Modal, Input, Select, Statistic, Tag, message, Space, Row, Col, Table, Dropdown } from 'antd';
 import type { ProFormInstance } from '@ant-design/pro-components';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -20,6 +20,10 @@ import {
   cleanupWorkflowTest,
   listDefinitions,
   monitorStats,
+  monitorRejectableNodes,
+  monitorRejectTo,
+  resolveArchiveRecall,
+  isNodeArchiveApplicable,
 } from '@/services/workflow';
 import { list as userList } from '@/services/system/user';
 import { tree as deptTree } from '@/services/system/dept';
@@ -29,8 +33,11 @@ import type {
   MonitorAnomalySummary,
   MonitorStats,
   WfProcessNode,
+  WfProcessDefinition,
+  ResolvedArchiveRecall,
 } from '@/services/workflow';
 import MonitorDetailDrawer from './MonitorDetailDrawer';
+import RejectNodePicker from '@/components/Workflow/RejectNodePicker';
 import { pickPayload } from '@/utils/utils';
 
 /** 把部门树节点转换为 antd TreeSelect 的 treeData（兼容 id/value、title/name） */
@@ -87,6 +94,13 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   // 检索下拉：流程定义 / 发起人
   const [defOptions, setDefOptions] = useState<{ label: string; value: string | number }[]>([]);
   const [userOptions, setUserOptions] = useState<{ label: string; value: string | number }[]>([]);
+  /**
+   * 流程定义列表（含归档 / 撤回策略两列）。
+   *
+   * <p>监控端<strong>不另存策略</strong>：按 defId 从这里取 {@code archive_manage / recall_manage}，
+   * 与流程设计侧配置同源，实现「设计侧配置 → 监控侧跟随」。</p>
+   */
+  const [defs, setDefs] = useState<WfProcessDefinition[]>([]);
 
   const loadAnomaly = () => {
     monitorAnomalySummary()
@@ -102,12 +116,7 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
     deptTree()
       .then((res: any) => setDeptTreeData(toTreeData(pickPayload(res))))
       .catch(() => setDeptTreeData([]));
-    listDefinitions()
-      .then((res: any) => {
-        const list = pickPayload(res) || [];
-        setDefOptions(list.map((d: any) => ({ label: d.name || d.id, value: d.id })));
-      })
-      .catch(() => setDefOptions([]));
+    loadDefs();
     userList({ current: 1, size: 500 })
       .then((res: any) => {
         const records = (pickPayload(res) || {}).records || [];
@@ -115,6 +124,37 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
       })
       .catch(() => setUserOptions([]));
   }, []);
+
+  /**
+   * 加载流程定义列表。
+   *
+   * <p>用途有二：① 检索区的「流程定义」下拉；② 按 defId 取<strong>归档 / 撤回策略</strong>
+   * （{@code archive_manage / recall_manage}）—— 监控端<strong>不另存配置</strong>，
+   * 完全派生自流程设计侧的配置（单一事实源）。</p>
+   *
+   * <p>复用列表接口而非逐实例请求：定义数量有限，一次拉全量即可，避免 N+1。</p>
+   */
+  const loadDefs = () => {
+    listDefinitions()
+      .then((res: any) => {
+        const list: WfProcessDefinition[] = pickPayload(res) || [];
+        setDefs(list);
+        setDefOptions(list.map((d: any) => ({ label: d.name || d.id, value: d.id })));
+      })
+      .catch(() => {
+        setDefs([]);
+        setDefOptions([]);
+      });
+  };
+
+  /**
+   * 取某流程的归档 / 撤回策略（已归一化，口径与后端一致）。
+   *
+   * <p>未配置 → 既有能力保持开启、全新能力（归档后收回 / 干预）关闭；
+   * 显式配置 → 一律按配置裁决。</p>
+   */
+  const policyOf = (defId?: string | number): ResolvedArchiveRecall =>
+    resolveArchiveRecall(defs.find((d: any) => String(d.id) === String(defId)));
 
   /** 点异常卡片 → 写入检索表单并提交（复用既有筛选维度，不另造过滤逻辑） */
   const applyQuickFilter = (patch: Record<string, any>) => {
@@ -150,6 +190,12 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [opinionTarget, setOpinionTarget] = useState<string | undefined>(undefined);
   const opinionCb = useRef<(op?: string, target?: string) => void>();
 
+  // 监控「回退」：可退回节点选择弹窗（已办理过的节点 + 创建节点）
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectCandidates, setRejectCandidates] = useState<any>(null);
+  const [rejectRecord, setRejectRecord] = useState<MonitorInstanceItem | undefined>();
+  const [rejectLoading, setRejectLoading] = useState(false);
+
   const askOpinion = (title: string, cb: (op?: string, target?: string) => void, defId?: string) => {
     setOpinionTitle(title);
     setOpinionVal('');
@@ -160,18 +206,33 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
     if (!defId) {
       return;
     }
-    // 仅「创建(0) / 审批(1)」可作为收回落点：网关(7)/归档(3) 等引擎停不住，不进候选
+    // 收回落点候选：仅「引擎能停住」的办理节点可入选（网关(7)/归档(3)/等待(5)/自动(6) 不进候选），
+    // 再按流程级「强制收回落点范围」收窄：
+    //   create    = 仅创建节点
+    //   history   = 创建节点 + 审批/提交节点（真正的「已办」由后端按实例历史强校验）
+    //   all       = 任意可停留节点
+    //   specified = 仅指定清单（recallTargetNodeKeys）
+    const scope = policyOf(defId).recallTargetScope;
+    const specified = policyOf(defId).recallTargetNodeKeys || [];
     listNodes(defId)
       .then((res: any) => {
         const list: WfProcessNode[] = (res?.data || []) as any;
+        const stoppable = (n: WfProcessNode) =>
+          n.nodeType === 0 || n.nodeType === 1 || n.nodeType === 2;
+        const inScope = (n: WfProcessNode) => {
+          if (scope === 'create') return n.nodeType === 0;
+          if (scope === 'specified') return specified.includes(n.nodeKey as string);
+          // history / all：创建节点始终可选，其余为办理节点
+          return stoppable(n);
+        };
         const opts = list
-          .filter((n) => n.nodeType === 0 || n.nodeType === 1)
+          .filter(inScope)
           .map((n) => ({
             label: `${n.nodeName || n.nodeKey}${n.nodeType === 0 ? '（创建/填单）' : ''}`,
             value: n.nodeKey as string,
           }));
         setOpinionNodes(opts);
-        const create = list.find((n) => n.nodeType === 0);
+        const create = list.find((n) => n.nodeType === 0 && inScope(n));
         setOpinionTarget(create?.nodeKey);
       })
       .catch(() => setOpinionNodes([]));
@@ -225,6 +286,47 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
       },
       record.defId,
     );
+  };
+
+  // 监控「回退」：拉取已办理过的节点 + 创建节点，弹窗让用户选目标（区别于「强制收回」的全流程候选）
+  const handleReject = async (record: MonitorInstanceItem) => {
+    if (record.isTest === 1) {
+      message.warning('测试实例不支持回退');
+      return;
+    }
+    try {
+      setRejectRecord(record);
+      const res: any = await monitorRejectableNodes(record.id as string);
+      const data = res?.data || {};
+      const list: any[] = Array.isArray(data.nodes) ? data.nodes : [];
+      if (!list.length) {
+        message.warning('该实例当前无可退回节点（无已办理的节点）');
+        return;
+      }
+      setRejectCandidates(data);
+      setRejectOpen(true);
+    } catch (e: any) {
+      message.error(e?.msg || e?.message || '查询可退回节点失败');
+    }
+  };
+
+  const handleRejectOk = async (params: {
+    targetNodeKey: string;
+    opinion: string;
+    resubmitMode: number;
+  }) => {
+    if (!rejectRecord) return;
+    setRejectLoading(true);
+    try {
+      await monitorRejectTo(rejectRecord.id as string, params);
+      message.success('已回退');
+      setRejectOpen(false);
+      actionRef.current?.reloadAndRest();
+    } catch (e: any) {
+      message.error(e?.msg || e?.message || '回退失败');
+    } finally {
+      setRejectLoading(false);
+    }
   };
 
   const handleArchive = (record: MonitorInstanceItem) => {
@@ -471,39 +573,96 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
       fixed: 'right',
       render: (_, record) => {
         const running = record.status === 0 || record.status === 4;
-        const items: React.ReactNode[] = [<a key="detail" onClick={() => openDetail(record)}>详情</a>];
-        // 强制动作仅管理员可见（委托人只读，点动作后端会 403，故前端隐藏）
+        // 归档态（status=1）：归档已删除引擎运行态，回退/收回走「复活」路径
+        const archived = record.status === 1;
+        // 归档 / 撤回策略（流程级，来自流程设计侧配置；未配置=既有能力保持开启）
+        const policy = policyOf(record.defId);
+        // 强制动作收进「更多 ▾」下拉，避免按钮过多挤不下；仅管理员可见（委托人只读）
+        const menuItems: any[] = [];
         if (canAdmin) {
           if (record.status === 0) {
-            items.push(
-              <Popconfirm key="stop" title="确认暂停该流程？" onConfirm={() => handleStop(record)}>
-                <a>暂停</a>
-              </Popconfirm>,
-            );
+            menuItems.push({ key: 'stop', label: '暂停' });
           }
           if (record.status === 4) {
-            items.push(
-              <Popconfirm key="resume" title="确认恢复该流程？" onConfirm={() => handleResume(record)}>
-                <a>恢复</a>
-              </Popconfirm>,
-            );
+            menuItems.push({ key: 'resume', label: '恢复' });
           }
           if (running) {
-            items.push(<a key="recall" onClick={() => handleRecall(record)}>强制收回</a>);
-            items.push(<a key="archive" onClick={() => handleArchive(record)}>强制归档</a>);
-            items.push(<a key="cancel" onClick={() => handleCancel(record)}>终止</a>);
+            // 强制收回：既有能力，按流程级「允许强制收回」裁决
+            if (policy.recallEnabled) {
+              menuItems.push({ key: 'recall', label: '强制收回' });
+            }
+            // 回退：既有能力，按流程级「允许监控回退」裁决
+            if (policy.rejectEnabled && record.isTest !== 1) {
+              menuItems.push({ key: 'reject', label: '回退' });
+            }
+            // 强制归档：按「允许强制归档」+ 当前节点是否落在「可归档节点范围」内裁决
+            if (
+              policy.forceArchiveEnabled &&
+              isNodeArchiveApplicable(
+                { archiveApplicableNodeKeys: policy.archiveApplicableNodeKeys },
+                record.currentNodeKey,
+              )
+            ) {
+              menuItems.push({ key: 'archive', label: '强制归档' });
+            }
+            menuItems.push({ key: 'cancel', label: '终止' });
           }
-          items.push(
-            <Popconfirm
-              key="del"
-              title="确认强制删除该流程（逻辑删业务行 + 清引擎运行态 + 清历史）？"
-              onConfirm={() => handleDelete(record)}
+          // 归档实例：按「归档后允许强制收回 / 允许流程干预」放开（此前该分支只有「强制删除」）
+          if (archived) {
+            if (policy.recallFromArchiveEnabled) {
+              menuItems.push({ key: 'recall', label: '强制收回' });
+            }
+            if (policy.interveneFromArchiveEnabled && record.isTest !== 1) {
+              menuItems.push({ key: 'reject', label: '回退' });
+            }
+          }
+          menuItems.push({ key: 'del', danger: true, label: '强制删除' });
+        }
+        const actions: React.ReactNode[] = [
+          <a key="detail" onClick={() => openDetail(record)}>
+            详情
+          </a>,
+        ];
+        if (menuItems.length > 0) {
+          actions.push(
+            <Dropdown
+              key="more"
+              menu={{
+                items: menuItems,
+                onClick: ({ key }) => {
+                  switch (key) {
+                    case 'stop':
+                      return Modal.confirm({ title: '确认暂停该流程？', onOk: () => handleStop(record) });
+                    case 'resume':
+                      return Modal.confirm({ title: '确认恢复该流程？', onOk: () => handleResume(record) });
+                    case 'recall':
+                      return handleRecall(record);
+                    case 'reject':
+                      return handleReject(record);
+                    case 'archive':
+                      return handleArchive(record);
+                    case 'cancel':
+                      return handleCancel(record);
+                    case 'del':
+                      return Modal.confirm({
+                        title: '确认强制删除该流程？',
+                        content: '逻辑删业务行 + 清引擎运行态 + 清历史，不可恢复。',
+                        okText: '确认删除',
+                        okButtonProps: { danger: true },
+                        onOk: () => handleDelete(record),
+                      });
+                    default:
+                      return undefined;
+                  }
+                },
+              }}
+              trigger={['click']}
             >
-              <a style={{ color: '#ff4d4f' }}>强制删除</a>
-            </Popconfirm>,
+              <a>更多 ▾</a>
+            </Dropdown>,
           );
         }
-        return items;
+        return actions;
       },
     },
   ];
@@ -604,6 +763,7 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
             });
             const page: any = pickPayload(res) || {};
             const list: MonitorInstanceItem[] = Array.isArray(page) ? page : page.records || [];
+            console.log('[MON_DEBUG] overdue=', q.overdue, 'recLen=', Array.isArray(page) ? page.length : (page && page.records ? page.records.length : -1), 'total=', page && page.total, 'resType=', res && res.constructor && res.constructor.name);
             return {
               data: list,
               success: true,
@@ -635,6 +795,7 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
       <MonitorDetailDrawer
         open={detailOpen}
         record={detailRecord}
+        policy={detailRecord ? policyOf(detailRecord.defId) : undefined}
         onClose={() => setDetailOpen(false)}
         onOperated={() => actionRef.current?.reload()}
       />
@@ -669,6 +830,13 @@ const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
           onChange={(e) => setOpinionVal(e.target.value)}
         />
       </Modal>
+      <RejectNodePicker
+        open={rejectOpen}
+        candidates={rejectCandidates}
+        confirmLoading={rejectLoading}
+        onCancel={() => setRejectOpen(false)}
+        onOk={handleRejectOk}
+      />
     </PageContainer>
   );
 };
