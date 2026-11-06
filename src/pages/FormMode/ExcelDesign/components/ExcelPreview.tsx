@@ -727,62 +727,6 @@ const scopeFromPrefix = (prefix?: string): string => {
   return s || 'main';
 };
 
-/**
- * 数字 → 人民币中文大写。
- *
- * <p>仅用于「金额大写」字段（中文名含「大写」，如「实付金额大写」）。只读预览（ExcelPreview 为纯 HTML
- * 表格）不挂载 Univer、不执行公式引擎，无法像编辑态那样把数字转中文大写，这里做等价兜底。</p>
- * <p><b>不要用字段类型判断</b>：本系统「金额大写」字段与「金额」字段共用 fieldTypeNum=5，类型层无法区分；
- * 只有中文名含「大写」才是「金额大写」字段的可靠标识，否则会把普通金额/合计误转大写。</p>
- */
-const amountToChinese = (val: any): string => {
-  if (val === null || val === undefined || val === '') return '';
-  const num = Number(val);
-  if (Number.isNaN(num)) return String(val);
-  if (num === 0) return '零元整';
-  const cnNums = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖'];
-  const cnIntRadice = ['', '拾', '佰', '仟'];
-  const cnIntUnits = ['', '万', '亿', '兆'];
-  const cnDecUnits = ['角', '分'];
-  const neg = num < 0 ? '负' : '';
-  const abs = Math.abs(num);
-  const parts = String(Math.floor(abs)).split('.');
-  const integerNum = parts[0];
-  const decimalNum = (abs % 1).toFixed(2).slice(2); // 两位小数
-  let chineseStr = '';
-  if (parseInt(integerNum, 10) > 0) {
-    let zeroCount = 0;
-    const intLen = integerNum.length;
-    for (let i = 0; i < intLen; i++) {
-      const n = integerNum.substr(i, 1);
-      const p = intLen - i - 1; // 距个位的位数
-      const q = Math.floor(p / 4); // 段（万/亿/兆）
-      const m = p % 4; // 段内位置
-      if (n === '0') {
-        zeroCount += 1;
-      } else {
-        if (zeroCount > 0) chineseStr += cnNums[0];
-        zeroCount = 0;
-        chineseStr += cnNums[parseInt(n, 10)] + cnIntRadice[m];
-      }
-      // 段边界：本段未全零才补段单位（避免 1000000 → 壹佰零万元）
-      if (m === 0 && zeroCount < 4) {
-        chineseStr += cnIntUnits[q];
-      }
-    }
-    chineseStr += '元';
-  } else {
-    chineseStr = cnNums[0] + '元';
-  }
-  if (decimalNum && decimalNum !== '00') {
-    if (Number(decimalNum[0]) > 0) chineseStr += cnNums[Number(decimalNum[0])] + cnDecUnits[0];
-    if (Number(decimalNum[1]) > 0) chineseStr += cnNums[Number(decimalNum[1])] + cnDecUnits[1];
-  } else {
-    chineseStr += '整';
-  }
-  return neg + chineseStr;
-};
-
 // 渲染单元格内容：标签文本 / 字段控件 / 静态文本
 const renderCellNode = (
   cell: CellDataItem,
@@ -811,17 +755,12 @@ const renderCellNode = (
   const rawValue = cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
   const cleanRaw = rawValue.replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, '').trim();
   // 只读预览（ExcelPreview 为纯 HTML 表格，不挂载 Univer，不执行公式引擎）。
-  // 公式字段（如 ${cnpayamt}）原本被下方正则判为「公式」而强制空白 —— 改为取引用的字段值显示。
-  // 仅「金额大写」字段（中文名含「大写」）才转中文大写，其余公式字段（金额/合计等）显示原始数字，
-  // 避免把普通金额/合计误转大写（fieldTypeNum=5 在类型层无法区分大写与金额）。
+  // 公式字段（如 ${cnpayamt}）原本被下方正则判为「公式」而强制空白 —— 改为取引用的字段值按原始数字显示。
+  // 「金额大写」由 Univer 编辑态公式统一处理，这里不做中文大写转换（用户决策：大写统一在 Univer 侧处理）。
   const formulaVar = /^\$\{[^}]+\}$/.test(cleanRaw) ? cleanRaw.slice(2, -1).trim() : undefined;
   if (formulaVar != null) {
     const raw = formValues?.[formulaVar];
-    const isAmountUpper = /大写/.test(meta?.fieldLabel || '');
-    const resolved =
-      raw === undefined || raw === null || raw === ''
-        ? ''
-        : isAmountUpper ? amountToChinese(raw) : String(raw);
+    const resolved = raw === undefined || raw === null || raw === '' ? '' : String(raw);
     return <span>{resolved || ' '}</span>;
   }
   const displayValue = /^\$\{[^}]+\}$/.test(cleanRaw) ? '' : rawValue;
