@@ -719,6 +719,10 @@ const WorkflowDesignPage: React.FC = () => {
 
   const handlePublish = (id?: string | number) => {
     if (!id) return;
+    if (!current?.formId) {
+      message.warning('请先在「基础设置」关联流程表单后再发布');
+      return;
+    }
     deployDefinition(id as any)
       .then((r: any) => (r?.success ? message.success('发布成功') : message.error('发布失败')))
       .catch(() => message.error('发布失败'));
@@ -726,6 +730,10 @@ const WorkflowDesignPage: React.FC = () => {
 
   const handleTest = (id?: string | number) => {
     if (!id) return;
+    if (!current?.formId) {
+      message.warning('请先在「基础设置」关联流程表单后再测试');
+      return;
+    }
     testDefinition(id as any)
       .then((r: any) => (r?.success ? message.success('已设为测试态') : message.error('操作失败')))
       .catch(() => message.error('操作失败'));
@@ -787,10 +795,14 @@ const WorkflowDesignPage: React.FC = () => {
         </Button>
         <Button onClick={() => setActiveTab('flow')}>打开流程画布</Button>
         {hasPerm('workflow_design_deploy') && (
-          <Button onClick={() => handlePublish(current?.id)}>发布</Button>
+          <Button disabled={!current?.formId} onClick={() => handlePublish(current?.id)}>
+            发布
+          </Button>
         )}
         {hasPerm('workflow_design_deploy') && (
-          <Button onClick={() => handleTest(current?.id)}>测试</Button>
+          <Button disabled={!current?.formId} onClick={() => handleTest(current?.id)}>
+            测试
+          </Button>
         )}
         {hasPerm('workflow_design_deploy') && (current?.status === 1 || current?.status === 3) && (
           <Button danger onClick={() => handleWithdraw(current?.id)}>撤回</Button>
