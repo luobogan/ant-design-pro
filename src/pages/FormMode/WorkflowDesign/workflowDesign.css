@@ -10,6 +10,23 @@
   background: var(--th-primary-bg, #e6f4ff) !important;
 }
 
+/* ───────── 「生成表单布局」弹窗：修复内嵌 Excel 设计器纵向溢出 ─────────
+   ExcelDesign 根是 <App>（.ant-app）且 stage 被 <Spin>（.ant-spin / .ant-spin-container）包裹，
+   这两层都没有确定高度；而 embedded 模式的 stage 用 height:100%，百分比高度在 auto 祖先上
+   退化为 auto → Univer 画布的固有高度（约 2400px）把整条链撑到 2500+px，冲出仅 82vh 的
+   .ant-modal-body，表现为左/中/右三栏与表格溢出弹窗、底部按钮被盖、整页出现滚动条。
+   这里把「body → .ant-app → Spin → stage」整条链的高度显式贯通，并加 min-height:0
+   让各栏自己的 overflow:auto 生效（内容在弹窗内滚动，而不是把弹窗撑破）。
+   作用域限定在该弹窗 className，不影响其它 Modal 与独立 Excel 设计器页面。 */
+.wf-excel-design-modal .ant-modal-body > .ant-app,
+.wf-excel-design-modal .ant-modal-body .ant-app > div,
+.wf-excel-design-modal .ant-modal-body .ant-spin,
+.wf-excel-design-modal .ant-modal-body .ant-spin-container,
+.wf-excel-design-modal .ant-modal-body .ant-spin-container > div {
+  height: 100% !important;
+  min-height: 0 !important;
+}
+
 /* ───────── 流转设置「图形编辑」页签：左画布 + 右信息栏 ─────────
    对齐 ecology 的画布属性面板：点画布上的节点 / 连线，右侧栏即显示其
    节点操作信息 / 出口信息，可就地编辑。 */

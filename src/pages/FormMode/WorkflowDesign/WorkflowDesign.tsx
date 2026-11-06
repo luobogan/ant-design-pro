@@ -1412,6 +1412,7 @@ const WorkflowDesignPage: React.FC = () => {
 
       {/* 生成表单布局：节点级 Excel 布局设计器（Modal 内嵌完整 Univer 设计器，布局按 nodeKey 隔离） */}
       <Modal
+        className="wf-excel-design-modal"
         title={`生成表单布局（节点：${excelDesignNodeKey ?? ''}）`}
         open={excelDesignOpen}
         onCancel={() => {
@@ -1420,7 +1421,9 @@ const WorkflowDesignPage: React.FC = () => {
         }}
         width="92vw"
         style={{ top: 24 }}
-        styles={{ body: { height: '82vh', padding: 0 } }}
+        // overflow:hidden 兜底：内嵌设计器的高度链由 workflowDesign.css 打通，
+        // 防止 Univer 画布固有高度再次把内容撑出弹窗、污染整页滚动
+        styles={{ body: { height: '82vh', padding: 0, overflow: 'hidden' } }}
         // 底部固定「保存 / 关闭」：保存直接走 ExcelDesign 的 handleSave，不依赖 Univer 原生 ribbon
         footer={
           <Space>
