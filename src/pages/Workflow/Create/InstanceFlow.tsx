@@ -281,7 +281,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   refreshKey,
   isFree,
 }) => {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   /** 自由流程专属工具（下一步设置 / 流转设定）：非自由流程、预览、监控只读态一律隐藏 */
   const showFreeFlowTools = !preview && !readOnly && Number(isFree) === 1;
   const [pkg, setPkg] = useState<any>(null);
@@ -1034,17 +1034,56 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
         message.error(res?.msg || '操作失败');
         return;
       }
-      // 后端非阻断「配置提示」：例如出口条件引用的字段未随表单提交下发、已按默认值兜底。
-      // 流程仍照常推进，但必须让办理人看见，以便管理员回头修正字段必填/条件引用配置。
-      if (code === 'submit' && typeof res?.msg === 'string' && res.msg.includes('配置提示')) {
-        message.warning(res.msg, 8);
-      }
       console.log('[WF] 即将 afterOperate');
       afterOperate(menuLabel(code));
       // 与「正式办理页」同口径：提交 / 退回后关闭页签（加签 / 传阅 / 催办 / 附件留在原页继续操作）。
       // 仅非内嵌时自动关闭 —— 内嵌时本组件是宿主页面的一部分，关页会把宿主页面一起关掉。
-      if (!embedded && (code === 'submit' || code === 'reject')) {
-        window.setTimeout(() => closeTab(), 800);
+      const shouldClose = !embedded && (code === 'submit' || code === 'reject');
+      const doClose = () => {
+        if (shouldClose) window.setTimeout(() => closeTab(), 800);
+      };
+
+      // 后端非阻断「配置提示」：例如出口条件引用的字段未随表单提交下发、已按默认值兜底。
+      // 流程已提交成功（不能回滚），但提示必须让办理人看清 —— 若用 toast，会被紧随其后的
+      // success toast 顶掉、又被 800ms 后的 closeTab 卸载页面，表现为「一闪而过」。
+      // 因此改用模态框卡住：用户点「我知道了」之后才关页，点「留在本页」则保留页面便于核对配置。
+      const tip = code === 'submit' && typeof res?.msg === 'string' && res.msg.includes('配置提示')
+        ? String(res.msg)
+        : '';
+      if (tip) {
+        // 后端 msg 形如「审批完成（配置提示：A；请检查…；B；请检查…）」，剥掉外壳后按「；」拆条；
+        // 每个字段都带一份「请检查①②③」是重复的，过滤后统一在底部提示一次
+        const tipBody = tip.replace(/^.*?（配置提示：/, '').replace(/）\s*$/, '');
+        const items = tipBody.split(/；+/).map((s) => s.trim())
+          .filter((s) => s && !/^请检查[：:]/.test(s));
+        modal.confirm({
+          title: '提交成功，但有配置提示需要确认',
+          width: 640,
+          okText: '我知道了，关闭页面',
+          cancelText: '留在本页',
+          content: (
+            <div style={{ maxHeight: 320, overflow: 'auto', lineHeight: '22px' }}>
+              <div style={{ marginBottom: 8 }}>
+                流程已按当前配置继续流转，但以下条件变量未随表单提交下发，
+                <b>已按默认值 0 参与条件判断</b>，审批路径可能与预期不符：
+              </div>
+              <ul style={{ margin: '0 0 8px', paddingLeft: 20 }}>
+                {items.map((s, i) => (
+                  <li key={i} style={{ marginBottom: 6 }}>{s}</li>
+                ))}
+              </ul>
+              <div style={{ color: 'var(--th-text-tertiary, #888)', fontSize: 12 }}>
+                请管理员检查：①字段是否已在表单中配置 ②是否设为必填 ③出口条件引用的字段名是否正确；
+                修正后重新发起流程。点「留在本页」可就地核对。
+              </div>
+            </div>
+          ),
+          onOk: doClose,
+          // 留在本页：不关页，方便就地核对字段配置；流程已提交成功，无需再提示
+          onCancel: () => { /* 留在本页 */ },
+        });
+      } else {
+        doClose();
       }
     } catch (e: any) {
       message.error(e?.msg || '操作失败');
