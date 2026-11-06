@@ -39,6 +39,7 @@ import {
  * {@code
  *   formContent: {
  *     mode,                       // normal(已屏蔽) | custom 节点布局
+ *     showTemplateName,           // 显示模板名称（可自定义；留空则回落显示模式标签「节点布局」）
  *     margin:  { custom, type, top, bottom, left, right },   // 表单页边距自定义设置
  *     mobile:  { templateName, nodeKeys },                   // 移动模板 + 其同步节点
  *     detailFilter: { enabled, rules? },                     // 明细表根据操作者筛选
@@ -640,10 +641,24 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
       </Section>
 
       <Section title="显示模板设置">
+        <Row label="模板名称">
+          <Space size={8} wrap>
+            <Input
+              style={{ width: 320 }}
+              maxLength={64}
+              placeholder="留空则显示默认（节点布局）"
+              value={fc.showTemplateName || ''}
+              onChange={(e) => patch({ showTemplateName: e.target.value })}
+            />
+            <Tooltip title="可自定义本节点显示模板的名称，保存后随表单内容一起落库；「同步节点」时一并同步给目标节点。留空则回落显示默认的「节点布局」。">
+              <QuestionCircleOutlined style={{ color: 'var(--th-warning, #faad14)' }} />
+            </Tooltip>
+          </Space>
+        </Row>
         <Row label="显示模板">
           <Space size={8} wrap>
             <BrowserBox
-              value={modeLabel(fc.mode)}
+              value={fc.showTemplateName || modeLabel(fc.mode)}
               placeholder="未设置"
               disabled={!canLayout}
               onClick={design}
@@ -751,7 +766,7 @@ const FormContentDesignModal: React.FC<FormContentDesignModalProps> = ({
               addTooltip={canLayout ? '进入节点布局设计器（移动端渲染尚未接入）' : '请先绑定表单'}
             />
             <Tooltip title={NOT_YET}>
-              <Button size="small" onClick={() => patch({ mobile: { ...mobile, templateName: modeLabel(fc.mode) } })}>
+              <Button size="small" onClick={() => patch({ mobile: { ...mobile, templateName: fc.showTemplateName || modeLabel(fc.mode) } })}>
                 初始化
               </Button>
             </Tooltip>
