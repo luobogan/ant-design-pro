@@ -1034,6 +1034,11 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
         message.error(res?.msg || '操作失败');
         return;
       }
+      // 后端非阻断「配置提示」：例如出口条件引用的字段未随表单提交下发、已按默认值兜底。
+      // 流程仍照常推进，但必须让办理人看见，以便管理员回头修正字段必填/条件引用配置。
+      if (code === 'submit' && typeof res?.msg === 'string' && res.msg.includes('配置提示')) {
+        message.warning(res.msg, 8);
+      }
       console.log('[WF] 即将 afterOperate');
       afterOperate(menuLabel(code));
       // 与「正式办理页」同口径：提交 / 退回后关闭页签（加签 / 传阅 / 催办 / 附件留在原页继续操作）。

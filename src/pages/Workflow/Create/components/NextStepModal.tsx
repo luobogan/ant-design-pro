@@ -65,7 +65,12 @@ const NextStepModal: React.FC<NextStepModalProps> = ({ open, taskId, opinion, on
           message.error(r?.msg || '提交失败');
           return;
         }
-        message.success('已提交并流转到下一步');
+        // 与 InstanceFlow 同口径：后端非阻断「配置提示」随 msg 返回，办理人需看见
+        if (typeof r?.msg === 'string' && r.msg.includes('配置提示')) {
+          message.warning(r.msg, 8);
+        } else {
+          message.success('已提交并流转到下一步');
+        }
         onClose();
         onDone?.();
       })

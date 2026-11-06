@@ -717,6 +717,40 @@ const WorkflowDesignPage: React.FC = () => {
       .catch(() => setFormFieldList([]));
   }, [current?.id, current?.formId]);
 
+  /**
+   * 打开「生成表单布局」设计器前，已发布流程先弹确认（不强制禁止）。
+   *
+   * 表单布局按 formId+layoutType+nodeKey 实时查表、无版本隔离，改了会**立即影响所有在途单据**
+   * （E9 也是这个口径）；BPMN 侧的版本/激活机制只隔离流程定义，不隔离布局。
+   * 若希望只影响新发起的流程，应「另存为新版本」后在新版本里改。
+   */
+  const openExcelDesign = (nk: string, beforeOpen?: () => void) => {
+    const doOpen = () => {
+      beforeOpen?.();
+      setExcelDesignNodeKey(nk);
+      setExcelDesignOpen(true);
+    };
+    if (current?.status !== 1) {
+      doOpen();
+      return;
+    }
+    Modal.confirm({
+      title: '该流程已发布，修改布局会影响在途单据',
+      content: (
+        <div style={{ fontSize: 13, lineHeight: '20px' }}>
+          表单布局按「表单 + 节点」实时生效、<b>不区分流程版本</b>，保存后会立即作用于所有已发起、尚未办结的流程实例。
+          <br />
+          若只希望新流程使用新布局，请先「另存为新版本」，再在新版本中修改。
+          <br />
+          确认继续修改当前布局吗？
+        </div>
+      ),
+      okText: '继续修改',
+      cancelText: '取消',
+      onOk: doOpen,
+    });
+  };
+
   const handlePublish = (id?: string | number) => {
     if (!id) return;
     if (!current?.formId) {
@@ -724,8 +758,17 @@ const WorkflowDesignPage: React.FC = () => {
       return;
     }
     deployDefinition(id as any)
-      .then((r: any) => (r?.success ? message.success('发布成功') : message.error('发布失败')))
-      .catch(() => message.error('发布失败'));
+      .then((r: any) => {
+        if (!r?.success) {
+          message.error(r?.msg || '发布失败');
+          return;
+        }
+        // 后端发布门禁的非阻断「配置提示」随 msg 返回，管理员需看见以修正配置
+        const tip = typeof r?.msg === 'string' && r.msg.includes('配置提示') ? r.msg : '';
+        if (tip) message.warning(tip, 8);
+        else message.success('发布成功');
+      })
+      .catch((e: any) => message.error(e?.msg || '发布失败'));
   };
 
   const handleTest = (id?: string | number) => {
@@ -1064,10 +1107,7 @@ const WorkflowDesignPage: React.FC = () => {
                 onPatch={(nk, patch) =>
                   setNodes((prev) => prev.map((n) => (n.nodeKey === nk ? { ...n, ...patch } : n)))
                 }
-                onOpenLayout={(nk) => {
-                  setExcelDesignNodeKey(nk);
-                  setExcelDesignOpen(true);
-                }}
+                onOpenLayout={(nk) => openExcelDesign(nk)}
                 // 「表单布局」tab 与「节点信息 → 设计」保持一致：先弹「设置表单内容」弹框
                 onDesignFormContent={(n) => {
                   setFormContentNodeKey(n.nodeKey);
@@ -1208,10 +1248,7 @@ const WorkflowDesignPage: React.FC = () => {
                 }
                 onDeleteNode={handleDeleteNode}
                 onReorder={handleReorderNodes}
-                onGenerateLayout={(nk) => {
-                  setExcelDesignNodeKey(nk);
-                  setExcelDesignOpen(true);
-                }}
+                onGenerateLayout={(nk) => openExcelDesign(nk)}
                 // 「表单内容 → 设计」改为打开弹框（显示模式 / 显示模板设置），弹框内再进布局设计器
                 onDesignFormContent={(n) => {
                   setFormContentNodeKey(n.nodeKey);
@@ -1389,11 +1426,7 @@ const WorkflowDesignPage: React.FC = () => {
           setNodes((prev) => prev.map((n) => (n.nodeKey === nk ? { ...n, ...patch } : n)))
         }
         // 显示模板【设计】→ 复用现有节点级布局设计器
-        onEditLayout={(nk) => {
-          setFormContentOpen(false);
-          setExcelDesignNodeKey(nk);
-          setExcelDesignOpen(true);
-        }}
+        onEditLayout={(nk) => openExcelDesign(nk, () => setFormContentOpen(false))}
         // 【设置字段属性】→ 切到节点信息并直接落到「字段权限」页签
         onOpenFieldPerm={(nk) => {
           setFormContentOpen(false);
