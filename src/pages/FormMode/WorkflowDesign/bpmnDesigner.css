@@ -2,17 +2,28 @@
  * 流程画布「展示 / 编辑」双态样式。
  *
  * 展示态（.wf-designer-view，默认）：画布只读，视觉与交互等同 E9 的流程图预览——
- *   屏蔽画布背景的指针交互（平移 / 缩放 / 框选），并隐藏左侧图形库、右键菜单、内置属性面板；
+ *   屏蔽画布背景的指针交互（框选 / 拖节点等编辑动作），并隐藏左侧图形库、右键菜单、内置属性面板；
  *   但放开节点与连线本体（.djs-element）的 pointer-events，使其可被 bpmn-js 原生选中，
  *   从而驱动右侧「节点信息 / 出口信息」；移动 / 连线 / 删除等编辑动作由 ReadonlyRules 拦截。
+ *   ⚠️ 滚轮缩放与按住拖动平移由 BpmnDesigner 在「外层容器」自行接管（见 wf-designer-canvas）：
+ *      因 .djs-container 整块 pointer-events:none，diagram-js 的 ZoomScroll/MoveCanvas 收不到事件，
+ *      故这两个仅查看用的交互不依赖 SVG 委托，且不会连带放开编辑动作。
  * 编辑态（.wf-designer-edit）：不做任何限制，bpmn-js Modeler 全功能可用
  *   （左侧图形库 Palette、元素右键菜单、多选对齐浮动条、右侧内置属性面板）。
  */
 
-/* 只读：容器背景及其所有后代默认都不接收指针事件（覆盖 diagram-js 的 .djs-hit-* 等规则，阻止平移/缩放） */
+/* 只读：容器背景及其所有后代默认都不接收指针事件（覆盖 diagram-js 的 .djs-hit-* 等规则，阻止框选/拖节点） */
 .wf-designer-view .djs-container,
 .wf-designer-view .djs-container * {
   pointer-events: none !important;
+}
+
+/* 展示态外层容器：滚轮缩放 / 按住拖动平移在此接管，给出可抓手型提示 */
+.wf-designer-view .wf-designer-canvas {
+  cursor: grab;
+}
+.wf-designer-view .wf-designer-canvas:active {
+  cursor: grabbing;
 }
 
 /* 例外：节点与连线本体可点击——直接点节点/连线即被 bpmn-js 原生选中（编辑动作由规则层拦截） */

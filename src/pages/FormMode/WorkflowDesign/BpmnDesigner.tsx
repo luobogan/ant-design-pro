@@ -415,6 +415,58 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
       container.addEventListener('wheel', onWheel, { passive: false });
     }
 
+    /**
+     * 展示态（点「编辑」前的预览图）允许按住鼠标拖动画布平移。
+     *
+     * 根因：bpmnDesigner.css 为只读态把 .djs-container 及其后代设为 pointer-events:none，
+     * diagram-js 的 MoveCanvas 依赖委托在 SVG 上的 element.mousedown，事件根本到不了 SVG，
+     * 所以预览图拖不动。这里不改那段 CSS（否则会连带放开框选/拖节点等编辑动作），
+     * 改为在外层容器自行接管：按 MoveCanvas 同口径（左键、无修饰键、15px 阈值）调 canvas.scroll。
+     *
+     * 边界：
+     *  - 仅展示态生效；编辑态交还原生 MoveCanvas（避免双重平移）。
+     *  - 点在 .djs-element（节点/连线）上不接管，保留 bpmn-js 原生点选 → 右侧节点/出口信息。
+     *  - 点在画布浮层/自身可滚动区域上不接管。
+     */
+    let dragCleanup: (() => void) | undefined;
+    const onMouseDown = (e: MouseEvent) => {
+      if (editModeRef.current) return;
+      if (e.button !== 0 || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const target = e.target as Element | null;
+      if (target?.closest?.('.djs-element, .djs-scrollable, .djs-palette, .djs-context-pad, .djs-popup')) return;
+      e.preventDefault();
+
+      const canvas = modeler.get('canvas');
+      const start = { x: e.clientX, y: e.clientY };
+      let last = start;
+      let dragging = false;
+
+      const onMove = (ev: MouseEvent) => {
+        const dx = ev.clientX - last.x;
+        const dy = ev.clientY - last.y;
+        if (!dragging && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) <= 15) return;
+        dragging = true;
+        container.style.cursor = 'grabbing';
+        try {
+          canvas.scroll({ dx, dy });
+        } catch {
+          /* 画布尚未就绪则忽略 */
+        }
+        last = { x: ev.clientX, y: ev.clientY };
+        ev.preventDefault();
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        container.style.cursor = '';
+        dragCleanup = undefined;
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      dragCleanup = onUp;
+    };
+    container.addEventListener('mousedown', onMouseDown);
+
     const overlays = modeler.get('overlays');
     const eventBus = modeler.get('eventBus');
 
@@ -601,6 +653,8 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
 
     return () => {
       if (onWheel) container.removeEventListener('wheel', onWheel);
+      if (dragCleanup) dragCleanup();
+      container.removeEventListener('mousedown', onMouseDown);
       if (ro) ro.disconnect();
       if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
       if (autoSaveTimer) clearTimeout(autoSaveTimer);
@@ -1665,7 +1719,11 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
       >
         {/* 画布本体：相对定位容器，模拟日志浮层锚定在「画布」右下角（不含右侧属性面板） */}
         <div style={{ position: 'relative', flex: 1, minWidth: 0, height: '100%' }}>
-          <div ref={containerRef} style={{ position: 'absolute', inset: 0, background: 'var(--th-bg-container, #fff)' }} />
+          <div
+            ref={containerRef}
+            className="wf-designer-canvas"
+            style={{ position: 'absolute', inset: 0, background: 'var(--th-bg-container, #fff)' }}
+          />
 
           {/* 模拟运行日志：右下角小窗，随动画逐条显示「节点 / 走线 是否成功」 */}
           {simLogOpen && simLog.length > 0 && (
