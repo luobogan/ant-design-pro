@@ -245,6 +245,11 @@ export interface InstanceFlowProps {
    * 与 `preview` 的区别：preview 会改走 `/form/preview` 不读实例数据，监控详情不能用它。
    */
   readOnly?: boolean;
+  /**
+   * 是否自由流程（1=自由流程）。「下一步设置 / 流转设定」是自由流程专属控件，
+   * 非自由流程不传或传 0 一律隐藏；预览态（preview）与监控只读态（readOnly）同样隐藏。
+   */
+  isFree?: number | boolean;
   /** 外层自增键：每次办理成功 +1，用于强制本面板重新拉取节点操作者等运行态数据 */
   refreshKey?: number | string;
 }
@@ -274,8 +279,11 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   embedded,
   readOnly,
   refreshKey,
+  isFree,
 }) => {
   const { message } = App.useApp();
+  /** 自由流程专属工具（下一步设置 / 流转设定）：非自由流程、预览、监控只读态一律隐藏 */
+  const showFreeFlowTools = !preview && !readOnly && Number(isFree) === 1;
   const [pkg, setPkg] = useState<any>(null);
   const [tab, setTab] = useState<'form' | 'diagram' | 'status' | 'resource'>('form');
   const [logs, setLogs] = useState<any[]>([]);
@@ -1735,26 +1743,31 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
         )}
       </Modal>
 
-      {/* 自由流程：下一步设置（提交时自选节点/办理人）与流转设定（按本次单据编排步骤） */}
-      <Space style={{ marginTop: 12 }} wrap>
-        <Button onClick={() => setModalType('nextStep')} disabled={!taskId}>
-          下一步设置
-        </Button>
-        <Button onClick={() => setModalType('freeFlowSet')} disabled={!instanceId}>
-          流转设定
-        </Button>
-      </Space>
-      <NextStepModal
-        open={modalType === 'nextStep'}
-        taskId={taskId ? String(taskId) : undefined}
-        opinion={opinion}
-        onClose={closeModal}
-      />
-      <FreeFlowSetModal
-        open={modalType === 'freeFlowSet'}
-        instId={instanceId ? String(instanceId) : undefined}
-        onClose={closeModal}
-      />
+      {/* 仅自由流程显示：下一步设置（提交时自选节点/办理人）与流转设定（按本次单据编排步骤）。
+          非自由流程 / 预览 / 监控只读态一律隐藏，避免普通流程误显自由流程控件。 */}
+      {showFreeFlowTools && (
+        <>
+          <Space style={{ marginTop: 12 }} wrap>
+            <Button onClick={() => setModalType('nextStep')} disabled={!taskId}>
+              下一步设置
+            </Button>
+            <Button onClick={() => setModalType('freeFlowSet')} disabled={!instanceId}>
+              流转设定
+            </Button>
+          </Space>
+          <NextStepModal
+            open={modalType === 'nextStep'}
+            taskId={taskId ? String(taskId) : undefined}
+            opinion={opinion}
+            onClose={closeModal}
+          />
+          <FreeFlowSetModal
+            open={modalType === 'freeFlowSet'}
+            instId={instanceId ? String(instanceId) : undefined}
+            onClose={closeModal}
+          />
+        </>
+      )}
     </div>
   );
 };

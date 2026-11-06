@@ -830,6 +830,7 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
           onValuesChange={props.onValuesChange}
           embedded={embedded}
           refreshKey={flowRefreshKey}
+          isFree={def?.isFree}
         />
       ) : loading ? (
             <div style={{ padding: 48, textAlign: 'center' }}>

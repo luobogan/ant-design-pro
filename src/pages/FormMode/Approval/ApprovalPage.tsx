@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Empty, Spin } from 'antd';
-import { getBpmn, getInstance, getInstanceProgress, getTask, listLinks, listNodes } from '@/services/workflow';
+import { getBpmn, getDefinition, getInstance, getInstanceProgress, getTask, listLinks, listNodes } from '@/services/workflow';
 import { pickPayload } from '@/utils/utils';
 import InstanceFlow from '@/pages/Workflow/Create/InstanceFlow';
 
@@ -53,6 +53,8 @@ const ApprovalPage: React.FC = () => {
     currentNodeKey?: string;
     /** 流程实例进度图（四色，纯 ACT_HI）；拉取失败时保持 undefined，流程图回落测试态二色 */
     progress?: any;
+    /** 是否自由流程：决定办理页是否显示「下一步设置 / 流转设定」 */
+    isFree?: number;
   }>({ defName: '', bpmnXml: '', nodes: [], links: [], currentNodeKey: undefined });
 
   useEffect(() => {
@@ -67,14 +69,17 @@ const ApprovalPage: React.FC = () => {
       try {
         const inst: any = pickPayload(await getInstance(effectiveInstanceId));
         const defId = inst?.defId;
-        const [bpmnRes, nodesRes, linksRes, progressRes] = await Promise.all([
+        const [bpmnRes, nodesRes, linksRes, progressRes, defRes] = await Promise.all([
           defId ? getBpmn(defId).catch(() => null) : Promise.resolve(null),
           defId ? listNodes(defId).catch(() => null) : Promise.resolve(null),
           defId ? listLinks(defId as any).catch(() => null) : Promise.resolve(null),
           // 进度图四色（纯 ACT_HI）：失败由调用方 skipErrorHandler 兜底，不影响主流程
           getInstanceProgress(effectiveInstanceId).then((r: any) => pickPayload(r)).catch(() => null),
+          // 流程定义：仅取 isFree，决定办理页是否显示自由流程专属控件
+          defId ? getDefinition(defId as any).catch(() => null) : Promise.resolve(null),
         ]);
         if (!alive) return;
+        const def: any = defRes ? pickPayload(defRes) : null;
         setCtx({
           defName: inst?.title || '',
           bpmnXml: (bpmnRes as any)?.data || '',
@@ -82,6 +87,7 @@ const ApprovalPage: React.FC = () => {
           links: (linksRes as any)?.data || '',
           currentNodeKey: inst?.currentNodeKey || undefined,
           progress: progressRes || undefined,
+          isFree: def?.isFree,
         });
       } catch {
         if (alive) {
@@ -122,6 +128,7 @@ const ApprovalPage: React.FC = () => {
         links={ctx.links}
         progress={ctx.progress}
         currentNodeKey={ctx.currentNodeKey}
+        isFree={ctx.isFree}
         embedded={false}
       />
     </div>
