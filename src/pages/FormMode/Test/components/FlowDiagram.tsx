@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import NavigatedViewer from 'bpmn-js/lib/NavigatedViewer';
 import 'bpmn-js/dist/assets/diagram-js.css';
 import 'bpmn-js/dist/assets/bpmn-js.css';
@@ -9,6 +9,8 @@ import './flowDiagram.css';
  * 只读流程图画布（流程测试右侧「流程图」页签 / 流程预览 / 流程实例进度图）。
  *
  * 用 bpmn-js 的 NavigatedViewer（无建模能力、无工具栏）渲染流程定义的 BPMN，
+ * 渲染前默认裁掉 startEvent（及入口连线）——它是引擎自动完成的薄连接器、不落业务台账，
+ * 详见 {@link stripStartEvents}；只影响本只读画布，不改 DB / 引擎 / 设计器画布。
  * 并按测试结果 / 实例轨迹在节点上叠加信息：
  *
  *  测试/审批态（nodeStatus + currentNodeKey）：
@@ -26,6 +28,7 @@ import './flowDiagram.css';
  *  公共：
  *   - 节点标签正下方叠加「已操作」办理人姓名（谁批的，一格一行，对齐 ecology）
  *   - 悬浮节点弹出「操作者」分组面板：未操作 / 已查看 / 已操作
+ *   - 鼠标悬停图上滚动齿轮直接缩放（无需 Ctrl），按住拖动画布平移
  * 点击节点回调 onSelectNode，与左侧节点列表 / 表单页签联动。
  */
 
@@ -61,6 +64,52 @@ const escapeHtml = (s: string): string =>
     (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]),
   );
 
+/**
+ * 只读流程图：从 BPMN XML 的「内存副本」中裁掉开始事件及其入口连线。
+ *
+ * A 方案（按元素类型一律隐藏 `bpmn:StartEvent`）：
+ * - BPMN 规范需要一个 startEvent 作为引擎起点，但本平台「创建/申请人填单」已改为
+ *   `UserTask(nodeType=0)`，startEvent 只是被引擎自动完成的薄连接器，不落台账、不承载业务；
+ * - 展示时它是多余的一圈 + 一条悬空入口线，点击还会回传台账查不到的 nodeKey；
+ * - 因此渲染前删 ① startEvent 元素 ② sourceRef 指向它的 sequenceFlow
+ *   ③ BPMNDiagram 中对应的 BPMNShape / BPMNEdge（含 label），保证画布不残留悬空线/孤儿 DI。
+ *
+ * ⚠️ 仅作用于传给 bpmn-js 的内存字符串，绝不回写数据库，也不影响引擎部署、发布与设计器画布
+ *    （设计器用 BpmnDesigner/Modeler，不共用本组件）。解析失败一律回退原 XML，不打断页面。
+ */
+const stripStartEvents = (xml: string): string => {
+  if (!xml || typeof DOMParser === 'undefined') return xml;
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    if (doc.getElementsByTagName('parsererror').length > 0) return xml;
+    const all = Array.from(doc.getElementsByTagName('*'));
+    const starts = all.filter((el) => el.localName === 'startEvent');
+    if (starts.length === 0) return xml;
+
+    const startIds = new Set(starts.map((el) => el.getAttribute('id')).filter(Boolean) as string[]);
+    const entryFlows = all.filter(
+      (el) => el.localName === 'sequenceFlow' && startIds.has(el.getAttribute('sourceRef') || ''),
+    );
+    const removedIds = new Set([
+      ...startIds,
+      ...(entryFlows.map((el) => el.getAttribute('id')).filter(Boolean) as string[]),
+    ]);
+    const diOrphans = all.filter(
+      (el) =>
+        (el.localName === 'BPMNShape' || el.localName === 'BPMNEdge') &&
+        removedIds.has(el.getAttribute('bpmnElement') || ''),
+    );
+    [...entryFlows, ...diOrphans, ...starts].forEach((el) => el.parentNode?.removeChild(el));
+    // 序列化会丢 XML 声明；bpmn-js 不依赖它，但补回去以免个别解析器挑剔
+    const out = new XMLSerializer().serializeToString(doc);
+    return /^\s*<\?xml/.test(xml) && !/^\s*<\?xml/.test(out)
+      ? '<?xml version="1.0" encoding="UTF-8"?>\n' + out
+      : out;
+  } catch {
+    return xml;
+  }
+};
+
 /** 单个节点的操作者分组（对齐 ecology 流程图节点悬浮「操作者」面板） */
 export interface WfNodeOperators {
   /** 已操作（已办/办结/协办/有审批记录，开始节点为发起人） */
@@ -94,6 +143,12 @@ export interface FlowDiagramProps {
   resolveUserName?: (id: string | number) => string;
   /** 点节点回调（传出 nodeKey） */
   onSelectNode?: (nodeKey?: string) => void;
+  /**
+   * 是否隐藏「开始」事件（及其入口连线）。默认 true。
+   * A 方案：只读流程图按元素类型一律隐藏 bpmn:StartEvent；设计器画布不受影响。
+   * 置 false 可还原完整 BPMN 用于排查。
+   */
+  hideStartEvent?: boolean;
   height?: number;
 }
 
@@ -106,9 +161,15 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({
   nodeOperators,
   resolveUserName,
   onSelectNode,
+  hideStartEvent = true,
   height = 420,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  /** 只用于渲染的 XML 副本：默认裁掉 startEvent + 入口线，绝不回写 DB */
+  const renderXml = useMemo(
+    () => (hideStartEvent ? stripStartEvents(bpmnXml || '') : bpmnXml || ''),
+    [bpmnXml, hideStartEvent],
+  );
   const viewerRef = useRef<any>(null);
   const markedRef = useRef<{ id: string; cls: string }[]>([]);
   const overlaysRef = useRef<any[]>([]);
@@ -282,8 +343,9 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({
 
   // 创建只读查看器（仅一次）
   useEffect(() => {
-    if (!containerRef.current) return () => {};
-    const viewer = new NavigatedViewer({ container: containerRef.current });
+    const container = containerRef.current;
+    if (!container) return () => {};
+    const viewer = new NavigatedViewer({ container });
     viewerRef.current = viewer;
     const eventBus = viewer.get('eventBus');
     eventBus.on('selection.changed', (e: any) => {
@@ -291,7 +353,39 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({
       const shape = list.find((x: any) => isNodeElement(x));
       cbRef.current?.(shape ? shape.id : undefined);
     });
+
+    /**
+     * 滚轮直接缩放（无需 Ctrl/Cmd）。
+     *
+     * diagram-js 的 ZoomScroll 默认只有 event.ctrlKey/metaKey 时缩放，普通滚轮是「平移画布」；
+     * 这里关掉它的 wheel 监听并自行接管，让鼠标悬停在图上滚动齿轮即放大/缩小。
+     * 复用 zoomScroll.zoom()：以鼠标位置为中心、对数细腻步长、0.2~4 边界，与 Ctrl+滚轮体验一致。
+     * 按住鼠标拖动画布仍由 NavigatedViewer 的 MoveCanvasModule 平移。
+     */
+    const zoomScroll = viewer.get('zoomScroll');
+    let onWheel: ((e: WheelEvent) => void) | undefined;
+    if (zoomScroll) {
+      try {
+        zoomScroll.toggle(false);
+      } catch {
+        /* 拿不到服务时保留原生行为，不打断页面 */
+      }
+      onWheel = (e: WheelEvent) => {
+        // 尊重画布内可能存在自身滚动区域（对齐 ZoomScroll 原生判据）
+        if ((e.target as Element | null)?.closest?.('.djs-scrollable')) return;
+        e.preventDefault();
+        const rect = container.getBoundingClientRect();
+        const position = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        // 与 ZoomScroll._handleWheel 的 isZoom 分支同口径
+        const factor = -0.75 * (e.deltaMode === 0 ? 0.020 : 0.32);
+        const delta = Math.hypot(e.deltaY, e.deltaX) * Math.sign(e.deltaY) * factor;
+        zoomScroll.zoom(delta, position);
+      };
+      container.addEventListener('wheel', onWheel, { passive: false });
+    }
+
     return () => {
+      if (onWheel) container.removeEventListener('wheel', onWheel);
       try {
         viewer.destroy();
       } catch {
@@ -334,12 +428,12 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({
     };
   }, []);
 
-  // 导入 BPMN
+  // 导入 BPMN（用渲染副本：默认已裁掉 startEvent + 入口线）
   useEffect(() => {
     const viewer = viewerRef.current;
-    if (!viewer || !bpmnXml) return;
+    if (!viewer || !renderXml) return;
     viewer
-      .importXML(bpmnXml)
+      .importXML(renderXml)
       .then(() => {
         try {
           viewer.get('canvas').zoom('fit-viewport');
@@ -356,7 +450,7 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({
         /* 解析失败时保持空白，不打断页面 */
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bpmnXml]);
+  }, [renderXml]);
 
   // 结果 / 当前节点 / 四色 / 实例状态变化时重刷标记
   useEffect(() => {

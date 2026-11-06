@@ -52,8 +52,9 @@ import './bpmnDesigner.css';
  *  - 节点/连线上不再叠加任何图形：直接点节点或连线即由 bpmn-js 原生选中，
  *    驱动右侧「节点信息 / 出口信息」；展示态下的编辑动作（移动/连线/删除）由只读规则拦截。
  *
- * 展示态（默认）为只读预览：隐藏工具栏编辑项与属性面板，画布背景屏蔽指针事件（阻止平移/缩放），
+ * 展示态（默认）为只读预览：隐藏工具栏编辑项与属性面板，画布背景屏蔽指针事件（阻止拖拽平移/框选），
  * 但放开节点与连线本体（.djs-element）的 pointer-events，使其可被原生选中；
+ * 展示态与编辑态均支持「鼠标悬停画布滚动齿轮直接缩放」（无需 Ctrl），见初始化处的 wheel 接管。
  * 编辑态放开上述全部建模能力。
  */
 /** XML 属性值转义（流程名可能含 & < > " 等字符） */
@@ -361,9 +362,10 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
 
   // 初始化 modeler
   useEffect(() => {
-    if (!containerRef.current) return;
+    const container = containerRef.current;
+    if (!container) return;
     const modeler = new BpmnJS({
-      container: containerRef.current,
+      container,
       // 右侧内置属性面板（parent 支持 DOM 元素 / 选择器；null 时面板自动不挂载，不会报错）
       propertiesPanel: { parent: propsPanelRef.current },
       // Camunda 平台属性（表单/分配/多实例/监听器/扩展属性 等）依赖 camunda moddle 描述符，
@@ -381,6 +383,37 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
     modelerRef.current = modeler;
     // F-T2：暴露活动模型器给面板，便于按 nodeKey 读写 wf: 扩展
     setActiveModeler(modeler);
+
+    /**
+     * 滚轮直接缩放（无需 Ctrl/Cmd），与只读流程图 FlowDiagram 同口径。
+     *
+     * diagram-js 的 ZoomScroll 默认只有 event.ctrlKey/metaKey 才缩放、普通滚轮是平移画布；
+     * 这里关掉它的 wheel 监听并自行接管，滚齿轮即放大/缩小（以鼠标位置为中心、0.2~4 边界）。
+     * 缩放后 canvas.viewbox.changed 会触发下方 syncZoom，工具栏百分比自动同步。
+     * 展示态/编辑态都绑定在外层 container 上：展示态 CSS 只把 .djs-container 及其后代
+     * 设为 pointer-events:none，wheel 仍会落在外层容器上被本监听接收。
+     */
+    const zoomScroll = modeler.get('zoomScroll');
+    let onWheel: ((e: WheelEvent) => void) | undefined;
+    if (zoomScroll) {
+      try {
+        zoomScroll.toggle(false);
+      } catch {
+        /* 拿不到服务时保留原生行为，不打断页面 */
+      }
+      onWheel = (e: WheelEvent) => {
+        const target = e.target as Element | null;
+        // 画布内自身可滚动区域、以及设计器浮层（图形库/右键菜单/弹出层）不劫持滚轮
+        if (target?.closest?.('.djs-scrollable, .djs-palette, .djs-context-pad, .djs-popup')) return;
+        e.preventDefault();
+        const rect = container.getBoundingClientRect();
+        const position = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        const factor = -0.75 * (e.deltaMode === 0 ? 0.020 : 0.32);
+        const delta = Math.hypot(e.deltaY, e.deltaX) * Math.sign(e.deltaY) * factor;
+        zoomScroll.zoom(delta, position);
+      };
+      container.addEventListener('wheel', onWheel, { passive: false });
+    }
 
     const overlays = modeler.get('overlays');
     const eventBus = modeler.get('eventBus');
@@ -567,6 +600,7 @@ const BpmnDesigner: React.FC<BpmnDesignerProps> = ({
     }
 
     return () => {
+      if (onWheel) container.removeEventListener('wheel', onWheel);
       if (ro) ro.disconnect();
       if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
       if (autoSaveTimer) clearTimeout(autoSaveTimer);
