@@ -45,13 +45,10 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ selectedField, onFieldAtt
   React.useEffect(() => {
     if (selectedField) {
       form.setFieldsValue(selectedField);
-      if (selectedField.options) {
-        setOptions(selectedField.options);
-      } else {
-        setOptions([]);
-      }
+      setOptions(selectedField.options ?? []);
     } else {
-      form.resetFields();
+      // 无选中字段时 <Form> 尚未挂载（组件提前 return），不可在此时调用 form 方法，
+      // 否则会触发「useForm is not connected to any Form element」告警。
       setOptions([]);
     }
   }, [selectedField, form]);

@@ -2163,7 +2163,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         }
         onCancel={closeDetailCanvas}
         destroyOnHidden
-        maskClosable={false}
+        mask={{ closable: false }}
       >
         {editingDetail !== null && (
           <div style={{ display: 'flex', height: '72vh' }}>
@@ -2228,7 +2228,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         }
         onCancel={closeTabEditor}
         destroyOnHidden
-        maskClosable={false}
+        mask={{ closable: false }}
       >
         {tabEditor && (
           <div>

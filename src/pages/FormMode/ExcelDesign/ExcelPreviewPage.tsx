@@ -28,6 +28,7 @@ const ExcelPreviewPageContent: React.FC = () => {
   const [loaded, setLoaded] = useState<boolean>(false);
   const [readOnly, setReadOnly] = useState<boolean>(false);
   const [nodeId, setNodeId] = useState<string | undefined>(undefined);
+  const [taskId, setTaskId] = useState<string | undefined>(undefined);
   const [nodePermission, setNodePermission] = useState<NodePermissionResolver | undefined>(undefined);
   const [renderPkg, setRenderPkg] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -52,8 +53,8 @@ const ExcelPreviewPageContent: React.FC = () => {
       setLoading(true);
       // 19 位雪花 ID 保持字符串：Number() 会丢精度导致查不到实例
       const instanceId = params.instanceId;
-      const taskId = params.taskId || undefined;
-      renderForm(instanceId, taskId)
+      setTaskId(params.taskId || undefined);
+      renderForm(instanceId, params.taskId || undefined)
         .then((res: any) => {
           const pkg = res?.data;
           if (!pkg) {
