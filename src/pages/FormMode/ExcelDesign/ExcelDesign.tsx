@@ -40,6 +40,8 @@ import {
   setDesignerRibbonOptions,
 } from './ribbonRegistry';
 import PropertyPanel from './components/PropertyPanel';
+import TabEditor from './components/TabEditor';
+import { buildTabGroupConfig, nextTabId, parseTabGroup, type TabGroupConfig } from './elementSchema';
 import LayoutStructurePanel from './components/LayoutStructurePanel';
 import type { StructField } from './components/LayoutStructurePanel';
 import ExcelPreview from './components/ExcelPreview';
@@ -83,6 +85,81 @@ const pruneDetailTables = (
   const next: Record<number, any> = {};
   Object.keys(src).forEach((k) => {
     if (used.has(Number(k))) next[Number(k)] = src[Number(k)];
+  });
+  return next;
+};
+
+/**
+ * 收集布局里所有可能的 cellData 容器（**形状无关**）。
+ *
+ * ⚠️ 同一个布局有两种形态：
+ *   1) 标准形态：{ sheets: { sheet1: { cellData } } }        —— 后端 layoutJson / saveLayoutData() 返回值
+ *   2) parentData 形态：{ Sheet1: { sheets: {...} }, cellData } —— 画布内部保存时 onLayoutChange 回传的对象
+ * 画布的「防篡改守护定时器」等内部保存会把 layoutData 换成形态 2（**没有 sheets 键**），
+ * 只按形态 1 读取会导致「双击页签单元格打不开编辑面」。
+ */
+const collectCellDataMaps = (layout: any): any[] => {
+  const maps: any[] = [];
+  if (!layout || typeof layout !== 'object') return maps;
+  const push = (cd: any) => {
+    if (cd && typeof cd === 'object' && !maps.includes(cd)) maps.push(cd);
+  };
+  // 形态 2：顶层 cellData
+  push(layout.cellData);
+  // 形态 1：layout.sheets[*].cellData
+  const sheets = layout.sheets;
+  if (sheets && typeof sheets === 'object') {
+    Object.keys(sheets).forEach((id) => {
+      push(sheets[id]?.cellData);
+    });
+  }
+  // 形态 2：layout[sheetName].sheets[*].cellData
+  Object.keys(layout).forEach((k) => {
+    const sub = layout[k];
+    if (!sub || typeof sub !== 'object' || !sub.sheets || typeof sub.sheets !== 'object') return;
+    Object.keys(sub.sheets).forEach((id) => {
+      push(sub.sheets[id]?.cellData);
+    });
+  });
+  return maps;
+};
+
+/**
+ * 收集主表布局中仍被「标签页容器」引用的页签 id（E9 etables.tab_N）。
+ * 与 collectUsedDetailTables 同理：页签被删除后其独立布局不应残留，
+ * 否则「孤儿页签内容」会在保存时回流，或预览时多出一张无主的表。
+ */
+const collectUsedTabIds = (layout: any): Set<string> => {
+  const used = new Set<string>();
+  if (!layout) return used;
+  collectCellDataMaps(layout).forEach((cellData) => {
+    Object.values(cellData).forEach((row: any) => {
+      if (!row) return;
+      Object.values(row).forEach((cell: any) => {
+        const meta = cell?.fieldMeta;
+        if (meta?.cellType !== 'element' || meta?.elementType !== 'tab') return;
+        const cfg = meta.elementConfig || {};
+        Object.keys(cfg).forEach((k) => {
+          if (!/^order_\d+$/.test(k)) return;
+          // order_N = "tab_1,页签名"：取逗号前的页签 id
+          const id = String(cfg[k] || '').split(',')[0].trim();
+          if (id) used.add(id);
+        });
+      });
+    });
+  });
+  return used;
+};
+
+/** 剔除已无页签容器引用的孤儿页签独立布局 */
+const pruneTabTables = (
+  tabTables: Record<string, any> | undefined,
+  used: Set<string>,
+): Record<string, any> => {
+  const src = tabTables || {};
+  const next: Record<string, any> = {};
+  Object.keys(src).forEach((k) => {
+    if (used.has(k)) next[k] = src[k];
   });
   return next;
 };
@@ -208,6 +285,216 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     return detailLayoutChangeRef.current[idx];
   };
 
+  // ──────────────────────────────────────────────
+  // 标签页（E9 etype 12）：主表单元格挂 tab 容器，**每个页签一张独立 Excel 布局**
+  //   - tabEditor：正在编辑的标签页单元格（row/col）+ 页签组配置
+  //   - editingTabId：正在编辑「内容」的页签 id（null = 只看页签条）
+  //   - tabLayouts：各页签独立布局（随主布局 tabTables 一并持久化）
+  // 交互对齐 E9：双击标签页单元格 → 展开页签编辑面；「+」新增页签 = 新建一张独立表；
+  //   页签右键菜单：重命名 / 删除 / 设为默认 / 前移后移 / 移至最前最后。
+  // ──────────────────────────────────────────────
+  const [tabEditor, setTabEditor] = useState<{
+    row: number;
+    col: number;
+    group: TabGroupConfig;
+  } | null>(null);
+  const [editingTabId, setEditingTabId] = useState<string | null>(null);
+  const [tabLayouts, setTabLayouts] = useState<Record<string, any>>({});
+  // 每个页签的「布局变更回调」稳定实例（避免子画布因 onLayoutChange 变化而反复重建 Univer）
+  const tabLayoutChangeRef = useRef<Record<string, (data: any) => void>>({});
+  const getTabLayoutChange = (tabId: string) => {
+    if (!tabLayoutChangeRef.current[tabId]) {
+      tabLayoutChangeRef.current[tabId] = (data: any) => {
+        setTabLayouts((prev) => ({ ...prev, [tabId]: data }));
+        setLayoutData((prev) => ({
+          ...prev,
+          tabTables: { ...((prev as any).tabTables || {}), [tabId]: data },
+        }));
+      };
+    }
+    return tabLayoutChangeRef.current[tabId];
+  };
+
+  /** 读主表某单元格上的标签页元素配置 */
+  const readTabCellConfig = useCallback(
+    (row: number, col: number): Record<string, any> | null => {
+      // 布局可能是标准形态（sheets.*）也可能是画布回传的 parentData 形态（顶层 cellData），
+      // 两种都要能读到「标签页元素」所在格，否则双击打不开页签编辑面。
+      for (const cellData of collectCellDataMaps(layoutData)) {
+        const meta = cellData?.[String(row)]?.[String(col)]?.fieldMeta;
+        if (meta?.cellType === 'element' && meta?.elementType === 'tab') return meta.elementConfig || {};
+      }
+      return null;
+    },
+    [layoutData],
+  );
+
+  /** 双击单元格（对齐 E9 `spread.bind(CellDoubleClick)`）：标签页单元格 → 打开页签编辑面 */
+  const handleCellDoubleClick = useCallback(
+    (row: number, col: number) => {
+      const raw = readTabCellConfig(row, col);
+      if (!raw) return;
+      // 记下主画布 API：页签子画布会覆盖 window.univerExcelGrid，写回配置须用主画布实例
+      mainGridApiRef.current = (window as any).univerExcelGrid;
+      const parsed = parseTabGroup(raw);
+      if (parsed) {
+        // 每个页签都是一张独立 Excel 布局：补齐缺失的页签布局槽位（E9 etables.tab_N）
+        setTabLayouts((prev) => {
+          const next = { ...prev };
+          let changed = false;
+          parsed.tabs.forEach((t) => {
+            if (!next[t.id]) {
+              next[t.id] = {};
+              changed = true;
+            }
+          });
+          return changed ? next : prev;
+        });
+        setTabEditor({ row, col, group: parsed });
+        return;
+      }
+      // 旧版「行区间」方案 → 迁移为 E9 页签容器（每页一张独立 Excel 布局）
+      const legacy = String(raw.tabs || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const names = legacy.length ? legacy : ['标签页1'];
+      const styleId = Number(raw.styleid);
+      const group: TabGroupConfig = {
+        containerName: String(raw.name || '标签页'),
+        styleId: Number.isFinite(styleId) ? Math.trunc(styleId) : -1,
+        defShow: 0,
+        areaHeight: '1',
+        tabs: names.map((n, i) => ({ id: `tab_${i + 1}`, name: n })),
+        custom: {},
+      };
+      setTabLayouts((prev) => {
+        const next = { ...prev };
+        group.tabs.forEach((t) => {
+          if (!next[t.id]) next[t.id] = {};
+        });
+        return next;
+      });
+      setTabEditor({ row, col, group });
+    },
+    [readTabCellConfig],
+  );
+
+  /**
+   * 合并页签独立布局的两个来源：
+   *  - layoutData.tabTables：随主布局一起被 handleLayoutChange 保留/覆盖
+   *  - tabLayouts：页签子画布 onLayoutChange 的直接落点（更新更及时）
+   * tabLayouts 优先，避免「layoutData.tabTables 还是空对象导致 || 回退失效」。
+   */
+  const getMergedTabTables = useCallback((): Record<string, any> => {
+    const fromLayout = (layoutDataRef.current && (layoutDataRef.current as any).tabTables) || {};
+    return { ...fromLayout, ...(tabLayouts || {}) };
+  }, [tabLayouts]);
+
+  /** 页签组配置写回单元格（整体替换，避免删页签后残留 order_N 复活） */
+  const writeTabGroup = useCallback((row: number, col: number, group: TabGroupConfig) => {
+    const api = mainGridApiRef.current || (window as any).univerExcelGrid;
+    if (!api || typeof api.setElementConfig !== 'function') {
+      message.warning('设计器尚未就绪，请稍候再试');
+      return;
+    }
+    api.setElementConfig(row, col, buildTabGroupConfig(group), true);
+    setTabEditor((prev) => (prev ? { ...prev, group } : prev));
+  }, [message]);
+
+  const updateTabGroup = useCallback(
+    (next: TabGroupConfig) => {
+      if (!tabEditor) return;
+      writeTabGroup(tabEditor.row, tabEditor.col, next);
+    },
+    [tabEditor, writeTabGroup],
+  );
+
+  /** 新增标签页 = 新建一张独立 Excel 布局（对齐 E9 append_SingleTab + etables[tab_N]） */
+  const handleAddTab = useCallback(() => {
+    if (!tabEditor) return;
+    const id = nextTabId(tabEditor.group.tabs.map((t) => t.id));
+    // 只更新 tabLayouts（页签独立布局的权威来源）：
+    // 不要在这里 setLayoutData —— layoutData 一变就会触发画布的「整表重载」，
+    // 重载会清空 cellFieldMetaMap（字段元数据全丢，保存出去的布局没有 fieldMeta）。
+    // 保存 / 预览时由 getMergedTabTables() 合并 layoutData.tabTables + tabLayouts。
+    setTabLayouts((prev) => ({ ...prev, [id]: {} }));
+    updateTabGroup({
+      ...tabEditor.group,
+      tabs: [...tabEditor.group.tabs, { id, name: `标签页${tabEditor.group.tabs.length + 1}` }],
+    });
+  }, [tabEditor, updateTabGroup]);
+
+  const handleRenameTab = useCallback(
+    (index: number, name: string) => {
+      if (!tabEditor) return;
+      const tabs = tabEditor.group.tabs.map((t, i) => (i === index ? { ...t, name } : t));
+      updateTabGroup({ ...tabEditor.group, tabs });
+    },
+    [tabEditor, updateTabGroup],
+  );
+
+  const handleDeleteTab = useCallback(
+    (index: number) => {
+      if (!tabEditor) return;
+      const target = tabEditor.group.tabs[index];
+      if (!target) return;
+      const tabs = tabEditor.group.tabs.filter((_, i) => i !== index);
+      // 级联清理该页签的独立布局，避免孤儿页签（内容还在但页签没了）
+      setTabLayouts((prev) => {
+        const next = { ...prev };
+        delete next[target.id];
+        return next;
+      });
+      setLayoutData((prev) => {
+        const tt = { ...((prev as any).tabTables || {}) };
+        delete tt[target.id];
+        return { ...prev, tabTables: tt } as any;
+      });
+      if (editingTabId === target.id) setEditingTabId(null);
+      updateTabGroup({
+        ...tabEditor.group,
+        tabs,
+        defShow: Math.min(tabEditor.group.defShow, Math.max(0, tabs.length - 1)),
+      });
+    },
+    [tabEditor, editingTabId, updateTabGroup],
+  );
+
+  const handleSetDefaultTab = useCallback(
+    (index: number) => {
+      if (!tabEditor) return;
+      updateTabGroup({ ...tabEditor.group, defShow: index });
+    },
+    [tabEditor, updateTabGroup],
+  );
+
+  /** 排序：默认页序号随页签一起移动 */
+  const handleMoveTab = useCallback(
+    (from: number, to: number) => {
+      if (!tabEditor) return;
+      const tabs = [...tabEditor.group.tabs];
+      if (from < 0 || from >= tabs.length || to < 0 || to >= tabs.length || from === to) return;
+      const [moved] = tabs.splice(from, 1);
+      tabs.splice(to, 0, moved);
+      let defShow = tabEditor.group.defShow;
+      if (defShow === from) defShow = to;
+      else if (from < defShow && to >= defShow) defShow -= 1;
+      else if (from > defShow && to <= defShow) defShow += 1;
+      updateTabGroup({ ...tabEditor.group, tabs, defShow });
+    },
+    [tabEditor, updateTabGroup],
+  );
+
+  /** 关闭页签编辑面：恢复主画布 API */
+  const closeTabEditor = useCallback(() => {
+    setEditingTabId(null);
+    setTabEditor(null);
+    if (mainGridApiRef.current) {
+      (window as any).univerExcelGrid = mainGridApiRef.current;
+    }
+  }, []);
+
   // 预览弹窗状态
   const [previewVisible, setPreviewVisible] = useState<boolean>(false);
   const [previewData, setPreviewData] = useState<any>(null);
@@ -249,16 +536,47 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     setOnlyShowActive(on);
   }, []);
 
+  // 公式格配置变更（目标字段 / 触发时机 / 金额大写）→ 回写网格 formulaCfg
+  const handleFormulaConfigChange = useCallback((patch: Record<string, any>) => {
+    const univerGrid = (window as any).univerExcelGrid;
+    if (!univerGrid || typeof univerGrid.setCellFormulaCfg !== 'function') {
+      message.warning('设计器尚未就绪，请稍候再试');
+      return;
+    }
+    const pos = (window as any).__excelFormulaCellPos || {};
+    if (pos.row == null || pos.col == null) {
+      message.warning('请先选中要配置的公式单元格');
+      return;
+    }
+    const ok = univerGrid.setCellFormulaCfg(pos.row, pos.col, patch);
+    if (ok) {
+      setSelectedField((prev: any) =>
+        prev?.cellType === 'formula'
+          ? { ...prev, formulaCfg: { ...(prev.formulaCfg || {}), ...patch } }
+          : prev,
+      );
+    } else {
+      message.warning('仅支持配置公式单元格');
+    }
+  }, []);
+
   // 侧栏属性面板回调：按字段名直接回写字段属性（attr: 0-3）与禁止手工编辑（免坐标解析）
   // 元素格配置变更（如「合计字段」指定对哪个明细字段求和）→ 写回网格 elementConfig 并本地同步
   const handleElementConfigChange = useCallback(
     (patch: Record<string, any>) => {
+      // 与其它工具栏回调一致，需在此处取网格实例：此前直接引用未声明的 univerGrid，
+      // 导致「选中元素格 → 改属性」一进入就抛 ReferenceError（属性面板的回写通道实际不可用）。
+      const univerGrid = (window as any).univerExcelGrid;
+      if (!univerGrid || typeof univerGrid.setElementConfig !== 'function') {
+        message.warning('设计器尚未就绪，请稍候再试');
+        return;
+      }
       const selection = univerGrid.getSelection?.() || univerGrid.getContextCell?.();
       if (!selection) {
         message.warning('请先选中要配置的单元格');
         return;
       }
-      const ok = univerGrid.setElementConfig?.(selection.row, selection.col, patch);
+      const ok = univerGrid.setElementConfig(selection.row, selection.col, patch);
       if (ok) {
         // selectedField 是 getCellFieldMeta 的快照，本地同步才能让面板立即回显
         setSelectedField((prev: any) =>
@@ -346,6 +664,53 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     window.addEventListener('univer-field-property-open', handleFieldPropertyOpen);
     return () => {
       window.removeEventListener('univer-field-property-open', handleFieldPropertyOpen);
+    };
+  }, []);
+
+  /**
+   * 单击选中「插入元素」格时，把该格完整元数据同步到右侧属性面板，
+   * 使 elementConfig 可就地编辑（此前只有右键「字段属性」才更新 selectedField，
+   * 元素格单击后面板不会切换）。
+   *
+   * 只接管 element 格：字段格沿用原有「右键属性 / 左侧字段面板拖拽预设」流程，
+   * 避免选区变化把 handleFieldSelect 写入的 pending 预设属性覆盖掉。
+   */
+  useEffect(() => {
+    const handleCellSelected = (e: Event) => {
+      const { row, col } = (e as CustomEvent).detail || {};
+      if (row == null || col == null) return;
+      try {
+        const grid = (window as any).univerExcelGrid;
+        const meta = grid?.getCellFieldMeta?.(Number(row), Number(col));
+        if (meta?.cellType === 'element') {
+          setSelectedField({ ...meta });
+          return;
+        }
+        // 公式格：展示/编辑公式配置（目标字段 / 触发时机 / 金额大写）
+        const formula = grid?.getCellFormulaCfg?.(Number(row), Number(col));
+        if (formula) {
+          // 记录公式格坐标：属性面板回写时按坐标定位（与元素格的 setElementConfig 同思路）
+          (window as any).__excelFormulaCellPos = { row: Number(row), col: Number(col) };
+          setSelectedField({
+            cellType: 'formula',
+            fieldName: '',
+            fieldLabel: '公式',
+            formula: formula.expr,
+            formulaCfg: formula.cfg || {},
+          });
+          return;
+        }
+        // 从元素格/公式格切走后清掉对应属性表单，避免停留在过期配置上
+        setSelectedField((prev: any) =>
+          prev?.cellType === 'element' || prev?.cellType === 'formula' ? null : prev,
+        );
+      } catch {
+        /* 网格尚未就绪时忽略 */
+      }
+    };
+    window.addEventListener('univer-cell-selected', handleCellSelected);
+    return () => {
+      window.removeEventListener('univer-cell-selected', handleCellSelected);
     };
   }, []);
 
@@ -445,6 +810,8 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         setLayoutData(layoutJson || {});
         // 明细表子画布布局随主布局的 detailTables 一并加载
         setDetailLayouts((layoutJson && layoutJson.detailTables) || {});
+        // 页签独立布局（E9 etables.tab_N → tabTables）：与明细表同理随布局一起加载
+        setTabLayouts((layoutJson && (layoutJson as any).tabTables) || {});
         console.log('[LoadFormLayout] 已加载布局数据', { hasFieldMeta: JSON.stringify(layoutJson).includes('fieldMeta') });
         message.success('布局数据加载成功');
       }
@@ -487,6 +854,9 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         (layoutDataRef.current && layoutDataRef.current.detailTables) || detailLayouts || {},
         usedDetailPreview,
       ),
+      // 页签容器内容表（E9 etables.tab_N）：主画布 saveLayoutData() 只含主表，
+      // 必须手动并入，否则预览时页签只有页签条、没有各自的独立 Excel 布局。
+      tabTables: pruneTabTables(getMergedTabTables(), collectUsedTabIds(data)),
     };
 
     // 先缓存数据，再开窗，保证新标签页一定能读到
@@ -506,7 +876,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
       setPreviewData(previewData);
       setPreviewVisible(true);
     }
-  }, [message]);
+  }, [message, getMergedTabTables]);
 
   const handleSave = useCallback(async (): Promise<boolean> => {
     console.log('[Save] handleSave 触发', { formId, nodeKey });
@@ -548,6 +918,9 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         (layoutDataRef.current && layoutDataRef.current.detailTables) || detailLayouts || {},
         usedDetail,
       ),
+      // 页签容器内容表（E9 etables.tab_N）：与明细表同理，主画布保存不含，
+      // 必须一并写入后端，否则「保存→重新打开」页签的独立 Excel 布局全丢。
+      tabTables: pruneTabTables(getMergedTabTables(), collectUsedTabIds(sheetLayoutData)),
     };
 
     setSaving(true);
@@ -590,7 +963,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     } finally {
       setSaving(false);
     }
-  }, [formId, nodeKey, detailLayouts, message, loadFormLayout, props.onSaved]);
+  }, [formId, nodeKey, detailLayouts, getMergedTabTables, message, loadFormLayout, props.onSaved]);
 
   // 代码块弹窗的「保存」：更新布局级脚本并立即持久化。
   // 对齐 ecology InsertCode 弹窗的「保存 / 关闭」按钮语义 —— 代码块不写入单元格，只存布局级脚本。
@@ -703,8 +1076,13 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     // saveLayoutData 会先用 parentData（顶层 cellData）回调一次，再以 result（sheets）回调一次；
     // 若合并就会残留上一次的 sheets（过期数据），而 UniverExcelGrid 解析布局时优先取 sheets，
     // 于是会把过期布局重新灌回表格（如"清空单元格后又自动恢复"、字段元数据回滚）。
-    // 但需保留明细表子画布布局（detailTables），否则主画布保存会把它丢掉的。
-    setLayoutData((prev) => ({ ...data, detailTables: prev.detailTables || {} }));
+    // 但需保留明细表子画布布局（detailTables）与页签独立布局（tabTables），
+    // 否则主画布保存会把它们丢掉的。
+    setLayoutData((prev) => ({
+      ...data,
+      detailTables: prev.detailTables || {},
+      tabTables: (prev as any).tabTables || {},
+    }));
   }, []);
 
   // ──────────────────────────────────────────────
@@ -1574,6 +1952,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
       hoveredField={hoveredField}
       onDetailMarkerOpen={openDetailCanvas}
       onDetailMarkerRemoved={handleDetailMarkerRemoved}
+      onCellDoubleClick={handleCellDoubleClick}
     />
   );
 
@@ -1637,6 +2016,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
                   onlyShowActive={onlyShowActive}
                   onFieldOnlyShowToggle={handleFieldOnlyShowToggle}
                   detailTableOptions={detailTableOptions}
+                  fieldOptions={fieldOptions}
                   onInsertDetail={handleInsertDetailTable}
                   // 原生 ribbon 不可用时（注册失败）回退显示，保证操作入口不丢
                   visible={!nativeRibbonReady || nativeRibbonFailed}
@@ -1689,7 +2069,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
                   formId={formId}
                 />
               </div>
-              <PropertyPanel selectedField={selectedField} onFieldAttrChange={handlePanelFieldAttrChange} fieldOptions={fieldOptions} onElementConfigChange={handleElementConfigChange} />
+              <PropertyPanel selectedField={selectedField} onFieldAttrChange={handlePanelFieldAttrChange} fieldOptions={fieldOptions} onElementConfigChange={handleElementConfigChange} onFormulaConfigChange={handleFormulaConfigChange} />
             </div>
           </div>
         </Spin>
@@ -1775,8 +2155,103 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
 
             {/* 右侧属性面板 */}
             <div style={{ width: 300, borderLeft: '1px solid #f0f0f0', overflow: 'auto' }}>
-              <PropertyPanel selectedField={selectedField} onFieldAttrChange={handlePanelFieldAttrChange} fieldOptions={fieldOptions} onElementConfigChange={handleElementConfigChange} />
+              <PropertyPanel selectedField={selectedField} onFieldAttrChange={handlePanelFieldAttrChange} fieldOptions={fieldOptions} onElementConfigChange={handleElementConfigChange} onFormulaConfigChange={handleFormulaConfigChange} />
             </div>
+          </div>
+        )}
+      </Modal>
+    {/* 标签页编辑（对齐 E9：双击标签页单元格 → 展开页签编辑面；
+          每个标签页是一张独立 Excel 布局，用独立 UniverExcelGrid 实例编辑） */}
+      <Modal
+        open={tabEditor !== null}
+        title={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: '#999' }}>主表</span>
+            <span style={{ color: '#999' }}>/</span>
+            <strong>{tabEditor?.group.containerName || '标签页'}</strong>
+            <span style={{ color: '#999', fontWeight: 400, fontSize: 12 }}>
+              （双击单元格进入；每个标签页是一张独立 Excel 布局）
+            </span>
+          </span>
+        }
+        width="92%"
+        style={{ top: 24 }}
+        footer={
+          <Space>
+            <Button onClick={closeTabEditor}>返回主表</Button>
+            <Button type="primary" onClick={closeTabEditor}>
+              完成
+            </Button>
+          </Space>
+        }
+        onCancel={closeTabEditor}
+        destroyOnHidden
+        maskClosable={false}
+      >
+        {tabEditor && (
+          <div>
+            <TabEditor
+              group={tabEditor.group}
+              activeIndex={Math.max(
+                0,
+                Math.min(editingTabId ? tabEditor.group.tabs.findIndex((t) => t.id === editingTabId) : 0,
+                  tabEditor.group.tabs.length - 1),
+              )}
+              onSelect={(i) => {
+                const id = tabEditor.group.tabs[i]?.id;
+                setEditingTabId(id || null);
+              }}
+              onAdd={handleAddTab}
+              onRename={handleRenameTab}
+              onDelete={handleDeleteTab}
+              onSetDefault={handleSetDefaultTab}
+              onMove={handleMoveTab}
+              onSettingsChange={(patch) => updateTabGroup({ ...tabEditor.group, ...patch })}
+              onEditContent={() => {
+                const id =
+                  editingTabId ||
+                  tabEditor.group.tabs[Math.min(tabEditor.group.defShow, tabEditor.group.tabs.length - 1)]?.id;
+                if (id) setEditingTabId(id);
+              }}
+            />
+            {editingTabId && (
+              <div style={{ display: 'flex', height: '58vh' }}>
+                {/* 左侧字段面板 */}
+                <div style={{ width: 250, borderRight: '1px solid #f0f0f0', overflow: 'auto' }}>
+                  <FieldPalette
+                    onFieldSelect={handleFieldSelect}
+                    onFieldHover={handleFieldHover}
+                    formId={formId || undefined}
+                    usedFieldKeys={usedFieldKeys}
+                  />
+                </div>
+                {/* 中间：该标签页的独立 Excel 画布 */}
+                <div style={{ flex: 1, overflow: 'auto', padding: '8px' }}>
+                  <Card>
+                    <UniverExcelGrid
+                      key={editingTabId}
+                      isDetailCanvas
+                      sheetName="Sheet1"
+                      layoutData={tabLayouts[editingTabId] || {}}
+                      onLayoutChange={getTabLayoutChange(editingTabId)}
+                      formId={formId || undefined}
+                      pendingField={selectedField || (window as any).__pendingField}
+                      hoveredField={hoveredField}
+                    />
+                  </Card>
+                </div>
+                {/* 右侧属性面板 */}
+                <div style={{ width: 300, borderLeft: '1px solid #f0f0f0', overflow: 'auto' }}>
+                  <PropertyPanel
+                    selectedField={selectedField}
+                    onFieldAttrChange={handlePanelFieldAttrChange}
+                    fieldOptions={fieldOptions}
+                    onElementConfigChange={handleElementConfigChange}
+                    onFormulaConfigChange={handleFormulaConfigChange}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
       </Modal>

@@ -34,6 +34,31 @@ import {
 // 字段控件外观变体（desktop / mobile / auto）与统一令牌（颜色/字号/尺寸单一来源）
 import type { FieldVariant } from '@/components/FormMode/fieldTokens';
 import { FIELD_COLOR, MOBILE_FIELD_TOKENS } from '@/components/FormMode/fieldTokens';
+// 运行期公式求值 + 标签页配置解析（单一来源 elementSchema）
+import { resolveSheetFormulas, evaluateFormulaCell, getFormulaConfig, type FormulaConfig } from '../utils/formulaUtils';
+// 金额大写（E9 numberChangeToChinese）
+import { numberToChineseCapital } from '../utils/amountChinese';
+import {
+  findTabCellPos,
+  parseTabGroup,
+  tabStyleCss,
+  tabStyleToCss,
+  type TabConfig,
+  type TabGroupConfig,
+} from '../elementSchema';
+// 插入元素运行期渲染（多语言/说明/标签页/图片/链接/Iframe/条码/门户/文本）
+import {
+  BarcodeImage,
+  IframeArea,
+  ImageElement,
+  LinkElement,
+  MultiLangLabel,
+  NoteTip,
+  PortalElement,
+  TabElement,
+  TextElement,
+  type ElementRuntimeContext,
+} from './ElementNodes';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -69,8 +94,12 @@ interface FieldMeta {
   fieldLabel: string;
   fieldType: string;
   /** 单元格类型：label=静态标签文本（仅展示，不可输入），field=数据绑定字段（可输入），
-   *  detailTableMarker=主表「明细表标记」格（对应 detailTable 序号） */
-  cellType?: 'label' | 'field' | 'detailTableMarker';
+   *  detailTableMarker=主表「明细表标记」格（对应 detailTable 序号），
+   *  element=「插入」类非字段元素（运行期由 ElementNodes 单独渲染，不参与字段值收集/必填校验） */
+  cellType?: 'label' | 'field' | 'detailTableMarker' | 'element';
+  /** element 格：元素类型与配置（≈ E9 etype / jsonparam），见 elementSchema.ts */
+  elementType?: string;
+  elementConfig?: Record<string, any>;
   /** 明细表标记格对应的明细表序号 */
   detailTable?: number;
   /** 后端字段类型（fieldHtmlType）：1文本 2多行文本 3浏览按钮 4选择框 5附件 6复选框 7特殊字段 8布局组件 */
@@ -95,6 +124,10 @@ interface FieldMeta {
 
 interface CellDataItem {
   v: string | number | boolean | null;
+  /** 公式表达式（Univer 的 f；对齐 E9 designOperate_wev8.js:296-298 的 formula 标记） */
+  f?: string;
+  /** 公式格配置（目标字段 / 触发时机 / 金额大写） */
+  formulaCfg?: FormulaConfig;
   m?: string;
   t?: number;
   s?: number;
@@ -112,6 +145,8 @@ interface SheetLayoutData {
   columnData?: Record<string, { w: number }>;
   /** 合并单元格信息：保留 Excel 网格布局（预览还原合并单元格） */
   mergedCells?: { row: number; col: number; rowSpan: number; colSpan: number }[];
+  /** 整表背景图（sheet 级，对齐 E9 ss.backgroundImage） */
+  backgroundImage?: string;
 }
 
 interface WorkbookLayoutData {
@@ -120,10 +155,31 @@ interface WorkbookLayoutData {
   sheetOrder: string[];
   sheets: Record<string, SheetLayoutData>;
   version: string;
+  /** 整表背景图（对齐 E9 datajson 顶层 backgroundImage） */
+  backgroundImage?: string;
 }
 
 // 单元格值 key：sheetId + 行列，保证唯一
 const cellKey = (sheetId: string, row: number, col: number) => `${sheetId}__${row}__${col}`;
+
+/**
+ * 按字段名定位字段格坐标 key（`${sheetId}__${row}__${col}`）。
+ * 用于公式「结果写入字段」（E9 destfield）：把公式结果落到目标字段所在的表单值 key 上。
+ */
+const findFieldCellKey = (sheet: SheetLayoutData, fieldName: string): string | null => {
+  if (!fieldName) return null;
+  const cellData = sheet?.cellData || {};
+  for (const rk of Object.keys(cellData)) {
+    const row = cellData[rk] || {};
+    for (const ck of Object.keys(row)) {
+      const meta = (row[ck] as CellDataItem)?.fieldMeta;
+      if (meta?.fieldName && String(meta.fieldName) === fieldName) {
+        return cellKey(sheet.id || 'sheet1', Number(rk), Number(ck));
+      }
+    }
+  }
+  return null;
+};
 
 // ──────────────────────────────────────────────
 // 设备识别：PC / 手机 双模式并存，默认按设备自动切换
@@ -603,112 +659,51 @@ const FieldCell: React.FC<{
 
 // 渲染「插入」类元素格：按 elementType 还原展示形态（elementConfig ≈ ecology 的 jsonparam）。
 // 未配置关键参数时退化为占位提示，避免预览出现空白难以排查。
-const renderElementNode = (meta: any, displayValue: string): React.ReactNode => {
+const renderElementNode = (
+  meta: any,
+  displayValue: string,
+  ctx: ElementRuntimeContext = {},
+): React.ReactNode => {
   const cfg = (meta && meta.elementConfig) || {};
   const placeholder = (text: string) => <span style={{ color: '#bbb', fontSize: 12 }}>{text}</span>;
   switch (meta?.elementType) {
+    // 9 类主元素：各自的渲染组件见 ./ElementNodes.tsx（对齐 E9 CellType.js / ParseExcelLayout.java）
     case 'image':
-      return cfg.src ? (
-        <img
-          src={cfg.src}
-          alt={cfg.alt || ''}
-          style={{ maxWidth: '100%', width: cfg.width || undefined, height: cfg.height || undefined }}
-        />
-      ) : (
-        placeholder('图片（未配置地址）')
-      );
+      return <ImageElement cfg={cfg} />;
     case 'link':
-      return cfg.href ? (
-        <a href={cfg.href} target={cfg.target || '_blank'} rel="noreferrer">
-          {cfg.text || cfg.href}
-        </a>
-      ) : (
-        <span>{displayValue || ' '}</span>
-      );
+      return <LinkElement cfg={cfg} fallback={displayValue} />;
     case 'iframe':
-      return cfg.src ? (
-        <iframe
-          title="iframe-area"
-          src={cfg.src}
-          style={{ width: '100%', height: cfg.height || 240, border: '1px solid #eee' }}
-        />
-      ) : (
-        placeholder('Iframe区域（未配置地址）')
-      );
+      return <IframeArea cfg={cfg} ctx={ctx} />;
     case 'multilang':
-      return <span>{cfg.zh || cfg.en || cfg.tw || displayValue || ' '}</span>;
-    case 'tab': {
-      const names = String(cfg.tabs || '')
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-      return names.length > 0 ? (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-          {names.map((n) => (
-            <span
-              key={n}
-              style={{
-                padding: '1px 8px',
-                border: `1px solid ${E9_COLORS.cardBorder}`,
-                borderRadius: 4,
-                fontSize: 12,
-                background: '#fafafa',
-              }}
-            >
-              {n}
-            </span>
-          ))}
-        </div>
-      ) : (
-        placeholder('标签页（未配置标签名）')
-      );
-    }
+      return <MultiLangLabel cfg={cfg} />;
+    case 'tab':
+      return <TabElement cfg={cfg} />;
     case 'note':
+      return <NoteTip cfg={cfg} fallback={displayValue} />;
+    case 'barcode':
+      return <BarcodeImage cfg={cfg} ctx={ctx} fallback={displayValue} />;
+    case 'portal':
+      return <PortalElement cfg={cfg} />;
+    case 'text':
+      return <TextElement cfg={cfg} fallback={displayValue} />;
+    // E9 etype 8/9/10、18~22 明细周边元素：由明细表渲染链消费，这里给出可识别的标签占位
+    case 'detailTitle':
+    case 'detailTail':
+    case 'detailButtons':
+    case 'sumName':
+    case 'sumValue':
+    case 'checkAll':
+    case 'checkSingle':
+    case 'serialNum': {
+      const label = String(
+        cfg.content || cfg.field || (Array.isArray(cfg.buttons) ? cfg.buttons.join(',') : '') || '',
+      ).trim();
       return (
-        <span style={{ color: E9_COLORS.label, fontSize: 13 }}>
-          <InfoCircleOutlined style={{ marginRight: 4 }} />
-          {cfg.content || displayValue || ' '}
+        <span style={{ color: E9_COLORS.label, fontSize: 12 }}>
+          {label || placeholder('明细元素（未配置）')}
         </span>
       );
-    case 'barcode': {
-      const isQr = cfg.type !== 'barcode';
-      const w = cfg.width || 100;
-      const h = cfg.height || 100;
-      return (
-        <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-          <div
-            style={{
-              width: isQr ? Math.min(w, h) : w,
-              height: isQr ? Math.min(w, h) : Math.min(h, 48),
-              border: '1px dashed #bbb',
-              borderRadius: 4,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 18,
-            }}
-          >
-            {isQr ? '▣' : '▮▯▮▮▯▮'}
-          </div>
-          <span style={{ fontSize: 11, color: '#888' }}>{cfg.content || displayValue || ' '}</span>
-        </div>
-      );
     }
-    case 'portal':
-      return (
-        <div
-          style={{
-            border: '1px dashed #bbb',
-            borderRadius: 4,
-            padding: 8,
-            color: '#888',
-            fontSize: 12,
-            minHeight: Math.min(cfg.height || 60, 80),
-          }}
-        >
-          门户元素{cfg.hpid ? `（ID: ${cfg.hpid}）` : '（未配置）'}
-        </div>
-      );
     default:
       return <span>{cfg.content || displayValue || ' '}</span>;
   }
@@ -750,9 +745,58 @@ const renderCellNode = (
   instanceId?: any,
   /** 流程定义ID */
   defId?: any,
+  /** 公式格「触发动作」回调（焦点/失焦/单击/双击/移入/移出）：把计算结果写入目标字段 */
+  onFormulaTrigger?: (cell: CellDataItem, row: number, col: number) => void,
+  /** 公式格所在行 / 列（触发动作定位用） */
+  cellRow?: number,
+  cellCol?: number,
 ): React.ReactNode => {
   const meta = cell.fieldMeta;
   const rawValue = cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
+  // 公式格：effectiveSheet 已按当前 formValues 把 v 换成计算结果，这里直接显示结果，
+  // 不再走字段占位符 ${...} / FieldCell 分支（否则公式格会显示空白或旧快照）。
+  // 错误值（#CYCLE! / #DIV/0! / #VALUE! / #NAME? / #ERROR!）也如实呈现，便于定位。
+  if (cell.f || /^\s*=/.test(rawValue)) {
+    const cfg = getFormulaConfig(cell);
+    // 金额大写显示（E9 numberChangeToChinese）：仅影响显示，写入目标字段的仍是数值
+    let display = rawValue;
+    if (cfg.chinese === true) {
+      const num = Number(cell.v);
+      if (Number.isFinite(num)) display = numberToChineseCapital(num);
+    }
+    // 触发时机（E9 的 7 种触发动作）：'change' 已由全量重算覆盖，其余按事件即时算一次
+    const trigger = cfg.trigger && cfg.trigger !== 'change' ? cfg.trigger : null;
+    const fire = () => {
+      if (cellRow != null && cellCol != null) onFormulaTrigger?.(cell, cellRow, cellCol);
+    };
+    const triggerLabel: Record<string, string> = {
+      focus: '获得焦点时计算',
+      blur: '失去焦点时计算',
+      click: '单击时计算',
+      dblclick: '双击时计算',
+      mouseenter: '移入时计算',
+      mouseleave: '移出时计算',
+    };
+    return (
+      <span
+        tabIndex={trigger ? 0 : undefined}
+        onFocus={trigger === 'focus' ? fire : undefined}
+        onBlur={trigger === 'blur' ? fire : undefined}
+        onClick={trigger === 'click' ? fire : undefined}
+        onDoubleClick={trigger === 'dblclick' ? fire : undefined}
+        onMouseEnter={trigger === 'mouseenter' ? fire : undefined}
+        onMouseLeave={trigger === 'mouseleave' ? fire : undefined}
+        title={trigger ? triggerLabel[trigger] : undefined}
+        style={{
+          cursor: trigger ? 'pointer' : undefined,
+          outline: trigger ? '1px dashed #91caff' : undefined,
+          outlineOffset: 1,
+        }}
+      >
+        {display || ' '}
+      </span>
+    );
+  }
   const cleanRaw = rawValue.replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, '').trim();
   // 只读预览（ExcelPreview 为纯 HTML 表格，不挂载 Univer，不执行公式引擎）。
   // 公式显示格（非字段、值形如 ${xxx}）取引用字段值展示；但「字段格」（cellType==='field'）
@@ -797,7 +841,8 @@ const renderCellNode = (
   // （代码块已改为布局级脚本，不再作为单元格元素，见 utils/runLayoutScript.ts）
   // （对应 ecology 扩展控件 dataobj.ecs[cellid] = { etype, jsonparam }）
   if (meta.cellType === 'element') {
-    return renderElementNode(meta, displayValue);
+    // 透传运行期上下文：Iframe 变量插值、条码 $字段名$ 替换都需要
+    return renderElementNode(meta, displayValue, { instanceId, defId, formValues });
   }
   // 标签单元格 → 静态说明文本（必填 * 由 requiredStar 控制，E9 风格 * 在标签后）
   // 挂 id / data-*：表头（字段名）同样要能被代码块访问（改名、隐藏、校验提示等）
@@ -846,6 +891,125 @@ const renderCellNode = (
   );
 };
 
+// ──────────────────────────────────────────────
+// 标签页：配置解析 + 受控切换（PC / 手机端共用）
+//
+// E9 模型（对齐 ecology）：
+//   主表某单元格挂 `tab` 容器（name/style/defshow/areaheight/order_N="tab_1,页签A"），
+//   **每个页签的内容是一张独立表** `etables['tab_1']`（本项目落为 layout.tabTables[tabId]）。
+//   → 切换页签 = 换一张独立表的内容，与 E9「一次性渲染各页容器 + 按 tabid 显隐」等价。
+//
+// 兼容：历史布局用「行区间划分同一张表」（elementConfig.tabs/tabRows），
+//   该模式仍按行过滤渲染（page 模型），两套模型由 parseTabGroup 是否返回结果区分。
+//
+// PC（SheetPreviewForm）与手机（MobileSheetForm）两端共用本 Hook，保证：
+//   ① 选中态唯一（受控），不会出现两套选中态；
+//   ② 两端口径一致。
+// ──────────────────────────────────────────────
+const useTabbedSheet = (
+  sheet: SheetLayoutData,
+  formValues: Record<string, any>,
+  keyPrefix = '',
+  tabTables?: Record<string, any>,
+) => {
+  const tabCell = useMemo(() => findTabCellPos(sheet.cellData), [sheet]);
+  const tabCfg = tabCell?.config ?? null;
+  const tabRow = tabCell?.row ?? null;
+  // E9 风格页签容器（order_N + 独立表）；无 order_N → null（走旧行区间方案）
+  const group = useMemo(() => parseTabGroup(tabCell?.raw || {}), [tabCell?.raw]);
+  const tabCount = group ? group.tabs.length : (tabCfg?.pages.length ?? 0);
+  const [activeTab, setActiveTab] = useState<number>(group ? group.defShow : (tabCfg?.defaultIndex ?? 0));
+  // 边界：配置变化（增删页 / 改默认页）后把 activeTab 收敛到合法范围
+  useEffect(() => {
+    const max = Math.max(0, tabCount - 1);
+    setActiveTab((prev) => Math.max(0, Math.min(max, Number.isFinite(prev) ? prev : 0)));
+  }, [tabCount]);
+  const effectiveSheet = useMemo(() => {
+    // ① 先在**完整布局**上求值（对齐 E9：所有标签页内容一次性渲染、值都在，只是容器 display:none）。
+    //    若先按页过滤再求值，引用其它页单元格的公式会取到 0（此前 SUM(A2:A3) 恒为 0 的根因）。
+    //    依赖 formValues：字段值一变即整表重算；公式引用公式由 DFS 收敛，循环返回 #CYCLE!。
+    const resolved: any = {
+      ...sheet,
+      cellData: resolveSheetFormulas((sheet.cellData || {}) as any, sheet.id || 'sheet1', formValues, keyPrefix),
+    };
+    // ② 旧方案：按当前页的行区间过滤渲染范围；页签所在行【始终保留】。
+    //    E9 方案（group）：主表整表渲染，页签内容是独立表，不做行过滤。
+    if (group || !tabCfg?.pages.length || tabRow == null) return resolved;
+    const page = tabCfg.pages[Math.max(0, Math.min(activeTab, tabCfg.pages.length - 1))];
+    if (!page) return resolved;
+    const cellData: Record<string, any> = {};
+    Object.entries(resolved.cellData || {}).forEach(([rk, row]) => {
+      const r = Number(rk);
+      if (r === tabRow || (r >= page.startRow && r <= page.endRow)) cellData[rk] = row;
+    });
+    return { ...resolved, cellData };
+  }, [sheet, tabCfg, group, tabRow, activeTab, formValues, keyPrefix]);
+  // E9 方案：当前页签对应的独立表布局
+  const activeTabLayout = useMemo(() => {
+    if (!group || !tabTables) return null;
+    const item = group.tabs[Math.max(0, Math.min(activeTab, group.tabs.length - 1))];
+    if (!item) return null;
+    return tabTables[item.id] || null;
+  }, [group, tabTables, activeTab]);
+  return { tabCfg, tabGroup: group, tabRow, activeTab, setActiveTab, effectiveSheet, activeTabLayout };
+};
+
+/**
+ * 标签头（PC / 手机端共用）。
+ * 样式由样式 id 决定：-1~-6 为 E9 内置 6 套（CSS 渐变等价实现），0 为自定义（对齐 E9 workflow_tabstyle）。
+ */
+const TabHeader: React.FC<{
+  tabCfg: TabConfig | null;
+  group?: TabGroupConfig | null;
+  activeTab: number;
+  onChange: (index: number) => void;
+  mobile?: boolean;
+}> = ({ tabCfg, group, activeTab, onChange, mobile }) => {
+  const names = group ? group.tabs.map((t) => t.name) : (tabCfg?.pages || []).map((p) => p.name);
+  if (!names.length) return null;
+  return (
+    <div
+      role="tablist"
+      style={{
+        display: 'flex',
+        gap: mobile ? 6 : 4,
+        flexWrap: mobile ? 'nowrap' : 'wrap',
+        overflowX: mobile ? 'auto' : undefined,
+        padding: mobile ? '6px 8px' : '8px 12px',
+        borderBottom: `1px solid ${E9_COLORS.cardBorder}`,
+        position: 'sticky',
+        left: 0,
+        background: '#fff',
+        zIndex: 2,
+        WebkitOverflowScrolling: 'touch',
+      }}
+    >
+      {names.map((name, i) => {
+        const selected = i === activeTab;
+        const style = group ? tabStyleCss(group.styleId, group.custom, selected) : tabStyleToCss(tabCfg!, selected);
+        return (
+          <button
+            key={i}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            onClick={() => onChange(i)}
+            style={{
+              ...style,
+              padding: mobile ? '5px 12px' : '4px 14px',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              flex: '0 0 auto',
+            }}
+          >
+            {name}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 const SheetPreviewForm: React.FC<{
   sheet: SheetLayoutData;
   formValues: Record<string, any>;
@@ -877,6 +1041,8 @@ const SheetPreviewForm: React.FC<{
   instanceId?: any;
   /** 流程定义ID */
   defId?: any;
+  /** 页签容器内容表（E9 etables.tab_N → layout.tabTables[tabId]）：每个页签一张独立 Excel */
+  tabTables?: Record<string, any>;
 }> = ({
   sheet,
   formValues,
@@ -897,19 +1063,53 @@ const SheetPreviewForm: React.FC<{
   fillWidth,
   instanceId,
   defId,
+  tabTables,
 }) => {
+  // ── 标签页区域（E9 etype 12，TabLayout.js:92-159 的等价实现）──
+  // 标签配置解析 + 受控选中态 + 行区间过滤统一放在 useTabbedSheet（PC/手机端共用），
+  // 保证两端口径一致、选中态唯一。
+  const { tabCfg, tabGroup, tabRow, activeTab, setActiveTab, effectiveSheet, activeTabLayout } = useTabbedSheet(
+    sheet,
+    formValues,
+    keyPrefix,
+    tabTables,
+  );
+
   // 字段 / 表头 DOM id 映射：按「作用域 + 类型 + 字段名」生成唯一 id（见 utils/fieldDomId.ts）
+  // 仍基于原始 sheet（而非 effectiveSheet），保证切换标签页前后 DOM id 稳定，布局代码块不失效。
   const domIdMap = useMemo(() => buildDomIdMap(sheet, keyPrefix), [sheet, keyPrefix]);
+
+  // 公式格「触发动作」：立即算一次并把结果写入目标字段（对齐 E9 destfield 赋值语义）
+  const handleFormulaTrigger = useCallback(
+    (cell: CellDataItem, row: number, col: number) => {
+      const cfg = getFormulaConfig(cell);
+      if (!cfg.destField) return;
+      const result = evaluateFormulaCell(
+        (sheet.cellData || {}) as any,
+        sheet.id || 'sheet1',
+        row,
+        col,
+        formValues,
+        keyPrefix || '',
+      );
+      if (result === undefined || result === null) return;
+      const targetKey = findFieldCellKey(sheet, cfg.destField);
+      if (!targetKey) return;
+      onFieldChange(`${keyPrefix || ''}${targetKey}`, result);
+    },
+    [sheet, formValues, keyPrefix, onFieldChange],
+  );
   // 节点权限 scope（B5 行级）：由 keyPrefix 推导（主表 main / 明细表 dt{idx} / 明细行 dt{idx}_r{row}）
   const scope = scopeFromPrefix(keyPrefix);
 
   const model = useMemo(() => {
-    const cellData = sheet.cellData || {};
-    const mergedCells = sheet.mergedCells || [];
+    // 标签页联动：只把当前页的行交给网格模型（PC 端）
+    const cellData = effectiveSheet.cellData || {};
+    const mergedCells = effectiveSheet.mergedCells || [];
 
-    // 收集有值格子，并计算实际占用行列范围（含合并单元格覆盖区域）
+    // 收集有值格子（仅当前页行），并算实际占用行范围（含合并覆盖区域）
     const localGrid: Record<number, Record<number, CellDataItem>> = {};
-    let minRow = Infinity, maxRow = -Infinity, minCol = Infinity, maxCol = -Infinity;
+    let minRow = Infinity, maxRow = -Infinity;
     Object.entries(cellData).forEach(([rk, rowData]) => {
       const r = parseInt(rk, 10);
       if (isNaN(r)) return;
@@ -920,6 +1120,16 @@ const SheetPreviewForm: React.FC<{
         localGrid[r][col] = c as CellDataItem;
         if (r < minRow) minRow = r;
         if (r > maxRow) maxRow = r;
+      });
+    });
+
+    // 列范围取「整张 sheet」已用列的并集（而非仅当前页）：切换标签页时网格宽度一致，
+    // 页签头所在行才能始终满宽；仅纳入有单元格的列，不会出现空列爆炸。
+    let minCol = Infinity, maxCol = -Infinity;
+    Object.entries(sheet.cellData || {}).forEach(([, rowData]) => {
+      Object.keys(rowData || {}).forEach((ck) => {
+        const col = parseInt(ck, 10);
+        if (isNaN(col)) return;
         if (col < minCol) minCol = col;
         if (col > maxCol) maxCol = col;
       });
@@ -942,9 +1152,9 @@ const SheetPreviewForm: React.FC<{
     });
 
     const r0 = isFinite(minRow) ? minRow : 0;
-    const r1 = maxRow >= minRow ? maxRow : (sheet.rowCount || 1) - 1;
+    const r1 = maxRow >= minRow ? maxRow : (effectiveSheet.rowCount || 1) - 1;
     const c0 = isFinite(minCol) ? minCol : 0;
-    const c1 = maxCol >= minCol ? maxCol : (sheet.colCount || 1) - 1;
+    const c1 = maxCol >= minCol ? maxCol : (effectiveSheet.colCount || 1) - 1;
 
     // 必填标签集合：必填字段左侧相邻（标签格）追加红色 *（E9 风格 * 在标签后）
     const reqLabels = new Set<string>();
@@ -988,7 +1198,9 @@ const SheetPreviewForm: React.FC<{
       colWidths: cw,
       rowHeights: rh,
     };
-  }, [sheet]);
+    // 依赖 effectiveSheet（而非 sheet）：切换标签页 / 表单值变化导致公式重算时，网格模型必须重建，
+    // 否则「标签头选中态变了、表格内容还是上一页」。
+  }, [effectiveSheet]);
 
   if (model.rowCount <= 0 || model.colCount <= 0) {
     return (
@@ -1007,11 +1219,31 @@ const SheetPreviewForm: React.FC<{
   // 明细表：对齐 ecology（cube/src/components/excel-layout/DetailTable.tsx）——
   //   table 宽度 = 100% 铺满容器（minWidth 兜底真实列宽，避免极端窄列被压塌），tableLayout:auto 等比分配列宽。
   const tableWidth = model.colWidths.reduce((a: number, w: any) => a + (Number(w) || 60), 0);
+  // 整表背景图（对齐 E9 ss.backgroundImage）：铺在表格容器上；
+  // table 背景需透明才能透出，单元格自带 s.bg 的背景色仍按 Excel 语义盖在其上。
+  const sheetBg = String(sheet.backgroundImage || '').trim();
   const tableStyle: React.CSSProperties = fillWidth
-    ? { borderCollapse: 'collapse', width: '100%', minWidth: tableWidth, tableLayout: 'auto', background: '#fff' }
-    : { borderCollapse: 'collapse', width: tableWidth, tableLayout: 'fixed', background: '#fff', margin: '0 auto' };
+    ? { borderCollapse: 'collapse', width: '100%', minWidth: tableWidth, tableLayout: 'auto', background: sheetBg ? 'transparent' : '#fff' }
+    : { borderCollapse: 'collapse', width: tableWidth, tableLayout: 'fixed', background: sheetBg ? 'transparent' : '#fff', margin: '0 auto' };
   return (
-    <div style={{ background: '#fff', border: `1px solid ${E9_COLORS.cardBorder}`, borderRadius: 8, overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch' }}>
+    <div
+      style={{
+        background: '#fff',
+        ...(sheetBg
+          ? {
+              backgroundImage: `url("${sheetBg}")`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'center',
+              backgroundSize: 'contain',
+            }
+          : {}),
+        border: `1px solid ${E9_COLORS.cardBorder}`,
+        borderRadius: 8,
+        overflowX: 'auto',
+        overflowY: 'hidden',
+        WebkitOverflowScrolling: 'touch',
+      }}
+    >
       <table
         className="excelMainTable"
         style={tableStyle}
@@ -1022,10 +1254,50 @@ const SheetPreviewForm: React.FC<{
           ))}
         </colgroup>
         <tbody>
-          {Array.from({ length: model.rowCount }).map((_, ri) => {
-            const r = model.startRow + ri;
+          {Array.from({ length: model.rowCount }, (_, ri) => model.startRow + ri)
+            .filter((r) => tabRow == null || r === tabRow || !!model.grid[r])
+            .map((r, ri) => {
+            // 页签元素所在行：在「单元格原位」渲染标签头（满宽一行），而不是跑到表格顶栏外
+            if (tabRow != null && r === tabRow) {
+              return (
+                <tr key={`tab-${r}`}>
+                  <td colSpan={model.colCount} style={{ border: 'none', padding: 0, background: '#fff' }}>
+                    <TabHeader
+                      tabCfg={tabCfg}
+                      group={tabGroup}
+                      activeTab={activeTab}
+                      onChange={setActiveTab}
+                    />
+                    {/* E9 方案：页签内容是**独立 Excel 布局**，渲染在页签头下方（对齐 etables[tab_N]） */}
+                    {tabGroup && (
+                      <div style={{ border: `1px solid ${E9_COLORS.cardBorder}`, borderTop: 'none' }}>
+                        {activeTabLayout ? (
+                          <TabContentBlock
+                            layout={activeTabLayout}
+                            tabId={tabGroup.tabs[Math.max(0, Math.min(activeTab, tabGroup.tabs.length - 1))]?.id || ''}
+                            formValues={formValues}
+                            errors={errors}
+                            onFieldChange={onFieldChange}
+                            readOnly={readOnly}
+                            nodePermission={nodePermission}
+                            instanceId={instanceId}
+                            defId={defId}
+                          />
+                        ) : (
+                          <div style={{ padding: '12px 16px', color: E9_COLORS.label, fontSize: 12 }}>
+                            该标签页暂无内容
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            }
+            // 标签页联动会保留页签行、过滤内容行；页签行与内容行之间可能留白行间隔，
+            // 已在上方 filter 中跳过 effectiveSheet 中不存在的行，避免出现空白隔行。
             return (
-              <tr key={r} style={{ height: model.rowHeights[ri] ? `${model.rowHeights[ri]}px` : undefined }}>
+              <tr key={r} style={{ height: sheet.rowData?.[String(r)]?.h ? `${sheet.rowData[String(r)].h}px` : undefined }}>
                 {Array.from({ length: model.colCount }).map((_, ci) => {
                   const c = model.startCol + ci;
                   const key = `${r}_${c}`;
@@ -1139,6 +1411,9 @@ const SheetPreviewForm: React.FC<{
                             'desktop',
                             instanceId,
                             defId,
+                            handleFormulaTrigger,
+                            r,
+                            c,
                           )
                         : ' '}
                     </td>
@@ -1150,6 +1425,54 @@ const SheetPreviewForm: React.FC<{
         </tbody>
       </table>
     </div>
+  );
+};
+
+// ──────────────────────────────────────────────
+// 页签内容区（对齐 E9 etables[tab_N]）
+//   E9：每个标签页是一张**独立表**，与主表同级存放在 etables；
+//   本项目落在 layout.tabTables[tabId]，此处按当前页签渲染该独立表。
+//   值的命名空间用 tabId 前缀隔离（与明细表 dt{idx}__ 同思路），
+//   页签内字段名沿用主表字段（E9 语义：页签复用主表字段，不新建业务字段）。
+// ──────────────────────────────────────────────
+const TabContentBlock: React.FC<{
+  layout: any;
+  tabId: string;
+  formValues: Record<string, any>;
+  errors: Record<string, boolean>;
+  onFieldChange: (k: string, v: any) => void;
+  readOnly?: boolean;
+  nodePermission?: NodePermissionResolver;
+  instanceId?: any;
+  defId?: any;
+}> = ({ layout, tabId, formValues, errors, onFieldChange, readOnly, nodePermission, instanceId, defId }) => {
+  const sheets = extractSheets(layout);
+  if (!sheets.length) {
+    return (
+      <div style={{ padding: '12px 16px', color: E9_COLORS.label, fontSize: 12 }}>
+        该标签页尚未配置内容（设计器中双击标签页单元格 → 新增标签页并编辑内容）
+      </div>
+    );
+  }
+  const prefix = `${tabId}__`;
+  return (
+    <>
+      {sheets.map((sheet: any, i: number) => (
+        <SheetPreviewForm
+          key={sheet.id || i}
+          sheet={sheet}
+          formValues={formValues}
+          errors={errors}
+          onFieldChange={onFieldChange}
+          readOnly={readOnly}
+          nodePermission={nodePermission}
+          keyPrefix={prefix}
+          fillWidth
+          instanceId={instanceId}
+          defId={defId}
+        />
+      ))}
+    </>
   );
 };
 
@@ -1183,6 +1506,8 @@ const MobileSheetForm: React.FC<{
   instanceId?: any;
   /** 流程定义ID */
   defId?: any;
+  /** 页签容器内容表（E9 etables.tab_N → layout.tabTables[tabId]） */
+  tabTables?: Record<string, any>;
 }> = ({
   sheet,
   formValues,
@@ -1202,8 +1527,37 @@ const MobileSheetForm: React.FC<{
   nodePermission,
   instanceId,
   defId,
+  tabTables,
 }) => {
-  const items = useMemo(() => extractMobileItems(sheet), [sheet]);
+  // 手机端列表同样按当前标签页过滤，避免「PC 切页生效、手机端仍显示全部行」
+  // （与 PC 端共用 useTabbedSheet：此前此处引用了未定义的 effectiveSheet，编译不通过）
+  const { tabCfg, tabGroup, tabRow, activeTab, setActiveTab, effectiveSheet, activeTabLayout } = useTabbedSheet(
+    sheet,
+    formValues,
+    keyPrefix,
+    tabTables,
+  );
+  const items = useMemo(() => extractMobileItems(effectiveSheet), [effectiveSheet]);
+  // 公式格「触发动作」（与 PC 端同口径）：立即算一次并写入目标字段
+  const handleFormulaTrigger = useCallback(
+    (cell: CellDataItem, row: number, col: number) => {
+      const cfg = getFormulaConfig(cell);
+      if (!cfg.destField) return;
+      const result = evaluateFormulaCell(
+        (sheet.cellData || {}) as any,
+        sheet.id || 'sheet1',
+        row,
+        col,
+        formValues,
+        keyPrefix || '',
+      );
+      if (result === undefined || result === null) return;
+      const targetKey = findFieldCellKey(sheet, cfg.destField);
+      if (!targetKey) return;
+      onFieldChange(`${keyPrefix || ''}${targetKey}`, result);
+    },
+    [sheet, formValues, keyPrefix, onFieldChange],
+  );
   // 字段 / 表头 DOM id 映射（手机端同样按作用域 + 类型 + 字段名生成唯一 id）
   const domIdMap = useMemo(() => buildDomIdMap(sheet, keyPrefix), [sheet, keyPrefix]);
   // 节点权限 scope（B5 行级）：由 keyPrefix 推导
@@ -1212,6 +1566,36 @@ const MobileSheetForm: React.FC<{
   return (
     <div style={{ background: '#fff', border: `1px solid ${E9_COLORS.cardBorder}`, borderRadius: 8, overflow: 'hidden' }}>
       {items.map((item, i) => {
+        // 标签页元素：在「单元格原位」渲染标签头（满宽一行），而不是跑到列表顶栏外
+        if (item.kind === 'element' && item.cell?.fieldMeta?.elementType === 'tab') {
+          return (
+            <div key={`tab-${i}`} style={{ borderBottom: `1px solid ${E9_COLORS.cardBorder}` }}>
+              <TabHeader
+                tabCfg={tabCfg}
+                group={tabGroup}
+                activeTab={activeTab}
+                onChange={setActiveTab}
+                mobile
+              />
+              {/* E9 方案：页签内容是独立 Excel 布局 */}
+              {tabGroup && activeTabLayout && (
+                <div style={{ borderTop: `1px solid ${E9_COLORS.cardBorder}` }}>
+                  <TabContentBlock
+                    layout={activeTabLayout}
+                    tabId={tabGroup.tabs[Math.max(0, Math.min(activeTab, tabGroup.tabs.length - 1))]?.id || ''}
+                    formValues={formValues}
+                    errors={errors}
+                    onFieldChange={onFieldChange}
+                    readOnly={readOnly}
+                    nodePermission={nodePermission}
+                    instanceId={instanceId}
+                    defId={defId}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        }
         // 分区标题：无字段的静态/合并文本（如"基本信息"）
         if (item.kind === 'title') {
           // 标题沿用 Excel 单元格样式（字体/字号/颜色/背景），与 PC 端 <td> 一致
@@ -1270,7 +1654,7 @@ const MobileSheetForm: React.FC<{
               key={`e-${i}`}
               style={{ padding: '10px 12px', borderBottom: `1px solid ${E9_COLORS.cardBorder}` }}
             >
-              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, undefined, domIdMap, nodePermission, scope, 'mobile', instanceId, defId)}
+              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, undefined, domIdMap, nodePermission, scope, 'mobile', instanceId, defId, handleFormulaTrigger, item.row, item.col)}
             </div>
           );
         }
@@ -1315,7 +1699,7 @@ const MobileSheetForm: React.FC<{
               {item.required && <span style={{ color: FIELD_COLOR.required, marginLeft: 2 }}>*</span>}
             </div>
             <div style={{ flex: '1 1 200px', minWidth: 0 }}>
-              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, item.attrBg, domIdMap, nodePermission, scope, 'mobile', instanceId, defId)}
+              {renderCellNode(item.cell, key, sheet.id, formValues, errors, onFieldChange, !!readOnly, false, item.attrBg, domIdMap, nodePermission, scope, 'mobile', instanceId, defId, handleFormulaTrigger, item.row, item.col)}
             </div>
           </div>
         );
@@ -1634,7 +2018,22 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
   const sheets = useMemo(() => {
     if (!layoutData?.sheets) return [];
     const order = layoutData.sheetOrder || Object.keys(layoutData.sheets);
-    return order.map((id) => layoutData.sheets![id]).filter(Boolean);
+    // 兼容只写在顶层（E9 datajson 形状）的 backgroundImage，补到各 sheet 供表格容器读取
+    const topBg = String(layoutData.backgroundImage || '').trim();
+    return order
+      .map((id) => {
+        const s = layoutData.sheets![id];
+        if (!s) return null;
+        return topBg && !s.backgroundImage ? { ...s, backgroundImage: topBg } : s;
+      })
+      .filter(Boolean) as SheetLayoutData[];
+  }, [layoutData]);
+
+  // 页签容器内容表（E9 etables.tab_N → layout.tabTables[tabId]）：
+  // 每个标签页一张独立 Excel 布局，供预览按当前页签渲染。
+  const tabTables = useMemo(() => {
+    const tt = (layoutData as any)?.tabTables;
+    return (tt && typeof tt === 'object' ? tt : {}) as Record<string, any>;
   }, [layoutData]);
 
   // 解析各明细表子画布布局（detailTables[idx]），按序号升序；
@@ -1977,6 +2376,7 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
               onFieldChange={handleFieldChange}
               readOnly={readOnly}
               nodePermission={nodePermission}
+              tabTables={tabTables}
               inlineDetailTables={detailLayoutMap}
               detailRowCounts={detailRowCounts}
               onAddDetailRow={handleAddDetailRow}
@@ -2034,6 +2434,7 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
               onFieldChange={handleFieldChange}
               readOnly={readOnly}
               nodePermission={nodePermission}
+              tabTables={tabTables}
               inlineDetailTables={detailLayoutMap}
               detailRowCounts={detailRowCounts}
               onAddDetailRow={handleAddDetailRow}

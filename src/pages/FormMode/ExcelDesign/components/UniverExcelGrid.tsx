@@ -423,11 +423,16 @@ const stableStringify = (obj: any): string => {
   }
 };
 
-// 剔除父组件注入的 detailTables（明细表子画布布局，由父组件维护，不属主表自保存内容），
-// 使自保存内容与回流 prop 在比较时只针对主表布局。
-const stripDetailTables = (obj: any): any => {
+// 剔除父组件注入的「子画布布局」（detailTables 明细表 / tabTables 页签独立表，由父组件维护，
+// 不属主表自保存内容），使自保存内容与回流 prop 在比较时只针对主表布局。
+//
+// ⚠️ 必须同时剔除 tabTables：父组件 handleLayoutChange 会把主画布数据包进
+//    {...data, detailTables, tabTables}，只剔除 detailTables 会导致自保存签名永远失配
+//    → 每次自保存都触发整表重载 → 重载清空 cellFieldMetaMap → 字段元数据全丢
+//    → 保存出去的布局没有 fieldMeta（表现为「保存后字段全没了」）。
+const stripParentInjected = (obj: any): any => {
   if (!obj || typeof obj !== 'object') return obj;
-  const { detailTables, ...rest } = obj;
+  const { detailTables, tabTables, ...rest } = obj;
   return rest;
 };
 
@@ -1576,9 +1581,16 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         sheet.getRange(0, 0, clearMaxRows, clearMaxCols).clearContent();
       } catch (e) {
         console.warn('[LoadLayout] 整域清空失败，回退逐格清空:', e);
+        // 逐格清空必须「失败不中断」：这里的异常若继续抛出，会直接跳出 loadLayoutData，
+        // 后面的「还原单元格」不再执行 → cellFieldMetaMap 已被清空且不会重建
+        // → 字段元数据全丢（表现：保存出去的布局没有 fieldMeta，重新打开字段全没了）。
         for (let row = 0; row < clearMaxRows; row++) {
           for (let col = 0; col < clearMaxCols; col++) {
-            sheet.getRange(row, col).setValue('');
+            try {
+              sheet.getRange(row, col).setValue('');
+            } catch {
+              /* 忽略单格失败：不能影响后续的单元格还原 */
+            }
           }
         }
       }
@@ -4574,10 +4586,10 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     // 本次变化由本组件保存产生：表格此刻已是最新状态，再 loadLayoutData 会用快照覆盖当前
     // 状态并清空墓碑，使刚删除的字段「复活」（表现为清空后面板永远不变黑，且守护定时器
     // 反复打印「已清空，整字段移除」）。这里直接跳过自身保存引发的回流重载。
-    // 用「内容签名」比较（剔除父组件注入的 detailTables）而非引用：父组件 handleLayoutChange 会把数据
-    // 包进 {...data, detailTables} 新对象，纯引用比较会失效 → 每次自保存都触发整表重载死循环
+    // 用「内容签名」比较（剔除父组件注入的 detailTables / tabTables）而非引用：父组件 handleLayoutChange
+    // 会把数据包进 {...data, detailTables, tabTables} 新对象，纯引用比较会失效 → 每次自保存都触发整表重载死循环
     // （重载清单元格又触发保存 → 字段被反复清空/丢失/"多出"，日志表现为 4→3→4→3 振荡）。
-    const incomingSig = stableStringify(stripDetailTables(layoutData));
+    const incomingSig = stableStringify(stripParentInjected(layoutData));
     // 命中任一形状的自保存签名即跳过：saveLayoutData 会以 parentData 与 result 两种形状先后回调，
     // 最终落在 layoutData 上的是后一次（多数调用路径为 result）。
     const selfSavedHit =
