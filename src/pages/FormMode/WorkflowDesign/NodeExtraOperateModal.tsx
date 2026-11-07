@@ -672,7 +672,9 @@ const NodeExtraOperateModal: React.FC<NodeExtraOperateModalProps> = ({
         okText="确定"
         cancelText="取消"
       >
-        <Form form={detailForm} layout="vertical" initialValues={{ type: 'none', failMode: 'continue', enabled: true }}>
+        {/* 给 Form 加 name：antd 会据此为所有字段 id 加前缀，避免 Form.Item name="name" 生成为裸 id="name" 顶替 window.name，
+            触发 react-dom 的 reactName.nodeName.toLowerCase is not a function */}
+        <Form form={detailForm} layout="vertical" name="nodeExtraOperate" initialValues={{ type: 'none', failMode: 'continue', enabled: true }}>
           <Form.Item name="name" label="操作名称">
             <Input placeholder="留空则按类型/字段自动显示" allowClear />
           </Form.Item>

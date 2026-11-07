@@ -755,9 +755,11 @@ const renderCellNode = (
   const rawValue = cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
   const cleanRaw = rawValue.replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, '').trim();
   // 只读预览（ExcelPreview 为纯 HTML 表格，不挂载 Univer，不执行公式引擎）。
-  // 公式字段（如 ${cnpayamt}）原本被下方正则判为「公式」而强制空白 —— 改为取引用的字段值按原始数字显示。
-  // 「金额大写」由 Univer 编辑态公式统一处理，这里不做中文大写转换（用户决策：大写统一在 Univer 侧处理）。
-  const formulaVar = /^\$\{[^}]+\}$/.test(cleanRaw) ? cleanRaw.slice(2, -1).trim() : undefined;
+  // 公式显示格（非字段、值形如 ${xxx}）取引用字段值展示；但「字段格」（cellType==='field'）
+  // 是用户输入控件，绝不能被当成公式只读展示 —— 否则创建/审批表单的所有字段都会变成不可填写的空格。
+  const isFieldCell = meta?.cellType === 'field';
+  const formulaVar =
+    !isFieldCell && /^\$\{[^}]+\}$/.test(cleanRaw) ? cleanRaw.slice(2, -1).trim() : undefined;
   if (formulaVar != null) {
     const raw = formValues?.[formulaVar];
     const resolved = raw === undefined || raw === null || raw === '' ? '' : String(raw);

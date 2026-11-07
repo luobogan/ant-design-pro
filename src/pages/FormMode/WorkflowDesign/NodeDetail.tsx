@@ -460,7 +460,9 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
       */}
       <Form form={baseForm} layout="vertical" size="small" name="wfNodeBase">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-          <Form.Item name="nodeName" label="节点名称" rules={[{ required: true, message: '请输入节点名称' }]}>
+          {/* 显式指定非碰撞 id：防止 antd 把控件 id 生成为裸 "nodeName" 顶替 window.nodeName，
+              从而触发 react-dom 的 reactName.nodeName.toLowerCase is not a function（见下方注释） */}
+          <Form.Item name="nodeName" id="wfNodeBase_nodeName" label="节点名称" rules={[{ required: true, message: '请输入节点名称' }]}>
             <Input />
           </Form.Item>
           <Form.Item name="nodeType" label="节点类型">
