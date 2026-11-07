@@ -94,6 +94,21 @@ const applyDetailFilter = (
 };
 
 /**
+ * 从 render 请求的异常里尽量提取可读错误信息。
+ *
+ * 后端业务异常（如「该流程为测试数据，无权办理」「流程实例不存在」）经网关 /
+ * errorHandler 后通常挂在 `msg`；axios 原始响应在 `response.data.msg`；
+ * 网络层错误在 `message`。布局缺失（成功但无数据）不在此列 —— 那走 applyPkg 的
+ * `!pkg` 分支，不属于「请求失败」，不应被当成错误。
+ */
+const extractRenderError = (e: any): string => {
+  if (!e) return '渲染失败，请稍后重试';
+  if (typeof e === 'string') return e;
+  const msg = e?.msg ?? e?.response?.data?.msg ?? e?.message;
+  return msg || '渲染失败，请稍后重试';
+};
+
+/**
  * 审批态「真实流程表单」渲染（可内嵌）
  *
  * 把 `ExcelPreviewPage` 里的**审批态渲染**分支抽成可复用组件：
@@ -172,6 +187,8 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
   const [pkgNodeKey, setPkgNodeKey] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
   const [done, setDone] = useState(false);
+  /** render 请求失败时的真实错误文案（成功但无数据不算）；用于替代误导性的「暂无节点布局」 */
+  const [renderError, setRenderError] = useState<string | undefined>();
 
   // onPackage 放进 ref：父组件常传内联箭头函数，若进 useEffect 依赖会每次重渲染都重拉渲染包
   const onPackageRef = useRef<ApprovalFormRenderProps['onPackage']>(undefined);
@@ -181,6 +198,8 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
 
   useEffect(() => {
     let alive = true;
+    // 每次重新请求都先清掉上一次的错误（成功路径与失败路径都会按需置位）
+    setRenderError(undefined);
     // 把渲染包转换成组件状态（render 与 preview 共用同一套解析逻辑）
     const applyPkg = (res: any) => {
       const pkg = res?.data;
@@ -234,8 +253,11 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
       setDone(false);
       renderFormPreview(previewDefId as any, previewFormId as any, nodeKey)
         .then(applyPkg)
-        .catch(() => {
-          if (alive) setLayoutData(null);
+        .catch((e: any) => {
+          if (alive) {
+            setLayoutData(null);
+            setRenderError(extractRenderError(e));
+          }
         })
         .finally(() => {
           if (alive) {
@@ -262,8 +284,11 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
     // testMode 透传：测试面板 / 真人模式要渲染 is_test=1 的实例；生产办理页不传 → 后端拒绝渲染测试单
     renderForm(instanceId, taskId, nodeKey, testMode)
       .then(applyPkg)
-      .catch(() => {
-        if (alive) setLayoutData(null);
+      .catch((e: any) => {
+        if (alive) {
+          setLayoutData(null);
+          setRenderError(extractRenderError(e));
+        }
       })
       .finally(() => {
         if (alive) {
@@ -298,7 +323,11 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
       <Result
         status="info"
         title="没有可渲染的表单数据"
-        subTitle="该实例暂无节点布局，请先在「表单内容 → 设计」中生成布局后重试。"
+        subTitle={
+          renderError
+            ? renderError
+            : '该实例暂无节点布局，请先在「表单内容 → 设计」中生成布局后重试。'
+        }
       />
     );
   }
