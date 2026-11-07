@@ -993,6 +993,7 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
                           nodePermission={nodePermission}
                           instanceId={effectiveInstanceId}
                           defId={defId}
+                          formId={def?.formId}
                           initialValues={initialValues}
                           title="流程表单"
                           onClose={closeTab}

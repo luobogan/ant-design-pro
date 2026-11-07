@@ -2094,6 +2094,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         open={previewVisible}
         onClose={() => setPreviewVisible(false)}
         title="表单预览"
+        formId={formId}
       />
 
       {/* 明细表子画布：点击主表「明细表标记」或工具栏「插入明细表」打开，

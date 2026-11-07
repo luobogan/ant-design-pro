@@ -26,17 +26,22 @@ import {
  */
 
 export interface ElementRuntimeContext {
-  /** 流程实例ID（对应 E9 $requestid$） */
+  /** 流程实例ID（SpringBlade requestId；前端运行期上下文记作 instanceId） */
   instanceId?: any;
-  /** 流程定义ID（对应 E9 $workflowid$） */
+  /** 流程定义ID（SpringBlade workflowid；前端记作 defId） */
   defId?: any;
-  /** 当前节点ID（对应 E9 $nodeid$） */
+  /** 审批节点标识（SpringBlade 节点 Key） */
   nodeId?: any;
-  /** 表单ID（对应 E9 $formid$） */
+  /** 表单ID（workflow_bill.id） */
   formId?: any;
+  /** 待办任务ID（SpringBlade taskId） */
+  taskId?: any;
   /** 表单值，用于条码 $字段名$ 变量替换 */
   formValues?: Record<string, any>;
 }
+
+/** 元素格运行期上下文：由 ExcelPreview 顶层注入，元素组件直接消费，避免逐层透传 */
+export const ElementContext = React.createContext<ElementRuntimeContext>({});
 
 /** 把 cfg.content 里的 $字段名$ 用运行期表单值替换（对齐 E9 扫码 relatefield 联动） */
 const resolveContentVars = (content: string, formValues?: Record<string, any>): string =>
@@ -152,13 +157,15 @@ export const LinkElement: React.FC<{ cfg: Record<string, any>; fallback?: string
   );
 };
 
-// ── Iframe 区域：$requestid$ / $workflowid$ / $nodeid$ / $formid$ 变量 + auto 高度 ──
-export const IframeArea: React.FC<{ cfg: Record<string, any>; ctx: ElementRuntimeContext }> = ({ cfg, ctx }) => {
+// ── Iframe 区域：SpringBlade 原生变量（$requestId$/$workflowid$/$nodeId$/$formId$/$taskId$）+ auto 高度 ──
+export const IframeArea: React.FC<{ cfg: Record<string, any> }> = ({ cfg }) => {
+  const ctx = React.useContext(ElementContext);
   const src = resolveIframeSrc(cfg.src, {
-    requestid: ctx.instanceId,
+    requestId: ctx.instanceId,
     workflowid: ctx.defId,
-    nodeid: ctx.nodeId,
-    formid: ctx.formId,
+    nodeId: ctx.nodeId,
+    formId: ctx.formId,
+    taskId: ctx.taskId,
   });
   const [height, setHeight] = useState<number>(cfg.height || 240);
   useEffect(() => setHeight(cfg.height || 240), [cfg.height]);
@@ -186,9 +193,9 @@ export const IframeArea: React.FC<{ cfg: Record<string, any>; ctx: ElementRuntim
 // ── 二维码 / 条形码：后端 ZXing 接口（对齐 E9 /createQRCode、/createWfBarCode） ──
 export const BarcodeImage: React.FC<{
   cfg: Record<string, any>;
-  ctx: ElementRuntimeContext;
   fallback?: string;
-}> = ({ cfg, ctx, fallback }) => {
+}> = ({ cfg, fallback }) => {
+  const ctx = React.useContext(ElementContext);
   const content = resolveContentVars(String(cfg.content || fallback || ''), ctx.formValues);
   const cfgKey = JSON.stringify({ ...cfg, content });
   const [src, setSrc] = useState<string>('');

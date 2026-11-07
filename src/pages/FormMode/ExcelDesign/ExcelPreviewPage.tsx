@@ -156,6 +156,7 @@ const ExcelPreviewPageContent: React.FC = () => {
       standalone
       readOnly={readOnly}
       nodeId={nodeId}
+      taskId={taskId}
       nodePermission={nodePermission}
       initialValues={(window as any).__approvalFormData || renderPkg?.dataJson || {}}
       onSubmit={async (values, _errors, valid) => {

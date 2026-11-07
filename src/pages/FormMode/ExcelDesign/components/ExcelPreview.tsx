@@ -57,7 +57,7 @@ import {
   PortalElement,
   TabElement,
   TextElement,
-  type ElementRuntimeContext,
+  ElementContext,
 } from './ElementNodes';
 
 const { Text } = Typography;
@@ -662,7 +662,6 @@ const FieldCell: React.FC<{
 const renderElementNode = (
   meta: any,
   displayValue: string,
-  ctx: ElementRuntimeContext = {},
 ): React.ReactNode => {
   const cfg = (meta && meta.elementConfig) || {};
   const placeholder = (text: string) => <span style={{ color: '#bbb', fontSize: 12 }}>{text}</span>;
@@ -673,7 +672,7 @@ const renderElementNode = (
     case 'link':
       return <LinkElement cfg={cfg} fallback={displayValue} />;
     case 'iframe':
-      return <IframeArea cfg={cfg} ctx={ctx} />;
+      return <IframeArea cfg={cfg} />;
     case 'multilang':
       return <MultiLangLabel cfg={cfg} />;
     case 'tab':
@@ -681,7 +680,7 @@ const renderElementNode = (
     case 'note':
       return <NoteTip cfg={cfg} fallback={displayValue} />;
     case 'barcode':
-      return <BarcodeImage cfg={cfg} ctx={ctx} fallback={displayValue} />;
+      return <BarcodeImage cfg={cfg} fallback={displayValue} />;
     case 'portal':
       return <PortalElement cfg={cfg} />;
     case 'text':
@@ -842,7 +841,7 @@ const renderCellNode = (
   // （对应 ecology 扩展控件 dataobj.ecs[cellid] = { etype, jsonparam }）
   if (meta.cellType === 'element') {
     // 透传运行期上下文：Iframe 变量插值、条码 $字段名$ 替换都需要
-    return renderElementNode(meta, displayValue, { instanceId, defId, formValues });
+    return renderElementNode(meta, displayValue);
   }
   // 标签单元格 → 静态说明文本（必填 * 由 requiredStar 控制，E9 风格 * 在标签后）
   // 挂 id / data-*：表头（字段名）同样要能被代码块访问（改名、隐藏、校验提示等）
@@ -1935,6 +1934,10 @@ interface ExcelPreviewProps {
   instanceId?: any;
   /** 流程定义ID */
   defId?: any;
+  /** 表单ID（workflow_bill.id；设计器预览 / 审批页可注入，供 Iframe $formId$ 等使用） */
+  formId?: any;
+  /** 待办任务ID（SpringBlade taskId；审批页可注入，供 Iframe $taskId$ 使用） */
+  taskId?: any;
   /**
    * 节点字段权限解析器（替代布尔 readOnly）：按字段名返回该节点下的权限。
    * 优先级：节点权限 > fieldAttr > Excel 样式 > 默认（文档 §3.3-4）。
@@ -2005,6 +2008,8 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
   initialValues,
   instanceId,
   defId,
+  formId,
+  taskId,
 }, ref) => {
   // 安装全局字段访问器 window.ExcelPreview（供布局级代码块中的 JS 直接按 id / 字段名操作字段）。
   // 挂载时安装、卸载时清理；布局级脚本在提交后才执行（见下方注入 effect），因此使用前必然已就绪。
@@ -2480,10 +2485,12 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
   // 容器由 React 渲染为空 div，脚本内容以操作 DOM 的方式 append 进去执行；
   // 放在内容之后，避免注入的 HTML 把表单整体挤下去。
   const content = (
-    <>
-      {isMobile ? mobileContent : pcContent}
-      <div id={LAYOUT_SCRIPT_HOST_ID} />
-    </>
+    <ElementContext.Provider value={{ instanceId, defId, nodeId, formId, taskId, formValues }}>
+      <>
+        {isMobile ? mobileContent : pcContent}
+        <div id={LAYOUT_SCRIPT_HOST_ID} />
+      </>
+    </ElementContext.Provider>
   );
 
   // 操作按钮：弹窗里作为 footer，独立页面里作为顶部工具栏

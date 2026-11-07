@@ -265,7 +265,7 @@ export const ELEMENT_FIELDS: Record<string, ElementFieldDef[]> = {
       name: 'src',
       label: 'Iframe 地址',
       type: 'text',
-      placeholder: '支持 $requestid$ / $workflowid$ / $nodeid$ / $formid$ 变量',
+      placeholder: '支持 $requestId$ / $workflowid$ / $nodeId$ / $formId$ / $taskId$ 变量（兼容 E9 $requestid$ 等）',
     },
     {
       name: 'heightMode',
@@ -419,16 +419,56 @@ export const normalizeLinkHref = (cfg: Record<string, any>): string => {
 };
 
 /**
- * Iframe URL 变量插值（对齐 E9 `setIframe.jsp:74-77` 与
- * `ParseExcelLayout.java:2030-2084`）：$requestid$ / $workflowid$ / $nodeid$ / $formid$。
+ * Iframe URL 变量插值（SpringBlade 原生字段命名，兼容 E9 迁移布局）：
+ *   $requestId$  → 流程实例（SpringBlade requestId；前端运行期上下文记作 instanceId）
+ *   $workflowid$ → 流程定义（defId）
+ *   $nodeId$     → 审批节点（nodeKey）
+ *   $formId$     → 表单ID（workflow_bill.id）
+ *   $taskId$     → 待办任务ID
+ * 同时识别 E9 历史小写令牌（$requestid$ / $nodeid$ / $formid$ / $taskid$）以兼容存量迁移布局。
  */
 export const resolveIframeSrc = (
   src: string,
-  ctx: { requestid?: any; workflowid?: any; nodeid?: any; formid?: any } = {},
-): string =>
-  String(src || '').replace(/\$(requestid|workflowid|nodeid|formid)\$/g, (_m, key) =>
-    ctx[key] === undefined || ctx[key] === null ? '' : String(ctx[key]),
+  ctx: {
+    requestId?: any;
+    workflowid?: any;
+    nodeId?: any;
+    formId?: any;
+    taskId?: any;
+    requestid?: any;
+    nodeid?: any;
+    formid?: any;
+    taskid?: any;
+  } = {},
+): string => {
+  const pick = (k: string): any => {
+    switch (k) {
+      case 'requestId':
+      case 'requestid':
+        return ctx.requestId ?? ctx.requestid;
+      case 'workflowid':
+        return ctx.workflowid;
+      case 'nodeId':
+      case 'nodeid':
+        return ctx.nodeId ?? ctx.nodeid;
+      case 'formId':
+      case 'formid':
+        return ctx.formId ?? ctx.formid;
+      case 'taskId':
+      case 'taskid':
+        return ctx.taskId ?? ctx.taskid;
+      default:
+        return undefined;
+    }
+  };
+  return String(src || '').replace(
+    /\$(requestId|requestid|workflowid|nodeId|nodeid|formId|formid|taskId|taskid)\$/g,
+    (_m, key: string) => {
+      const v = pick(key);
+      return v === undefined || v === null ? '' : String(v);
+    },
   );
+};
 
 /** 二维码/条码后端图片地址（对齐 E9 `/createQRCode` 与 `/createWfBarCode`） */
 export const buildBarcodeUrl = (cfg: Record<string, any>): string => {
