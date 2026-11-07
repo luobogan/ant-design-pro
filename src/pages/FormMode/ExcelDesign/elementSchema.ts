@@ -52,6 +52,8 @@ export interface ElementFieldDef {
   placeholder?: string;
   initial?: any;
   rows?: number;
+  /** 条件显隐：返回 false 时不渲染该字段（如 iframe 自适应高度时隐藏固定高度输入） */
+  showIf?: (vals: Record<string, any>) => boolean;
 }
 
 /** E9 etype 数字编码（designOperate_wev8.js:3070-3119），仅用于导入导出兼容与排查 */
@@ -275,7 +277,7 @@ export const ELEMENT_FIELDS: Record<string, ElementFieldDef[]> = {
         { label: '自适应内容 (auto)', value: 'auto' },
       ],
     },
-    { name: 'height', label: '高度(px)', type: 'number', initial: 240 },
+    { name: 'height', label: '高度(px)', type: 'number', initial: 240, showIf: (v) => v.heightMode !== 'auto' },
     { name: 'style', label: '自定义 style', type: 'text' },
   ],
   tab: [

@@ -320,6 +320,9 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     (row: number, col: number): Record<string, any> | null => {
       // 布局可能是标准形态（sheets.*）也可能是画布回传的 parentData 形态（顶层 cellData），
       // 两种都要能读到「标签页元素」所在格，否则双击打不开页签编辑面。
+      // 优先读设计器实时元数据（cellFieldMetaMap）：刚插入标签页、自动保存尚未回流 layoutData 时也能立即打开。
+      const liveMeta: any = mainGridApiRef.current?.getCellFieldMeta?.(row, col);
+      if (liveMeta?.cellType === 'element' && liveMeta?.elementType === 'tab') return liveMeta.elementConfig || {};
       for (const cellData of collectCellDataMaps(layoutData)) {
         const meta = cellData?.[String(row)]?.[String(col)]?.fieldMeta;
         if (meta?.cellType === 'element' && meta?.elementType === 'tab') return meta.elementConfig || {};

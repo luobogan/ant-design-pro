@@ -8,11 +8,15 @@ import {
   Dropdown,
   ColorPicker,
   Select,
+  Switch,
+  Upload,
   message,
   Modal,
   Input,
   InputNumber,
 } from 'antd';
+import { getElementFields, type ElementFieldDef } from '../elementSchema';
+import { uploadFile } from '@/services/file';
 import {
   SaveOutlined,
   EyeOutlined,
@@ -103,16 +107,9 @@ const FONT_SIZES = [9, 10, 11, 12, 14, 16, 18, 20, 24, 28];
 //  - 「公式」写入 '=' 交给 Univer 公式引擎编辑；
 //  - 「清除背景」把当前选区背景重置为白色。
 // ──────────────────────────────────────────────
-type InsertFieldDef = {
-  name: string;
-  label: string;
-  type: 'text' | 'textarea' | 'number' | 'select';
-  options?: { label: string; value: any }[];
-  placeholder?: string;
-  initial?: any;
-  /** textarea 行数（代码块等需要更大的编辑区） */
-  rows?: number;
-};
+// 与 elementSchema 的 ElementFieldDef 同源（含 upload/multiselect/switch/showIf），
+// 插入弹窗与属性面板共用同一份 schema，避免「插入时能配、选中后不能改」。
+type InsertFieldDef = ElementFieldDef;
 
 type InsertDef = {
   key: string;
@@ -151,60 +148,35 @@ const INSERT_DEFS: InsertDef[] = [
     label: '图片',
     icon: <PictureOutlined />,
     mode: 'element',
-    fields: [
-      { name: 'src', label: '图片地址', type: 'text', placeholder: 'https://... 或相对路径' },
-      { name: 'width', label: '宽度(px)', type: 'number' },
-      { name: 'height', label: '高度(px)', type: 'number' },
-      { name: 'alt', label: '替代文字', type: 'text' },
-    ],
+    fields: getElementFields('image'),
   },
   {
     key: 'text',
     label: '文本',
     icon: <FontSizeOutlined />,
     mode: 'element',
-    fields: [{ name: 'content', label: '文本内容', type: 'textarea', placeholder: '输入文本内容' }],
+    fields: getElementFields('text'),
   },
   {
     key: 'link',
     label: '链接',
     icon: <LinkOutlined />,
     mode: 'element',
-    fields: [
-      { name: 'href', label: '链接地址', type: 'text', placeholder: 'https://...' },
-      { name: 'text', label: '显示文字', type: 'text' },
-      {
-        name: 'target',
-        label: '打开方式',
-        type: 'select',
-        initial: '_blank',
-        options: [
-          { label: '新窗口', value: '_blank' },
-          { label: '当前窗口', value: '_self' },
-        ],
-      },
-    ],
+    fields: getElementFields('link'),
   },
   {
     key: 'multilang',
     label: '多语言标签',
     icon: <GlobalOutlined />,
     mode: 'element',
-    fields: [
-      { name: 'zh', label: '中文', type: 'text' },
-      { name: 'en', label: 'English', type: 'text' },
-      { name: 'tw', label: '繁體', type: 'text' },
-    ],
+    fields: getElementFields('multilang'),
   },
   {
     key: 'iframe',
     label: 'Iframe区域',
     icon: <ApiOutlined />,
     mode: 'element',
-    fields: [
-      { name: 'src', label: 'Iframe 地址', type: 'text', placeholder: 'https://...' },
-      { name: 'height', label: '高度(px)', type: 'number', initial: 240 },
-    ],
+    fields: getElementFields('iframe'),
   },
   { key: 'formula', label: '公式', icon: <FunctionOutlined />, mode: 'formula' },
   {
@@ -234,38 +206,21 @@ const INSERT_DEFS: InsertDef[] = [
     label: '说明',
     icon: <InfoCircleOutlined />,
     mode: 'element',
-    fields: [{ name: 'content', label: '说明内容', type: 'textarea' }],
+    fields: getElementFields('note'),
   },
   {
     key: 'barcode',
     label: '二维/条形码',
     icon: <BarcodeOutlined />,
     mode: 'element',
-    fields: [
-      {
-        name: 'type',
-        label: '类型',
-        type: 'select',
-        initial: 'qrcode',
-        options: [
-          { label: '二维码', value: 'qrcode' },
-          { label: '条形码', value: 'barcode' },
-        ],
-      },
-      { name: 'content', label: '编码内容', type: 'text' },
-      { name: 'width', label: '宽度(px)', type: 'number', initial: 100 },
-      { name: 'height', label: '高度(px)', type: 'number', initial: 100 },
-    ],
+    fields: getElementFields('barcode'),
   },
   {
     key: 'portal',
     label: '门户元素',
     icon: <DeploymentUnitOutlined />,
     mode: 'element',
-    fields: [
-      { name: 'hpid', label: '门户ID', type: 'text', placeholder: '门户元素 hpid' },
-      { name: 'height', label: '高度(px)', type: 'number', initial: 300 },
-    ],
+    fields: getElementFields('portal'),
   },
 ];
 
@@ -342,7 +297,9 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
     }
     const init: Record<string, any> = {};
     def.fields.forEach((f) => {
-      init[f.name] = f.initial !== undefined ? f.initial : f.type === 'number' ? undefined : '';
+      if (f.type === 'multiselect') init[f.name] = f.initial ?? [];
+      else if (f.type === 'switch') init[f.name] = f.initial ?? false;
+      else init[f.name] = f.initial !== undefined ? f.initial : f.type === 'number' ? undefined : '';
     });
     setInsertVals(init);
     setInsertDef(def);
@@ -662,7 +619,9 @@ ExcelPreview.rowCount(0)                   // 明细表1 当前行数
 document.querySelector('[data-excelp-role="field"][data-excelp-scope="main"][data-excelp-field="xm"]')`}</pre>
             </div>
           )}
-          {(insertDef?.fields || []).map((f) => (
+          {(insertDef?.fields || []).map((f) => {
+            if (f.showIf && !f.showIf(insertVals)) return null;
+            return (
             <div key={f.name}>
               <div style={{ marginBottom: 4, fontSize: 13 }}>{f.label}</div>
               {f.type === 'text' && (
@@ -695,8 +654,51 @@ document.querySelector('[data-excelp-role="field"][data-excelp-scope="main"][dat
                   onChange={(v) => setInsertVals((p) => ({ ...p, [f.name]: v }))}
                 />
               )}
+              {f.type === 'upload' && (
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  <Input
+                    value={insertVals[f.name] ?? ''}
+                    placeholder={f.placeholder || '上传后自动填充；也可直接粘贴 URL（文件服务未启动时可用）'}
+                    onChange={(e) => setInsertVals((p) => ({ ...p, [f.name]: e.target.value }))}
+                  />
+                  <Upload
+                    beforeUpload={(file) => {
+                      const hide = message.loading('上传中…', 0);
+                      uploadFile(file)
+                        .then((r) => {
+                          if (r?.url) setInsertVals((p) => ({ ...p, [f.name]: r.url }));
+                          else message.error('上传失败：未返回地址');
+                        })
+                        .catch((e) => message.error('上传失败：' + (e?.message || e)))
+                        .finally(() => hide());
+                      return false; // 阻断默认上传，改由 uploadFile 走统一文件服务（双通道：URL 兜底）
+                    }}
+                    showUploadList={false}
+                    accept="image/*"
+                  >
+                    <Button icon={<UploadOutlined />}>上传图片（双通道）</Button>
+                  </Upload>
+                </Space>
+              )}
+              {f.type === 'multiselect' && (
+                <Select
+                  style={{ width: '100%' }}
+                  mode={f.options && f.options.length ? 'multiple' : 'tags'}
+                  value={insertVals[f.name] || []}
+                  options={f.options}
+                  placeholder={f.placeholder}
+                  onChange={(v) => setInsertVals((p) => ({ ...p, [f.name]: v }))}
+                />
+              )}
+              {f.type === 'switch' && (
+                <Switch
+                  checked={!!insertVals[f.name]}
+                  onChange={(v) => setInsertVals((p) => ({ ...p, [f.name]: v }))}
+                />
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       </Modal>
     </div>

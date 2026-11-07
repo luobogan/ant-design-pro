@@ -144,9 +144,13 @@ interface FieldMeta {
    *  - field=数据绑定字段（可输入）
    *  - detailTableMarker=主表中的「明细表标记」格（点击打开该明细表的独立 Excel 画布）
    */
-  cellType?: 'label' | 'field' | 'detailTableMarker';
+  cellType?: 'label' | 'field' | 'detailTableMarker' | 'element';
   /** 所属明细表索引（>0）：明细字段归属的明细表序号；detailTableMarker 用它定位打开哪个明细画布 */
   detailTable?: number;
+  /** 元素格类型（≈ E9 etype）：image/text/link/multilang/iframe/tab/note/barcode/portal 等 */
+  elementType?: string;
+  /** 元素格配置（≈ E9 jsonparam）：各元素类型的专属属性集合 */
+  elementConfig?: Record<string, any>;
   /** 后端字段类型（fieldHtmlType）：1文本 2多行文本 3浏览按钮 4选择框 5附件 6复选框 7特殊字段 8布局组件 */
   fieldHtmlType?: number;
   /** 后端字段细类（fieldType 数值）；fieldHtmlType=3 时即浏览按钮类型（1人力资源 / 161多人力资源 …） */
@@ -290,6 +294,12 @@ interface FieldMeta {
     if (meta.cellType === 'label') {
       return meta.fieldLabel || meta.fieldName || '';
     }
+    // 元素格（「插入」类，≈ ecology 扩展控件）：显示元素名。
+    // insertElement 额外写入「图标 + 名称」，防篡改比较经 stripFieldIcon 对齐两者。
+    // 此前缺此分支导致元素格落入字段模板 → fieldName 为空 → 显示成 ${}。
+    if (meta.cellType === 'element') {
+      return meta.fieldLabel || String((meta as any).elementType || '元素');
+    }
     const typeIcon = FIELD_ICON_MAP[meta.fieldType] ?? '📝';
     // 字段属性图标（参照 ecology viewAttr）：0=不显示🚫 1=只读🔒 3=必填⚠️；2=可编辑不额外加图标
     const attrIcon = meta.fieldAttr === 1 ? '🔒' : meta.fieldAttr === 3 ? '⚠️' : meta.fieldAttr === 0 ? '🚫' : '';
@@ -401,6 +411,12 @@ interface UniverExcelGridProps {
   isDetailCanvas?: boolean;
   /** 子画布模式下，仅渲染该序号对应的明细表字段（用于筛选 FieldPalette） */
   detailTableFilterIdx?: number;
+  /**
+   * 双击主表中「标签页」元素格时触发（参数为该格坐标 row/col），
+   * 由父组件打开对应标签页的独立子画布（对齐 E9 `CellDoubleClick`：spread.bind）。
+   * 父组件的 handleCellDoubleClick 内部仅对标签页格生效，其余格 no-op，故可安全全局回调。
+   */
+  onCellDoubleClick?: (row: number, col: number) => void;
 }
 
 // 稳定序列化：递归排序 key，保证「内容相同但引用/插入顺序不同」的两个对象得到相同字符串。
@@ -542,6 +558,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   onDetailMarkerRemoved,
   isDetailCanvas,
   detailTableFilterIdx,
+  onCellDoubleClick,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const univerRef = useRef<any>(null);
@@ -849,6 +866,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   // ──────────────────────────────────────
   const onDetailMarkerOpenRef = useRef<((idx: number) => void) | undefined>(onDetailMarkerOpen);
   onDetailMarkerOpenRef.current = onDetailMarkerOpen;
+  // onCellDoubleClick 的 ref 镜像：双击标签页格 → 父组件打开独立子画布（避免回调过期引用）
+  const onCellDoubleClickRef = useRef<((row: number, col: number) => void) | undefined>(onCellDoubleClick);
+  onCellDoubleClickRef.current = onCellDoubleClick;
   // onDetailMarkerRemoved 的 ref 镜像：标记被删除时级联清理父组件 detailTables[idx]（防孤儿）
   const onDetailMarkerRemovedRef = useRef<((idx: number) => void) | undefined>(onDetailMarkerRemoved);
   onDetailMarkerRemovedRef.current = onDetailMarkerRemoved;
@@ -4483,6 +4503,26 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         }
       };
 
+      // 元素格属性回写：合并 patch 进 elementConfig，刷新单元格并保存。
+      // 属性面板「选中元素格 → 改属性」的落地点；与 insertElement 同源写入 cellType='element'。
+      const setElementConfig = (row: number, col: number, patch: Record<string, any>): boolean => {
+        try {
+          const sheet = sheetRef.current;
+          if (!sheet) return false;
+          const existing: any = getCellFieldMeta(row, col);
+          if (!existing || existing.cellType !== 'element') return false;
+          const nextConfig = { ...(existing.elementConfig || {}), ...patch };
+          const meta: any = { ...existing, elementConfig: nextConfig };
+          setCellField(workbookRef.current, sheet, row, col, meta);
+          // 元素格显示文本保持「图标 名称」，不随配置改写（避免被保存自愈误覆盖）
+          setTimeout(() => { try { saveLayoutData(); } catch (e) { /* ignore */ } }, 0);
+          return true;
+        } catch (e) {
+          console.warn('[SetElementConfig] 失败:', e);
+          return false;
+        }
+      };
+
       // 插入公式：在活动单元格写入 '=' 交由 Univer 公式引擎编辑
       const insertFormula = (): boolean => {
         try {
@@ -4508,6 +4548,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         rowColOp,
         insertElement,
         insertFormula,
+        setElementConfig,
         handleFieldDrop,
         getCellFieldMeta,
         getContextCell: () => rightClickCellRef.current,  // 右键命中的单元格（工具栏无选区时回退用）
@@ -5175,6 +5216,36 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       container.removeEventListener('drop', handleNativeDrop);
     };
   }, [workbook, handleFieldDrop, getCellFromMouseEvent, containerRef.current]);
+
+  // ─────────────────────────────────────────────────────────────────
+  // ★★★ 单元格双击 → 打开「标签页」独立子画布（对齐 E9 CellDoubleClick）★★★
+  // Univer 未暴露单元格双击事件，且画布是 canvas 渲染；双击时该格已被选中，
+  // 故在 container 上挂原生 dblclick，取当前选中格坐标回调 onCellDoubleClick。
+  // 父组件 handleCellDoubleClick 内部仅对标签页格生效，其余格 no-op，全局回调安全。
+  // ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handler = (e: MouseEvent) => {
+      // 只处理 Univer 容器内的双击，避免页面其它区域污染
+      if (!(e.target instanceof Node) || !containerRef.current || !containerRef.current.contains(e.target)) return;
+      const sheet: any = sheetRef.current;
+      if (!sheet) return;
+      let selection: any = null;
+      try { selection = sheet.getSelection(); } catch { return; }
+      if (!selection) return;
+      const currentCell = selection.getCurrentCell ? selection.getCurrentCell() : null;
+      if (!currentCell) return;
+      const row = currentCell.actualRow;
+      const col = currentCell.actualColumn;
+      if (row == null || col == null) return;
+      onCellDoubleClickRef.current?.(row, col);
+    };
+
+    container.addEventListener('dblclick', handler);
+    return () => container.removeEventListener('dblclick', handler);
+  }, [containerRef.current]);
 
   // ─────────────────────────────────────────────────────────────────
   // ★★★ 核心：拖拽时禁用 Univer canvas 的 pointer-events ★★★

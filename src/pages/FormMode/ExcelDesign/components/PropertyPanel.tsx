@@ -1,6 +1,8 @@
 import React from 'react';
-import { Card, Form, Input, Select, InputNumber, Switch, Segmented, Empty, Divider, Row, Col } from 'antd';
-import { SettingOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { Card, Form, Input, Select, InputNumber, Switch, Segmented, Empty, Divider, Row, Col, Space, Button, Upload, message } from 'antd';
+import { SettingOutlined, DeleteOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
+import { getElementFields } from '../elementSchema';
+import { uploadFile } from '@/services/file';
 
 /**
  * 属性配置面板组件
@@ -30,9 +32,13 @@ interface PropertyPanelProps {
   selectedField: any;
   /** 字段属性 / 禁止手工编辑 变更回调（attr: 0不显示/1只读/2可编辑/3必填） */
   onFieldAttrChange?: (attr: number, onlyShow: boolean) => void;
+  /** 表单字段下拉选项（供公式目标字段等 fieldSelect 使用） */
+  fieldOptions?: { label: string; value: any }[];
+  /** 元素格配置变更回调：传 { [字段名]: 值 } 补丁，写回网格 elementConfig */
+  onElementConfigChange?: (patch: Record<string, any>) => void;
 }
 
-const PropertyPanel: React.FC<PropertyPanelProps> = ({ selectedField, onFieldAttrChange }) => {
+const PropertyPanel: React.FC<PropertyPanelProps> = ({ selectedField, onFieldAttrChange, onElementConfigChange }) => {
   const [form] = Form.useForm();
   const [options, setOptions] = React.useState<{ label: string; value: string }[]>([]);
 
@@ -77,6 +83,111 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ selectedField, onFieldAtt
         style={{ height: '100%' }}
       >
         <Empty description="请选择一个字段进行配置" />
+      </Card>
+    );
+  }
+
+  // ── 元素格属性面板：与插入弹窗同源 schema，实现「插入弹窗能配、选中后也能改」 ──
+  if (selectedField?.cellType === 'element') {
+    const elementType = selectedField.elementType;
+    const cfg: Record<string, any> = selectedField.elementConfig || {};
+    const fields = getElementFields(elementType) || [];
+    const visibleFields = fields.filter((f) => !f.showIf || f.showIf(cfg));
+    const setVal = (name: string, value: any) => onElementConfigChange?.({ [name]: value });
+
+    const renderField = (f: any) => {
+      switch (f.type) {
+        case 'textarea':
+          return (
+            <Input.TextArea
+              rows={f.rows ?? 4}
+              value={cfg[f.name] ?? ''}
+              placeholder={f.placeholder}
+              onChange={(e) => setVal(f.name, e.target.value)}
+            />
+          );
+        case 'number':
+          return <InputNumber style={{ width: '100%' }} value={cfg[f.name]} onChange={(v) => setVal(f.name, v)} />;
+        case 'select':
+          return (
+            <Select
+              style={{ width: '100%' }}
+              value={cfg[f.name]}
+              options={f.options}
+              onChange={(v) => setVal(f.name, v)}
+            />
+          );
+        case 'switch':
+          return <Switch checked={!!cfg[f.name]} onChange={(v) => setVal(f.name, v)} />;
+        case 'multiselect':
+          return (
+            <Select
+              style={{ width: '100%' }}
+              mode={f.options && f.options.length ? 'multiple' : 'tags'}
+              value={cfg[f.name] || []}
+              options={f.options}
+              placeholder={f.placeholder}
+              onChange={(v) => setVal(f.name, v)}
+            />
+          );
+        case 'upload':
+          return (
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Input
+                value={cfg[f.name] ?? ''}
+                placeholder={f.placeholder || '上传后自动填充；也可直接粘贴 URL（服务未启动时可用）'}
+                onChange={(e) => setVal(f.name, e.target.value)}
+              />
+              <Upload
+                beforeUpload={(file) => {
+                  const h = message.loading('上传中…', 0);
+                  uploadFile(file)
+                    .then((r) => {
+                      if (r?.url) setVal(f.name, r.url);
+                      else message.error('上传失败：未返回地址');
+                    })
+                    .catch((e) => message.error('上传失败：' + (e?.message || e)))
+                    .finally(() => h());
+                  return false;
+                }}
+                showUploadList={false}
+                accept="image/*"
+              >
+                <Button icon={<UploadOutlined />}>上传（双通道）</Button>
+              </Upload>
+            </Space>
+          );
+        default:
+          return (
+            <Input
+              value={cfg[f.name] ?? ''}
+              placeholder={f.placeholder}
+              onChange={(e) => setVal(f.name, e.target.value)}
+            />
+          );
+      }
+    };
+
+    return (
+      <Card
+        title={
+          <span>
+            <SettingOutlined style={{ marginRight: 8 }} />
+            元素属性（{elementType}）
+          </span>
+        }
+        size="small"
+        style={{ height: '100%', overflow: 'auto' }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {visibleFields.length === 0 && <Empty description="该元素暂无可配置项" />}
+          {visibleFields.map((f) => (
+            <div key={f.name}>
+              <div style={{ marginBottom: 4, fontSize: 13 }}>{f.label}</div>
+              {renderField(f)}
+            </div>
+          ))}
+        </div>
       </Card>
     );
   }
