@@ -157,7 +157,8 @@ export const LinkElement: React.FC<{ cfg: Record<string, any>; fallback?: string
   );
 };
 
-// ── Iframe 区域：SpringBlade 原生变量（$requestId$/$workflowid$/$nodeId$/$formId$/$taskId$）+ auto 高度 ──
+// ── Iframe 区域：SpringBlade 原生变量（$requestId$/$workflowid$/$nodeId$/$formId$/$taskId$）
+//    + 自适应高度：同源 onLoad 兜底；跨域走 postMessage 桥（子页约定上报高度） ──
 export const IframeArea: React.FC<{ cfg: Record<string, any> }> = ({ cfg }) => {
   const ctx = React.useContext(ElementContext);
   const src = resolveIframeSrc(cfg.src, {
@@ -167,23 +168,45 @@ export const IframeArea: React.FC<{ cfg: Record<string, any> }> = ({ cfg }) => {
     formId: ctx.formId,
     taskId: ctx.taskId,
   });
-  const [height, setHeight] = useState<number>(cfg.height || 240);
-  useEffect(() => setHeight(cfg.height || 240), [cfg.height]);
+  const baseHeight = Number(cfg.height) || 240;
+  const [height, setHeight] = useState<number>(baseHeight);
+  React.useEffect(() => setHeight(baseHeight), [baseHeight]);
+
+  // 跨域自适应高度：子页通过 postMessage 上报自身高度（同源由 onLoad 兜底）
+  // 子页约定：parent.postMessage({ type: 'excelp-iframe-resize', id: <setId>, height: <px> }, '*')
+  React.useEffect(() => {
+    if (cfg.heightMode !== 'auto') return;
+    const onMessage = (e: MessageEvent) => {
+      const d = e.data as any;
+      if (!d || d.type !== 'excelp-iframe-resize') return;
+      if (cfg.setId && d.id && d.id !== cfg.setId) return;
+      const h = Number(d.height);
+      if (!Number.isFinite(h) || h <= 0) return;
+      setHeight(Math.max(h + 16, 120));
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [cfg.setId, cfg.heightMode]);
+
   if (!src) return placeholder('Iframe区域（未配置地址）');
   return (
     <iframe
       id={cfg.setId || undefined}
       title={cfg.setName || 'iframe-area'}
       src={src}
+      loading="lazy"
+      referrerPolicy={cfg.referrerPolicy || 'strict-origin-when-cross-origin'}
+      sandbox={cfg.sandbox || undefined}
+      allow={cfg.allow || undefined}
       style={{ width: '100%', height, border: '1px solid #eee', ...parseInlineStyle(cfg.style) }}
       onLoad={(e) => {
-        // E9 setIframe.jsp height=auto → iframeOperate.loadingOver 自适应内容高度
+        // 同源兜底：跨域时 contentDocument 为 null，交给 postMessage 桥
         if (cfg.heightMode !== 'auto') return;
         try {
           const doc = (e.target as HTMLIFrameElement).contentDocument;
           if (doc?.body?.scrollHeight) setHeight(Math.max(doc.body.scrollHeight + 16, 120));
         } catch {
-          /* 跨域时无法读取，保留配置高度 */
+          /* 跨域：忽略，等待子页 postMessage */
         }
       }}
     />

@@ -279,6 +279,18 @@ export const ELEMENT_FIELDS: Record<string, ElementFieldDef[]> = {
     },
     { name: 'height', label: '高度(px)', type: 'number', initial: 240, showIf: (v) => v.heightMode !== 'auto' },
     { name: 'style', label: '自定义 style', type: 'text' },
+    {
+      name: 'sandbox',
+      label: 'sandbox (可选)',
+      type: 'text',
+      placeholder: '如 allow-scripts allow-same-origin；留空则不隔离',
+    },
+    {
+      name: 'allow',
+      label: 'allow 权限策略 (可选)',
+      type: 'text',
+      placeholder: '如 camera; microphone; geolocation',
+    },
   ],
   tab: [
     // ── E9 口径：标签页容器（tab 对象）+ 每页一张独立 Excel（etables.tab_N）──
