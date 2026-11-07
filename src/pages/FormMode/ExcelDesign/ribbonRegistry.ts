@@ -57,6 +57,7 @@ import {
   StarOutlined,
   TableOutlined,
 } from '@ant-design/icons';
+import { defaultTabGroupConfig } from './elementSchema';
 
 export type ElementType =
   | 'text'
@@ -251,11 +252,12 @@ export const registerDesignerRibbon = (opts: RegisterRibbonOptions): boolean => 
     return commandId;
   };
 
-  // 打开插入元素参数弹窗（桥接 React ExcelRibbon 的 Modal）；不可用时直接落默认值
+  // 打开插入元素（桥接 React ExcelRibbon 的 Modal / 直接落格）；
+  // 桥接不可用时兜底直插，「标签页」也要带默认页签组，否则双击进不去子页签 Excel。
   const openInsert = (type: ElementType) => {
     const bridge = (window as any).__designerOpenInsertModal;
     if (typeof bridge === 'function') bridge(type);
-    else callGrid('insertElement', type, {});
+    else callGrid('insertElement', type, type === 'tab' ? defaultTabGroupConfig() : {});
   };
 
   // 构建完整 ribbon 结构：{ [tabKey]: { order, title, [group]: { order, [itemId]: { order, menuItemFactory } } } }
@@ -322,11 +324,11 @@ export const registerDesignerRibbon = (opts: RegisterRibbonOptions): boolean => 
   insertEl('multilang', '多语言标签', 4, 'multilang');
   insertEl('iframe', 'Iframe区域', 5, 'iframe');
   addItem(TAB.INSERT, 'ins', 'insert.formula', '公式', () => callGrid('insertFormula'), '插入公式', 6, 'formula');
-  addItem(TAB.INSERT, 'ins', 'insert.clearBg', '清除背景', () => callGrid('applyRangeFormat', 'bg', '#ffffff'), '清除单元格背景', 7, 'clearBg');
   insertEl('tab', '标签页', 8, 'tab');
   insertEl('note', '说明', 9, 'note');
   insertEl('barcode', '二维/条形码', 10, 'barcode');
   insertEl('portal', '门户元素', 11, 'portal');
+
   // ↓ 对齐 ecology etype：明细表周边元素（8/9/10、18/19、20/21/22）
   // 图标暂复用既有 iconKey（避免新增图标映射缺失导致渲染空白），后续可补专属图标。
   insertEl('detailTitle', '明细标题', 16, 'text');
@@ -337,10 +339,13 @@ export const registerDesignerRibbon = (opts: RegisterRibbonOptions): boolean => 
   insertEl('checkAll', '明细全选', 21, 'text');
   insertEl('checkSingle', '明细单选', 22, 'text');
   insertEl('serialNum', '明细序号', 23, 'text');
+
+  // 行列结构操作（插入/删除行、列）
   addItem(TAB.INSERT, 'ins', 'insert.row', '插入行', () => callGrid('rowColOp', 'insertRow'), '插入行', 12, 'insRow');
   addItem(TAB.INSERT, 'ins', 'insert.col', '插入列', () => callGrid('rowColOp', 'insertCol'), '插入列', 13, 'insCol');
   addItem(TAB.INSERT, 'ins', 'insert.removeRow', '删除行', () => callGrid('rowColOp', 'removeRow'), '删除行', 14, 'rmRow');
   addItem(TAB.INSERT, 'ins', 'insert.removeCol', '删除列', () => callGrid('rowColOp', 'removeCol'), '删除列', 15, 'rmCol');
+
 
   // ── 字段属性 ──
   addItem(TAB.FIELD_ATTR, 'attr', 'attr.readonly', '只读', () => callOpt('onFieldAttr')('readonly'), '设置字段为只读', 0, 'readonly');

@@ -329,7 +329,9 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
       // 布局可能是标准形态（sheets.*）也可能是画布回传的 parentData 形态（顶层 cellData），
       // 两种都要能读到「标签页元素」所在格，否则双击打不开页签编辑面。
       // 优先读设计器实时元数据（cellFieldMetaMap）：刚插入标签页、自动保存尚未回流 layoutData 时也能立即打开。
-      const liveMeta: any = mainGridApiRef.current?.getCellFieldMeta?.(row, col);
+      // mainGridApiRef 仅在打开子画布时才赋值，首次双击需回退到 window 上的主画布 API。
+      const grid: any = mainGridApiRef.current || (window as any).univerExcelGrid;
+      const liveMeta: any = grid?.getCellFieldMeta?.(row, col);
       if (liveMeta?.cellType === 'element' && liveMeta?.elementType === 'tab') return liveMeta.elementConfig || {};
       for (const cellData of collectCellDataMaps(layoutData)) {
         const meta = cellData?.[String(row)]?.[String(col)]?.fieldMeta;
@@ -380,6 +382,8 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
           return changed ? next : prev;
         });
         setTabEditor({ row, col, group: parsed });
+        // 双击直接打开默认页签的独立 Excel 画布（无需再点「编辑内容」）
+        setEditingTabId(parsed.tabs[Math.min(parsed.defShow, parsed.tabs.length - 1)]?.id || null);
         return;
       }
       // 旧版「行区间」方案 → 迁移为 E9 页签容器（每页一张独立 Excel 布局）
@@ -405,6 +409,8 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         return next;
       });
       setTabEditor({ row, col, group });
+      // 旧版布局同样双击直达子页签 Excel 画布
+      setEditingTabId(group.tabs[0]?.id || null);
     },
     [readTabCellConfig],
   );

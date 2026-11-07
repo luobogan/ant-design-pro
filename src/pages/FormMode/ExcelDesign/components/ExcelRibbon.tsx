@@ -10,7 +10,7 @@ import {
   Select,
   message,
 } from 'antd';
-import { getElementFields, type ElementFieldDef } from '../elementSchema';
+import { getElementFields, defaultTabGroupConfig, type ElementFieldDef } from '../elementSchema';
 import ElementConfigModal from './ElementConfigModal';
 import {
   SaveOutlined,
@@ -96,11 +96,11 @@ interface ExcelRibbonProps {
 const FONT_SIZES = [9, 10, 11, 12, 14, 16, 18, 20, 24, 28];
 
 // ──────────────────────────────────────────────
-// 插入菜单（对齐 ecology excelOperatHead.jsp 的 s_insert 分组，共 12 项）
-//  - 10 项为「元素格」：写入 cellType='element' + elementType + elementConfig
+// 插入菜单（对齐 ecology excelOperatHead.jsp 的 s_insert 分组，共 11 项）
+//  - 9 项为「元素格」：写入 cellType='element' + elementType + elementConfig
 //    （对应 ecology 扩展控件 dataobj.ecs[cellid] = { etype, jsonparam }）；
-//  - 「公式」写入 '=' 交给 Univer 公式引擎编辑；
-//  - 「清除背景」把当前选区背景重置为白色。
+//  - 「代码块」为布局级脚本；「公式」写入 '=' 交给 Univer 公式引擎编辑；
+//  - 「清除背景」为格式操作，已移至「格式」页签（applyRangeFormat bg=#fff）。
 // ──────────────────────────────────────────────
 // 与 elementSchema 的 ElementFieldDef 同源（含 upload/multiselect/switch/showIf），
 // 插入弹窗与属性面板共用同一份 schema，避免「插入时能配、选中后不能改」。
@@ -118,6 +118,8 @@ export type InsertDef = {
   fields?: InsertFieldDef[];
   action?: string;
   actionArgs?: any[];
+  /** 无配置字段时直接落单元格所带的 elementConfig（如「标签页」预置 1 个页签） */
+  defaultConfig?: Record<string, any>;
 };
 
 export const INSERT_DEFS: InsertDef[] = [
@@ -175,26 +177,13 @@ export const INSERT_DEFS: InsertDef[] = [
   },
   { key: 'formula', label: '公式', icon: <FunctionOutlined />, mode: 'formula' },
   {
-    key: 'clearBg',
-    label: '清除背景',
-    icon: <ClearOutlined />,
-    mode: 'action',
-    action: 'applyRangeFormat',
-    actionArgs: ['bg', '#ffffff'],
-  },
-  {
+    // 点击直接落单元格（不弹配置框）：预置 1 个页签，双击单元格再编辑页签与该页签的独立 Excel。
+    // 对齐 E9「先插入标签页容器，再在设计器里逐页编辑」的交互。
     key: 'tab',
     label: '标签页',
     icon: <AppstoreOutlined />,
     mode: 'element',
-    fields: [
-      {
-        name: 'tabs',
-        label: '标签页名称',
-        type: 'text',
-        placeholder: '多个用逗号分隔，如：基本信息,扩展信息',
-      },
-    ],
+    defaultConfig: defaultTabGroupConfig(),
   },
   {
     key: 'note',
@@ -287,7 +276,10 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
       return;
     }
     if (!def.fields || def.fields.length === 0) {
-      if (callGrid('insertElement', def.key, {})) message.success(`已插入「${def.label}」`);
+      // 无配置项的直接落单元格（如「标签页」）：带上默认 elementConfig
+      if (callGrid('insertElement', def.key, def.defaultConfig || {})) {
+        message.success(`已插入「${def.label}」`);
+      }
       return;
     }
     const init: Record<string, any> = {};
@@ -418,6 +410,11 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
                 <Button icon={<BgColorsOutlined />} />
               </ColorPicker>
             </span>
+          </Tooltip>
+          <Tooltip title="清除选区背景（重置为白色）">
+            <Button icon={<ClearOutlined />} onClick={() => callGrid('applyRangeFormat', 'bg', '#ffffff')}>
+              清除背景
+            </Button>
           </Tooltip>
           <Divider orientation="vertical" />
           <Tooltip title="合并单元格">

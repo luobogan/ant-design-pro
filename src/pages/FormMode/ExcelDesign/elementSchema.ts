@@ -612,6 +612,21 @@ export const buildTabGroupConfig = (g: TabGroupConfig): Record<string, any> => {
   return out;
 };
 
+/**
+ * 新建「标签页」元素的默认页签组配置（预置 1 个页签）。
+ * 插入时即写入 E9 风格 order_1，保证「双击直接进入子页签 Excel」及
+ * 保存时 collectUsedTabIds 能识别该页签、不把 tabTables 当孤儿清理掉。
+ */
+export const defaultTabGroupConfig = (): Record<string, any> =>
+  buildTabGroupConfig({
+    containerName: '标签页',
+    styleId: -1,
+    defShow: 0,
+    areaHeight: '1',
+    tabs: [{ id: 'tab_1', name: '标签页1' }],
+    custom: {},
+  });
+
 /** 生成新的页签 id（E9 tab_N 命名，递增） */
 export const nextTabId = (existing: string[]): string => {
   let max = 0;

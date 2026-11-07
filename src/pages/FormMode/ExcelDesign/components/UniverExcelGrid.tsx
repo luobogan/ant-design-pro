@@ -66,6 +66,18 @@ import '@univerjs/sheets-numfmt-ui/lib/index.css';
 
 // 字段类型编码 → 控件类型 / 中文标签的单一来源（浏览按钮 = fieldHtmlType 3）
 import { mapFieldToControlType, resolveBrowserType } from '@/components/FormMode/fieldTypes';
+// 元素图标 + 名称的单一来源（设计器单元格显示值，插入/加载/重建共用）
+import { ELEMENT_META } from '../elementSchema';
+
+/**
+ * 元素格设计态显示文本「图标 名称」。
+ * 插入、加载还原、防篡改自愈、保存校验都必须用同一份，
+ * 否则 loadLayoutData 会按 fieldMeta 重建出无图标文本，保存后图标即消失。
+ */
+const buildElementDisplay = (elementType: string, fieldLabel?: string): string => {
+  const def = ELEMENT_META[elementType] || { icon: '📦', label: elementType };
+  return `${def.icon} ${fieldLabel || def.label}`;
+};
 
 /**
  * 将保存的单元格样式（IStyleData）应用到 range。
@@ -295,11 +307,13 @@ interface FieldMeta {
     if (meta.cellType === 'label') {
       return meta.fieldLabel || meta.fieldName || '';
     }
-    // 元素格（「插入」类，≈ ecology 扩展控件）：显示元素名。
-    // insertElement 额外写入「图标 + 名称」，防篡改比较经 stripFieldIcon 对齐两者。
-    // 此前缺此分支导致元素格落入字段模板 → fieldName 为空 → 显示成 ${}。
+    // 元素格（「插入」类，≈ ecology 扩展控件）：显示「图标 + 名称」。
+    // 必须与 insertElement 写入的值同源（buildElementDisplay）：
+    // loadLayoutData 会按 fieldMeta 调 setCellField 重建显示值并丢弃 cell.v，
+    // 若此处只返回 fieldLabel，保存后重新加载时图标就会消失。
+    // 防篡改比较 isCellValueMatchMeta 经 stripFieldIcon 去图标后仍能对齐。
     if (meta.cellType === 'element') {
-      return meta.fieldLabel || String((meta as any).elementType || '元素');
+      return buildElementDisplay(String((meta as any).elementType || ''), meta.fieldLabel);
     }
     const typeIcon = FIELD_ICON_MAP[meta.fieldType] ?? '📝';
     // 字段属性图标（参照 ecology viewAttr）：0=不显示🚫 1=只读🔒 3=必填⚠️；2=可编辑不额外加图标
@@ -4454,18 +4468,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       // 对齐 ecology 扩展控件模型：dataobj.ecs[cellid] = { etype, jsonparam }
       // 这里以单元格元数据落位：cellType='element' + elementType（≈etype）+ elementConfig（≈jsonparam）
       // 注：代码块已是「布局级」能力（整份表单一份可执行脚本，存 layout_config），不再作为单元格元素插入。
-      const ELEMENT_META: Record<string, { icon: string; label: string }> = {
-        image: { icon: '🖼️', label: '图片' },
-        text: { icon: '📝', label: '文本' },
-        link: { icon: '🔗', label: '链接' },
-        multilang: { icon: '🌐', label: '多语言标签' },
-        iframe: { icon: '🧩', label: 'Iframe区域' },
-        tab: { icon: '🗂️', label: '标签页' },
-        note: { icon: '📌', label: '说明' },
-        barcode: { icon: '📊', label: '二维/条形码' },
-        portal: { icon: '🏛️', label: '门户元素' },
-      };
-
+      // 图标/名称统一取模块顶部 import 的 ELEMENT_META（elementSchema 单一来源），不再本地复制。
       const getActiveCellPos = (): { row: number; col: number } => {
         const sel: any = typeof getSelection === 'function' ? getSelection() : null;
         return {
@@ -4491,11 +4494,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             required: false,
             readonly: false,
           };
+          // 显示文本由 setCellField → getCellDisplayValue → buildElementDisplay 统一生成，
+          // 不再单独 setValue 覆盖，避免插入/加载两处写法不一致导致保存后丢图标。
           setCellField(workbookRef.current, sheet, row, col, meta);
-          // 写入带图标的显示文本，便于在设计器中一眼识别元素类型
-          try {
-            (sheet as any)?.getRange?.(row, col, 1, 1)?.setValue?.(`${def.icon} ${def.label}`);
-          } catch (e) { /* ignore */ }
           setTimeout(() => { try { saveLayoutData(); } catch (e) { /* ignore */ } }, 0);
           return true;
         } catch (e) {
