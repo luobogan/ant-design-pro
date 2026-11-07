@@ -2,7 +2,7 @@ import React from 'react';
 import { Modal, Input, InputNumber, Select, Switch, Upload, Button, Space, message } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import { type ElementFieldDef } from '../elementSchema';
-import { uploadFile } from '@/services/file';
+import { uploadFile, resolveFileUrl } from '@/services/file';
 
 interface ElementConfigModalProps {
   open: boolean;
@@ -95,7 +95,8 @@ const ElementConfigModal: React.FC<ElementConfigModalProps> = ({
                       const hide = message.loading('上传中…', 0);
                       uploadFile(file)
                         .then((r) => {
-                          if (r?.url) set(f.name, r.url);
+                          const resolved = resolveFileUrl(r?.url, r?.id);
+                          if (resolved) set(f.name, resolved);
                           else message.error('上传失败：未返回地址');
                         })
                         .catch((e) => message.error('上传失败：' + (e?.message || e)))

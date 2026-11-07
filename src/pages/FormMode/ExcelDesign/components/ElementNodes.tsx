@@ -12,6 +12,7 @@ import {
   pickMultiLang,
   resolveIframeSrc,
 } from '../elementSchema';
+import { resolveFileUrl } from '@/services/file';
 
 /**
  * 运行期「插入元素」渲染组件集合。
@@ -119,7 +120,8 @@ export const ImageElement: React.FC<{ cfg: Record<string, any> }> = ({ cfg }) =>
       </span>
     );
   }
-  if (!cfg.src) return placeholder('图片（未配置地址）');
+  const src = resolveFileUrl(cfg.src);
+  if (!src) return placeholder('图片（未配置地址）');
   const w = cfg.width || 120;
   const h = cfg.height || 80;
   if (Number(cfg.srcdtype) === 1) {
@@ -129,7 +131,7 @@ export const ImageElement: React.FC<{ cfg: Record<string, any> }> = ({ cfg }) =>
         style={{
           width: '100%',
           minHeight: h,
-          backgroundImage: `url("${cfg.src}")`,
+          backgroundImage: `url("${src}")`,
           backgroundSize: 'contain',
           backgroundRepeat: 'no-repeat',
           backgroundPosition: 'center',
@@ -139,7 +141,7 @@ export const ImageElement: React.FC<{ cfg: Record<string, any> }> = ({ cfg }) =>
   }
   return (
     <img
-      src={cfg.src}
+      src={src}
       alt={cfg.alt || ''}
       style={{ maxWidth: '100%', width: Number(cfg.srcdtype) === 3 ? w : undefined, height: h }}
     />
