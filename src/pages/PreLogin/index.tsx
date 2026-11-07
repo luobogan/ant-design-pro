@@ -90,7 +90,7 @@ const PreLogin: React.FC = () => {
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 80 }}>
-            <Spin size="large" tip="正在加载门户..." />
+            <Spin size="large" description="正在加载门户..." />
           </div>
         ) : !portal?.pageId ? (
           <Empty description="暂无登录前门户内容" style={{ padding: 80, background: '#fff', borderRadius: 12 }} />

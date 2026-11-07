@@ -73,7 +73,7 @@ const UniverEditor: React.FC<Props> = ({ cfg }) => {
         message="Univer（开源）负责 Office 文档在线编辑"
         description={`加载地址：${loadUrl || '-'}　保存地址：${saveUrl || '（只读）'}　用户：${cfg?.userName || '-'}`}
       />
-      {status === 'loading' && <Spin tip="正在加载 Univer 资源…" />}
+      {status === 'loading' && <Spin description="正在加载 Univer 资源…" />}
       {status === 'missing' && (
         <Alert
           type="warning"

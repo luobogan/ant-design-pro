@@ -69,7 +69,7 @@ const NoticeDetail: React.FC = () => {
 
       {loading ? (
         <div style={{ padding: 80, textAlign: 'center' }}>
-          <Spin size="large" tip="正在加载公告..." />
+          <Spin size="large" description="正在加载公告..." />
         </div>
       ) : error ? (
         <Alert type="error" showIcon message={error} />

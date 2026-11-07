@@ -2003,6 +2003,7 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
   standalone = false,
   hideHeader = false,
   nodePermission,
+  nodeId,
   onSubmit,
   onValuesChange,
   initialValues,

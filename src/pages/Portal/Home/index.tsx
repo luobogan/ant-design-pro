@@ -564,7 +564,7 @@ const PortalPage: React.FC = () => {
   if (portalLoading) {
     return (
       <div style={{ padding: 120, textAlign: 'center' }}>
-        <Spin size="large" tip="正在加载门户..." />
+        <Spin size="large" description="正在加载门户..." />
       </div>
     );
   }

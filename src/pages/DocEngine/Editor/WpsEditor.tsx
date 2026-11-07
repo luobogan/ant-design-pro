@@ -90,7 +90,7 @@ const WpsEditor: React.FC<Props> = ({ cfg }) => {
         message="WPS WebOffice SDK 负责 Office 文档在线编辑（可选方案）"
         description={`appId：${cfg?.wpsAppId || '-'}　fileId：${cfg?.wpsFileId || '-'}　token：${(cfg?.wpsToken || '').slice(0, 12)}…`}
       />
-      {status === 'loading' && <Spin tip="正在加载 WPS WebOffice SDK…" />}
+      {status === 'loading' && <Spin description="正在加载 WPS WebOffice SDK…" />}
       {status === 'missing' && (
         <Alert
           type="warning"

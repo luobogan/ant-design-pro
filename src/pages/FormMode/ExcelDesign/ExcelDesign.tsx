@@ -32,7 +32,7 @@ import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import FieldPalette from './components/FieldPalette';
 import UniverExcelGrid from './components/UniverExcelGrid';
-import ExcelRibbon from './components/ExcelRibbon';
+import ExcelRibbon, { INSERT_DEFS, type InsertDef } from './components/ExcelRibbon';
 import {
   registerDesignerRibbon,
   resetDesignerRibbon,
@@ -41,7 +41,8 @@ import {
 } from './ribbonRegistry';
 import PropertyPanel from './components/PropertyPanel';
 import TabEditor from './components/TabEditor';
-import { buildTabGroupConfig, nextTabId, parseTabGroup, type TabGroupConfig } from './elementSchema';
+import ElementConfigModal from './components/ElementConfigModal';
+import { buildTabGroupConfig, nextTabId, parseTabGroup, normalizeElementConfig, type TabGroupConfig } from './elementSchema';
 import LayoutStructurePanel from './components/LayoutStructurePanel';
 import type { StructField } from './components/LayoutStructurePanel';
 import ExcelPreview from './components/ExcelPreview';
@@ -300,6 +301,13 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
   } | null>(null);
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [tabLayouts, setTabLayouts] = useState<Record<string, any>>({});
+  // 双击「非标签页元素格」打开的属性编辑弹窗：坐标 + 元素类型定义 + 当前配置
+  const [elementEditor, setElementEditor] = useState<{
+    row: number;
+    col: number;
+    def: InsertDef | null;
+    values: Record<string, any>;
+  } | null>(null);
   // 每个页签的「布局变更回调」稳定实例（避免子画布因 onLayoutChange 变化而反复重建 Univer）
   const tabLayoutChangeRef = useRef<Record<string, (data: any) => void>>({});
   const getTabLayoutChange = (tabId: string) => {
@@ -336,7 +344,25 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
   const handleCellDoubleClick = useCallback(
     (row: number, col: number) => {
       const raw = readTabCellConfig(row, col);
-      if (!raw) return;
+      if (!raw) {
+        // 非标签页格：若是元素格（图片/文本/链接/多语言/Iframe/说明/条码/门户等），双击打开属性编辑弹窗
+        const grid: any = mainGridApiRef.current || (window as any).univerExcelGrid;
+        const meta: any = grid?.getCellFieldMeta?.(row, col);
+        if (meta && meta.cellType === 'element' && meta.elementType !== 'tab') {
+          const def = INSERT_DEFS.find((d) => d.key === meta.elementType) || null;
+          if (def) {
+            setElementEditor({
+              row,
+              col,
+              def,
+              values: normalizeElementConfig(meta.elementType, meta.elementConfig || {}),
+            });
+          } else {
+            message.info(`该元素「${meta.elementType}」暂无可编辑配置`);
+          }
+        }
+        return;
+      }
       // 记下主画布 API：页签子画布会覆盖 window.univerExcelGrid，写回配置须用主画布实例
       mainGridApiRef.current = (window as any).univerExcelGrid;
       const parsed = parseTabGroup(raw);
@@ -382,6 +408,18 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     },
     [readTabCellConfig],
   );
+
+  /** 双击元素格弹窗「确定」：把编辑后的配置回写到该元素格（与 insertElement 同源 cellType='element'） */
+  const submitElementEdit = useCallback(() => {
+    if (!elementEditor) return;
+    const api = mainGridApiRef.current || (window as any).univerExcelGrid;
+    if (api && typeof api.setElementConfig === 'function') {
+      api.setElementConfig(elementEditor.row, elementEditor.col, elementEditor.values);
+    } else {
+      message.warning('设计器尚未就绪，请稍候再试');
+    }
+    setElementEditor(null);
+  }, [elementEditor, message]);
 
   /**
    * 合并页签独立布局的两个来源：
@@ -1861,7 +1899,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         插入明细表
       </Button>
     </Dropdown>,
-    <Divider key="detail-divider" type="vertical" style={{ height: 24, margin: '0 8px' }} />,
+    <Divider key="detail-divider" orientation="vertical" style={{ height: 24, margin: '0 8px' }} />,
     <Button key="save" type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saving}>
       保存
     </Button>,
@@ -1881,7 +1919,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
       重做
     </Button>,
     // 字段属性按钮（参照 ecology excel 设计器）
-    <Divider key="field-attr-divider" type="vertical" style={{ height: 24, margin: '0 8px' }} />,
+    <Divider key="field-attr-divider" orientation="vertical" style={{ height: 24, margin: '0 8px' }} />,
     <Tooltip key="readonly-tooltip" title="设置字段为只读">
       <Button
         key="readonly"
@@ -2259,6 +2297,16 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
           </div>
         )}
       </Modal>
+      {/* 双击元素格（图片/文本/链接/多语言/Iframe/说明/条码/门户等）弹出的属性编辑框 */}
+      <ElementConfigModal
+        open={!!elementEditor}
+        title={elementEditor ? `编辑「${elementEditor.def?.label ?? ''}」` : ''}
+        fields={elementEditor?.def?.fields || []}
+        values={elementEditor?.values || {}}
+        onChange={(next) => setElementEditor((prev) => (prev ? { ...prev, values: next } : prev))}
+        onOk={submitElementEdit}
+        onCancel={() => setElementEditor(null)}
+      />
     </DndProvider>
   );
 };

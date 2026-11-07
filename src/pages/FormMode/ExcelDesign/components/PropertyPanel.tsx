@@ -132,7 +132,7 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ selectedField, onFieldAtt
           );
         case 'upload':
           return (
-            <Space direction="vertical" style={{ width: '100%' }}>
+            <Space orientation="vertical" style={{ width: '100%' }}>
               <Input
                 value={cfg[f.name] ?? ''}
                 placeholder={f.placeholder || '上传后自动填充；也可直接粘贴 URL（服务未启动时可用）'}

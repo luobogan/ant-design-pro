@@ -171,12 +171,15 @@ export const IframeArea: React.FC<{ cfg: Record<string, any> }> = ({ cfg }) => {
   const baseHeight = Number(cfg.height) || 240;
   const [height, setHeight] = useState<number>(baseHeight);
   React.useEffect(() => setHeight(baseHeight), [baseHeight]);
+  const iframeRef = React.useRef<HTMLIFrameElement>(null);
 
   // 跨域自适应高度：子页通过 postMessage 上报自身高度（同源由 onLoad 兜底）
-  // 子页约定：parent.postMessage({ type: 'excelp-iframe-resize', id: <setId>, height: <px> }, '*')
+  // 子页约定：parent.postMessage({ type: 'excelp-iframe-resize', height: <px> }, '*')
   React.useEffect(() => {
     if (cfg.heightMode !== 'auto') return;
     const onMessage = (e: MessageEvent) => {
+      // 仅接受来自本 iframe 源窗口的消息，避免页面内多个 iframe 互相串扰
+      if (iframeRef.current && e.source !== iframeRef.current.contentWindow) return;
       const d = e.data as any;
       if (!d || d.type !== 'excelp-iframe-resize') return;
       if (cfg.setId && d.id && d.id !== cfg.setId) return;
@@ -193,6 +196,7 @@ export const IframeArea: React.FC<{ cfg: Record<string, any> }> = ({ cfg }) => {
     <iframe
       id={cfg.setId || undefined}
       title={cfg.setName || 'iframe-area'}
+      ref={iframeRef}
       src={src}
       loading="lazy"
       referrerPolicy={cfg.referrerPolicy || 'strict-origin-when-cross-origin'}

@@ -407,7 +407,7 @@ const LayoutStructurePanel: React.FC<LayoutStructurePanelProps> = ({
         cancelText="取消"
         destroyOnHidden
       >
-        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+        <Space orientation="vertical" size={8} style={{ width: '100%' }}>
           {(
             [
               ['isadd', '允许新增行'],

@@ -268,7 +268,8 @@ interface FieldMeta {
      * 标签(label)与元素(element)格是纯展示内容，允许正常复制。
      */
     const isStructuredCellMeta = (meta: any): boolean =>
-      !!meta && (meta.cellType === 'field' || meta.cellType === 'detailTableMarker');
+      !!meta &&
+      (meta.cellType === 'field' || meta.cellType === 'detailTableMarker' || meta.cellType === 'element');
 
     /**
      * 结构化单元格的展示名（用于提示文案）：

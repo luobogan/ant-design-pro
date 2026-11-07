@@ -447,7 +447,7 @@ const PortalDesigner: React.FC = () => {
             <SortableContext items={elements.map((e) => e.uid)} strategy={rectSortingStrategy}>
               {elementLoading ? (
                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Spin tip="正在加载页面元素..." />
+                  <Spin description="正在加载页面元素..." />
                 </div>
               ) : (
                 <DesignCanvas

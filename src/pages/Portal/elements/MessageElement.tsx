@@ -45,7 +45,7 @@ const MessageElement: React.FC<MessageElementProps> = ({ rows, perPage }) => {
           </Space>
         }
         value={unread}
-        valueStyle={{ fontSize: 28, fontWeight: 600 }}
+        styles={{ content: { fontSize: 28, fontWeight: 600 } }}
       />
       <Button type="primary" ghost block onClick={() => navigate(summary.url || '/message')}>
         进入消息中心

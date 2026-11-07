@@ -175,7 +175,7 @@ const PdfViewer: React.FC<Props> = ({ cfg }) => {
       />
       {status === 'loading' && (
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <Spin tip="正在下载 PDF…" />
+          <Spin description="正在下载 PDF…" />
           <Progress
             percent={
               progress.total

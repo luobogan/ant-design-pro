@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { App, Result, Spin } from 'antd';
 import ExcelPreview, { NodePermissionResolver } from './components/ExcelPreview';
 import { renderForm, validateForm } from '@/services/workflow';
+import { useIframeHeightReporter } from './iframeHeightReporter';
 
 /**
  * 设计器写入、预览页读取的布局数据键。
@@ -31,6 +32,8 @@ const ExcelPreviewPageContent: React.FC = () => {
   const [renderPkg, setRenderPkg] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const { message } = App.useApp();
+  // 被嵌入到其它页面的 iframe 中时，向父窗口上报高度以自适应（同源/跨域均生效）
+  useIframeHeightReporter();
 
   // URL 中的审批上下文：instanceId + nodeId 或 taskId
   const params = useMemo(() => {

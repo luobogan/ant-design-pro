@@ -8,15 +8,10 @@ import {
   Dropdown,
   ColorPicker,
   Select,
-  Switch,
-  Upload,
   message,
-  Modal,
-  Input,
-  InputNumber,
 } from 'antd';
 import { getElementFields, type ElementFieldDef } from '../elementSchema';
-import { uploadFile } from '@/services/file';
+import ElementConfigModal from './ElementConfigModal';
 import {
   SaveOutlined,
   EyeOutlined,
@@ -111,7 +106,7 @@ const FONT_SIZES = [9, 10, 11, 12, 14, 16, 18, 20, 24, 28];
 // 插入弹窗与属性面板共用同一份 schema，避免「插入时能配、选中后不能改」。
 type InsertFieldDef = ElementFieldDef;
 
-type InsertDef = {
+export type InsertDef = {
   key: string;
   label: string;
   icon: React.ReactNode;
@@ -125,7 +120,7 @@ type InsertDef = {
   actionArgs?: any[];
 };
 
-const INSERT_DEFS: InsertDef[] = [
+export const INSERT_DEFS: InsertDef[] = [
   {
     // 布局级代码块：对齐 ecology「按 layoutid 取整表一份 script、加载时注入执行」，
     // 不占用单元格（ecology 的 InsertCode 弹窗即一个大的 script 编辑区）。
@@ -348,7 +343,7 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
           <Button icon={<EyeOutlined />} onClick={onPreview}>
             预览
           </Button>
-          <Divider type="vertical" />
+          <Divider orientation="vertical" />
           <Button icon={<UploadOutlined />} onClick={onImport}>
             导入
           </Button>
@@ -370,7 +365,7 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
           <Tooltip title="重做">
             <Button icon={<RedoOutlined />} disabled={!canRedo} onClick={onRedo} />
           </Tooltip>
-          <Divider type="vertical" />
+          <Divider orientation="vertical" />
           <Tooltip title="加粗">
             <Button
               icon={<BoldOutlined />}
@@ -400,7 +395,7 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
             onChange={(v) => callGrid('applyRangeFormat', 'fontSize', v)}
             options={FONT_SIZES.map((s) => ({ label: `${s}`, value: s }))}
           />
-          <Divider type="vertical" />
+          <Divider orientation="vertical" />
           <Tooltip title="左对齐">
             <Button icon={<AlignLeftOutlined />} onClick={() => callGrid('applyRangeFormat', 'align', 'left')} />
           </Tooltip>
@@ -413,7 +408,7 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
           <Tooltip title="自动换行">
             <Button icon={<EnterOutlined />} onClick={() => callGrid('applyRangeFormat', 'wrap', true)} />
           </Tooltip>
-          <Divider type="vertical" />
+          <Divider orientation="vertical" />
           <Tooltip title="背景色">
             <span style={{ display: 'inline-block', verticalAlign: 'middle' }}>
               <ColorPicker
@@ -424,7 +419,7 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
               </ColorPicker>
             </span>
           </Tooltip>
-          <Divider type="vertical" />
+          <Divider orientation="vertical" />
           <Tooltip title="合并单元格">
             <Button icon={<MergeCellsOutlined />} onClick={() => callGrid('mergeSelection')}>
               合并
@@ -574,19 +569,18 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
       <Tabs size="small" activeKey={activeKey} onChange={setActiveKey} items={tabItems} />
 
       {/* 参数配置弹窗：script=布局级代码块（保存脚本）；其余元素项按元素类型动态渲染字段，确认后写入活动单元格 */}
-      <Modal
+      <ElementConfigModal
         open={!!insertDef}
         title={insertDef ? (insertDef.mode === 'script' ? '代码块' : `插入「${insertDef.label}」`) : ''}
-        // 代码块是「保存」到布局（对齐 ecology InsertCode 弹窗的保存按钮），其余元素仍是「插入」到单元格
-        okText={insertDef?.mode === 'script' ? '保存' : '插入'}
-        cancelText="取消"
+        fields={insertDef?.fields || []}
+        values={insertVals}
+        onChange={setInsertVals}
         onOk={submitInsert}
         onCancel={() => setInsertDef(null)}
+        okText={insertDef?.mode === 'script' ? '保存' : '插入'}
         width={insertDef?.mode === 'script' ? 720 : 520}
-        destroyOnHidden
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
-          {insertDef?.mode === 'script' && (
+        helpNode={
+          insertDef?.mode === 'script' ? (
             <div style={{ color: '#888', fontSize: 12, lineHeight: 1.7 }}>
               <div>
                 整份表单仅一份脚本，不占用单元格；预览与表单加载时注入执行，可写 HTML / JS。
@@ -618,89 +612,9 @@ ExcelPreview.rowCount(0)                   // 明细表1 当前行数
 // 也可用 data-* 精确选择（避免中文 id 转义问题）：
 document.querySelector('[data-excelp-role="field"][data-excelp-scope="main"][data-excelp-field="xm"]')`}</pre>
             </div>
-          )}
-          {(insertDef?.fields || []).map((f) => {
-            if (f.showIf && !f.showIf(insertVals)) return null;
-            return (
-            <div key={f.name}>
-              <div style={{ marginBottom: 4, fontSize: 13 }}>{f.label}</div>
-              {f.type === 'text' && (
-                <Input
-                  value={insertVals[f.name] ?? ''}
-                  placeholder={f.placeholder}
-                  onChange={(e) => setInsertVals((p) => ({ ...p, [f.name]: e.target.value }))}
-                />
-              )}
-              {f.type === 'textarea' && (
-                <Input.TextArea
-                  rows={f.rows ?? 4}
-                  value={insertVals[f.name] ?? ''}
-                  placeholder={f.placeholder}
-                  onChange={(e) => setInsertVals((p) => ({ ...p, [f.name]: e.target.value }))}
-                />
-              )}
-              {f.type === 'number' && (
-                <InputNumber
-                  style={{ width: '100%' }}
-                  value={insertVals[f.name]}
-                  onChange={(v) => setInsertVals((p) => ({ ...p, [f.name]: v }))}
-                />
-              )}
-              {f.type === 'select' && (
-                <Select
-                  style={{ width: '100%' }}
-                  value={insertVals[f.name]}
-                  options={f.options}
-                  onChange={(v) => setInsertVals((p) => ({ ...p, [f.name]: v }))}
-                />
-              )}
-              {f.type === 'upload' && (
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  <Input
-                    value={insertVals[f.name] ?? ''}
-                    placeholder={f.placeholder || '上传后自动填充；也可直接粘贴 URL（文件服务未启动时可用）'}
-                    onChange={(e) => setInsertVals((p) => ({ ...p, [f.name]: e.target.value }))}
-                  />
-                  <Upload
-                    beforeUpload={(file) => {
-                      const hide = message.loading('上传中…', 0);
-                      uploadFile(file)
-                        .then((r) => {
-                          if (r?.url) setInsertVals((p) => ({ ...p, [f.name]: r.url }));
-                          else message.error('上传失败：未返回地址');
-                        })
-                        .catch((e) => message.error('上传失败：' + (e?.message || e)))
-                        .finally(() => hide());
-                      return false; // 阻断默认上传，改由 uploadFile 走统一文件服务（双通道：URL 兜底）
-                    }}
-                    showUploadList={false}
-                    accept="image/*"
-                  >
-                    <Button icon={<UploadOutlined />}>上传图片（双通道）</Button>
-                  </Upload>
-                </Space>
-              )}
-              {f.type === 'multiselect' && (
-                <Select
-                  style={{ width: '100%' }}
-                  mode={f.options && f.options.length ? 'multiple' : 'tags'}
-                  value={insertVals[f.name] || []}
-                  options={f.options}
-                  placeholder={f.placeholder}
-                  onChange={(v) => setInsertVals((p) => ({ ...p, [f.name]: v }))}
-                />
-              )}
-              {f.type === 'switch' && (
-                <Switch
-                  checked={!!insertVals[f.name]}
-                  onChange={(v) => setInsertVals((p) => ({ ...p, [f.name]: v }))}
-                />
-              )}
-            </div>
-            );
-          })}
-        </div>
-      </Modal>
+          ) : undefined
+        }
+      />
     </div>
   );
 };
