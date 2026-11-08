@@ -5,12 +5,12 @@ import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { Badge, Modal, Popconfirm, Radio, Space, Tag, message } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { usePageButtons } from '@/hooks/usePageButtons';
+import { useVisibilityRefresh } from '@/hooks/useVisibilityRefresh';
 import { PermissionButton } from '@/components/PermissionButton';
 import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
 import { useUserNames } from '@/components/FormMode/useUserNames';
-import { listTodo, forwardTask, addSignTask, urgeTask, deleteDraft } from '@/services/workflow';
+import { listTodoPage, fetchTaskPage, forwardTask, addSignTask, urgeTask, deleteDraft } from '@/services/workflow';
 import type { WfTaskItem } from '@/services/workflow';
-import { pickPayload } from '@/utils/utils';
 
 /** 任务状态：0待办 2已办 4办结 6自动提交 7协办 8抄送 11传阅 */
 const TASK_STATUS: Record<number, { text: string; color: string }> = {
@@ -38,6 +38,8 @@ const TodoList: React.FC = () => {
   const userId = initialState?.currentUser?.userid;
   const { buttons } = usePageButtons('workflow_todo');
   const actionRef = useRef<ActionType>();
+  // 切回本标签时补拉列表（纯前端 L1，不改后端、不引入 WS）
+  useVisibilityRefresh(actionRef);
   const [modal, setModal] = useState<{ type: 'forward' | 'sign'; record?: WfTaskItem; assignee?: any; addSignType?: number } | null>(null);
   /** 待办列表的发起人 ID：由 request 回调收集，useUserNames 按需解析姓名（不再全量加载人员） */
   const [starterIds, setStarterIds] = useState<string[]>([]);
@@ -185,17 +187,16 @@ const TodoList: React.FC = () => {
         search={{ labelWidth: 'auto' }}
         pagination={{ defaultPageSize: 20 }}
         request={async (params) => {
-          const res: any = await listTodo(userId);
-          let list: WfTaskItem[] = pickPayload(res) || [];
-          if (params.status !== undefined && params.status !== null) {
-            list = list.filter((i) => i.status === params.status);
-          }
-          if (params.title) {
-            list = list.filter((i) => (i.title || '').includes(String(params.title)));
-          }
-          // 收集本页发起人 ID：useUserNames 会按需精确查姓名（/user/detail），不拉全量人员
-          setStarterIds(list.map((i) => i.starter).filter(Boolean) as string[]);
-          return { data: list, success: true, total: list.length };
+          // 服务端真分页：筛选条件（标题/状态）下推 SQL，前端不再内存 filter
+          const result = await fetchTaskPage(listTodoPage, {
+            current: params.current,
+            pageSize: params.pageSize,
+            title: params.title as string | undefined,
+            status: params.status as number | undefined,
+          });
+          // 仅解析当前页的发起人，避免全量姓名反查
+          setStarterIds(result.data.map((i) => i.starter).filter(Boolean) as string[]);
+          return result;
         }}
         options={{ reload: true, density: true, setting: true }}
       />

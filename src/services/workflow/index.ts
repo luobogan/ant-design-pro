@@ -1,5 +1,6 @@
 import { request } from 'umi';
 import type { ApiResponse } from '@/services/formmode/typings';
+import { pickPayload } from '@/utils/utils';
 
 /**
  * 审批流程服务（对应后端 blade-workflow，前缀 /api/blade-workflow）。
@@ -980,6 +981,64 @@ export async function listTodo(assignee?: number | string) {
 
 export async function listDone(assignee?: number | string) {
   return request<ApiResponse<WfTaskItem[]>>(`${WORKFLOW}/task/done`, { method: 'GET', params: { assignee } });
+}
+
+/** 待办/已办服务端分页参数（筛选条件下推 SQL） */
+export interface WfTaskPageParams {
+  current?: number;
+  pageSize?: number;
+  title?: string;
+  status?: number;
+  defId?: string;
+  formId?: string;
+  beginTime?: string;
+  endTime?: string;
+}
+
+/** 待办分页：列表页专用；旧 listTodo 仍供办理页/引用选择器使用 */
+export async function listTodoPage(params: WfTaskPageParams) {
+  return request<ApiResponse<{ records?: WfTaskItem[]; total?: number; current?: number; size?: number }>>(
+    `${WORKFLOW}/task/todo/page`,
+    { method: 'GET', params },
+  );
+}
+
+/** 已办分页：列表页专用；旧 listDone 保持全量返回不变 */
+export async function listDonePage(params: WfTaskPageParams) {
+  return request<ApiResponse<{ records?: WfTaskItem[]; total?: number; current?: number; size?: number }>>(
+    `${WORKFLOW}/task/done/page`,
+    { method: 'GET', params },
+  );
+}
+
+/**
+ * 分页取数 + 越界兜底。
+ *
+ * 切回可见补拉时数据可能变少，若用户停在的页码已超过末页，ProTable 会显示空白页。
+ * 这里在 total 减小导致越界时，自动用末页页码再取一次，保证始终有数据。
+ * 纯请求层处理，不引入 React 状态与额外渲染。
+ */
+export async function fetchTaskPage(
+  fetcher: (p: WfTaskPageParams) => Promise<any>,
+  params: WfTaskPageParams,
+): Promise<{ data: WfTaskItem[]; total: number; success: boolean }> {
+  const read = async (p: WfTaskPageParams) => {
+    const res: any = await fetcher(p);
+    const page: any = pickPayload(res) || {};
+    const list: WfTaskItem[] = Array.isArray(page) ? page : page.records || [];
+    const total: number = Array.isArray(page) ? list.length : page.total ?? list.length;
+    return { list, total };
+  };
+
+  const first = await read(params);
+  const current = params.current || 1;
+  const size = params.pageSize || 20;
+  const lastPage = Math.max(1, Math.ceil(first.total / size));
+  if (first.total > 0 && first.list.length === 0 && current > lastPage) {
+    const retry = await read({ ...params, current: lastPage });
+    return { data: retry.list, total: retry.total, success: true };
+  }
+  return { data: first.list, total: first.total, success: true };
 }
 
 /**

@@ -5,6 +5,7 @@ import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { Alert, Badge, Button, Popconfirm, message } from 'antd';
 import { useRef, useState } from 'react';
 import { usePageButtons } from '@/hooks/usePageButtons';
+import { useVisibilityRefresh } from '@/hooks/useVisibilityRefresh';
 import { listMyRequests, withdrawInstance, stopInstance, deleteDraft } from '@/services/workflow';
 import type { MyRequestItem } from '@/services/workflow';
 import { pickPayload } from '@/utils/utils';
@@ -29,6 +30,8 @@ const MyRequestList: React.FC = () => {
   const userId = initialState?.currentUser?.userid;
   const { buttons } = usePageButtons('workflow_request');
   const actionRef = useRef<ActionType>();
+  // 切回本标签时补拉列表（纯前端 L1，不改后端、不引入 WS）
+  useVisibilityRefresh(actionRef);
   const [backendMissing, setBackendMissing] = useState(false);
 
   const openProgress = (record: MyRequestItem) => {

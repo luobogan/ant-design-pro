@@ -1,14 +1,13 @@
-import { useModel } from '@umijs/max';
 import { PageContainer } from '@ant-design/pro-components';
 import StandardTable from '@/components/StandardTable';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { Badge, Drawer, Tag, Timeline } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { usePageButtons } from '@/hooks/usePageButtons';
+import { useVisibilityRefresh } from '@/hooks/useVisibilityRefresh';
 import { useUserNames } from '@/components/FormMode/useUserNames';
-import { listDone, getLogs } from '@/services/workflow';
+import { listDonePage, fetchTaskPage, getLogs } from '@/services/workflow';
 import type { WfTaskItem } from '@/services/workflow';
-import { pickPayload } from '@/utils/utils';
 
 const TASK_STATUS: Record<number, { text: string; color: string }> = {
   0: { text: '待办', color: 'processing' },
@@ -33,10 +32,10 @@ interface LogItem {
  * 「查看」打开审批承载页（不带 taskId，后端按实例渲染只读）；「日志」拉流转记录时间线。
  */
 const DoneList: React.FC = () => {
-  const { initialState } = useModel('@@initialState');
-  const userId = initialState?.currentUser?.userid;
   const { buttons } = usePageButtons('workflow_done');
   const actionRef = useRef<ActionType>();
+  // 切回本标签时补拉列表（纯前端 L1，不改后端、不引入 WS）
+  useVisibilityRefresh(actionRef);
   const [logVisible, setLogVisible] = useState(false);
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [logTitle, setLogTitle] = useState('');
@@ -100,17 +99,16 @@ const DoneList: React.FC = () => {
         search={{ labelWidth: 'auto' }}
         pagination={{ defaultPageSize: 20 }}
         request={async (params) => {
-          const res: any = await listDone(userId);
-          let list: WfTaskItem[] = pickPayload(res) || [];
-          if (params.status !== undefined && params.status !== null) {
-            list = list.filter((i) => i.status === params.status);
-          }
-          if (params.title) {
-            list = list.filter((i) => (i.title || '').includes(String(params.title)));
-          }
-          // 收集本页发起人 ID：useUserNames 按需精确查姓名（/user/detail），不拉全量人员
-          setStarterIds(list.map((i) => i.starter).filter(Boolean) as string[]);
-          return { data: list, success: true, total: list.length };
+          // 服务端真分页：筛选条件（标题/状态）下推 SQL，前端不再内存 filter
+          const result = await fetchTaskPage(listDonePage, {
+            current: params.current,
+            pageSize: params.pageSize,
+            title: params.title as string | undefined,
+            status: params.status as number | undefined,
+          });
+          // 仅解析当前页的发起人，避免全量姓名反查
+          setStarterIds(result.data.map((i) => i.starter).filter(Boolean) as string[]);
+          return result;
         }}
         options={{ reload: true, density: true, setting: true }}
       />
