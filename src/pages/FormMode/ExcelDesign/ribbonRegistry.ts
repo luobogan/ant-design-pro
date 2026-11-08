@@ -331,14 +331,16 @@ export const registerDesignerRibbon = (opts: RegisterRibbonOptions): boolean => 
 
   // ↓ 对齐 ecology etype：明细表周边元素（8/9/10、18/19、20/21/22）
   // 图标暂复用既有 iconKey（避免新增图标映射缺失导致渲染空白），后续可补专属图标。
-  insertEl('detailTitle', '明细标题', 16, 'text');
-  insertEl('detailTail', '明细尾', 17, 'text');
-  insertEl('detailButtons', '明细按钮', 18, 'code');
-  insertEl('sumName', '合计标签', 19, 'text');
-  insertEl('sumValue', '合计字段', 20, 'text');
-  insertEl('checkAll', '明细全选', 21, 'text');
-  insertEl('checkSingle', '明细单选', 22, 'text');
-  insertEl('serialNum', '明细序号', 23, 'text');
+  // 以下 8 项（明细标题/明细尾/明细按钮/合计标签/合计字段/明细全选/明细单选/明细序号）
+  // 暂未实现配置入口，先隐藏，后期再处理。渲染端 ElementNodes 仍支持这 8 类，取消注释即可恢复。
+  // insertEl('detailTitle', '明细标题', 16, 'text');
+  // insertEl('detailTail', '明细尾', 17, 'text');
+  // insertEl('detailButtons', '明细按钮', 18, 'code');
+  // insertEl('sumName', '合计标签', 19, 'text');
+  // insertEl('sumValue', '合计字段', 20, 'text');
+  // insertEl('checkAll', '明细全选', 21, 'text');
+  // insertEl('checkSingle', '明细单选', 22, 'text');
+  // insertEl('serialNum', '明细序号', 23, 'text');
 
   // 行列结构操作（插入/删除行、列）
   addItem(TAB.INSERT, 'ins', 'insert.row', '插入行', () => callGrid('rowColOp', 'insertRow'), '插入行', 12, 'insRow');
