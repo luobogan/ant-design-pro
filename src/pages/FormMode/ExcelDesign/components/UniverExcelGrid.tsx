@@ -66,18 +66,14 @@ import '@univerjs/sheets-numfmt-ui/lib/index.css';
 
 // 字段类型编码 → 控件类型 / 中文标签的单一来源（浏览按钮 = fieldHtmlType 3）
 import { mapFieldToControlType, resolveBrowserType } from '@/components/FormMode/fieldTypes';
-// 元素图标 + 名称的单一来源（设计器单元格显示值，插入/加载/重建共用）
-import { ELEMENT_META } from '../elementSchema';
-
-/**
- * 元素格设计态显示文本「图标 名称」。
- * 插入、加载还原、防篡改自愈、保存校验都必须用同一份，
- * 否则 loadLayoutData 会按 fieldMeta 重建出无图标文本，保存后图标即消失。
- */
-const buildElementDisplay = (elementType: string, fieldLabel?: string): string => {
-  const def = ELEMENT_META[elementType] || { icon: '📦', label: elementType };
-  return `${def.icon} ${fieldLabel || def.label}`;
-};
+// 元素图标 + 名称 + 内容摘要的单一来源（设计器单元格显示值，插入/加载/重建/编辑共用）
+import {
+  ELEMENT_META,
+  ELEMENT_INLINE_CONTENT_FIELD,
+  isElementInlineEditable,
+  elementDisplayValue,
+  parseElementInlineContent,
+} from '../elementSchema';
 
 /**
  * 将保存的单元格样式（IStyleData）应用到 range。
@@ -268,20 +264,32 @@ interface FieldMeta {
     };
 
     /**
-     * 「结构化单元格」判定：绑定表单结构、**不可复制**的格子类型。
+     * 「结构化单元格」判定：绑定表单结构、**不可编辑/复制**的格子类型。
      *
-     * 包含两类：
+     * 仅两类：
      *  - field：字段格（主表字段、以及各明细子画布内的明细字段，均为 cellType='field'，
      *    仅靠 detailTable>0 区分归属明细表）
      *  - detailTableMarker：主画布上的「明细表标记」格（打开对应明细子画布的入口按钮）
      *
      * 复制这两类格子都会产生重复绑定 / 重复的明细表入口，因此：
-     * 右键菜单置灰、Ctrl+C 拦截、粘贴兜底清理都统一以此为准。
-     * 标签(label)与元素(element)格是纯展示内容，允许正常复制。
+     * 右键菜单置灰、Ctrl+C 拦截、粘贴兜底清理、Univer 编辑态拦截都统一以此为准。
+     *
+     * 元素(element)格按 isElementInlineEditable 分流（单一判定见 elementSchema）：
+     *  - 可内联编辑（note/detailTitle/detailTail/sumName/serialNum/barcode）：允许在单元格上
+     *    直接编辑，结果由 saveLayoutData 回写 elementConfig，故不拦截编辑态；
+     *  - 配置型（link/text/multilang/image/iframe/portal/tab）：标记保持稳定，
+     *    双击弹配置框 / 属性面板改内容，仍拦截编辑态，避免用户随手改坏标记文本。
+     *
+     * 标签(label)格不在此列。
      */
-    const isStructuredCellMeta = (meta: any): boolean =>
-      !!meta &&
-      (meta.cellType === 'field' || meta.cellType === 'detailTableMarker' || meta.cellType === 'element');
+    const isStructuredCellMeta = (meta: any): boolean => {
+      if (!meta) return false;
+      if (meta.cellType === 'field' || meta.cellType === 'detailTableMarker') return true;
+      if (meta.cellType === 'element') {
+        return !isElementInlineEditable(String(meta.elementType || ''));
+      }
+      return false;
+    };
 
     /**
      * 结构化单元格的展示名（用于提示文案）：
@@ -307,13 +315,15 @@ interface FieldMeta {
     if (meta.cellType === 'label') {
       return meta.fieldLabel || meta.fieldName || '';
     }
-    // 元素格（「插入」类，≈ ecology 扩展控件）：显示「图标 + 名称」。
-    // 必须与 insertElement 写入的值同源（buildElementDisplay）：
-    // loadLayoutData 会按 fieldMeta 调 setCellField 重建显示值并丢弃 cell.v，
-    // 若此处只返回 fieldLabel，保存后重新加载时图标就会消失。
-    // 防篡改比较 isCellValueMatchMeta 经 stripFieldIcon 去图标后仍能对齐。
+    // 元素格（「插入」类，≈ ecology 扩展控件）：显示「图标 名称」或「图标 名称：内容摘要」。
+    // 插入 / 加载还原 / 防篡改自愈 / 保存校验都必须用同一份 elementDisplayValue，
+    // 否则 loadLayoutData 按 fieldMeta 重建时会丢图标或丢内容。
+    // 内容取自 elementConfig（可在单元格上直接编辑，保存时回写）。
     if (meta.cellType === 'element') {
-      return buildElementDisplay(String((meta as any).elementType || ''), meta.fieldLabel);
+      return elementDisplayValue(
+        String((meta as any).elementType || ''),
+        (meta as any).elementConfig || {},
+      );
     }
     const typeIcon = FIELD_ICON_MAP[meta.fieldType] ?? '📝';
     // 字段属性图标（参照 ecology viewAttr）：0=不显示🚫 1=只读🔒 3=必填⚠️；2=可编辑不额外加图标
@@ -1926,8 +1936,28 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
                   pendingRestore.push({ row, col, expected });
                   value = expected;
                 }
+              } else if (
+                fieldMeta.cellType === 'element' &&
+                isElementInlineEditable(String((fieldMeta as any).elementType || ''))
+              ) {
+                // 可内联编辑元素：把用户编辑的文本写回 elementConfig 的主内容字段，
+                // 再按新配置重建显示值。这样画布、预览、保存/重载三者一致，
+                // 也不会被「防篡改还原」把用户输入覆盖掉。
+                const elementType = String((fieldMeta as any).elementType || '');
+                const inlineField = ELEMENT_INLINE_CONTENT_FIELD[elementType];
+                const text = parseElementInlineContent(elementType, String(value ?? ''));
+                (fieldMeta as any).elementConfig = {
+                  ...((fieldMeta as any).elementConfig || {}),
+                  [inlineField]: text,
+                };
+                // fieldMeta 是内存 Map 的引用，显式写回一次确保后续读取拿到新配置
+                cellFieldMetaMap.current[`${row}_${col}`] = fieldMeta as any;
+                const expected = getCellDisplayValue(fieldMeta);
+                pendingRestore.push({ row, col, expected });
+                value = expected;
               } else {
-                // 明细表标记等：原样还原期望值
+                // 明细表标记、以及配置型元素（link/text/multilang/图片/Iframe/门户/标签页，
+                // 内容只在配置框/属性面板里改）：原样还原期望值，保持标记不被手工改坏
                 const expected = getCellDisplayValue(fieldMeta);
                 // 排队到扫描结束后统一写回，避免扫描中途派发命令污染 redi
                 pendingRestore.push({ row, col, expected });
@@ -3339,11 +3369,17 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
                   // 结构性操作进行中：内容正在被 Univer 平移，跳过防篡改还原，避免把被平移过来的
                   // 其它字段覆盖掉（交给 reconcile 自愈把 meta 搬回正确坐标）。
                   if (isStructuralRef.current) return;
-                  // 当前值其实是「别的字段」占位符 → 这是 meta 错位（历史双重平移/坐标漂移），
-                  // 不能 setValue 写回期望值覆盖掉它，交给 reconcile 把本 meta 搬回正确坐标即可。
+                  // 当前值其实是「别的字段」占位符时，只有在能确认那个字段已绑定在
+                  // 其它坐标（真正的坐标漂移）才放行，交给 reconcile 把 meta 搬回正确坐标；
+                  // 否则就是用户把字段格改成了另一个 ${...}，必须还原，
+                  // 否则保存时会被 pendingRehome 原样入库、原字段绑定还会被搬走。
                   const newName = extractFieldNameFromDisplay(newValue);
                   const metaName = String((meta as any).fieldName ?? '');
-                  if (newName && newName !== metaName) return;
+                  const isRealDrift =
+                    !!newName && newName !== metaName &&
+                    Object.entries(cellFieldMetaMap.current).some(([k, m]: [string, any]) =>
+                      k !== cellKey && m?.cellType === 'field' && String(m?.fieldName ?? '') === newName);
+                  if (isRealDrift) return;
                   console.log(`[CellChange] 单元格 (${row}, ${col}) 为设计器字段单元格，禁止手动修改，将自动还原`);
                   tamperedCells.push({ row, col, meta });
                 }
@@ -3854,7 +3890,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     // univer-lib 补丁回调：结构化格操作被拦截时（编辑入口 / 清空内容 / 清除全部），
     // 统一经此用 antd message 提示（sheets 包无 IMessageService，只能回调 React 侧）。
     (window as any).__excelDesignNotifyBlocked = () => {
-      message.warning('字段与明细表内容不可编辑或清除，如需调整请使用拖拽或属性面板。');
+      message.warning('字段、明细表标记及配置型元素不可直接编辑或清除，如需调整请双击元素或使用属性面板。');
     };
 
     /**
@@ -3930,14 +3966,24 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       //   表现为「第一次粘贴被提示、第二次粘贴又把字段粘进来了」。
       //   只有两种情形需要清空：① 剪切粘贴成功（内容已消费）；② 用户发起新的复制/剪切
       //   （onBeforeCopy 会重置 ref）。普通粘贴（非结构化内容）也无需清空，ref 会被下次 copy 覆盖。
+      const dest = getPrimaryCell();
+      const sheet: any = sheetRef.current;
+      if (!dest || !sheet) return true;
+
+      // ★ 目标格是设计器管理的标记格（字段 / 明细表标记 / 配置型元素）时，
+      //   普通内容粘贴一律拒绝覆盖：这些格子的显示值由 fieldMeta 决定，
+      //   粘贴后会先闪一下再被防篡改还原，且若粘的是另一个 ${字段名} 还会被
+      //   「坐标错位自愈」当成合法平移而保留入库、丢失原字段绑定。
+      //   剪切(CUT)是设计器支持的移动字段操作，交由下方专用分支搬移元数据，此处不拦。
+      if (clip?.copyType !== 'CUT' && isStructuredCellMeta(getCellFieldMeta(dest.row, dest.col))) {
+        message.warning('该单元格是字段或元素标记，不允许粘贴覆盖；如需移动请使用「剪切」。');
+        return false;
+      }
+
       if (!clip || clip.cells.length === 0) return true; // 普通粘贴，放行
 
       const structCells = clip.cells.filter((c) => isStructuredCellMeta(c.meta));
       if (structCells.length === 0) return true; // 只剪切了标签/元素等纯展示内容 → 放行
-
-      const dest = getPrimaryCell();
-      const sheet: any = sheetRef.current;
-      if (!dest || !sheet) return true;
 
       // 目标 = 源选区形状 + 偏移（onBeforePaste 触发时选区已在目标位置）
       const dRow = dest.row - clip.range.startRow;
@@ -4516,7 +4562,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           const nextConfig = { ...(existing.elementConfig || {}), ...patch };
           const meta: any = { ...existing, elementConfig: nextConfig };
           setCellField(workbookRef.current, sheet, row, col, meta);
-          // 元素格显示文本保持「图标 名称」，不随配置改写（避免被保存自愈误覆盖）
+          // setCellField 会按新的 elementConfig 重建显示值（图标 名称：内容），
+          // 因此双击弹窗 / 属性面板改配置后，画布内容也会同步刷新。
           setTimeout(() => { try { saveLayoutData(); } catch (e) { /* ignore */ } }, 0);
           return true;
         } catch (e) {

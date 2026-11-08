@@ -389,25 +389,71 @@ export const normalizeElementConfig = (
   return next;
 };
 
-/** 设计态单元格显示值：图标 + 名称；部分元素附简短内容便于识别 */
+/**
+ * 元素格「主内容字段」映射：决定单元格显示值里「图标 名称：内容」的内容部分，
+ * 以及允许内联编辑时把用户编辑的文本回写到 elementConfig 的哪个字段。
+ * 配置型元素（图片 / Iframe / 门户 / 标签页等）不在此表 —— 它们的内容是
+ * URL、页签组等结构化配置，没有单一文本字段。
+ */
+export const ELEMENT_INLINE_CONTENT_FIELD: Record<string, string> = {
+  text: 'content',
+  note: 'content',
+  detailTitle: 'content',
+  detailTail: 'content',
+  sumName: 'content',
+  serialNum: 'content',
+  barcode: 'content',
+  multilang: 'zh',
+  link: 'text',
+};
+
+/**
+ * 仅在「双击配置框 / 属性面板」中维护、标记本身不允许在单元格上乱改的元素。
+ * 链接 / 文本 / 多语言标签虽是文本类，但对齐 E9 仍由配置面板维护：
+ * 保持「图标 名称」标记稳定，双击弹配置框改内容。
+ */
+export const ELEMENT_CONFIG_ONLY_TYPES = new Set(['link', 'text', 'multilang']);
+
+/** 是否允许在单元格上直接编辑元素内容（决定是否拦截 Univer 编辑态、双击是否走配置框） */
+export const isElementInlineEditable = (type: string): boolean =>
+  !!ELEMENT_INLINE_CONTENT_FIELD[type] && !ELEMENT_CONFIG_ONLY_TYPES.has(type);
+
+/** 从单元格显示值里提取用户编辑的内容（剥离「图标 名称：」前缀） */
+export const parseElementInlineContent = (type: string, cellValue: string): string => {
+  const def = ELEMENT_META[type] || { icon: '📦', label: type };
+  let s = String(cellValue ?? '').trim();
+  // 先按已知图标精确剥离（Σ / # / ▤ 等非象形符号也能去掉），再兜底去象形图标
+  if (s.startsWith(def.icon)) s = s.slice(def.icon.length).trim();
+  else s = s.replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, '').trim();
+  // 去掉「名称：」/「名称:」前缀；若只剩名称本身则视为清空内容
+  if (s.startsWith(`${def.label}：`)) s = s.slice(def.label.length + 1).trim();
+  else if (s.startsWith(`${def.label}:`)) s = s.slice(def.label.length + 1).trim();
+  else if (s === def.label) s = '';
+  return s;
+};
+
+/** 设计态单元格显示值：图标 + 名称；带内容的元素附内容摘要便于识别/编辑 */
 export const elementDisplayValue = (type: string, cfg: Record<string, any> = {}): string => {
   const def = ELEMENT_META[type] || { icon: '📦', label: type };
   // 整表背景图不占单元格内容：设计态给一个明确标记，实际渲染由表格容器负责
   if (type === 'image' && isSheetBackgroundImage(cfg)) {
     return `${def.icon} 整表背景图`;
   }
+  const inlineField = ELEMENT_INLINE_CONTENT_FIELD[type];
+  // 可在单元格上直接编辑的内容必须显示完整值：若截断，用户输入长内容后
+  // 保存校验会判定「值不匹配」，每次保存都把格子重写成摘要，看起来像内容被吞掉。
   const brief =
-    type === 'text' || type === 'note' || type === 'detailTitle'
-      ? String(cfg.content || '').slice(0, 12)
-      : type === 'tab'
-        ? (() => {
-            // E9 模型：显示页签名列表；旧模型：显示 tabs 文本
-            const group = parseTabGroup(cfg);
-            if (group) return group.tabs.map((t) => t.name).join('/').slice(0, 12);
-            return String(cfg.tabs || '').slice(0, 12);
-          })()
-        : type === 'multilang'
-          ? String(cfg.zh || cfg.en || cfg.tw || '').slice(0, 12)
+    type === 'tab'
+      ? (() => {
+          // E9 模型：显示页签名列表；旧模型：显示 tabs 文本（页签多时仅作摘要）
+          const group = parseTabGroup(cfg);
+          if (group) return group.tabs.map((t) => t.name).join('/').slice(0, 12);
+          return String(cfg.tabs || '').slice(0, 12);
+        })()
+      : type === 'multilang'
+        ? String(cfg.zh || cfg.en || cfg.tw || '')
+        : inlineField
+          ? String(cfg[inlineField] || '')
           : '';
   return brief ? `${def.icon} ${def.label}：${brief}` : `${def.icon} ${def.label}`;
 };

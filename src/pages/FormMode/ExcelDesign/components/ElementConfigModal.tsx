@@ -1,8 +1,48 @@
 import React from 'react';
-import { Modal, Input, InputNumber, Select, Switch, Upload, Button, Space, message } from 'antd';
+import { Modal, Input, InputNumber, Select, Switch, Upload, Button, Space, Image, message } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import { type ElementFieldDef } from '../elementSchema';
 import { uploadFile, resolveFileUrl } from '@/services/file';
+
+/**
+ * 图片地址（上传/手填）的即时预览。
+ * 点击缩略图可放大查看；加载失败时给出提示与原始地址，
+ * 避免留下破图，也便于排查文件服务鉴权/跨域导致的 401/404。
+ */
+const UploadImagePreview: React.FC<{ src: string }> = ({ src }) => {
+  const [failed, setFailed] = React.useState(false);
+  React.useEffect(() => setFailed(false), [src]);
+  if (!src) return null;
+  return (
+    <div
+      style={{
+        border: '1px dashed #d9d9d9',
+        borderRadius: 6,
+        padding: 8,
+        background: '#fafafa',
+        textAlign: 'center',
+      }}
+    >
+      {failed ? (
+        <div style={{ color: '#ff4d4f', fontSize: 12, lineHeight: 1.7, wordBreak: 'break-all' }}>
+          图片加载失败，请检查地址是否可访问（文件服务鉴权 / 跨域 / 路径）
+          <div style={{ color: '#999', marginTop: 4 }}>{src}</div>
+        </div>
+      ) : (
+        <Image
+          src={src}
+          alt="图片预览"
+          height={140}
+          style={{ maxWidth: '100%', objectFit: 'contain', borderRadius: 4 }}
+          onError={() => setFailed(true)}
+        />
+      )}
+      <div style={{ color: '#999', fontSize: 12, marginTop: 4 }}>
+        {failed ? '可重新上传，或粘贴可直接访问的完整 URL' : '点击图片可放大查看'}
+      </div>
+    </div>
+  );
+};
 
 interface ElementConfigModalProps {
   open: boolean;
@@ -96,8 +136,10 @@ const ElementConfigModal: React.FC<ElementConfigModalProps> = ({
                       uploadFile(file)
                         .then((r) => {
                           const resolved = resolveFileUrl(r?.url, r?.id);
-                          if (resolved) set(f.name, resolved);
-                          else message.error('上传失败：未返回地址');
+                          if (resolved) {
+                            set(f.name, resolved);
+                            message.success('上传成功，可在下方查看预览');
+                          } else message.error('上传失败：未返回地址');
                         })
                         .catch((e) => message.error('上传失败：' + (e?.message || e)))
                         .finally(() => hide());
@@ -108,6 +150,7 @@ const ElementConfigModal: React.FC<ElementConfigModalProps> = ({
                   >
                     <Button icon={<UploadOutlined />}>上传图片（双通道）</Button>
                   </Upload>
+                  <UploadImagePreview src={resolveFileUrl(String(values[f.name] ?? '').trim())} />
                 </Space>
               )}
               {f.type === 'multiselect' && (

@@ -42,7 +42,7 @@ import {
 import PropertyPanel from './components/PropertyPanel';
 import TabEditor from './components/TabEditor';
 import ElementConfigModal from './components/ElementConfigModal';
-import { buildTabGroupConfig, nextTabId, parseTabGroup, normalizeElementConfig, type TabGroupConfig } from './elementSchema';
+import { buildTabGroupConfig, nextTabId, parseTabGroup, normalizeElementConfig, isElementInlineEditable, type TabGroupConfig } from './elementSchema';
 import LayoutStructurePanel from './components/LayoutStructurePanel';
 import type { StructField } from './components/LayoutStructurePanel';
 import ExcelPreview from './components/ExcelPreview';
@@ -347,10 +347,14 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     (row: number, col: number) => {
       const raw = readTabCellConfig(row, col);
       if (!raw) {
-        // 非标签页格：若是元素格（图片/文本/链接/多语言/Iframe/说明/条码/门户等），双击打开属性编辑弹窗
+        // 非标签页格：元素格按类型分流——
+        // 可内联编辑元素（note/detailTitle/detailTail/sumName/serialNum/barcode）
+        // 直接在单元格上改内容，双击不弹配置框，避免与 Univer 编辑态冲突；
+        // 配置型元素（link/text/multilang/图片/Iframe/门户等）双击打开属性编辑弹窗。
         const grid: any = mainGridApiRef.current || (window as any).univerExcelGrid;
         const meta: any = grid?.getCellFieldMeta?.(row, col);
-        if (meta && meta.cellType === 'element' && meta.elementType !== 'tab') {
+        const inlineEditable = isElementInlineEditable(String(meta?.elementType || ''));
+        if (meta && meta.cellType === 'element' && meta.elementType !== 'tab' && !inlineEditable) {
           const def = INSERT_DEFS.find((d) => d.key === meta.elementType) || null;
           if (def) {
             setElementEditor({
