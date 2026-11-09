@@ -79,7 +79,14 @@ const MyRequestList: React.FC = () => {
   };
 
   const columns: ProColumns<MyRequestItem>[] = [
-    { title: '流程标题', dataIndex: 'title', ellipsis: true, render: (_, r) => <a onClick={() => openProgress(r)}>{r.title || '-'}</a> },
+    {
+      title: '流程标题', dataIndex: 'title', ellipsis: true,
+      // 草稿从未启动引擎、ACT_HI_PROCINST 无行：不能进 mode=instance 的办理/进度视图
+      // （/form/render?instanceId= 会抛「流程实例不存在」），须走草稿续填页，与「继续填写」一致。
+      render: (_, r) => (
+        <a onClick={() => (isDraft(r) ? openDraft(r) : openProgress(r))}>{r.title || '-'}</a>
+      ),
+    },
     { title: '流程名称', dataIndex: 'defName', ellipsis: true, hideInSearch: true },
     { title: '当前节点', dataIndex: 'currentNodeName', hideInSearch: true },
     { title: '发起时间', dataIndex: 'startTime', valueType: 'dateTime', hideInSearch: true },

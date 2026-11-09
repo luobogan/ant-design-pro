@@ -243,6 +243,16 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
       try {
         const inst: any = pickPayload(await getInstance(instanceId));
         if (inst && inst.id) {
+          // 兜底：历史/收藏里的旧链接带 mode=instance（办理/进度视图），但草稿从未启动引擎、
+          // ACT_HI_PROCINST 无行，该视图的 /form/render?instanceId= 会抛「流程实例不存在」。
+          // 草稿只能走续填页 → 去掉 mode、补齐 dataId 后重定向一次（不等渲染包报错）。
+          const u = new URL(window.location.href);
+          if (!embedded && u.searchParams.get('mode') === 'instance' && Number(inst.status) === 5) {
+            u.searchParams.delete('mode');
+            if (inst.dataId) u.searchParams.set('dataId', String(inst.dataId));
+            window.location.replace(u.toString());
+            return;
+          }
           // 实例已不再是草稿态（别处提交过 / 已归档 / 已终止）→ 本页按草稿编辑的状态已过期。
           // ⚠️ 这**不是**「草稿不存在」：实例仍在，只是已提升为正式实例。必须区分二者，
           //    否则用户会看到「流程明明发起了，却提示草稿已不存在」这类自相矛盾的报错。
@@ -267,7 +277,7 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
         setInstanceGone(true);
       }
     })();
-  }, [instanceId]);
+  }, [instanceId, embedded]);
 
   /** 实例态：拉取进度图四色（纯 ACT_HI）——流程图节点与「已走连线」着色的唯一数据源。
    *  连线只有 activityColors 能着色（二色 nodeStatus 只管节点），故本页必须取到 progress
