@@ -19882,10 +19882,8 @@ const menuSchema = {
 			order: 0,
 			menuItemFactory: DeleteSheetMenuItemFactory
 		},
-		[CopySheetCommand.id]: {
-			order: 1,
-			menuItemFactory: CopySheetMenuItemFactory
-		},
+		// 设计器禁用「复制工作表」：复制即新增一张 sheet，与「不允许在画布上自行新增 sheet」冲突。
+		// 新增 sheet 的两大入口（底部 + 按钮 addSheetButtonConfig.show:false、本右键项）均已关闭。
 		[RenameSheetOperation.id]: {
 			order: 2,
 			menuItemFactory: RenameSheetMenuItemFactory

@@ -3045,9 +3045,16 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         }
 
         // Step 8: 注册 UniverSheetsUIPlugin
+        // 隐藏底部 sheet bar 的「新增工作表」(+) 按钮：表单布局的 sheet 由设计器统一建模
+        // （主画布 / 明细子画布 / 标签页子画布），不允许用户在画布上自行新增 sheet。
+        // 其余 footer 子项（sheetBar 切换、统计栏、缩放）保持默认显示。
         console.log('[Univer Init] Step 8: 注册 UniverSheetsUIPlugin...');
         try {
-          univer.registerPlugin(UniverSheetsUIPlugin);
+          univer.registerPlugin(UniverSheetsUIPlugin, {
+            footer: {
+              addSheetButtonConfig: { show: false },
+            },
+          });
           console.log('[Univer Init] Step 8 OK');
         } catch (e) {
           console.error('[Univer Init] Step 8 失败: UniverSheetsUIPlugin 注册失败:', e);
