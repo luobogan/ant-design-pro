@@ -1448,6 +1448,12 @@ const WorkflowDesignPage: React.FC = () => {
         className="wf-excel-design-modal"
         title={`生成表单布局（节点：${excelDesignNodeKey ?? ''}）`}
         open={excelDesignOpen}
+        // 关闭焦点锁定：内嵌 Univer 的「公式」等下拉是挂到 document.body 的
+        // Radix Portal 浮层；antd 默认 focus trap 会把焦点抢回本 Modal，
+        // Radix DismissableLayer 据此判定 focusOutside → 下拉一开即关。
+        // 注意必须走 focusable.trap（antd Modal.js 末尾会用 mergedFocusable.trap
+        // 覆盖 restProps 里的 focusTrap，直接写 focusTrap={false} 无效）。
+        focusable={{ trap: false }}
         onCancel={() => {
           setExcelDesignOpen(false);
           excelSaveRef.current = null;

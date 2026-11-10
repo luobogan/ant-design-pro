@@ -31,6 +31,35 @@ import '@univerjs/ui/facade';
 // 这行代码会执行 FWorksheet.extend(FWorksheetUIMixin)，将 hitTest 方法添加到 FWorksheet 原型上
 import '@univerjs/sheets-ui/facade';
 
+import { registerDesignerRibbon } from '../ribbonRegistry';
+
+// 多实例「当前激活 Univer 实例」栈：主画布 + 标签页/明细表子画布可能同时存活。
+// 保证 window.__univerFAPI / univerExcelGrid / __univerMenuManager 等桥接全局
+// 始终指向「最后初始化且未卸载」的实例，避免子画布关闭后主画布命令（格式/字段属性等）失效。
+const __univerActiveStack: any[] = [];
+const __applyTopToWindow = () => {
+  const top = __univerActiveStack[__univerActiveStack.length - 1];
+  const assign = (k: string, v: any) => {
+    if (v == null) delete (window as any)[k];
+    else (window as any)[k] = v;
+  };
+  if (top) {
+    assign('__univerFAPI', top.fUniver);
+    assign('univerExcelGrid', top.gridApi);
+    assign('__univerMenuManager', top.mm);
+    assign('__univerCommandService', top.cmd);
+    assign('__univerComponentManager', top.cm);
+    assign('__univerRibbonService', top.ribbon);
+    assign('__univerLocaleService', top.locale);
+    assign('__univerClipboardService', top.clipboard);
+  } else {
+    [
+      '__univerFAPI', 'univerExcelGrid', '__univerMenuManager', '__univerCommandService',
+      '__univerComponentManager', '__univerRibbonService', '__univerLocaleService', '__univerClipboardService',
+    ].forEach((k) => delete (window as any)[k]);
+  }
+};
+
 // 手动确保 FWorksheet 原型上有 hitTest 方法
 // 解决模块实例不一致的问题
 // 注意：FWorksheetUIMixin 是内部类，不能直接导入
@@ -442,6 +471,12 @@ interface UniverExcelGridProps {
    * 父组件的 handleCellDoubleClick 内部仅对标签页格生效，其余格 no-op，故可安全全局回调。
    */
   onCellDoubleClick?: (row: number, col: number) => void;
+  /**
+   * 传入时为「本实例」注册自定义 ribbon（模板/格式/插入/字段属性/明细表 5 个页签）。
+   * 子画布（标签页/明细表）必须传，否则这些自定义功能不会出现在子画布上；
+   * 主画布由 ExcelDesign 的轮询定时器统一注册，可不传。
+   */
+  ribbonOptions?: any;
 }
 
 // 稳定序列化：递归排序 key，保证「内容相同但引用/插入顺序不同」的两个对象得到相同字符串。
@@ -584,10 +619,13 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   isDetailCanvas,
   detailTableFilterIdx,
   onCellDoubleClick,
+  ribbonOptions,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const univerRef = useRef<any>(null);
   const workbookRef = useRef<any>(null);
+  // 本实例在「激活实例栈」中的记录：由 workbook 就绪的 useEffect 写入、init 的 cleanup 读取
+  const activeInstRef = useRef<any>(null);
   const [workbook, setWorkbook] = useState<any>(null);
   const [initialized, setInitialized] = useState<boolean>(false);
   const [initError, setInitError] = useState<string>('');
@@ -3191,9 +3229,13 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           // ISheetClipboardService：注册字段剪贴板钩子（拦截复制粘贴 / 剪切元数据跟随）
           clipboardServiceRef.current = inj?.get?.(ISheetClipboardService) || null;
           (window as any).__univerClipboardService = clipboardServiceRef.current;
-        } catch (e) {
-          console.warn('[Univer Init] 暴露 MenuManagerService 失败:', e);
-        }
+          } catch (e) {
+            console.warn('[Univer Init] 暴露 MenuManagerService 失败:', e);
+          }
+
+          // 激活实例栈与「本实例自定义 ribbon」注册移到下方 workbook 就绪的 useEffect 中执行：
+          // 那里才能访问网格 API 局部对象 univerExcelGridApi（在此处引用会跨作用域 ReferenceError，
+          // 且会被 init 的 try/catch 吞掉，表现为子画布始终没有自定义 ribbon）。
 
         // 获取活动工作表（FWorksheet）
         const sheet = fWorkbook.getActiveSheet();
@@ -3648,6 +3690,14 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
         // 保存清理函数引用，在 useEffect cleanup 时使用
         (attemptInit as any).cleanup = () => {
+          // 从「激活实例栈」移除本实例，并把 window 桥接全局恢复为栈顶（即上一个存活实例）
+          const instObj = activeInstRef.current;
+          if (instObj) {
+            const i = __univerActiveStack.indexOf(instObj);
+            if (i >= 0) __univerActiveStack.splice(i, 1);
+            activeInstRef.current = null;
+            __applyTopToWindow();
+          }
           if (valueChangeDisposer && typeof valueChangeDisposer === 'function') valueChangeDisposer();
           if (selectionDisposer && typeof selectionDisposer === 'function') selectionDisposer();
           if (changeTimer) clearTimeout(changeTimer);
@@ -4463,7 +4513,13 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             case 'bold': range.setFontWeight?.(value ? 'bold' : 'normal'); break;
             case 'italic': range.setFontStyle?.(value ? 'italic' : 'normal'); break;
             case 'underline': range.setUnderline?.(value ? 1 : 0); break;
-            case 'align': range.setHorizontalAlignment?.(value); break;
+            case 'align': {
+              // Facade 的 setHorizontalAlignment 只接受 'left' | 'center' | 'normal'
+              // （Univer 怪异命名：右对齐字符串是 'normal'），UI 侧习惯用 'right'，此处归一化。
+              const alignMap: Record<string, string> = { left: 'left', center: 'center', right: 'normal' };
+              range.setHorizontalAlignment?.(alignMap[String(value)] ?? value);
+              break;
+            }
             case 'valign': range.setVerticalAlignment?.(value); break;
             case 'bg': range.setBackground?.(value || '#ffffff'); break;
             case 'color': range.setFontColor?.(value || '#000000'); break;
@@ -4595,7 +4651,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         }
       };
 
-      (window as any).univerExcelGrid = {
+      const univerExcelGridApi = {
         saveLayoutData,
         loadLayoutData,
         applyRangeFormat,
@@ -4661,6 +4717,42 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         getUndoRedoStatus: () =>
           (window as any).__univerUndoRedoStatus || { canUndo: false, canRedo: false, undos: 0, redos: 0 },
       };
+
+      // ── 把本实例纳入「激活实例栈」并为本实例注册自定义 ribbon ──
+      // 必须放在这里：univerExcelGridApi 是本 useEffect 的局部对象，init 的 useEffect
+      // 引用不到（曾因此 ReferenceError 被吞，导致子画布没有自定义 ribbon）。
+      // 本 useEffect 在 workbook 就绪后执行且可能因依赖变化重跑，故用 activeInstRef 保证只入栈一次。
+      if (!activeInstRef.current) {
+        try {
+          const inj = (univerRef.current as any)?.__getInjector?.();
+          const instObj: any = {
+            fUniver: fUniverRef.current,
+            gridApi: univerExcelGridApi,
+            mm: inj?.get?.(IMenuManagerService) || (window as any).__univerMenuManager,
+            cmd: inj?.get?.(ICommandService) || (window as any).__univerCommandService,
+            cm: inj?.get?.(ComponentManager) || (window as any).__univerComponentManager,
+            ribbon: inj?.get?.(IRibbonService) || (window as any).__univerRibbonService,
+            locale: inj?.get?.(LocaleService) || (window as any).__univerLocaleService,
+            clipboard: clipboardServiceRef.current || (window as any).__univerClipboardService,
+          };
+          __univerActiveStack.push(instObj);
+          activeInstRef.current = instObj;
+          __applyTopToWindow();
+          // 子画布（标签页/明细表）必须自行注册，才能出现「模板/格式/插入/字段属性/明细表」页签；
+          // 主画布不传 ribbonOptions，仍由 ExcelDesign 的轮询定时器统一注册。
+          if (ribbonOptions) {
+            registerDesignerRibbon(ribbonOptions);
+          }
+        } catch (e) {
+          console.warn('[Univer] 激活栈/ribbon 注册失败（不影响画布渲染）:', e);
+        }
+      } else {
+        // 依赖变化重跑：只更新闭包可能变化的 gridApi；若本实例仍是栈顶则刷新 window 全局
+        activeInstRef.current.gridApi = univerExcelGridApi;
+        if (__univerActiveStack[__univerActiveStack.length - 1] === activeInstRef.current) {
+          __applyTopToWindow();
+        }
+      }
 
       return () => {
         undoRedoSub?.unsubscribe?.();

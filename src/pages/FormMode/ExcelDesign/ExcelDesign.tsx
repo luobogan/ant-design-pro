@@ -1849,6 +1849,12 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
   // 避免弹窗重开后仍调到上一个已卸载实例的 handleSave（点了没反应/不保存）。
   setDesignerRibbonOptions(ribbonOptsRef.current);
 
+  // 子画布（标签页/明细表）注册自定义 ribbon 用的选项：直接复用主画布的完整处理器。
+  // 注意 registerDesignerRibbon 会把 opts 写入模块级 latestOpts（所有实例的 ribbon 命令回调共用），
+  // 若在这里把部分 handler 置空，会连带把主画布 ribbon 的「预览/导入/导出」等回调也变成 no-op。
+  // 子画布点「模板」页签里的预览/导入/导出作用于整个表单，语义可接受且不会破坏任何功能。
+  const subCanvasRibbonOpts = ribbonOptsRef.current;
+
   // 原生 ribbon 注册结果。registerDesignerRibbon 改为直接通过暴露的
   // IMenuManagerService + ICommandService 注册（绕过 Facade 实例不一致问题），
   // 注册成功即原生 ribbon 出现「模板/格式/插入/字段属性/明细表」5 个页签（紧贴「开始」后）。
@@ -2149,6 +2155,10 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
           使用独立的 UniverExcelGrid 实例编辑该明细表的 Excel 布局 */}
       <Modal
         open={editingDetail !== null}
+        // 关闭 antd Modal 的焦点锁定：Univer 下拉是挂到 body 的 Radix Portal，
+        // focus trap 会把焦点抢回 Modal 内，Radix 判定 focusOutside → 下拉一开即关。
+        // 必须走 focusable.trap（antd Modal.js 末尾会用 mergedFocusable.trap 覆盖 restProps）。
+        focusable={{ trap: false }}
         title={
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <TableOutlined style={{ color: '#1677ff' }} />
@@ -2194,6 +2204,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
                 <UniverExcelGrid
                   key={editingDetail}
                   isDetailCanvas
+                  ribbonOptions={subCanvasRibbonOpts}
                   detailTableFilterIdx={editingDetail}
                   sheetName="Sheet1"
                   layoutData={detailLayouts[editingDetail] || {}}
@@ -2216,6 +2227,8 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
           每个标签页是一张独立 Excel 布局，用独立 UniverExcelGrid 实例编辑） */}
       <Modal
         open={tabEditor !== null}
+        // 同明细表子画布：关闭焦点锁定，保证 Radix Portal 下拉能正常保持打开
+        focusable={{ trap: false }}
         title={
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span style={{ color: '#999' }}>主表</span>
@@ -2283,6 +2296,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
                     <UniverExcelGrid
                       key={editingTabId}
                       isDetailCanvas
+                      ribbonOptions={subCanvasRibbonOpts}
                       sheetName="Sheet1"
                       layoutData={tabLayouts[editingTabId] || {}}
                       onLayoutChange={getTabLayoutChange(editingTabId)}
