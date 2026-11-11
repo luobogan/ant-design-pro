@@ -42,10 +42,14 @@ import {
 import PropertyPanel from './components/PropertyPanel';
 import TabEditor from './components/TabEditor';
 import ElementConfigModal from './components/ElementConfigModal';
+import CustomFunctionDialog from './components/CustomFunctionDialog';
+import { customFormulaApi } from '@/services/formmode';
+import type { CustomFormula, FormulaConfig } from './utils/formulaUtils';
 import { buildTabGroupConfig, nextTabId, parseTabGroup, normalizeElementConfig, isElementInlineEditable, type TabGroupConfig } from './elementSchema';
 import LayoutStructurePanel from './components/LayoutStructurePanel';
 import type { StructField } from './components/LayoutStructurePanel';
 import ExcelPreview from './components/ExcelPreview';
+import FormulaDialog, { type FormulaDialogPayload, type FormulaDataField } from './components/FormulaDialog';
 import { EXCEL_PREVIEW_DATA_KEY } from './ExcelPreviewPage';
 // 布局级代码块：存库需 base64 编码，规避后端 XSS 过滤剥掉 <script> 标签
 import { encodeScriptForStorage, decodeScriptFromStorage } from './utils/runLayoutScript';
@@ -201,6 +205,34 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
   const [selectedField, setSelectedField] = useState<any>(null);
   // 表单字段选项（供「属性面板 → 合计字段选择器」使用：合计字段需指定对哪个字段求和）
   const [fieldOptions, setFieldOptions] = useState<{ label: string; value: string }[]>([]);
+  // 「插入公式」E9 风格弹框状态：坐标 + 回显值；由网格桥接事件打开
+  // list = 公式列表（一格多公式，index 0 = 主公式）
+  const [formulaDialog, setFormulaDialog] = useState<{
+    row: number; col: number; expr: string; cfg: any; list?: FormulaConfig[];
+  } | null>(null);
+  const [formulaFields, setFormulaFields] = useState<FormulaDataField[]>([]);
+  // 「选择单元格」回填引用（列字母 + 行号，如 B3）
+  const [formulaPickedRef, setFormulaPickedRef] = useState<string | null>(null);
+  const [formulaPickingHidden, setFormulaPickingHidden] = useState(false);
+  const formulaPickingRef = useRef(false);
+  // 自定义函数（从后端 workflow_formula 加载），供公式弹框函数面板合并展示
+  const [customFunctions, setCustomFunctions] = useState<CustomFormula[]>([]);
+  const [customFuncManagerOpen, setCustomFuncManagerOpen] = useState(false);
+
+  const loadCustomFunctions = useCallback(async () => {
+    if (!formId) return;
+    try {
+      const data = await customFormulaApi.list(String(formId));
+      setCustomFunctions(Array.isArray(data) ? data : []);
+    } catch {
+      // 后端表未就绪时不阻断设计器：函数面板仅显示内置函数
+      setCustomFunctions([]);
+    }
+  }, [formId]);
+
+  useEffect(() => {
+    loadCustomFunctions();
+  }, [loadCustomFunctions]);
 
   useEffect(() => {
     if (!formId) {
@@ -352,6 +384,16 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         // 直接在单元格上改内容，双击不弹配置框，避免与 Univer 编辑态冲突；
         // 配置型元素（link/text/multilang/图片/Iframe/门户等）双击打开属性编辑弹窗。
         const grid: any = mainGridApiRef.current || (window as any).univerExcelGrid;
+        // 公式格：对齐 E9 双击公式格打开「插入公式」弹框，回显表达式与配置。
+        // 走事件桥接而非直接调回调，避免本回调（定义在弹框 handler 之前）出现 TDZ 依赖。
+        if (grid?.getCellFormulaCfg?.(row, col)) {
+          (window as any).__excelFormulaCellPos = { row, col };
+          const cur = grid.getCellFormulaCfg(row, col);
+          window.dispatchEvent(new CustomEvent('excel-formula-dialog-open', {
+            detail: { row, col, expr: cur?.expr, cfg: cur?.cfg, list: cur?.list },
+          }));
+          return;
+        }
         const meta: any = grid?.getCellFieldMeta?.(row, col);
         const inlineEditable = isElementInlineEditable(String(meta?.elementType || ''));
         if (meta && meta.cellType === 'element' && meta.elementType !== 'tab' && !inlineEditable) {
@@ -611,6 +653,111 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     }
   }, []);
 
+  // ── E9 风格「插入公式」弹框：网格桥接 → 打开 / 保存 / 清除 ──────────────
+  const openFormulaDialog = useCallback(
+    (row: number, col: number, expr?: string, cfg?: any, list?: FormulaConfig[]) => {
+      const grid: any = (window as any).univerExcelGrid;
+      const cur = grid?.getCellFormulaCfg?.(row, col);
+      setFormulaFields(Array.isArray(grid?.getFormulaFields?.()) ? grid.getFormulaFields() : []);
+      setFormulaDialog({
+        row, col,
+        expr: expr ?? cur?.expr ?? '=',
+        cfg: cfg ?? cur?.cfg ?? {},
+        list: Array.isArray(list) ? list : cur?.list ?? [],
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const d = (e as CustomEvent).detail || {};
+      if (d.row == null || d.col == null) return;
+      openFormulaDialog(Number(d.row), Number(d.col), d.expr, d.cfg, d.list);
+    };
+    window.addEventListener('excel-formula-dialog-open', onOpen);
+    return () => window.removeEventListener('excel-formula-dialog-open', onOpen);
+  }, [openFormulaDialog]);
+
+  /** 属性面板「打开公式编辑器」：用选中公式格的坐标回显 */
+  const handleOpenFormulaFromPanel = useCallback(() => {
+    const pos = (window as any).__excelFormulaCellPos || {};
+    if (pos.row == null || pos.col == null) {
+      message.warning('请先选中公式单元格');
+      return;
+    }
+    openFormulaDialog(Number(pos.row), Number(pos.col));
+  }, [openFormulaDialog, message]);
+
+  const handleFormulaDialogSave = useCallback((payload: FormulaDialogPayload) => {
+    if (!formulaDialog) return;
+    const grid: any = (window as any).univerExcelGrid;
+    if (!grid?.setCellFormula) {
+      message.warning('设计器尚未就绪，请稍候再试');
+      return;
+    }
+    // 一格多公式：整组写入（首条为主公式 → cell.f，其余条在 formulaCfgs 里）
+    const list = Array.isArray(payload.list) ? payload.list : undefined;
+    const canSaveList = !!list?.length && typeof grid.setCellFormulaList === 'function';
+    const ok = canSaveList
+      ? grid.setCellFormulaList(formulaDialog.row, formulaDialog.col, list)
+      : grid.setCellFormula(formulaDialog.row, formulaDialog.col, payload.expr, payload.cfg);
+    if (!ok) {
+      message.warning('公式保存失败');
+      return;
+    }
+    // 同步属性面板回显，避免仍显示旧值
+    setSelectedField((prev: any) =>
+      prev?.cellType === 'formula'
+        ? { ...prev, formula: payload.expr, formulaCfg: payload.cfg, formulaList: list }
+        : prev,
+    );
+    setFormulaDialog(null);
+    setFormulaPickingHidden(false);
+    setFormulaPickedRef(null);
+    message.success('公式已保存');
+  }, [formulaDialog, message]);
+
+  const handleFormulaDialogClear = useCallback(() => {
+    if (!formulaDialog) return;
+    const grid: any = (window as any).univerExcelGrid;
+    grid?.clearCellFormula?.(formulaDialog.row, formulaDialog.col);
+    setSelectedField(null);
+    setFormulaDialog(null);
+    setFormulaPickingHidden(false);
+    setFormulaPickedRef(null);
+    message.success('公式已清除');
+  }, [formulaDialog, message]);
+
+  /** 「选择单元格」：临时隐藏弹框（不卸载，保留编辑内容），玩家点画布后回填 A1 引用 */
+  const handleFormulaPickCell = useCallback(() => {
+    formulaPickingRef.current = true;
+    setFormulaPickingHidden(true);
+  }, []);
+
+  useEffect(() => {
+    const onSelected = (e: Event) => {
+      if (!formulaPickingRef.current) return;
+      const d = (e as CustomEvent).detail || {};
+      if (d.row == null || d.col == null) return;
+      const colLetters = (() => {
+        let n = Number(d.col) + 1;
+        let s = '';
+        while (n > 0) {
+          const rem = (n - 1) % 26;
+          s = String.fromCharCode(65 + rem) + s;
+          n = Math.floor((n - 1) / 26);
+        }
+        return s;
+      })();
+      setFormulaPickedRef(`${colLetters}${Number(d.row) + 1}`);
+      formulaPickingRef.current = false;
+      setFormulaPickingHidden(false);
+    };
+    window.addEventListener('univer-cell-selected', onSelected);
+    return () => window.removeEventListener('univer-cell-selected', onSelected);
+  }, []);
+
   // 侧栏属性面板回调：按字段名直接回写字段属性（attr: 0-3）与禁止手工编辑（免坐标解析）
   // 元素格配置变更（如「合计字段」指定对哪个明细字段求和）→ 写回网格 elementConfig 并本地同步
   const handleElementConfigChange = useCallback(
@@ -748,6 +895,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
             fieldLabel: '公式',
             formula: formula.expr,
             formulaCfg: formula.cfg || {},
+            formulaList: formula.list || [],
           });
           return;
         }
@@ -2005,6 +2153,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
       layoutData={layoutData}
       onLayoutChange={handleLayoutChange}
       formId={formId || undefined}
+      customFunctions={customFunctions}
       pendingField={selectedField || (window as any).__pendingField}
       hoveredField={hoveredField}
       onDetailMarkerOpen={openDetailCanvas}
@@ -2126,7 +2275,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
                   formId={formId}
                 />
               </div>
-              <PropertyPanel selectedField={selectedField} onFieldAttrChange={handlePanelFieldAttrChange} fieldOptions={fieldOptions} onElementConfigChange={handleElementConfigChange} onFormulaConfigChange={handleFormulaConfigChange} />
+              <PropertyPanel selectedField={selectedField} onFieldAttrChange={handlePanelFieldAttrChange} fieldOptions={fieldOptions} onElementConfigChange={handleElementConfigChange} onFormulaConfigChange={handleFormulaConfigChange} onOpenFormulaDialog={handleOpenFormulaFromPanel} />
             </div>
           </div>
         </Spin>
@@ -2210,6 +2359,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
                   layoutData={detailLayouts[editingDetail] || {}}
                   onLayoutChange={getDetailLayoutChange(editingDetail)}
                   formId={formId || undefined}
+      customFunctions={customFunctions}
                   pendingField={selectedField || (window as any).__pendingField}
                   hoveredField={hoveredField}
                 />
@@ -2218,7 +2368,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
 
             {/* 右侧属性面板 */}
             <div style={{ width: 300, borderLeft: '1px solid #f0f0f0', overflow: 'auto' }}>
-              <PropertyPanel selectedField={selectedField} onFieldAttrChange={handlePanelFieldAttrChange} fieldOptions={fieldOptions} onElementConfigChange={handleElementConfigChange} onFormulaConfigChange={handleFormulaConfigChange} />
+              <PropertyPanel selectedField={selectedField} onFieldAttrChange={handlePanelFieldAttrChange} fieldOptions={fieldOptions} onElementConfigChange={handleElementConfigChange} onFormulaConfigChange={handleFormulaConfigChange} onOpenFormulaDialog={handleOpenFormulaFromPanel} />
             </div>
           </div>
         )}
@@ -2301,6 +2451,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
                       layoutData={tabLayouts[editingTabId] || {}}
                       onLayoutChange={getTabLayoutChange(editingTabId)}
                       formId={formId || undefined}
+      customFunctions={customFunctions}
                       pendingField={selectedField || (window as any).__pendingField}
                       hoveredField={hoveredField}
                     />
@@ -2314,6 +2465,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
                     fieldOptions={fieldOptions}
                     onElementConfigChange={handleElementConfigChange}
                     onFormulaConfigChange={handleFormulaConfigChange}
+                    onOpenFormulaDialog={handleOpenFormulaFromPanel}
                   />
                 </div>
               </div>
@@ -2330,6 +2482,27 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         onChange={(next) => setElementEditor((prev) => (prev ? { ...prev, values: next } : prev))}
         onOk={submitElementEdit}
         onCancel={() => setElementEditor(null)}
+      />
+      {/* E9 风格「插入公式」弹框：由「插入 → 公式」按钮或双击公式格触发 */}
+      <FormulaDialog
+        open={!!formulaDialog}
+        hidden={formulaPickingHidden}
+        initial={formulaDialog ? { expr: formulaDialog.expr, cfg: formulaDialog.cfg, list: formulaDialog.list } : null}
+        fieldOptions={fieldOptions}
+        dataFields={formulaFields}
+        pickedRef={formulaPickedRef}
+        onCancel={() => { setFormulaDialog(null); setFormulaPickingHidden(false); setFormulaPickedRef(null); }}
+        onSave={handleFormulaDialogSave}
+        onClear={handleFormulaDialogClear}
+        onPickCell={handleFormulaPickCell}
+        customFunctions={customFunctions}
+        onManageCustomFunctions={() => setCustomFuncManagerOpen(true)}
+      />
+      <CustomFunctionDialog
+        open={customFuncManagerOpen}
+        formId={formId}
+        onClose={() => setCustomFuncManagerOpen(false)}
+        onSaved={loadCustomFunctions}
       />
     </DndProvider>
   );

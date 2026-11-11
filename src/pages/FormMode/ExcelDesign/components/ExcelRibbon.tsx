@@ -266,7 +266,8 @@ const ExcelRibbon: React.FC<ExcelRibbonProps> = ({
       return;
     }
     if (def.mode === 'formula') {
-      if (callGrid('insertFormula')) message.success('已进入公式编辑，输入公式后回车');
+      // 交予 E9 风格「插入公式」弹框编辑（表达式 / 目标字段 / 触发动作 / 金额大写）
+      callGrid('insertFormula');
       return;
     }
     // 布局级代码块：不写入单元格，直接打开编辑框并回显已保存内容，点「保存」持久化

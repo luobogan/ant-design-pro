@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Card, Input, Tree, Badge, Spin } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Card, Input, Badge, Spin, Segmented, Empty } from 'antd';
 import { useDrag } from 'react-dnd';
 import {
   FontSizeOutlined,
@@ -10,11 +10,22 @@ import {
   PaperClipOutlined,
   TableOutlined,
   UnorderedListOutlined,
-  NumberOutlined,
-  FileTextOutlined,
+  RightOutlined,
 } from '@ant-design/icons';
 import { fieldDefinitionApi } from '@/services/formmode';
 import type { FieldDefinition } from '@/services/formmode/typings';
+import { getFieldTypeLabel } from '@/components/FormMode/fieldTypes';
+import {
+  FIELD_GROUP_MODE_OPTIONS,
+  filterFieldsByKeyword,
+  getFieldDisplayLabel,
+  getFieldDisplayName,
+  groupFieldsByTable,
+  groupFieldsByType,
+  groupFieldsByUsage,
+  type FieldGroup,
+  type FieldGroupMode,
+} from '../utils/fieldGroup';
 
 /**
  * 字段面板组件
@@ -213,9 +224,9 @@ const DraggableFieldItem: React.FC<{
   usedFieldKeys?: Set<string>;
 }> = ({ field, onFieldSelect, onFieldHover, usedFieldKeys }) => {
   // 获取字段名称，支持多种属性名
-  const displayFieldName = field.fieldName || field.fieldDbName || field.name || field.columnName || '';
+  const displayFieldName = getFieldDisplayName(field);
   // 获取字段标签，支持多种属性名
-  const displayFieldLabel = field.fieldLabel || field.label || displayFieldName || '未命名字段';
+  const displayFieldLabel = getFieldDisplayLabel(field);
 
   // 该字段的标签/字段是否已被拖入表格（已拖入则禁止再次拖动）
   const fieldId = String((field as any).id ?? '');
@@ -287,6 +298,10 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
   const [fields, setFields] = useState<FieldDefinition[]>([]);
   const [mainTableFields, setMainTableFields] = useState<FieldDefinition[]>([]);
   const [detailTableFields, setDetailTableFields] = useState<Record<number, FieldDefinition[]>>({});
+  // 分组方式：按明细表 / 按类型 / 按使用状态
+  const [groupMode, setGroupMode] = useState<FieldGroupMode>('table');
+  // 已折叠的分组 key
+  const [collapsedKeys, setCollapsedKeys] = useState<string[]>([]);
 
   // 加载表单字段
   useEffect(() => {
@@ -358,68 +373,56 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
     loadFields();
   }, [formId]);
 
-  // 构建树形数据
-  // 展示规则（对齐 ecology「主表标记 + 子画布」模型）：
-  //   - 主画布（detailTableFilter 未设定）：只展示【主表字段】，过滤掉所有明细表字段
-  //     （明细字段属于各自子画布，主画布只负责插入明细表标记）
-  //   - 子画布（detailTableFilter 已设定）：只展示【该明细表】的字段，不展示主表字段
-  const buildTreeData = () => {
-    const groups: any[] = [];
+  // ── 分组与搜索 ──────────────────────────────────────────────────────────
+  // 展示范围（对齐 ecology「主表标记 + 子画布」模型）：
+  //   - 主画布（detailTableFilter 未设定）：只展示【主表字段】（明细字段属于各自子画布）
+  //   - 子画布（detailTableFilter 已设定）：只展示【该明细表】的字段
+  const scopedFields = useMemo<FieldDefinition[]>(
+    () => (detailTableFilter != null ? detailTableFields[detailTableFilter] ?? [] : mainTableFields),
+    [detailTableFilter, detailTableFields, mainTableFields],
+  );
 
-    // 子画布模式：仅展示指定明细表的字段（不含主表字段）
-    if (detailTableFilter != null) {
-      const num = detailTableFilter;
-      const fields = detailTableFields[num];
-      if (fields && fields.length > 0) {
-        const filtered = searchText
-          ? fields.filter(f =>
-              f.fieldLabel.includes(searchText) || f.fieldName.includes(searchText)
-            )
-          : fields;
+  // 字段是否已放置到画布（标签格或字段格命中即算已放置）
+  const isFieldUsed = useCallback(
+    (f: FieldDefinition) => {
+      const id = String((f as any).id ?? '');
+      if (!id || !usedFieldKeys) return false;
+      return usedFieldKeys.has(`${id}_label`) || usedFieldKeys.has(`${id}_field`);
+    },
+    [usedFieldKeys],
+  );
 
-        if (filtered.length > 0) {
-          groups.push({
-            title: `明细表${num} (${filtered.length})`,
-            key: `group-detail-${num}`,
-            children: filtered.map(f => ({
-              title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} onFieldHover={onFieldHover} usedFieldKeys={usedFieldKeys} />,
-              key: 'field-' + f.id,
-            })),
-          });
-        }
-      }
-      return groups;
+  // 搜索：大小写不敏感 + 多关键词（空格分隔，AND）命中 标签/字段名/描述/类型名
+  const filteredFields = useMemo(
+    () =>
+      filterFieldsByKeyword(scopedFields, searchText, (f) =>
+        getFieldTypeLabel(f?.fieldHtmlType, f?.fieldType),
+      ),
+    [scopedFields, searchText],
+  );
+
+  // 分组：按明细表 / 按类型 / 按使用状态
+  const groups = useMemo<FieldGroup<FieldDefinition>[]>(() => {
+    if (groupMode === 'type') {
+      return groupFieldsByType(filteredFields).map((g) => ({
+        ...g,
+        title: `${g.title} (${g.fields.length})`,
+      }));
     }
-
-    // 主画布模式：仅展示主表字段（过滤掉所有明细表字段）
-    if (mainTableFields.length > 0) {
-      const filteredMain = searchText
-        ? mainTableFields.filter(f =>
-            f.fieldLabel.includes(searchText) || f.fieldName.includes(searchText)
-          )
-        : mainTableFields;
-
-      if (filteredMain.length > 0) {
-        groups.push({
-          title: `主表字段 (${filteredMain.length})`,
-          key: 'group-main',
-          children: filteredMain.map(f => ({
-            title: <DraggableFieldItem field={f} onFieldSelect={onFieldSelect} onFieldHover={onFieldHover} usedFieldKeys={usedFieldKeys} />,
-            key: 'field-' + f.id,
-          })),
-        });
-      }
+    if (groupMode === 'usage') {
+      return groupFieldsByUsage(filteredFields, isFieldUsed);
     }
-
-    return groups;
-  };
-
-  const treeData = buildTreeData();
+    const tableTitle = () => (detailTableFilter != null ? `明细表${detailTableFilter}` : '主表字段');
+    return groupFieldsByTable(filteredFields, tableTitle).map((g) => ({
+      ...g,
+      title: `${g.title} (${g.fields.length})`,
+    }));
+  }, [filteredFields, groupMode, isFieldUsed, detailTableFilter]);
 
   // 计数徽标反映当前可见范围：主画布只计主表字段，子画布只计该明细表字段
-  const totalCount = detailTableFilter != null
-    ? (detailTableFields[detailTableFilter]?.length ?? 0)
-    : mainTableFields.length;
+  const totalCount = scopedFields.length;
+  // 搜索命中数（无搜索时等于总数）
+  const matchedCount = filteredFields.length;
 
   if (!formId) {
     return (
@@ -449,12 +452,29 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
       extra={loading ? <Spin size="small" /> : null}
     >
       <Input
-        placeholder="搜索字段（名称/标识）"
+        placeholder="搜索字段（标签 / 字段名 / 类型）"
         value={searchText}
         onChange={e => setSearchText(e.target.value)}
-        style={{ marginBottom: 16 }}
+        style={{ marginBottom: 8 }}
         allowClear
       />
+
+      {/* 分组方式切换 */}
+      <Segmented
+        size="small"
+        block
+        value={groupMode}
+        onChange={(v) => setGroupMode(v as FieldGroupMode)}
+        options={FIELD_GROUP_MODE_OPTIONS}
+        style={{ marginBottom: 12 }}
+      />
+
+      {/* 搜索命中提示 */}
+      {searchText ? (
+        <div style={{ fontSize: '12px', color: '#999', marginBottom: 6 }}>
+          命中 {matchedCount} / {totalCount} 个字段
+        </div>
+      ) : null}
 
       {/* 表头：标签 + 字段双列布局 */}
       <div style={{
@@ -471,29 +491,67 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
       </div>
 
       {/* 简单列表渲染，避免 Tree 组件的缩进影响双列布局 */}
-      {treeData.length > 0 ? (
+      {groups.length > 0 ? (
         <div>
-          {treeData.map((group: any) => (
-            <div key={group.key}>
-              {/* 分组标题 */}
-              <div style={{
-                padding: '8px 0 4px 0',
-                fontSize: '12px',
-                color: '#1890ff',
-                fontWeight: 'bold'
-              }}>
-                {group.title}
+          {groups.map((group) => {
+            const collapsed = collapsedKeys.includes(group.key);
+            return (
+              <div key={group.key}>
+                {/* 分组标题（点击折叠/展开） */}
+                <div
+                  onClick={() =>
+                    setCollapsedKeys((prev) =>
+                      prev.includes(group.key)
+                        ? prev.filter((k) => k !== group.key)
+                        : [...prev, group.key],
+                    )
+                  }
+                  style={{
+                    padding: '8px 0 4px 0',
+                    fontSize: '12px',
+                    color: '#1890ff',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                  }}
+                >
+                  <RightOutlined
+                    style={{
+                      fontSize: 10,
+                      color: '#999',
+                      transform: collapsed ? 'none' : 'rotate(90deg)',
+                      transition: 'transform 0.2s',
+                    }}
+                  />
+                  <span>{group.title}</span>
+                </div>
+                {/* 分组下的字段列表 */}
+                {!collapsed &&
+                  group.fields.map((f) => (
+                    <DraggableFieldItem
+                      key={f.id}
+                      field={f}
+                      onFieldSelect={onFieldSelect}
+                      onFieldHover={onFieldHover}
+                      usedFieldKeys={usedFieldKeys}
+                    />
+                  ))}
               </div>
-              {/* 分组下的字段列表 */}
-              {group.children?.map((child: any) => (
-                <div key={child.key}>{child.title}</div>
-              ))}
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div style={{ textAlign: 'center', color: '#999', padding: '20px 0' }}>
-          {loading ? '加载中...' : '暂无字段数据'}
+          {loading ? (
+            '加载中...'
+          ) : searchText ? (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无匹配字段" />
+          ) : (
+            '暂无字段数据'
+          )}
         </div>
       )}
     </Card>

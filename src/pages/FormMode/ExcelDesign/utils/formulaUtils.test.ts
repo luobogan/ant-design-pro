@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildCustomFunctionResolver,
   collectFormulaResults,
   evaluateFormula,
   getFormulaConfig,
+  getFormulaConfigs,
   resolveSheetFormulas,
 } from './formulaUtils';
 import { collectFieldValues, buildSubmitValues } from './collectFieldValues';
@@ -62,6 +64,64 @@ describe('resolveSheetFormulas（整表求值 + 循环检测）', () => {
     const cellData: any = { 0: { 1: { f: '=A1*3' } } };
     const out: any = resolveSheetFormulas(cellData, 'sheet1', { sheet1__0__0: 7 });
     expect(out['0']['1'].v).toBe(21);
+  });
+});
+
+describe('自定义函数（workflow_formula）', () => {
+  const getCell = (row: number, col: number) => {
+    const grid: Record<string, number> = { '0_0': 10, '1_0': 20, '2_0': 5 };
+    return grid[`${row}_${col}`] ?? 0;
+  };
+
+  it('自定义函数参与公式求值（function 写法）', () => {
+    const fns = buildCustomFunctionResolver([
+      { name: 'MYFUNC', category: '自定义函数', fnCode: 'function MYFUNC(a,b){return a+b;}' },
+    ]);
+    expect(evaluateFormula('MYFUNC(A1,A2)', getCell, () => 0, fns)).toBe(30);
+  });
+
+  it('箭头函数写法同样支持', () => {
+    const fns = buildCustomFunctionResolver([
+      { name: 'MUL', category: '自定义函数', fnCode: '(a,b) => a*b' },
+    ]);
+    expect(evaluateFormula('MUL(A1,A2)', getCell, () => 0, fns)).toBe(200);
+  });
+
+  it('未注册 / 代码非法 → #NAME?（不抛异常）', () => {
+    const fns = buildCustomFunctionResolver([
+      { name: 'BAD', category: '自定义函数', fnCode: 'function BAD( {' },
+    ]);
+    expect(evaluateFormula('BAD(A1)', getCell, () => 0, fns)).toBe('#NAME?');
+    expect(evaluateFormula('NOPE(A1)', getCell, () => 0, fns)).toBe('#NAME?');
+  });
+
+  it('自定义函数可用于整表求值', () => {
+    const fns = buildCustomFunctionResolver([
+      { name: 'TAX', category: '自定义函数', fnCode: 'function TAX(a){return Math.round(a*0.13);}' },
+    ]);
+    const cellData: any = { 0: { 0: { v: '', f: '=TAX(100)' } } };
+    const out: any = resolveSheetFormulas(cellData, 'sheet1', {}, '', fns);
+    expect(out['0']['0'].v).toBe(13);
+  });
+
+  it('自定义函数结果按 destField 进入提交载荷', () => {
+    const fns = buildCustomFunctionResolver([
+      { name: 'DOUBLE', category: '自定义函数', fnCode: 'function DOUBLE(a){return a*2;}' },
+    ]);
+    const layoutData: any = {
+      sheets: {
+        sheet1: {
+          id: 'sheet1',
+          cellData: {
+            0: {
+              0: { v: '', fieldMeta: { cellType: 'field', fieldName: 'qty' } },
+              1: { v: '', f: '=DOUBLE(A1)', formulaCfg: { destField: 'total' } },
+            },
+          },
+        },
+      },
+    };
+    expect(collectFormulaResults(layoutData, { sheet1__0__0: 21 }, fns).total).toBe(42);
   });
 });
 
@@ -150,5 +210,109 @@ describe('getFormulaConfig（公式格配置读取）', () => {
     const cfg = getFormulaConfig({ f: '=A1', formulaCfg: { destField: 'total', trigger: 'blur' } });
     expect(cfg.destField).toBe('total');
     expect(cfg.trigger).toBe('blur');
+  });
+});
+
+describe('getFormulaConfigs（公式列表：一格多公式）', () => {
+  it('无公式时返回空数组', () => {
+    expect(getFormulaConfigs(undefined)).toEqual([]);
+    expect(getFormulaConfigs({ v: 1 })).toEqual([]);
+    expect(getFormulaConfigs({ formulaCfgs: [] })).toEqual([]);
+  });
+
+  it('旧形态 formulaCfg 视为唯一一条', () => {
+    const list = getFormulaConfigs({ formulaCfg: { destField: 'total' } });
+    expect(list).toHaveLength(1);
+    expect(list[0].destField).toBe('total');
+  });
+
+  it('新形态 formulaCfgs 优先，返回全量列表', () => {
+    const list = getFormulaConfigs({
+      f: '=A1*2',
+      formulaCfgs: [
+        { expr: '=A1*2', destField: 'total' },
+        { expr: '=A1+1', destField: 'bonus' },
+      ],
+      formulaCfg: { destField: 'total' },
+    });
+    expect(list).toHaveLength(2);
+    expect(list[1].destField).toBe('bonus');
+    expect(list[1].expr).toBe('=A1+1');
+  });
+
+  it('getFormulaConfig 取列表首条（主公式）', () => {
+    const cfg = getFormulaConfig({
+      f: '=A1*2',
+      formulaCfgs: [
+        { expr: '=A1*2', destField: 'total' },
+        { expr: '=A1+1', destField: 'bonus' },
+      ],
+    });
+    expect(cfg.destField).toBe('total');
+  });
+});
+
+describe('一格多公式：附加公式结果进入提交载荷', () => {
+  // (0,0)=amount 字段；(0,1) 主公式 =A1*2 → total；同格附加公式 =A1+1 → bonus
+  const layoutData: any = {
+    sheets: {
+      sheet1: {
+        id: 'sheet1',
+        cellData: {
+          0: {
+            0: { v: '', fieldMeta: { cellType: 'field', fieldName: 'amount' } },
+            1: {
+              v: '',
+              f: '=A1*2',
+              formulaCfgs: [
+                { expr: '=A1*2', destField: 'total' },
+                { expr: '=A1+1', destField: 'bonus' },
+              ],
+              formulaCfg: { destField: 'total' },
+            },
+          },
+        },
+      },
+    },
+  };
+
+  it('主公式与附加公式分别写入各自目标字段', () => {
+    const out = collectFormulaResults(layoutData, { sheet1__0__0: 10 });
+    expect(out.total).toBe(20);
+    expect(out.bonus).toBe(11);
+  });
+
+  it('buildSubmitValues 同时带出主公式与附加公式结果', () => {
+    const payload = buildSubmitValues(layoutData, { sheet1__0__0: 6 });
+    expect(payload.amount).toBe(6);
+    expect(payload.total).toBe(12);
+    expect(payload.bonus).toBe(7);
+  });
+
+  it('附加公式支持字段名引用（回退到布局中字段格的值）', () => {
+    const layout: any = {
+      sheets: {
+        sheet1: {
+          id: 'sheet1',
+          cellData: {
+            0: {
+              0: { v: 8, fieldMeta: { cellType: 'field', fieldName: 'amount' } },
+              1: {
+                v: '',
+                f: '=A1*2',
+                formulaCfgs: [
+                  { expr: '=A1*2', destField: 'total' },
+                  // biome-ignore lint/suspicious/noTemplateCurlyInString: 公式里的字段引用语法（${字段名}）
+                  { expr: '=${amount}*10', destField: 'tenfold' },
+                ],
+              },
+            },
+          },
+        },
+      },
+    };
+    const out = collectFormulaResults(layout, {});
+    expect(out.total).toBe(16);
+    expect(out.tenfold).toBe(80);
   });
 });

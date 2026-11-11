@@ -928,3 +928,41 @@ export {
   fieldDefinitionApi as fieldApi,
   formDataApi as dataApi,
 };
+
+/**
+ * 自定义函数 API（对标泛微E9 workflow_formula 表）
+ * 对应后端 WorkflowFormulaController（/api/blade-formmode/formula）
+ */
+export const customFormulaApi = {
+  /**
+   * 获取可用自定义函数列表（全局 + 表单作用域）
+   */
+  list: async (formId?: string) => {
+    const response = await request<BladeResponse<any[]>>(`${API_BASE_PATH}/formula/list`, {
+      method: 'GET',
+      params: formId ? { formId } : undefined,
+    });
+    return (response.data || []) as any[];
+  },
+
+  /**
+   * 保存或更新自定义函数
+   * @param data 函数定义（无 id 为新增，含 id 为更新）
+   * @param formId 表单ID（可选，新增时作为作用域）
+   */
+  save: async (data: Record<string, any>, formId?: string) => {
+    const response = await request<BladeResponse<any>>(`${API_BASE_PATH}/formula/save`, {
+      method: 'POST',
+      params: formId ? { formId } : undefined,
+      data,
+    });
+    return response.data;
+  },
+
+  /**
+   * 删除自定义函数（逻辑删除）
+   */
+  remove: async (id: number) => {
+    return request(`${API_BASE_PATH}/formula/${id}`, { method: 'DELETE' });
+  },
+};

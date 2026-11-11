@@ -25,6 +25,8 @@ import RichTextEditor, {
 } from '@/components/RichTextEditor';
 import ApprovalFormRender from '@/pages/FormMode/ExcelDesign/components/ApprovalFormRender';
 import { buildSubmitValues } from '@/pages/FormMode/ExcelDesign/utils/collectFieldValues';
+// 自定义函数（workflow_formula）：公式结果进入提交载荷时需按表单作用域求值
+import { useCustomFunctionResolver } from '@/pages/FormMode/ExcelDesign/utils/customFunctionRuntime';
 import { PersonOrgField } from '@/components/FormMode/PersonOrgPicker';
 import { fetchUserNames } from '@/components/FormMode/personOrg';
 import { MENUS_OPTIONS } from '@/pages/FormMode/WorkflowDesign/wfDict';
@@ -285,6 +287,8 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
   /** 自由流程专属工具（下一步设置 / 流转设定）：非自由流程、预览、监控只读态一律隐藏 */
   const showFreeFlowTools = !preview && !readOnly && Number(isFree) === 1;
   const [pkg, setPkg] = useState<any>(null);
+  // 自定义函数（workflow_formula）：渲染包带 formId（workflow_bill.id），据此按表单作用域加载
+  const customFns = useCustomFunctionResolver(pkg?.formId);
   const [tab, setTab] = useState<'form' | 'diagram' | 'status' | 'resource'>('form');
   const [logs, setLogs] = useState<any[]>([]);
   /** nodeKey → 操作者分组（流程图节点「谁批的」+ 悬浮「操作者」面板） */
@@ -869,7 +873,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
       } catch {
         layout = null;
       }
-      onStep?.({ opinion, formData: buildSubmitValues(layout, formValues) });
+      onStep?.({ opinion, formData: buildSubmitValues(layout, formValues, customFns) });
       return;
     }
     if (NEED_EXTRA.includes(code)) {
@@ -908,7 +912,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
           formId: inst?.formId,
           dataId: inst?.dataId,
           // 与提交同口径：坐标键（布局回显）+ 字段名键（出口条件）
-          fieldValues: buildSubmitValues(layout, formValues),
+          fieldValues: buildSubmitValues(layout, formValues, customFns),
         });
         if (res?.success === false) {
           message.error(res?.msg || '保存失败');
@@ -980,7 +984,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
     const submitValues = submitValuesRef.current || formValues;
     const variables: Record<string, any> = {
       ...(pkg?.dataJson || {}),
-      ...buildSubmitValues(layout, submitValues),
+      ...buildSubmitValues(layout, submitValues, customFns),
     };
     // 提交前：服务端按节点必填矩阵复核（前端校验不可信，与「正式办理页」同口径）。
     // 布局级必填已由 ExcelPreview 提交时校验，这里补「字段权限=必填」那一层。
@@ -1453,7 +1457,7 @@ const InstanceFlowContent: React.FC<InstanceFlowProps> = ({
                       } catch {
                         layout = null;
                       }
-                      onValuesChange?.(buildSubmitValues(layout, v || {}));
+                      onValuesChange?.(buildSubmitValues(layout, v || {}, customFns));
                     }}
                     // 布局级必填校验通过后才真正提交（缺失字段已由 ExcelPreview 标红并提示字段名）
                     onSubmit={(vals: Record<string, any>, fieldValues: Record<string, any>) => {

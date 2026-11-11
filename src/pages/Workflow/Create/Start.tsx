@@ -23,6 +23,8 @@ import { usePageButtons } from '@/hooks/usePageButtons';
 import ExcelPreview from '@/pages/FormMode/ExcelDesign/components/ExcelPreview';
 import type { NodePermissionResolver } from '@/pages/FormMode/ExcelDesign/components/ExcelPreview';
 import { buildSubmitValues } from '@/pages/FormMode/ExcelDesign/utils/collectFieldValues';
+// 自定义函数（workflow_formula）：公式结果进入提交载荷时需按表单作用域求值
+import { useCustomFunctionResolver } from '@/pages/FormMode/ExcelDesign/utils/customFunctionRuntime';
 import FlowDiagram from '@/pages/FormMode/Test/components/FlowDiagram';
 import InstanceFlow from './InstanceFlow';
 import RelatedResources from './RelatedResources';
@@ -207,6 +209,8 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string>('');
   const [def, setDef] = useState<WfProcessDefinition | null>(null);
+  // 自定义函数（workflow_formula）：随表单作用域加载，供提交载荷里的公式求值
+  const customFns = useCustomFunctionResolver(def?.formId);
   const [nodes, setNodes] = useState<WfProcessNode[]>([]);
   const [startNodeKey, setStartNodeKey] = useState<string | undefined>();
   const [bpmnXml, setBpmnXml] = useState<string>('');
@@ -581,7 +585,7 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
     try {
       // 坐标键（{sheetId}__row__col，供 Excel 布局回显）与字段名键（供出口条件 UEL ${字段名}）
       // 一并下发：与「流程测试页 / 办理页」同一口径，保证开始节点的分支判断能拿到变量。
-      const payload = buildSubmitValues(layoutData, values);
+      const payload = buildSubmitValues(layoutData, values, customFns);
       // 服务端复核（节点字段权限必填矩阵 + 明细表必须新增）：与「测试页 /test/step」同口径，
       // 避免只靠前端校验被绕过（前端布局必填校验已在 handleSubmitClick 里跑过）。
       // 校验不通过时后端抛业务异常（HTTP 400，带 msg），由下方 catch 统一提示。
@@ -651,7 +655,7 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
     setSubmitting(true);
     try {
       // 与正式发起同口径：坐标键（Excel 布局回显） + 字段名键（出口条件 UEL ${字段名}）一并下发
-      const payload = buildSubmitValues(layoutData, values);
+      const payload = buildSubmitValues(layoutData, values, customFns);
       const res: any = await startWorkflowTest({
         defId: def?.id,
         testUserId: props.testUserId || userId,
@@ -689,7 +693,7 @@ const StartFlow: React.FC<StartFlowProps> = (props) => {
     try {
       const values = formValuesRef.current || {};
       // 与提交同口径：坐标键（供布局回显）+ 字段名键（供出口条件）一并下发
-      const payload = buildSubmitValues(layoutData, values);
+      const payload = buildSubmitValues(layoutData, values, customFns);
       const res: any = await saveDraft({
         defId: def?.id,
         formId: def?.formId,

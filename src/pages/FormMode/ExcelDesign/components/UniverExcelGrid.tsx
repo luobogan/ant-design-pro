@@ -31,7 +31,15 @@ import '@univerjs/ui/facade';
 // 这行代码会执行 FWorksheet.extend(FWorksheetUIMixin)，将 hitTest 方法添加到 FWorksheet 原型上
 import '@univerjs/sheets-ui/facade';
 
+// 关键：导入 sheets-formula facade 侧效应，为 FUniver 添加 registerFunction。
+// 缺少它时 FUniver 上没有 registerFunction，自定义函数无法注册到 Univer 引擎，
+// 设计态画布里的自定义函数单元格会显示 #NAME?。
+import '@univerjs/sheets-formula/facade';
+
 import { registerDesignerRibbon } from '../ribbonRegistry';
+// 自定义函数（workflow_formula）→ Univer 引擎：让设计态画布也能计算自定义函数
+import { registerCustomFunctionsToUniver } from '../utils/univerCustomFunction';
+import { getFormulaConfigs, type CustomFormula, type FormulaConfig } from '../utils/formulaUtils';
 
 // 多实例「当前激活 Univer 实例」栈：主画布 + 标签页/明细表子画布可能同时存活。
 // 保证 window.__univerFAPI / univerExcelGrid / __univerMenuManager 等桥接全局
@@ -434,6 +442,11 @@ interface UniverExcelGridProps {
   layoutData: any;
   onLayoutChange: (data: any) => void;
   formId?: string;
+  /**
+   * 自定义函数（后端 workflow_formula）：注册到 Univer 引擎后，
+   * 设计态画布里的公式也能调用自定义函数（否则显示 #NAME?）。
+   */
+  customFunctions?: CustomFormula[];
   /** 待放置字段（从 FieldPalette 选中） */
   pendingField?: any;
   /** 悬停字段（从 FieldPalette hover）→ 高亮对应单元格 */
@@ -610,6 +623,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   layoutData,
   onLayoutChange,
   formId,
+  customFunctions,
   pendingField,
   hoveredField,
   layoutType,
@@ -626,8 +640,32 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   const workbookRef = useRef<any>(null);
   // 本实例在「激活实例栈」中的记录：由 workbook 就绪的 useEffect 写入、init 的 cleanup 读取
   const activeInstRef = useRef<any>(null);
+  // 公式格配置（对齐 E9 workflow_formula_htmllayout）：按 row_col 存**公式列表**（一条 Cell 可配多条公式），
+  // 随 saveLayoutData 写入 cellData[r][c].formulaCfgs（全量数组）+ cellData[r][c].formulaCfg（首条，兼容旧读取方）
+  const formulaCfgMapRef = useRef<Record<string, FormulaConfig[]>>({});
   const [workbook, setWorkbook] = useState<any>(null);
   const [initialized, setInitialized] = useState<boolean>(false);
+  // 自定义函数注册的注销句柄（重新注册前先注销旧的，避免同名函数重复注册）
+  const customFnDisposeRef = useRef<(() => void) | null>(null);
+
+  // ──────────────────────────────────────────────
+  // 自定义函数注册到 Univer 引擎
+  // ──────────────────────────────────────────────
+  // 设计态画布里公式由 Univer 引擎求值；引擎不认识自定义函数名时会算成 #NAME?。
+  // 故把后端 workflow_formula 的自定义函数注册进引擎：
+  //   · FUniver.registerFunction({ calculate }) 内部会 debounce 触发一次 forceCalculation，
+  //     因此注册完（含新增/修改自定义函数后重新注册）画布公式会自动重算，无需手动刷新；
+  //   · customFunctions 变化时先注销旧注册再注册新注册，避免同名函数重复注册。
+  useEffect(() => {
+    const fUniver = fUniverRef.current;
+    if (!initialized || !fUniver) return;
+    customFnDisposeRef.current?.();
+    customFnDisposeRef.current = registerCustomFunctionsToUniver(fUniver, customFunctions);
+    return () => {
+      customFnDisposeRef.current?.();
+      customFnDisposeRef.current = null;
+    };
+  }, [initialized, customFunctions]);
   const [initError, setInitError] = useState<string>('');
   const sheetRef = useRef<any>(null);
   const { message } = App.useApp();
@@ -1642,6 +1680,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       // 关键修复：加载新数据前先清空旧的元数据，避免删除的单元格数据残留
       console.log('[LoadLayout] 清空旧的单元格元数据');
       cellFieldMetaMap.current = {};
+      formulaCfgMapRef.current = {};
       // 加载的是权威布局（DB/父组件），此前「已移除」的墓碑不再适用，需清空，
       // 否则新布局里的字段会因墓碑被 tier-2/3 忽略而显示异常。
       removedFieldKeysRef.current.clear();
@@ -1699,6 +1738,21 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           const loadedMeta: any = (cell as any).fieldMeta ? { ...(cell as any).fieldMeta } : null;
           const isFieldCell = loadedMeta?.cellType === 'field';
 
+          // 恢复公式表达式：优先用 f（Univer 公式），无 f 时兼容以 = 开头的显示值
+          const loadedFormula: string | undefined = (cell as any).f
+            || (typeof (cell as any).v === 'string' && (cell as any).v.startsWith('=') ? (cell as any).v : undefined);
+
+          // 恢复公式配置（名称 / 目标字段 / 触发动作 / 金额大写）：
+          // 一格多公式 → 列表形态（formulaCfgs 优先，兼容旧单条 formulaCfg）
+          const loadedCfgs = getFormulaConfigs(cell);
+          if (loadedCfgs.length) {
+            const list = loadedCfgs.map((c) => ({ ...c }));
+            // 主条（index 0）的表达式以 cell.f 为准（Univer 公式源）
+            if (loadedFormula) list[0].expr = loadedFormula;
+            else if (!list[0].expr) list[0].expr = '';
+            formulaCfgMapRef.current[cellKey] = list;
+          }
+
           if (loadedMeta) {
             // 只读模板（显示/监控/打印）→ 强制 fieldAttr=1，对应 ecology resumeSheetData:808 + getCellFieldImage:3745
             if (isReadOnlyTemplate) {
@@ -1707,6 +1761,15 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             cellFieldMetaMap.current[cellKey] = loadedMeta;
             // 设置单元格值（按覆盖后的属性上色，确保 loadLayoutData 重载时样式一致，避免"切不回去"）
             setCellField(workbook, sheet, row, col, loadedMeta as FieldMeta);
+          } else if (loadedFormula) {
+            // 公式格：交给 Univer 公式引擎（setFormula 内部 setValue({f})）
+            try {
+              const r = range || sheet.getRange(row, col);
+              if (typeof r.setFormula === 'function') r.setFormula(loadedFormula);
+              else r.setValue(loadedFormula);
+            } catch (e) {
+              console.warn('[LoadLayout] 公式还原失败:', row, col, e);
+            }
           } else if ((cell as any).v !== undefined && (cell as any).v !== null) {
             if (range) range.setValue((cell as any).v);
             else sheet.getRange(row, col).setValue((cell as any).v);
@@ -1908,8 +1971,21 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             continue;
           }
 
-          // 跳过空值单元格
-          if (value === null || value === undefined || value === '') continue;
+          // 读取原始单元格的公式 f：公式格的计算结果可能为空，不能仅凭 v 判空跳过，
+          // 否则「只有公式没有结果值」的格子保存后公式会丢。
+          // 性能约束：与 readCellValueFast 一样只走直连矩阵，绝不逐格 getRange（会触发 redi 解析）。
+          let cellFormula: string | undefined;
+          try {
+            const matrix = sheet._worksheet?.getCellMatrix?.();
+            const f = matrix?.getValue?.(row, col)?.f;
+            if (f) cellFormula = String(f).startsWith('=') ? String(f) : `=${f}`;
+          } catch { /* 单格读取失败不影响保存 */ }
+          const formulaCfgs = formulaCfgMapRef.current[`${row}_${col}`];
+          const formulaCfg = formulaCfgs?.[0];
+          const hasFormula = !!cellFormula || !!(formulaCfgs && formulaCfgs.length);
+
+          // 跳过空值单元格（公式格即使结果为空也要保留）
+          if ((value === null || value === undefined || value === '') && !hasFormula) continue;
 
           // 捕获单元格样式（composed，含字体/背景/对齐等，用于保存后还原 Excel 样式）
           // 仅对非空格解析：空格占绝绝大多数，逐格取样式是保存慢的主因之一
@@ -2011,9 +2087,15 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
           cellData[row][col] = {
             v: value,
+            // 公式表达式（对齐 E9 formulatxt）：写回布局供预览端 formulaUtils 计算
+            ...(cellFormula ? { f: cellFormula } : {}),
             s: cellStyle || undefined,
             fieldMeta: fieldMeta || undefined,
-          };
+            // 公式配置（名称 / 目标字段 / 触发动作 / 金额大写）：
+            // formulaCfgs = 全量列表（一格多公式），formulaCfg = 首条（兼容旧读取方）
+            ...(formulaCfgs && formulaCfgs.length ? { formulaCfgs: formulaCfgs.map((c) => ({ ...c })) } : {}),
+            ...(formulaCfg ? { formulaCfg: { ...formulaCfg } } : {}),
+          } as any;
 
           // 同时构建 SpreadJS 兼容数据表
           if (!dataTable[row]) dataTable[row] = [];
@@ -4635,15 +4717,171 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         }
       };
 
-      // 插入公式：在活动单元格写入 '=' 交由 Univer 公式引擎编辑
-      const insertFormula = (): boolean => {
+      // ── 公式格 API（对齐 E9 插入公式弹框）─────────────────────────────
+      // 统一走 CustomEvent 桥接：由 ExcelDesign 承载弹框，网格只负责读写数据。
+      const getFormulaCellPos = (): { row: number; col: number } => {
+        const { row, col } = getActiveCellPos();
+        return { row: Number(row) || 0, col: Number(col) || 0 };
+      };
+
+      /**
+       * 读取公式格：表达式 + 配置（供弹框回显 / 属性面板）
+       *
+       * 一格多公式：list 为该格全部公式配置（index 0 = 主公式，其表达式即 cell.f）。
+       */
+      const getCellFormulaCfg = (
+        row: number,
+        col: number,
+      ): { expr: string; cfg: FormulaConfig; list: FormulaConfig[] } | null => {
+        const sheet: any = sheetRef.current;
+        if (!sheet) return null;
+        const key = `${row}_${col}`;
+        let expr = '';
+        try {
+          const matrix = sheet._worksheet?.getCellMatrix?.();
+          const cd = matrix ? matrix.getValue(row, col) : null;
+          const f = cd?.f ? String(cd.f) : '';
+          expr = f ? (f.startsWith('=') ? f : `=${f}`) : '';
+          if (!expr) {
+            const v = cd?.v;
+            if (typeof v === 'string' && v.startsWith('=')) expr = v;
+          }
+        } catch { /* ignore */ }
+        const list = formulaCfgMapRef.current[key] || [];
+        if (!expr && !list.length) return null;
+        const cfg = list[0] || {};
+        return { expr: expr || '=', cfg: { ...cfg }, list: list.map((c) => ({ ...c })) };
+      };
+
+      /**
+       * 保存公式弹框（单条入口）：写入 Univer 公式 + 首条配置，并触发布局保存。
+       * 一格多公式请用 {@link setCellFormulaList}。
+       */
+      const setCellFormula = (row: number, col: number, expr: string, cfg?: any): boolean => {
         try {
           const sheet: any = sheetRef.current;
           if (!sheet) return false;
-          const { row, col } = getActiveCellPos();
-          const cur = String((sheet.getRange?.(row, col, 1, 1)?.getValue?.() ?? '') || '');
-          if (cur.startsWith('=')) return true;
-          (sheet.getRange?.(row, col, 1, 1) as any)?.setValue?.('=');
+          const key = `${row}_${col}`;
+          const range: any = sheet.getRange(row, col, 1, 1);
+          const formula = String(expr || '').trim();
+          if (typeof range?.setFormula === 'function') range.setFormula(formula);
+          else range?.setValue?.(formula);
+          const prev = formulaCfgMapRef.current[key] || [];
+          const list = prev.length ? [...prev] : [{}];
+          list[0] = { ...(list[0] || {}), ...(cfg || {}), expr: formula };
+          formulaCfgMapRef.current[key] = list;
+          setTimeout(() => { try { saveLayoutData(); } catch (e) { /* ignore */ } }, 0);
+          return true;
+        } catch (e) {
+          console.warn('[SetCellFormula] 失败:', e);
+          return false;
+        }
+      };
+
+      /**
+       * 保存公式列表（一格多公式，对齐 E9 workflow_formula_htmllayout）：
+       * 首条为主公式 → 写入 Univer 公式（cell.f）；其余条表达式冗余在配置里（formulaCfgs[i].expr）。
+       */
+      const setCellFormulaList = (row: number, col: number, list: FormulaConfig[]): boolean => {
+        try {
+          const sheet: any = sheetRef.current;
+          if (!sheet) return false;
+          const key = `${row}_${col}`;
+          const clean = (list || [])
+            .filter((c) => c && (String(c.expr || '').trim() || c.name || c.destField))
+            .map((c) => ({ ...c, expr: String(c.expr || '').trim() }));
+          if (!clean.length) return clearCellFormula(row, col);
+          const range: any = sheet.getRange(row, col, 1, 1);
+          const mainExpr = String(clean[0]?.expr || '').trim();
+          if (mainExpr) {
+            if (typeof range?.setFormula === 'function') range.setFormula(mainExpr);
+            else range?.setValue?.(mainExpr);
+          }
+          formulaCfgMapRef.current[key] = clean;
+          setTimeout(() => { try { saveLayoutData(); } catch (e) { /* ignore */ } }, 0);
+          return true;
+        } catch (e) {
+          console.warn('[SetCellFormulaList] 失败:', e);
+          return false;
+        }
+      };
+
+      /** 增量更新公式配置（属性面板 / 弹框局部保存共用）：只改首条（主公式）配置 */
+      const setCellFormulaCfg = (row: number, col: number, patch: Record<string, any>): boolean => {
+        try {
+          const key = `${row}_${col}`;
+          const cur = getCellFormulaCfg(row, col);
+          if (!cur) return false;
+          const list = cur.list.length ? cur.list.map((c) => ({ ...c })) : [{}];
+          list[0] = { ...(list[0] || {}), ...(patch || {}) };
+          formulaCfgMapRef.current[key] = list;
+          setTimeout(() => { try { saveLayoutData(); } catch (e) { /* ignore */ } }, 0);
+          return true;
+        } catch (e) {
+          console.warn('[SetCellFormulaCfg] 失败:', e);
+          return false;
+        }
+      };
+
+      /** 清除公式格：清掉内容 + 配置 */
+      const clearCellFormula = (row: number, col: number): boolean => {
+        try {
+          const sheet: any = sheetRef.current;
+          if (!sheet) return false;
+          sheet.getRange(row, col, 1, 1)?.setValue?.('');
+          delete formulaCfgMapRef.current[`${row}_${col}`];
+          setTimeout(() => { try { saveLayoutData(); } catch (e) { /* ignore */ } }, 0);
+          return true;
+        } catch (e) {
+          console.warn('[ClearCellFormula] 失败:', e);
+          return false;
+        }
+      };
+
+      /** 弹框「数据」面板字段：扫描布局里已放置的字段（含主表/明细表/标签页 scope） */
+      const getFormulaFields = (): Array<{ label: string; value: string; scope: string }> => {
+        const out: Array<{ label: string; value: string; scope: string }> = [];
+        const seen = new Set<string>();
+        const push = (name: string, label: string, scope: string) => {
+          if (!name || seen.has(`${scope}_${name}`)) return;
+          seen.add(`${scope}_${name}`);
+          out.push({ label: label || name, value: name, scope });
+        };
+        try {
+          const data: any = layoutDataRef.current;
+          const scan = (cellData: any, scope: string) => {
+            Object.entries(cellData || {}).forEach(([, rowData]: [string, any]) => {
+              Object.entries(rowData || {}).forEach(([, cell]: [string, any]) => {
+                const fm = (cell as any)?.fieldMeta;
+                if (fm?.cellType === 'field' && fm?.fieldName) push(String(fm.fieldName), String(fm.fieldLabel || fm.fieldName), scope);
+              });
+            });
+          };
+          // 两种布局形态：标准 {sheets:{sheet1:{cellData}}} 与 parentData {cellData}
+          const resolve = (d: any): any => {
+            if (!d) return null;
+            if (d.cellData) return d.cellData;
+            const sheets = d.sheets || d.Sheet1?.sheets;
+            const first = sheets && Object.values(sheets)[0] as any;
+            return first?.cellData || null;
+          };
+          scan(resolve(data), '主表');
+          Object.entries(data?.detailTables || {}).forEach(([k, v]: [string, any]) => scan(resolve(v), `明细表${k}`));
+          Object.entries(data?.tabTables || {}).forEach(([k, v]: [string, any]) => scan(resolve(v), `标签页${k}`));
+        } catch (e) {
+          console.warn('[GetFormulaFields] 失败:', e);
+        }
+        return out;
+      };
+
+      /** 插入公式：不再直接写 '='，改为请求打开 E9 风格公式弹框 */
+      const insertFormula = (): boolean => {
+        try {
+          const { row, col } = getFormulaCellPos();
+          const cur = getCellFormulaCfg(row, col);
+          window.dispatchEvent(new CustomEvent('excel-formula-dialog-open', {
+            detail: { row, col, expr: cur?.expr || '=', cfg: cur?.cfg || {}, list: cur?.list || [] },
+          }));
           return true;
         } catch (e) {
           console.warn('[InsertFormula] 失败:', e);
@@ -4660,6 +4898,12 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         rowColOp,
         insertElement,
         insertFormula,
+        getCellFormulaCfg,
+        setCellFormula,
+        setCellFormulaList,
+        setCellFormulaCfg,
+        clearCellFormula,
+        getFormulaFields,
         setElementConfig,
         handleFieldDrop,
         getCellFieldMeta,

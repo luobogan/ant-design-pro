@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, Form, Input, Select, InputNumber, Switch, Segmented, Empty, Divider, Row, Col, Space, Button, Upload, message } from 'antd';
 import { SettingOutlined, DeleteOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
 import { getElementFields } from '../elementSchema';
+import { FORMULA_TRIGGER_OPTIONS } from '../utils/formulaUtils';
 import { uploadFile } from '@/services/file';
 
 /**
@@ -36,9 +37,21 @@ interface PropertyPanelProps {
   fieldOptions?: { label: string; value: any }[];
   /** 元素格配置变更回调：传 { [字段名]: 值 } 补丁，写回网格 elementConfig */
   onElementConfigChange?: (patch: Record<string, any>) => void;
+  /** 公式格配置变更回调：传 { [字段名]: 值 } 补丁，写回网格 formulaCfg */
+  onFormulaConfigChange?: (patch: Record<string, any>) => void;
+  /** 打开 E9 风格公式编辑弹框 */
+  onOpenFormulaDialog?: () => void;
 }
 
-const PropertyPanel: React.FC<PropertyPanelProps> = ({ selectedField, onFieldAttrChange, onElementConfigChange }) => {
+const PropertyPanel: React.FC<PropertyPanelProps> = ({
+  selectedField,
+  onFieldAttrChange,
+  // 表单字段下拉选项（公式格「目标字段」用它；漏解构会直接抛 ReferenceError）
+  fieldOptions,
+  onElementConfigChange,
+  onFormulaConfigChange,
+  onOpenFormulaDialog,
+}) => {
   const [form] = Form.useForm();
   const [options, setOptions] = React.useState<{ label: string; value: string }[]>([]);
 
@@ -80,6 +93,58 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ selectedField, onFieldAtt
         style={{ height: '100%' }}
       >
         <Empty description="请选择一个字段进行配置" />
+      </Card>
+    );
+  }
+
+  // ── 公式格属性面板：与「插入公式」弹框同源配置，选中后可就地改或打开弹框编辑表达式 ──
+  if (selectedField?.cellType === 'formula') {
+    const cfg: Record<string, any> = selectedField.formulaCfg || {};
+    const setVal = (name: string, value: any) => onFormulaConfigChange?.({ [name]: value });
+    return (
+      <Card
+        title={<span><SettingOutlined style={{ marginRight: 8 }} />公式配置</span>}
+        size="small"
+        style={{ height: '100%' }}
+      >
+        <Form layout="vertical" size="small">
+          <Form.Item label="公式名称">
+            <Input
+              value={cfg.name || ''}
+              placeholder="例如：合计金额"
+              onChange={(e) => setVal('name', e.target.value)}
+            />
+          </Form.Item>
+          <Form.Item label="目标字段（结果写入）">
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="选择字段"
+              value={cfg.destField}
+              options={fieldOptions || []}
+              onChange={(v) => setVal('destField', v)}
+            />
+          </Form.Item>
+          <Form.Item label="触发动作">
+            <Select
+              allowClear
+              placeholder="值改变 / 载入时"
+              value={cfg.trigger}
+              onChange={(v) => setVal('trigger', v)}
+              options={FORMULA_TRIGGER_OPTIONS}
+            />
+          </Form.Item>
+          <Form.Item label="金额大写">
+            <Switch checked={!!cfg.chinese} onChange={(v) => setVal('chinese', v)} />
+          </Form.Item>
+          <Form.Item label="公式内容">
+            <Input.TextArea rows={3} readOnly value={selectedField.formula || ''} />
+          </Form.Item>
+          <Button type="primary" block onClick={() => onOpenFormulaDialog?.()}>
+            打开公式编辑器
+          </Button>
+        </Form>
       </Card>
     );
   }

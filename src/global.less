@@ -69,6 +69,11 @@ canvas {
   display: block;
 }
 
+/* 「插入公式」弹框选择单元格期间：整个 modal root 不拦截画布点击 */
+.formula-dialog-picking {
+  pointer-events: none;
+}
+
 ul,
 ol {
   list-style: none;

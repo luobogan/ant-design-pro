@@ -18,6 +18,8 @@
  * 回显（initialValues 按坐标读），字段名供引擎变量/网关条件使用。</p>
  */
 
+import { collectFormulaResults, type CustomFunctionResolver } from './formulaUtils';
+
 type AnyObj = Record<string, any>;
 
 /** 只认「输入格」：cellType 为空（老布局）或 =field；标签/元素/明细标记格不承载值 */
@@ -65,23 +67,39 @@ const buildMetaIndex = (layoutData: any): Map<string, { fieldName: string; dtIdx
 /** 是否为空值（空串 / null / undefined；0 与 false 视为有值） */
 const isBlank = (v: any): boolean => v === undefined || v === null || v === '';
 
-export function collectFieldValues(layoutData: any, values: AnyObj): AnyObj {
+/**
+ * 收集「字段名 → 值」。
+ *
+ * <p>除坐标键翻译外，**并入公式结果**（按目标字段名 destField）：公式格没有 fieldMeta，
+ * 不会被坐标键翻译命中，但其计算结果必须进入提交载荷（E9 getFormulaNew 语义）。
+ * 公式结果在后合并，故同名时以公式为准（destField 本就是公式的写入目标）。</p>
+ *
+ * @param customFns 自定义函数（workflow_formula）解析器，供公式里的自定义函数求值
+ */
+export function collectFieldValues(
+  layoutData: any,
+  values: AnyObj,
+  customFns?: CustomFunctionResolver,
+): AnyObj {
   const out: AnyObj = {};
   if (!layoutData || !values) return out;
   const index = buildMetaIndex(layoutData);
-  if (index.size === 0) return out;
-  Object.keys(values).forEach((key) => {
-    const m = CELL_KEY_RE.exec(key);
-    if (!m) return;
-    const cellKey = m[3] + '__' + m[4] + '__' + m[5];
-    const hit = index.get(cellKey);
-    if (!hit) return;
-    const v = values[key];
-    if (isBlank(v)) return;
-    const outKey = hit.dtIdx != null ? `dt${hit.dtIdx}__${hit.fieldName}` : hit.fieldName;
-    // 首个非空值生效（明细表多行时不会被后续行覆盖）
-    if (isBlank(out[outKey])) out[outKey] = v;
-  });
+  if (index.size > 0) {
+    Object.keys(values).forEach((key) => {
+      const m = CELL_KEY_RE.exec(key);
+      if (!m) return;
+      const cellKey = m[3] + '__' + m[4] + '__' + m[5];
+      const hit = index.get(cellKey);
+      if (!hit) return;
+      const v = values[key];
+      if (isBlank(v)) return;
+      const outKey = hit.dtIdx != null ? `dt${hit.dtIdx}__${hit.fieldName}` : hit.fieldName;
+      // 首个非空值生效（明细表多行时不会被后续行覆盖）
+      if (isBlank(out[outKey])) out[outKey] = v;
+    });
+  }
+  // 公式结果并入（公式格无 fieldMeta，只能靠 destField 落地）
+  Object.assign(out, collectFormulaResults(layoutData, values, customFns));
   return out;
 }
 
@@ -109,8 +127,12 @@ export function pickFieldNameValues(values: AnyObj): AnyObj {
  * 组装提交载荷：`{ 字段名键(直接来自 values) , 字段名键(由坐标键翻译) }`。
  * 坐标键一律不进载荷。发起 / 测试发起 / 保存草稿 / 办理提交 统一用这个口径。
  */
-export function buildSubmitValues(layoutData: any, values: AnyObj): AnyObj {
-  return { ...pickFieldNameValues(values), ...collectFieldValues(layoutData, values) };
+export function buildSubmitValues(
+  layoutData: any,
+  values: AnyObj,
+  customFns?: CustomFunctionResolver,
+): AnyObj {
+  return { ...pickFieldNameValues(values), ...collectFieldValues(layoutData, values, customFns) };
 }
 
 /**

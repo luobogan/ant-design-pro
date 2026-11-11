@@ -36,6 +36,12 @@ import type { FieldVariant } from '@/components/FormMode/fieldTokens';
 import { FIELD_COLOR, MOBILE_FIELD_TOKENS } from '@/components/FormMode/fieldTokens';
 // 运行期公式求值 + 标签页配置解析（单一来源 elementSchema）
 import { resolveSheetFormulas, evaluateFormulaCell, getFormulaConfig, type FormulaConfig } from '../utils/formulaUtils';
+// 自定义函数（workflow_formula）运行时：顶层加载一次，深层组件经 Context 取用
+import {
+  CustomFunctionContext,
+  useCustomFunctionContext,
+  useCustomFunctionResolver,
+} from '../utils/customFunctionRuntime';
 // 金额大写（E9 numberChangeToChinese）
 import { numberToChineseCapital } from '../utils/amountChinese';
 import {
@@ -128,6 +134,8 @@ interface CellDataItem {
   f?: string;
   /** 公式格配置（目标字段 / 触发时机 / 金额大写） */
   formulaCfg?: FormulaConfig;
+  /** 公式格配置列表（一格多公式，index 0 = 主公式） */
+  formulaCfgs?: FormulaConfig[];
   m?: string;
   t?: number;
   s?: number;
@@ -911,6 +919,8 @@ const useTabbedSheet = (
   keyPrefix = '',
   tabTables?: Record<string, any>,
 ) => {
+  // 自定义函数（workflow_formula）：由 ExcelPreview 顶层 Provider 下发
+  const customFns = useCustomFunctionContext();
   const tabCell = useMemo(() => findTabCellPos(sheet.cellData), [sheet]);
   const tabCfg = tabCell?.config ?? null;
   const tabRow = tabCell?.row ?? null;
@@ -929,7 +939,13 @@ const useTabbedSheet = (
     //    依赖 formValues：字段值一变即整表重算；公式引用公式由 DFS 收敛，循环返回 #CYCLE!。
     const resolved: any = {
       ...sheet,
-      cellData: resolveSheetFormulas((sheet.cellData || {}) as any, sheet.id || 'sheet1', formValues, keyPrefix),
+      cellData: resolveSheetFormulas(
+        (sheet.cellData || {}) as any,
+        sheet.id || 'sheet1',
+        formValues,
+        keyPrefix,
+        customFns,
+      ),
     };
     // ② 旧方案：按当前页的行区间过滤渲染范围；页签所在行【始终保留】。
     //    E9 方案（group）：主表整表渲染，页签内容是独立表，不做行过滤。
@@ -942,7 +958,7 @@ const useTabbedSheet = (
       if (r === tabRow || (r >= page.startRow && r <= page.endRow)) cellData[rk] = row;
     });
     return { ...resolved, cellData };
-  }, [sheet, tabCfg, group, tabRow, activeTab, formValues, keyPrefix]);
+  }, [sheet, tabCfg, group, tabRow, activeTab, formValues, keyPrefix, customFns]);
   // E9 方案：当前页签对应的独立表布局
   const activeTabLayout = useMemo(() => {
     if (!group || !tabTables) return null;
@@ -1064,6 +1080,8 @@ const SheetPreviewForm: React.FC<{
   defId,
   tabTables,
 }) => {
+  // 自定义函数（workflow_formula）：供触发动作求值使用
+  const customFns = useCustomFunctionContext();
   // ── 标签页区域（E9 etype 12，TabLayout.js:92-159 的等价实现）──
   // 标签配置解析 + 受控选中态 + 行区间过滤统一放在 useTabbedSheet（PC/手机端共用），
   // 保证两端口径一致、选中态唯一。
@@ -1090,13 +1108,14 @@ const SheetPreviewForm: React.FC<{
         col,
         formValues,
         keyPrefix || '',
+        customFns,
       );
       if (result === undefined || result === null) return;
       const targetKey = findFieldCellKey(sheet, cfg.destField);
       if (!targetKey) return;
       onFieldChange(`${keyPrefix || ''}${targetKey}`, result);
     },
-    [sheet, formValues, keyPrefix, onFieldChange],
+    [sheet, formValues, keyPrefix, onFieldChange, customFns],
   );
   // 节点权限 scope（B5 行级）：由 keyPrefix 推导（主表 main / 明细表 dt{idx} / 明细行 dt{idx}_r{row}）
   const scope = scopeFromPrefix(keyPrefix);
@@ -1528,6 +1547,8 @@ const MobileSheetForm: React.FC<{
   defId,
   tabTables,
 }) => {
+  // 自定义函数（workflow_formula）：供触发动作求值使用
+  const customFns = useCustomFunctionContext();
   // 手机端列表同样按当前标签页过滤，避免「PC 切页生效、手机端仍显示全部行」
   // （与 PC 端共用 useTabbedSheet：此前此处引用了未定义的 effectiveSheet，编译不通过）
   const { tabCfg, tabGroup, tabRow, activeTab, setActiveTab, effectiveSheet, activeTabLayout } = useTabbedSheet(
@@ -1549,13 +1570,14 @@ const MobileSheetForm: React.FC<{
         col,
         formValues,
         keyPrefix || '',
+        customFns,
       );
       if (result === undefined || result === null) return;
       const targetKey = findFieldCellKey(sheet, cfg.destField);
       if (!targetKey) return;
       onFieldChange(`${keyPrefix || ''}${targetKey}`, result);
     },
-    [sheet, formValues, keyPrefix, onFieldChange],
+    [sheet, formValues, keyPrefix, onFieldChange, customFns],
   );
   // 字段 / 表头 DOM id 映射（手机端同样按作用域 + 类型 + 字段名生成唯一 id）
   const domIdMap = useMemo(() => buildDomIdMap(sheet, keyPrefix), [sheet, keyPrefix]);
@@ -2012,6 +2034,10 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
   formId,
   taskId,
 }, ref) => {
+  // 自定义函数（workflow_formula）：顶层加载一次，经 Context 下发给深层组件求值使用。
+  // formId 缺失时只加载全局作用域的函数（不把其它表单的私有函数带进来）。
+  const customFns = useCustomFunctionResolver(formId);
+
   // 安装全局字段访问器 window.ExcelPreview（供布局级代码块中的 JS 直接按 id / 字段名操作字段）。
   // 挂载时安装、卸载时清理；布局级脚本在提交后才执行（见下方注入 effect），因此使用前必然已就绪。
   useEffect(() => installFieldDomApi(), []);
@@ -2486,12 +2512,14 @@ const ExcelPreview = React.forwardRef<ExcelPreviewHandle, ExcelPreviewProps>(({
   // 容器由 React 渲染为空 div，脚本内容以操作 DOM 的方式 append 进去执行；
   // 放在内容之后，避免注入的 HTML 把表单整体挤下去。
   const content = (
-    <ElementContext.Provider value={{ instanceId, defId, nodeId, formId, taskId, formValues }}>
-      <>
-        {isMobile ? mobileContent : pcContent}
-        <div id={LAYOUT_SCRIPT_HOST_ID} />
-      </>
-    </ElementContext.Provider>
+    <CustomFunctionContext.Provider value={customFns}>
+      <ElementContext.Provider value={{ instanceId, defId, nodeId, formId, taskId, formValues }}>
+        <>
+          {isMobile ? mobileContent : pcContent}
+          <div id={LAYOUT_SCRIPT_HOST_ID} />
+        </>
+      </ElementContext.Provider>
+    </CustomFunctionContext.Provider>
   );
 
   // 操作按钮：弹窗里作为 footer，独立页面里作为顶部工具栏

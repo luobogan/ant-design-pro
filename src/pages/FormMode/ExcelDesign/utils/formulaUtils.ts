@@ -131,6 +131,63 @@ const toNum = (v: any): number => {
 const flatten = (args: any[]): any[] =>
   args.reduce<any[]>((acc, a) => acc.concat(Array.isArray(a) ? flatten(a) : [a]), []);
 
+/** 自定义函数解析器：按函数名返回可调用实现；未定义返回 undefined（按 #NAME? 处理） */
+export type CustomFunctionResolver = (name: string) => ((...args: any[]) => any) | undefined;
+
+/**
+ * 编译自定义函数的实现代码（对标 E9 workflow_formula.fncode）。
+ *
+ * <p>支持三种写法：`function NAME(a,b){...}` / `function(a,b){...}` / `(a,b)=>...`。
+ * 代码由**表单设计者**在「自定义函数」弹框里维护（与 E9 的 eval 同构），因此必须收敛作用域：
+ * 屏蔽 window / document / fetch / storage 等宿主对象，避免定义体直接触达 DOM 与网络。</p>
+ *
+ * <p><b>残余风险</b>：JS 无法真正沙箱（仍可经 globalThis / 构造器链绕回宿主对象）。
+ * 故自定义函数被限定在「表单设计者为可信配置人」的场景，风险等级与 E9 一致；
+ * 与下方「公式表达式不使用 eval」的策略分属两个面：表达式来自布局、代码来自函数库。</p>
+ */
+export const compileCustomFunction = (code: string): ((...args: any[]) => any) | undefined => {
+  const src = String(code || '').trim();
+  if (!src) return undefined;
+  try {
+    const factory = new Function(
+      'window', 'document', 'globalThis', 'self', 'top', 'parent', 'location',
+      'fetch', 'XMLHttpRequest', 'navigator', 'localStorage', 'sessionStorage',
+      'indexedDB', 'WebSocket', 'Worker', 'importScripts', 'eval', 'Function',
+      // ⚠️ 这里**不能**加 "use strict"：严格模式禁止 eval / arguments 作形参名，
+      //    而 eval / Function 恰是必须遮蔽的对象（否则定义体可直接拿到全局构造器）。
+      //    故改为「形参遮蔽 + null 原型 this」双重收敛作用域。
+      `return (${src});`,
+    );
+    const fn = factory(
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined,
+    );
+    if (typeof fn !== 'function') return undefined;
+    // this 绑到无原型对象：定义体里的 this.fetch / this.window 均不可达
+    return (fn as (...args: any[]) => any).bind(Object.create(null));
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * 由后端 workflow_formula 定义构建自定义函数解析器。
+ * 同名以最后一条为准；编译失败（代码非法）的条目直接跳过（调用时按 #NAME? 处理）。
+ */
+export const buildCustomFunctionResolver = (
+  customs?: CustomFormula[] | null,
+): CustomFunctionResolver => {
+  const map = new Map<string, (...args: any[]) => any>();
+  (customs || []).forEach((c) => {
+    const name = String(c?.name || '').trim();
+    if (!name) return;
+    const fn = compileCustomFunction(c?.fnCode || '');
+    if (fn) map.set(name.toUpperCase(), fn);
+  });
+  return (name: string) => map.get(String(name || '').toUpperCase());
+};
+
 /** 递归下降解析器：comparison → additive → multiplicative → power → unary → primary */
 class Parser {
   private i = 0;
@@ -139,6 +196,8 @@ class Parser {
     private toks: Token[],
     private getCell: CellGetter,
     private getField: FieldGetter,
+    /** 自定义函数（后端 workflow_formula）；未内置的函数名先查这里 */
+    private customFns?: CustomFunctionResolver,
   ) {}
 
   parse(): any {
@@ -248,6 +307,8 @@ class Parser {
       // 函数调用
       if (this.peek()?.t === 'lp') {
         const known = FUNCTIONS.has(upper);
+        // 自定义函数（workflow_formula）：内置表里没有、但函数库里有 → 走自定义实现
+        const custom = known ? undefined : this.customFns?.(upper);
         this.i++;
         const args: any[] = [];
         if (!this.eat('rp')) {
@@ -278,6 +339,15 @@ class Parser {
             }
           } while (this.eat('comma'));
           if (!this.eat('rp')) throw new Error('缺少右括号');
+        }
+        // 自定义函数：参数原样传入（不做 flatten，区域引用需保持数组形态）
+        if (custom) {
+          try {
+            const r = custom(...args);
+            return r === undefined || r === null ? 0 : r;
+          } catch {
+            return ERR.ERROR;
+          }
         }
         // 未知函数：参数已正常消耗，返回 #NAME? 而不是被 parse() 判为「多余内容」→ #ERROR!
         if (!known) return ERR.NAME;
@@ -348,11 +418,12 @@ export const evaluateFormula = (
   expression: string,
   getCell: CellGetter,
   getField: FieldGetter = () => 0,
+  customFns?: CustomFunctionResolver,
 ): any => {
   const src = String(expression || '').trim().replace(/^=/, '');
   if (!src) return '';
   try {
-    return new Parser(tokenize(src), getCell, getField).parse();
+    return new Parser(tokenize(src), getCell, getField, customFns).parse();
   } catch {
     return ERR.ERROR;
   }
@@ -373,10 +444,118 @@ export const isFormulaValue = (v: any): boolean =>
  * </ul>
  */
 export interface FormulaConfig {
+  /** 公式名称（对齐 E9 workflow_formula_htmllayout.name） */
+  name?: string;
+  /** 公式描述（对齐 E9 formuladesc） */
+  desc?: string;
   destField?: string;
   trigger?: FormulaTrigger;
   chinese?: boolean;
+  /**
+   * 本条公式的表达式（E9 一格多公式）。
+   *
+   * <p>主公式（列表第 1 条）的表达式存放在单元格的 {@code cellData.f}（Univer 公式），
+   * 这里只在**附加公式**（第 2 条起）里冗余保存表达式，便于一条 Cell 同时承载多条公式。</p>
+   */
+  expr?: string;
 }
+
+/**
+ * 读取单元格的公式配置列表（对齐 E9「公式列表」：一格可配多条公式）。
+ *
+ * <p>兼容两种落库形态：</p>
+ * <ul>
+ *   <li>新形态：{@code cell.formulaCfgs} 数组（含主条，index 0 为主公式）；</li>
+ *   <li>旧形态：{@code cell.formulaCfg} 单条（历史数据，视为唯一一条）。</li>
+ * </ul>
+ */
+export const getFormulaConfigs = (cell: any): FormulaConfig[] => {
+  if (!cell || typeof cell !== 'object') return [];
+  const list = (cell as any).formulaCfgs;
+  if (Array.isArray(list) && list.length) {
+    return list.filter(Boolean).map((x: any) => ({ ...x }));
+  }
+  const single = (cell as any).formulaCfg;
+  if (single && typeof single === 'object') return [{ ...single }];
+  return [];
+};
+
+/** 函数分类（对齐 E9 workflow_formula_type）：供公式弹框右侧函数面板分类/搜索 */
+export interface FormulaFunctionDef {
+  name: string;
+  group: string;
+  desc: string;
+}
+
+/** 自定义函数（对齐 E9 workflow_formula 表） */
+export interface CustomFormula {
+  id?: number;
+  /** 函数名（公式中引用的名称，如 MYFUNC） */
+  name: string;
+  /** 函数描述 */
+  formulaDesc?: string;
+  /** 分类（公式面板分组名） */
+  category: string;
+  /** 函数实现（JS 代码 / 公式规则） */
+  fnCode: string;
+  /** 作用域：空=全局，或具体表单ID */
+  formScope?: string | null;
+  /** 状态（1正常 0禁用） */
+  status?: number;
+}
+
+export const FORMULA_FUNCTION_GROUPS: { group: string; label: string; items: FormulaFunctionDef[] }[] = [
+  { group: 'common', label: '常用函数', items: [
+    { name: 'SUM', group: 'common', desc: '求和：SUM(A1:A10)' },
+    { name: 'AVERAGE', group: 'common', desc: '平均值：AVERAGE(A1:A10)' },
+    { name: 'IF', group: 'common', desc: '条件判断：IF(A1>0, 1, 0)' },
+    { name: 'COUNT', group: 'common', desc: '计数：COUNT(A1:A10)' },
+    { name: 'MAX', group: 'common', desc: '最大值：MAX(A1:A10)' },
+    { name: 'MIN', group: 'common', desc: '最小值：MIN(A1:A10)' },
+    { name: 'ROUND', group: 'common', desc: '四舍五入：ROUND(A1, 2)' },
+  ] },
+  { group: 'math', label: '数学与三角函数', items: [
+    { name: 'ABS', group: 'math', desc: '绝对值：ABS(A1)' },
+    { name: 'INT', group: 'math', desc: '取整：INT(A1)' },
+    { name: 'MOD', group: 'math', desc: '取余：MOD(A1, B1)' },
+    { name: 'SQRT', group: 'math', desc: '平方根：SQRT(A1)' },
+    { name: 'POWER', group: 'math', desc: '幂：POWER(A1, 2)' },
+    { name: 'CEILING', group: 'math', desc: '向上取整：CEILING(A1)' },
+    { name: 'FLOOR', group: 'math', desc: '向下取整：FLOOR(A1)' },
+  ] },
+  { group: 'text', label: '文本', items: [
+    { name: 'CONCAT', group: 'text', desc: '拼接文本：CONCAT(A1, B1)' },
+    { name: 'CONCATENATE', group: 'text', desc: '拼接文本：CONCATENATE(A1, B1)' },
+    { name: 'LEN', group: 'text', desc: '文本长度：LEN(A1)' },
+    { name: 'TRIM', group: 'text', desc: '去首尾空格：TRIM(A1)' },
+  ] },
+  { group: 'logic', label: '逻辑', items: [
+    { name: 'AND', group: 'logic', desc: '逻辑与：AND(A1>0, B1>0)' },
+    { name: 'OR', group: 'logic', desc: '逻辑或：OR(A1>0, B1>0)' },
+    { name: 'NOT', group: 'logic', desc: '逻辑非：NOT(A1>0)' },
+    { name: 'ISBLANK', group: 'logic', desc: '是否为空：ISBLANK(A1)' },
+  ] },
+  { group: 'finance', label: '财务', items: [
+    { name: 'RMB', group: 'finance', desc: '金额大写：RMB(A1)' },
+  ] },
+];
+
+/** 公式弹框保存前校验：返回错误文案，null 表示通过（对齐 E9 formulaStores.checkFormula 的核心规则） */
+export const validateFormulaExpression = (expr: string): string | null => {
+  const src = String(expr || '').trim();
+  if (!src) return '公式内容不能为空';
+  if (!src.startsWith('=')) return '公式必须以 = 开头';
+  let depth = 0;
+  for (const ch of src) {
+    if (ch === '(') depth++;
+    else if (ch === ')') {
+      depth--;
+      if (depth < 0) return '括号不匹配：多了一个右括号';
+    }
+  }
+  if (depth !== 0) return `括号不匹配：缺少 ${depth} 个右括号`;
+  return null;
+};
 
 /** 公式触发时机（对齐 E9 的 7 种触发动作 + 载入时） */
 export type FormulaTrigger =
@@ -410,9 +589,16 @@ export const FORMULA_TRIGGER_OPTIONS: { label: string; value: FormulaTrigger }[]
   { label: '移出', value: 'mouseleave' },
 ];
 
-/** 读取单元格的公式配置（缺省 → 空对象） */
-export const getFormulaConfig = (cell: any): FormulaConfig =>
-  (cell && typeof cell === 'object' && cell.formulaCfg) || {};
+/**
+ * 读取单元格的公式配置（缺省 → 空对象）。
+ *
+ * <p>优先取公式列表首条（主公式）；旧数据只有 {@code cell.formulaCfg} 时等价于单条列表。</p>
+ */
+export const getFormulaConfig = (cell: any): FormulaConfig => {
+  if (!cell || typeof cell !== 'object') return {};
+  const list = getFormulaConfigs(cell);
+  return list[0] || {};
+};
 
 /** 是否为公式格（有表达式或值以 = 开头） */
 export const isFormulaCell = (cell: any): boolean => {
@@ -434,6 +620,7 @@ export const resolveSheetFormulas = (
   sheetId: string,
   formValues: Record<string, any> = {},
   keyPrefix = '',
+  customFns?: CustomFunctionResolver,
 ): CellData => {
   const formulas = new Map<string, string>();
   Object.entries(cellData || {}).forEach(([rk, row]) => {
@@ -486,6 +673,7 @@ export const resolveSheetFormulas = (
         }
         return 0;
       },
+      customFns,
     );
     visiting.delete(key);
     cache.set(key, result);
@@ -520,8 +708,9 @@ export const evaluateFormulaCell = (
   col: number,
   formValues: Record<string, any> = {},
   keyPrefix = '',
+  customFns?: CustomFunctionResolver,
 ): any => {
-  const resolved = resolveSheetFormulas(cellData, sheetId, formValues, keyPrefix);
+  const resolved = resolveSheetFormulas(cellData, sheetId, formValues, keyPrefix, customFns);
   const v = resolved?.[String(row)]?.[String(col)]?.v;
   return v === undefined ? 0 : v;
 };
@@ -538,7 +727,11 @@ export const evaluateFormulaCell = (
  * @param values     当前表单值（坐标键命名空间）
  * @returns 目标字段名 → 公式计算结果
  */
-export const collectFormulaResults = (layoutData: any, values: Record<string, any>): Record<string, any> => {
+export const collectFormulaResults = (
+  layoutData: any,
+  values: Record<string, any>,
+  customFns?: CustomFunctionResolver,
+): Record<string, any> => {
   const out: Record<string, any> = {};
   if (!layoutData) return out;
 
@@ -553,19 +746,65 @@ export const collectFormulaResults = (layoutData: any, values: Record<string, an
       const cellData: CellData = (sheet.cellData || {}) as CellData;
       // 找出「带目标字段」的公式格
       const targets: { r: number; c: number; dest: string }[] = [];
+      // 找出「附加公式」（同格第 2 条起）：表达式冗余在配置里，需单独求值
+      const extraTargets: { r: number; c: number; cfg: FormulaConfig }[] = [];
       Object.entries(cellData).forEach(([rk, row]) => {
         Object.entries(row || {}).forEach(([ck, cell]) => {
           const dest = getFormulaConfig(cell).destField;
-          if (!dest || !isFormulaCell(cell)) return;
-          targets.push({ r: Number(rk), c: Number(ck), dest: String(dest) });
+          if (dest && isFormulaCell(cell)) {
+            targets.push({ r: Number(rk), c: Number(ck), dest: String(dest) });
+          }
+          const list = getFormulaConfigs(cell);
+          list.slice(1).forEach((cfg) => {
+            if (!cfg?.expr || !cfg?.destField) return;
+            extraTargets.push({ r: Number(rk), c: Number(ck), cfg });
+          });
         });
       });
-      if (!targets.length) return;
-      const resolved = resolveSheetFormulas(cellData, sheetId, values || {}, keyPrefix);
+      if (!targets.length && !extraTargets.length) return;
+      const resolved = resolveSheetFormulas(cellData, sheetId, values || {}, keyPrefix, customFns);
+      // 字段名 → 坐标：附加公式用 ${字段名} 引用时，需要定位到布局里该字段所在格
+      const coordByField = new Map<string, string>();
+      Object.entries(cellData || {}).forEach(([rk, row]) => {
+        Object.entries(row || {}).forEach(([ck, cell]) => {
+          const fn = (cell as any)?.fieldMeta?.fieldName;
+          if (fn && !coordByField.has(String(fn))) coordByField.set(String(fn), `${rk}_${ck}`);
+        });
+      });
       targets.forEach(({ r, c, dest }) => {
         const v = resolved?.[String(r)]?.[String(c)]?.v;
         if (v === undefined || v === null) return;
         const key = `${outKeyPrefix}${dest}`;
+        if (out[key] === undefined) out[key] = v;
+      });
+      // 附加公式：在**已求值**的表上再算一次（引用其它公式格时能取到其结果）
+      extraTargets.forEach(({ cfg }) => {
+        const expr = String(cfg.expr || '').trim();
+        if (!expr) return;
+        const cellGetter: CellGetter = (rr, cc) => {
+          const fv = values?.[`${keyPrefix}${sheetId}__${rr}__${cc}`];
+          if (fv !== undefined && fv !== null && fv !== '') return fv;
+          return resolved?.[String(rr)]?.[String(cc)]?.v ?? 0;
+        };
+        const fieldGetter: FieldGetter = (name) => {
+          const direct = values?.[name];
+          if (direct !== undefined && direct !== null && direct !== '') return direct;
+          // 回退到布局中该字段所在格的当前值（与 resolveSheetFormulas 口径一致）
+          const coord = coordByField.get(name);
+          if (coord) {
+            const [rk, ck] = coord.split('_');
+            return resolved?.[rk]?.[ck]?.v ?? 0;
+          }
+          return 0;
+        };
+        let v: any;
+        try {
+          v = evaluateFormula(expr, cellGetter, fieldGetter, customFns);
+        } catch {
+          return;
+        }
+        if (v === undefined || v === null) return;
+        const key = `${outKeyPrefix}${cfg.destField}`;
         if (out[key] === undefined) out[key] = v;
       });
     });

@@ -2,6 +2,8 @@ import React, { useEffect, useImperativeHandle, useMemo, useRef, useState } from
 import { Result, Spin } from 'antd';
 import ExcelPreview, { NodePermissionResolver } from './ExcelPreview';
 import { collectFieldValues, expandInitialValues } from '../utils/collectFieldValues';
+// 自定义函数（workflow_formula）：公式结果进入提交载荷时需按表单作用域求值
+import { useCustomFunctionResolver } from '../utils/customFunctionRuntime';
 import { renderForm, renderFormPreview } from '@/services/workflow';
 
 /**
@@ -185,6 +187,10 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
   const [nodePermission, setNodePermission] = useState<NodePermissionResolver | undefined>(undefined);
   const [values, setValues] = useState<Record<string, any>>({});
   const [pkgNodeKey, setPkgNodeKey] = useState<string | undefined>();
+  /** 渲染包里的表单ID（workflow_bill.id）：自定义函数按表单作用域加载的依据 */
+  const [pkgFormId, setPkgFormId] = useState<string | undefined>(undefined);
+  // 自定义函数（workflow_formula）：随表单作用域加载，供预览渲染与提交载荷求值
+  const customFns = useCustomFunctionResolver(pkgFormId);
   const [loading, setLoading] = useState(true);
   const [done, setDone] = useState(false);
   /** render 请求失败时的真实错误文案（成功但无数据不算）；用于替代误导性的「暂无节点布局」 */
@@ -210,6 +216,8 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
         return;
       }
       setPkgNodeKey(pkg.nodeKey);
+      // 渲染包带 formId（workflow_bill.id）：用于按表单作用域加载自定义函数
+      setPkgFormId(pkg.formId ? String(pkg.formId) : undefined);
       onPackageRef.current?.(pkg);
       let layout: any = null;
       try {
@@ -344,7 +352,7 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
       nodePermission={nodePermission}
       instanceId={instanceId}
       defId={previewDefId}
-      formId={previewFormId}
+      formId={previewFormId ?? pkgFormId}
       taskId={taskId}
       // 快照可能是坐标键（Excel 路径）或字段名键（旧 FieldRenderer/测试页场景表单），
       // 后者补成坐标键才能回显
@@ -361,7 +369,7 @@ const ApprovalFormRenderContent = React.forwardRef<ApprovalFormHandle, ApprovalF
         // 校验通过：交给外层决定后续（发起 / 提交审批）。
         // 同时给出「字段名 → 值」，让出口条件 UEL（如 ${amount > 1000}）拿得到变量。
         console.log('[WF] 校验通过, 调用外层 onSubmit');
-        onSubmit?.(vals, collectFieldValues(layoutData, vals));
+        onSubmit?.(vals, collectFieldValues(layoutData, vals, customFns));
       }}
     />
   );
