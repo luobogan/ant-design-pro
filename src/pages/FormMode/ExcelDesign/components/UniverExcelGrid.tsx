@@ -4105,9 +4105,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
     // univer-lib 补丁回调：结构化格操作被拦截时（编辑入口 / 清空内容 / 清除全部），
     // 统一经此用 antd message 提示（sheets 包无 IMessageService，只能回调 React 侧）。
-    // 注：字段格/标签格已允许被 Delete 清除，这里只剩「明细表标记格 / 配置型元素格」会被拦。
+    // 注：字段格/标签格/元素格已允许被 Delete 清除，这里只剩「明细表标记格」会被拦。
     (window as any).__excelDesignNotifyBlocked = () => {
-      message.warning('明细表标记与配置型元素不可直接编辑或清除，如需调整请双击元素或使用属性面板。');
+      message.warning('明细表标记不可直接编辑或清除，如需删除请在「表单结构」中操作。');
     };
 
     /**
@@ -4155,8 +4155,10 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           const m = map[key];
           if (!m) continue;
           const t = (m as any).cellType;
-          // 仅「明细表标记格」「配置型元素格」受保护（删除有副作用：级联删明细表 / 丢配置）
-          if (t !== 'detailTableMarker' && t !== 'element') continue;
+          // ★ 现在只有「明细表标记格」受保护：删除它会级联删除整张明细表（数据关联失效），
+          //   属于不可逆操作，必须走「表单结构」面板显式删除。
+          //   字段格 / 标签格 / 元素格（含配置型元素）均已放开：Delete/Backspace 可直接删除。
+          if (t !== 'detailTableMarker') continue;
           const sep = String(key).indexOf('_');
           const r = Number(String(key).slice(0, sep));
           const c = Number(String(key).slice(sep + 1));
