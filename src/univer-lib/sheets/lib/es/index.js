@@ -4716,12 +4716,14 @@ const ClearSelectionAllCommand = {
 		const sheetInterceptorService = accessor.get(SheetInterceptorService);
 		const redoMutations = [];
 		const undoMutations = [];
-		// ── ExcelDesign 补丁：清除范围命中字段/明细表标记格时整体取消 ──
+		// ── ExcelDesign 补丁：清除范围命中「明细表标记格 / 配置型元素格」时整体取消 ──
 		// 覆盖 Delete/Backspace 键、右键「清除内容/清除全部」、工具栏清除按钮。
-		if (typeof globalThis.__excelDesignIsStructuredRange === "function") {
+		// ★ 字段格 / 标签格不再拦截：允许用 Delete/Backspace 直接删除单元格中的字段，
+		//   删除后的元数据由应用层按「只清被操作的那一格」语义收尾（同字段的标签保留）。
+		if (typeof globalThis.__excelDesignIsProtectedRange === "function") {
 			try {
-				const hitStructured = ranges.some((r) => globalThis.__excelDesignIsStructuredRange(r.startRow, r.endRow, r.startColumn, r.endColumn));
-				if (hitStructured) {
+				const hitProtected = ranges.some((r) => globalThis.__excelDesignIsProtectedRange(r.startRow, r.endRow, r.startColumn, r.endColumn));
+				if (hitProtected) {
 					if (typeof globalThis.__excelDesignNotifyBlocked === "function") globalThis.__excelDesignNotifyBlocked();
 					return false;
 				}
@@ -12304,12 +12306,14 @@ const ClearSelectionContentCommand = {
 		const sheetInterceptorService = accessor.get(SheetInterceptorService);
 		const redoMutations = [];
 		const undoMutations = [];
-		// ── ExcelDesign 补丁：清除范围命中字段/明细表标记格时整体取消 ──
+		// ── ExcelDesign 补丁：清除范围命中「明细表标记格 / 配置型元素格」时整体取消 ──
 		// 覆盖 Delete/Backspace 键、右键「清除内容/清除全部」、工具栏清除按钮。
-		if (typeof globalThis.__excelDesignIsStructuredRange === "function") {
+		// ★ 字段格 / 标签格不再拦截：允许用 Delete/Backspace 直接删除单元格中的字段，
+		//   删除后的元数据由应用层按「只清被操作的那一格」语义收尾（同字段的标签保留）。
+		if (typeof globalThis.__excelDesignIsProtectedRange === "function") {
 			try {
-				const hitStructured = ranges.some((r) => globalThis.__excelDesignIsStructuredRange(r.startRow, r.endRow, r.startColumn, r.endColumn));
-				if (hitStructured) {
+				const hitProtected = ranges.some((r) => globalThis.__excelDesignIsProtectedRange(r.startRow, r.endRow, r.startColumn, r.endColumn));
+				if (hitProtected) {
 					if (typeof globalThis.__excelDesignNotifyBlocked === "function") globalThis.__excelDesignNotifyBlocked();
 					return false;
 				}

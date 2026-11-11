@@ -19212,12 +19212,17 @@ function Text2NumberContextMenuItemFactory(accessor) {
 //#region src/menu/excel-design.menu.ts
 /**
 * 清空单元格菜单项工厂
+*
+* ⚠️ type 必须是 MenuItemType.BUTTON（数字 0），**不能写字符串 "button"**：
+*   Univer 菜单组件里 `const canExecuteItem = menuItem.type === 0 || menuItem.type === 2;`，
+*   写字符串会导致 canExecuteItem 恒为 false → onClick 里 `if (!canExecuteItem) return;`
+*   → 点击菜单项**命令根本不执行**（表现为「右键清空单元格不生效」，且无任何报错）。
 */
 function ClearCellMenuItemFactory(accessor) {
 	return {
 		id: ClearCellCommand.id,
 		commandId: ClearCellCommand.id,
-		type: "button",
+		type: MenuItemType.BUTTON,
 		title: "sheets-ui.rightClick.clearCell",
 		icon: "DeleteEmptyIcon",
 		group: ContextMenuGroup.OTHERS,
@@ -19226,12 +19231,14 @@ function ClearCellMenuItemFactory(accessor) {
 }
 /**
 * 打开字段属性面板菜单项工厂
+*
+* ⚠️ type 同 ClearCellMenuItemFactory：必须是 MenuItemType.BUTTON（数字 0），否则点击无效。
 */
 function OpenFieldPropertyMenuItemFactory(accessor) {
 	return {
 		id: OpenFieldPropertyCommand.id,
 		commandId: OpenFieldPropertyCommand.id,
-		type: "button",
+		type: MenuItemType.BUTTON,
 		title: "sheets-ui.rightClick.fieldProperty",
 		icon: "DocSettingIcon",
 		group: ContextMenuGroup.OTHERS,

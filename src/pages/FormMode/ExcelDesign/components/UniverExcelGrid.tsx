@@ -1015,6 +1015,30 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       onDetailMarkerRemovedRef.current?.(idx);
     }
   };
+  // ──────────────────────────────────────
+  // 单格移除：只移除【一格】的字段元数据，**保留同字段的其它格**（标签格）。
+  // 与 removeFieldCompletely 的关键区别：
+  //   removeFieldCompletely 按 fieldId/fieldName 移除**所有**同字段格 → 清空「字段格」会连带删掉
+  //   它旁边的标签格；而「清空单元格」的语义应只影响被操作的那一格（标签是表格式样里的独立文本）。
+  // 供「清空单元格 / 清除内容」各路径共用：右键菜单、快捷键 Delete、clear-content 命令、内容自愈。
+  // ──────────────────────────────────────
+  const removeSingleCellMeta = useCallback((key: string, meta: any) => {
+    if (!meta) return false;
+    const fid = meta?.fieldId;
+    const cellType = meta?.cellType;
+    // 暂存元数据（供撤销后按显示值原样恢复并重新登记）
+    if (fid !== undefined && fid !== null && fid !== '') {
+      removedFieldMetaRef.current[`${String(fid)}_${cellType}`] = meta as FieldMeta;
+      // 只打「本格类型」的墓碑：不动 label 墓碑 → 刷新后标签仍能从持久化布局恢复
+      removedFieldKeysRef.current.add(tombstoneKey(meta));
+    }
+    // 明细表标记被删除 → 级联清理父组件 detailTables[idx]（防孤儿明细表）
+    if (cellType === 'detailTableMarker' && (meta as any)?.detailTable != null) {
+      onDetailMarkerRemovedRef.current?.(Number((meta as any).detailTable));
+    }
+    delete cellFieldMetaMap.current[key];
+    return true;
+  }, []);
   // 整表移除全部字段：先给所有 meta 打墓碑，再清空 Map
   const removeAllFieldsFromMap = () => {
     Object.values(cellFieldMetaMap.current).forEach((m: any) => {
@@ -1214,7 +1238,10 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         }
         // 当前格为空(被清空) → 视为删除；当前格为普通文本(被手动改) → 还原占位符
         if (cur === null || cur === undefined || String(cur) === '') {
-          removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName); changed = true; return;
+          // ★ 只移除「字段格」这一格，**保留同字段的标签格**：
+          //   「清空单元格」只应影响被操作的那一格；标签是表格式样里的独立文本，
+          //   不应因清空字段格而被连带删除（否则右侧标签凭空消失）。
+          removeSingleCellMeta(key, meta); changed = true; return;
         }
         try { sheet.getRange(r, c).setValue(getCellDisplayValue(meta)); } catch { /* 忽略 */ }
         changed = true; put(key, meta); return;
@@ -1278,7 +1305,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
     return changed;
   // 注：removeFieldCompletely 定义在文件更靠后，此处不列入 deps 以免定义期 TDZ；
   // 其引用仅在调用时求值（彼时已赋值），函数体闭包捕获同一词法绑定，行为正确。
-  }, [markFieldRemoved, getCellDisplayValue]);
+  }, [markFieldRemoved, getCellDisplayValue, removeSingleCellMeta]);
 
   const notifyFieldsChanged = (force = false) => {
     try {
@@ -1445,6 +1472,38 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   const resolveCellFieldId = (row: number, col: number): string | null => {
     const r = lookupCellMeta(row, col);
     return r ? String(r.meta.fieldId) : null;
+  };
+
+  /**
+   * ★ 精确命中：只查【该格自身】的字段元数据，**不做邻近吸附**。
+   *
+   * 与 lookupCellMeta / findMetaNear 的区别（这正是「右键清空单元格不生效」的根因）：
+   *   lookupCellMeta / findMetaNear 的候选窗口是 ±1 行 / ±3 列，按距离取**第一个有 meta 的格**。
+   *   于是右键一个**普通单元格**（无 fieldMeta）时，会被吸附到**相邻的字段格**并把那个字段整块移除，
+   *   而用户右键的那一格纹丝不动 → 表现为「清空单元格不生效」，并且顺带误删了旁边的字段。
+   *
+   * 语义上「清空单元格」= 清空我右键的那一格：
+   *   · 本格是字段格/标签格 → 清该字段（既有整字段移除语义保留）；
+   *   · 本格是普通格 → 只清本格，绝不越界到邻格。
+   * 刷新后内存 Map 可能为空，故补一层持久化布局兜底（仍只查本格）。
+   */
+  const lookupExactCellMeta = (row: number, col: number): FieldMeta | null => {
+    const key = `${row}_${col}`;
+    const m = cellFieldMetaMap.current[key];
+    if (m?.fieldId) return m as FieldMeta;
+    // 持久化布局兜底（刷新后 Map 可能为空，但 layoutData 已加载、含 fieldMeta）
+    const sd = layoutDataRef.current ? resolveSheetData(layoutDataRef.current) : null;
+    const cd = sd?.cellData;
+    if (cd) {
+      const cell = cd[row]?.[col] || cd[String(row)]?.[String(col)];
+      const fm = (cell as any)?.fieldMeta;
+      // 跳过已显式移除的字段，避免从旧 layoutData 复活（与 lookupCellMeta 一致）
+      if (fm?.fieldId && !isTombstoned(fm)) {
+        cellFieldMetaMap.current[key] = fm; // 同步回 Map
+        return fm as FieldMeta;
+      }
+    }
+    return null;
   };
 
   /** 解析某坐标对应的字段元数据（含相邻回退 + 布局兜底），供右键菜单高亮当前属性用 */
@@ -3408,16 +3467,19 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
                   removeAllFieldsFromMap();
                   scheduleAutoSave();
                 } else {
-                  // 局部删除：清除范围命中了部分字段格/标签格 → 直接整字段移除
-                  // （标签格或字段格任一格命中都移除整字段，与 clearCell / 右键清空语义一致）
-                  const toRemove = new Map<string, { fieldId: string; fieldName: string }>();
+                  // 局部删除：清除范围命中的每一格 → **只移除该格**（保留同字段的标签格）。
+                  // 「清空单元格」的语义是只影响被清的那一格；标签是表格式样里的独立文本，
+                  // 不应因清空字段格而被连带删除（否则标签凭空消失、用户预期落空）。
+                  let hit = 0;
                   Object.entries(cellFieldMetaMap.current).forEach(([key, meta]) => {
                     if (!meta) return;
                     const [r, c] = key.split('_').map(Number);
-                    if (inRange(r, c)) toRemove.set(`${meta.fieldId}_${meta.fieldName}`, { fieldId: String(meta.fieldId), fieldName: String(meta.fieldName) });
+                    if (!inRange(r, c)) return;
+                    hit += 1;
+                    removeSingleCellMeta(key, meta);
                   });
-                  console.log('[ClearContent] 清除范围命中字段数 =', toRemove.size);
-                  toRemove.forEach(({ fieldId, fieldName }) => removeFieldCompletely(fieldId, fieldName));
+                  console.log('[ClearContent] 清除范围命中单元格数 =', hit);
+                  notifyFieldsChanged();
                 }
               }
               return;
@@ -3570,9 +3632,18 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
             }
 
             const totalFieldCells = Object.values(cellFieldMetaMap.current).filter((m) => (m as any)?.cellType === 'field').length;
+            // 标签格数量：用于「整表清空」的严格判定（见下方说明）
+            const totalLabelCells = Object.values(cellFieldMetaMap.current).filter((m) => (m as any)?.cellType === 'label').length;
 
-            // 整表清空（Ctrl+A + Delete 等）：所有字段格都被清空 → 一次性移除全部字段，高效且可靠
-            if (totalFieldCells > 0 && clearedFieldCells.length === totalFieldCells) {
+            // 整表清空（Ctrl+A + Delete 等）：所有字段格**与所有标签格**都被清空 → 一次性移除全部字段，高效且可靠
+            //
+            // ★ 判定必须同时覆盖「标签格」：早期只比字段格数量，于是「表里恰好只有一个字段」时，
+            //   删掉那一个字段格就被误判成整表清空 → removeAllFieldsFromMap 把标签格元数据也清了，
+            //   表现为「Delete 删除字段后，旁边的标签也没了（且刷新后彻底消失）」。
+            if (
+              totalFieldCells > 0 && clearedFieldCells.length === totalFieldCells &&
+              (totalLabelCells === 0 || clearedLabelKeys.length === totalLabelCells)
+            ) {
               console.log('[CellChange] 检测到整表清空，移除全部字段');
               removeAllFieldsFromMap();
               // 立即同步一次：onLayoutChange 是在 saveLayoutData 内部触发的，
@@ -3583,19 +3654,25 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
               return;
             }
 
-            // 局部清空：逐格处理（字段格、标签格统一整字段移除）
+            // 局部清空：**只移除被清的那一格**（字段格清空 → 保留标签；标签格清空 → 保留字段占位符）
             clearedFieldCells.forEach(({ row, col, meta }) => {
-              console.log(`[CellChange] 字段占位符 (${row}, ${col}) 已删除，整字段移除`);
-              removeFieldCompletely((meta as any).fieldId, (meta as any).fieldName);
+              console.log(`[CellChange] 字段占位符 (${row}, ${col}) 已删除，移除该格（保留标签格）`);
+              removeSingleCellMeta(`${row}_${col}`, meta);
+              // 清除「字段属性」底色：Univer 的 clear-content 只清值、不清样式（cellValue 里没有 s），
+              // 不清会残留灰底(只读)/红底(必填)，看起来像字段还在。标签格不清（其字体色可能是用户自定义）。
+              try {
+                const rg = sheetRef.current?.getRange?.(row, col);
+                rg?.setBackgroundColor?.('');
+                rg?.setFontColor?.('');
+              } catch { /* 忽略单格样式清理失败 */ }
             });
             clearedLabelKeys.forEach((key) => {
               const lm: any = cellFieldMetaMap.current[key];
               if (!lm) return;
-              // 与 clearCell 保持一致：清空标签格同样整字段移除。
-              // 否则字段占位符格的 key 与 `${xx}` 残留 → 面板仍置灰、字段无法完整重拖。
-              console.log(`[CellChange] 标签格 (${key}) 已清空，整字段移除`);
-              removeFieldCompletely(lm.fieldId, lm.fieldName);
+              console.log(`[CellChange] 标签格 (${key}) 已清空，移除该格（保留字段格）`);
+              removeSingleCellMeta(key, lm);
             });
+            if (clearedFieldCells.length > 0 || clearedLabelKeys.length > 0) notifyFieldsChanged();
 
             if (clearedFieldCells.length > 0 || clearedLabelKeys.length > 0) scheduleAutoSave();
             }, 0);
@@ -4028,8 +4105,9 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
     // univer-lib 补丁回调：结构化格操作被拦截时（编辑入口 / 清空内容 / 清除全部），
     // 统一经此用 antd message 提示（sheets 包无 IMessageService，只能回调 React 侧）。
+    // 注：字段格/标签格已允许被 Delete 清除，这里只剩「明细表标记格 / 配置型元素格」会被拦。
     (window as any).__excelDesignNotifyBlocked = () => {
-      message.warning('字段、明细表标记及配置型元素不可直接编辑或清除，如需调整请双击元素或使用属性面板。');
+      message.warning('明细表标记与配置型元素不可直接编辑或清除，如需调整请双击元素或使用属性面板。');
     };
 
     /**
@@ -4046,6 +4124,46 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           startColumn: Number(startColumn), endColumn: Number(endColumn),
         });
         return hits.length > 0;
+      } catch {
+        return false;
+      }
+    };
+
+    /**
+     * 「不可被 Delete/Backspace/清除内容 直接清掉」的判定（供 univer-lib 的
+     * ClearSelectionContentCommand / ClearSelectionAllCommand 补丁使用）。
+     *
+     * 与 __excelDesignIsStructuredRange 的分工：
+     *  - StructuredRange：命中**任何**结构化格（字段格 / 明细表标记格 / 配置型元素）
+     *    → 用于把「复制」菜单置灰（复制字段会产生重复绑定）。
+     *  - ProtectedRange：只命中【明细表标记格 / 配置型元素格】
+     *    → 用于「清除内容」是否整体取消。
+     *
+     * ★ 字段格与标签格**不再**被拦截：Delete/Backspace 现在可以直接删除单元格中的字段，
+     *   删除后的元数据由应用层按「只清被操作的那一格」的语义收尾（同字段的标签保留）。
+     */
+    (window as any).__excelDesignIsProtectedRange = (
+      startRow: number, endRow: number, startColumn: number, endColumn: number,
+    ): boolean => {
+      try {
+        const r0 = Number(startRow), r1 = Number(endRow);
+        const c0 = Number(startColumn), c1 = Number(endColumn);
+        if (![r0, r1, c0, c1].every((x) => Number.isFinite(x))) return false;
+        // 遍历元数据 Map（O(元数据量)），与选区大小无关
+        const map: any = cellFieldMetaMap.current;
+        for (const key of Object.keys(map || {})) {
+          const m = map[key];
+          if (!m) continue;
+          const t = (m as any).cellType;
+          // 仅「明细表标记格」「配置型元素格」受保护（删除有副作用：级联删明细表 / 丢配置）
+          if (t !== 'detailTableMarker' && t !== 'element') continue;
+          const sep = String(key).indexOf('_');
+          const r = Number(String(key).slice(0, sep));
+          const c = Number(String(key).slice(sep + 1));
+          if (!Number.isFinite(r) || !Number.isFinite(c)) continue;
+          if (r >= r0 && r <= r1 && c >= c0 && c <= c1) return true;
+        }
+        return false;
       } catch {
         return false;
       }
@@ -4286,6 +4404,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       window.removeEventListener('keydown', blockCopyOnFieldCell, true);
       delete (window as any).__excelDesignIsFieldCell;
       delete (window as any).__excelDesignIsStructuredRange;
+      delete (window as any).__excelDesignIsProtectedRange;
       delete (window as any).__excelDesignNotifyBlocked;
     };
   }, [initialized, getCellFieldMeta, setCellField, saveLayoutData]);
@@ -4487,46 +4606,40 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       const clearCell = (row: number, col: number) => {
         // 用缓存的活动表，避免命令执行回调（univer-cell-clear 事件）里再调 getActiveSheet() 触发 redi 循环依赖
       const sheet: any = sheetRef.current;
-        // 定位字段元数据：先本格，再用「相邻回退 + 持久化布局 / 表格内容兜底」吸附到真实字段格。
-        // 必须兜底的原因：右键命中格常与字段格错开（元数据挂在标签格、或命中格落在字段右缘外侧），
-        // 直接用原坐标会清错格或只释放标签 → `${xx}` 占位符残留、面板置灰不刷新。
-        let meta: any = cellFieldMetaMap.current[`${row}_${col}`];
-        let hitRow = row;
-        let hitCol = col;
-        if (!meta) {
-          try {
-            const near = lookupCellMeta(row, col);
-            if (near) {
-              const [nr, nc] = near.key.split('_').map(Number);
-              if (Number.isFinite(nr) && Number.isFinite(nc)) {
-                hitRow = nr; hitCol = nc; meta = near.meta;
-              }
-            }
-          } catch { /* 兜底失败不影响后续清空 */ }
+        // 定位字段元数据：**只认本格自身**（lookupExactCellMeta）。
+        // 早期实现用 lookupCellMeta（含 ±1行/±3列 邻近回退），会把普通格吸附到相邻字段格 →
+        // 清空的不是用户右键的那一格（表现为「清空不生效」）且误删邻字段。
+        const meta: any = lookupExactCellMeta(row, col);
+        const hitRow = row;
+        const hitCol = col;
+        const hasFieldMeta = !!(meta && (meta as any).fieldId !== undefined && (meta as any).fieldId !== null && (meta as any).fieldId !== '');
+        if (hasFieldMeta) {
+          // ★ 只移除**本格**的元数据，**保留同字段的标签格**：
+          //   「清空单元格」只应影响被操作的那一格；标签是表格式样里的独立文本，
+          //   清空字段格不应把旁边的标签一起删掉。
+          //   removeSingleCellMeta 只打本格类型的墓碑 → 刷新后标签仍能从持久化布局恢复。
+          removeSingleCellMeta(`${hitRow}_${hitCol}`, meta);
         }
-        const metaId = meta && (meta as any).fieldId !== undefined && (meta as any).fieldId !== null
-          ? String((meta as any).fieldId)
-          : '';
-        if (meta && metaId) {
-          // 标签格与字段占位符格统一「整字段移除」。一个字段占两格且各自独立计数，
-          // 只释放其中一格会残留另一格的 key 与占位符 → 面板仍置灰、字段无法完整重拖。
-          // removeFieldCompletely 会同时移除两格元数据与单元格值、并对两格打墓碑。
-          removeFieldCompletely(metaId, (meta as any).fieldName);
-          return;
-        }
-        // 普通单元格：仅清空本格
+        // 清本格的值与样式（字段格 / 标签格 / 普通格 一视同仁）
         const range = sheet?.getRange?.(hitRow, hitCol);
         if (range) {
           range.setValue?.('');
           // 清除锁定样式，避免删除字段后残留灰底
           try {
-            range.setBackgroundColor?.('#ffffff');
-            range.setFontColor?.('#000000');
+            if (hasFieldMeta) {
+              range.setBackgroundColor?.('');
+              range.setFontColor?.('');
+            } else {
+              range.setBackgroundColor?.('#ffffff');
+              range.setFontColor?.('#000000');
+            }
           } catch (e) {
             console.warn('清除单元格样式失败:', e);
           }
         }
-        delete cellFieldMetaMap.current[`${hitRow}_${hitCol}`];
+        if (!hasFieldMeta) delete cellFieldMetaMap.current[`${hitRow}_${hitCol}`];
+        // 实时广播：字段格被清空 → 该字段应从「已放置」集合消失（面板置灰解除，可重新拖入）
+        notifyFieldsChanged();
         // 同步布局：saveLayoutData 内部会 onLayoutChange（含清空场景），
         // 确保面板 usedFieldKeys 刷新（可重新拖入）且清空结果可被保存
         // 延迟到命令执行结束后保存：清空单元格常在 onCommandExecuted(auto-clear-content) 中触发，
@@ -5403,15 +5516,21 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         // 把「命中格」吸附到真实字段格（右键常偏移，文档实测可达 2 列），
         // 并必须采用 findMetaNear 修正后的坐标，否则会清空格值却碰不到真正的字段 meta，
         // 导致字段元数据残留、面板不刷新。
-        const near = findMetaNear(row, col);
+        //
+        // ⚠️ 但吸附必须是【精确命中优先、绝不跨格】：
+        //   findMetaNear 的窗口是 ±1 行 / ±3 列，会把右键的**普通格**吸附到**相邻字段格**，
+        //   导致「清空单元格」清错了对象（用户右键的格没动，反而删了旁边的字段）。
+        //   故这里只用「本格自身」的元数据判定；本格没有字段元数据 → 就清本格。
+        const exactMeta = lookupExactCellMeta(row, col);
         let targetRow = row;
         let targetCol = col;
-        if (near) {
-          const [nr, nc] = near.key.split('_').map(Number);
-          targetRow = nr;
-          targetCol = nc;
-        } else {
-          // 仅在附近查不到字段时，才用像素吸附兜底（菜单点击时鼠标已在菜单上，可能偏移）
+        if (exactMeta) {
+          // 本格就是字段格 / 标签格 → 用它（只清本格，标签格清空不影响字段格，反之亦然）
+          targetRow = row;
+          targetCol = col;
+        } else if (row < 0 || col < 0) {
+          // ★ 仅当「没有锁定命中格」时才用像素矩形兜底（精确命中，不跨格）。
+          //   已锁定命中格时不再跨格吸附 —— 否则右键普通格会误清相邻字段格。
           const snapped = findFieldCellByPosition();
           if (snapped) {
             targetRow = snapped.row;
@@ -5421,28 +5540,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
         const gridApi = (window as any).univerExcelGrid;
         if (gridApi && gridApi.clearCell) {
-          // 若命中/吸附到的是「标签格」，直接清空只释放标签、字段仍灰；
-          // 为让整字段恢复可拖，反查同字段的「字段格」再清空（removeFieldCompletely 会移除两格）。
-          const targetMeta = cellFieldMetaMap.current[`${targetRow}_${targetCol}`];
-          if (targetMeta && (targetMeta as any).cellType === 'label') {
-            const fid = String((targetMeta as any).fieldId ?? '');
-            const fname = String((targetMeta as any).fieldName ?? '');
-            let fieldKey: string | null = null;
-            Object.entries(cellFieldMetaMap.current).forEach(([k, m]: any) => {
-              if (fieldKey) return;
-              if (
-                m && m.cellType === 'field' &&
-                (String(m.fieldId ?? '') === fid || (fname && String(m.fieldName ?? '') === fname))
-              ) {
-                fieldKey = k;
-              }
-            });
-            if (fieldKey) {
-              const [fr, fc] = fieldKey.split('_').map(Number);
-              targetRow = fr;
-              targetCol = fc;
-            }
-          }
+          // ★ 不再「标签格 → 反查同字段的字段格」：清空单元格只应影响被右键的那一格。
+          //   反查会把标签格的清空转嫁到字段格（标签还在、字段没了），与预期相反。
           gridApi.clearCell(targetRow, targetCol);
           console.log(`[CellClearEvent] 通过 univer 菜单清空单元格: row=${targetRow}, col=${targetCol} (命中 ${row}_${col})`);
         }
