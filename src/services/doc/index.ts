@@ -388,13 +388,16 @@ export async function getEngineSetting(): Promise<any> {
   return r?.data;
 }
 
-/** 保存编辑器设置（默认引擎 + 第三方平台接入配置） */
+/** 保存编辑器设置（WPS 接入配置唯一源，落库 doc_engine_setting） */
 export async function saveEngineSetting(body: {
   defaultEngine: string;
   thirdPlatform?: string;
   wpsAppId?: string;
   wpsAppSecret?: string;
   wpsJssdkUrl?: string;
+  wpsPublicBase?: string;
+  wpsUrlSignSecret?: string;
+  wpsUrlSignTtlSeconds?: number;
 }): Promise<boolean> {
   const r: any = await request(`${DOC}/doc/engine/setting`, { method: 'POST', data: body });
   return !!r?.success;

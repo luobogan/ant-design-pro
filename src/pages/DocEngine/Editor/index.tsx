@@ -40,6 +40,9 @@ const DocEditor: React.FC = () => {
   const [wpsAppId, setWpsAppId] = useState<string>('');
   const [wpsAppSecret, setWpsAppSecret] = useState<string>('');
   const [wpsJssdkUrl, setWpsJssdkUrl] = useState<string>('');
+  const [wpsPublicBase, setWpsPublicBase] = useState<string>('');
+  const [wpsUrlSignSecret, setWpsUrlSignSecret] = useState<string>('');
+  const [wpsUrlSignTtlSeconds, setWpsUrlSignTtlSeconds] = useState<number>(300);
   const [wpsEnabled, setWpsEnabled] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
@@ -54,6 +57,9 @@ const DocEditor: React.FC = () => {
           setWpsAppId(s.wpsAppId || '');
           setWpsAppSecret(s.wpsAppSecret || '');
           setWpsJssdkUrl(s.wpsJssdkUrl || '');
+          setWpsPublicBase(s.wpsPublicBase || '');
+          setWpsUrlSignSecret(s.wpsUrlSignSecret || '');
+          setWpsUrlSignTtlSeconds(s.wpsUrlSignTtlSeconds || 300);
           setWpsEnabled(!!s.wpsEnabled);
         }
       })
@@ -69,6 +75,9 @@ const DocEditor: React.FC = () => {
         wpsAppId,
         wpsAppSecret,
         wpsJssdkUrl,
+        wpsPublicBase,
+        wpsUrlSignSecret,
+        wpsUrlSignTtlSeconds,
       });
       message.success('已保存编辑器设置');
     } catch (e: any) {
@@ -279,11 +288,37 @@ const DocEditor: React.FC = () => {
               />
               <Input
                 addonBefore="jssdk"
-                placeholder="kdocs jssdk 脚本地址"
+                placeholder="WebOffice umd.js 脚本地址"
                 value={wpsJssdkUrl}
                 onChange={(e) => setWpsJssdkUrl(e.target.value)}
                 style={{ width: 520 }}
               />
+              <Input
+                addonBefore="回调 base"
+                placeholder="WPS 中台回调公网 base，如 https://www.zwymding.top"
+                value={wpsPublicBase}
+                onChange={(e) => setWpsPublicBase(e.target.value)}
+                style={{ width: 520 }}
+              />
+              <Input.Password
+                addonBefore="签名密钥"
+                placeholder="内容/回调 URL 签名密钥（doc 与公文两侧共用）"
+                value={wpsUrlSignSecret}
+                onChange={(e) => setWpsUrlSignSecret(e.target.value)}
+                style={{ width: 520 }}
+              />
+              <Input
+                addonBefore="签名 TTL"
+                type="number"
+                placeholder="URL 签名有效期（秒），默认 300"
+                value={wpsUrlSignTtlSeconds}
+                onChange={(e) => setWpsUrlSignTtlSeconds(Number(e.target.value) || 300)}
+                style={{ width: 520 }}
+              />
+              <span style={{ color: '#888', fontSize: 12 }}>
+                以上配置保存后写入数据库，知识管理与公文两侧共用同一份，保存即生效、无需重启服务。
+                回调 base 变更需同步调整公网反代转发规则。
+              </span>
             </Space>
           )}
         </Space>
