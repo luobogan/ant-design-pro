@@ -17,6 +17,14 @@ const WpsEditor: React.FC<Props> = ({ cfg }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'missing'>('loading');
 
+  // 兼容两套字段名：odoc 走后端 WpsEditorConfig 标准契约（appId/fileId/token/jssdkUrl），
+  // 知识管理 DocEngine 走旧版命名（wpsAppId/wpsFileId/wpsToken/wpsJsSdkUrl）。
+  const appId = cfg?.appId || cfg?.wpsAppId;
+  const fileId = cfg?.fileId || cfg?.wpsFileId;
+  const token = cfg?.token || cfg?.wpsToken;
+  const jssdkUrl = cfg?.jssdkUrl || cfg?.wpsJsSdkUrl;
+  const userId = cfg?.userId || cfg?.wpsUserId;
+
   // 由扩展名映射 WebOfficeSDK.OfficeType（与文件实际类型不一致会打开失败/乱码）
   const resolveOfficeType = (ext?: string) => {
     const T = (window as any).WebOfficeSDK?.OfficeType;
@@ -46,8 +54,8 @@ const WpsEditor: React.FC<Props> = ({ cfg }) => {
     let instance: any = null;
     (async () => {
       try {
-        // 引入本地部署的 WebOffice umd.js（默认前端 public 下；可经后端 wpsJsSdkUrl 覆盖）
-        await loadScript(cfg?.wpsJsSdkUrl || '/web-office-sdk-solution.umd.js');
+        // 引入本地部署的 WebOffice umd.js（默认前端 public 下；可经后端 jssdkUrl 覆盖）
+        await loadScript(jssdkUrl || '/web-office-sdk-solution.umd.js');
         if (cancelled) return;
         const SDK = (window as any).WebOfficeSDK;
         if (!SDK || typeof SDK.init !== 'function') {
@@ -58,12 +66,12 @@ const WpsEditor: React.FC<Props> = ({ cfg }) => {
           mountRef.current.innerHTML = '';
           instance = SDK.init({
             officeType: resolveOfficeType(cfg?.fileExt),
-            appId: cfg?.wpsAppId,
-            fileId: cfg?.wpsFileId,
+            appId,
+            fileId,
             mount: mountRef.current,
-            token: cfg?.wpsToken,
+            token,
             // 透传当前用户：WPS 回调经 X-User-Query 带回，供 permission.user_id 与 users 昵称使用
-            customArgs: { userId: cfg?.wpsUserId || cfg?.userId, userName: cfg?.userName },
+            customArgs: { userId, userName: cfg?.userName },
           });
         }
         setStatus('ready');
@@ -88,7 +96,7 @@ const WpsEditor: React.FC<Props> = ({ cfg }) => {
         showIcon
         style={{ marginBottom: 12 }}
         message="WPS WebOffice SDK 负责 Office 文档在线编辑（可选方案）"
-        description={`appId：${cfg?.wpsAppId || '-'}　fileId：${cfg?.wpsFileId || '-'}　token：${(cfg?.wpsToken || '').slice(0, 12)}…`}
+        description={`appId：${appId || '-'}　fileId：${fileId || '-'}　token：${(token || '').slice(0, 12)}…`}
       />
       {status === 'loading' && <Spin description="正在加载 WPS WebOffice SDK…" />}
       {status === 'missing' && (

@@ -15,7 +15,6 @@ import {
   odocContentUrl,
   type OdocDocInit,
   type OdocVersion,
-  type OdocEditorConfig,
   type OdocTaohongInfo,
 } from '@/services/workflow';
 import OdocEditorModal from './OdocEditorModal';
@@ -58,8 +57,8 @@ const fileTypeLabel = (t?: number) => {
  * <p>职责：按流程实例获取/创建正文 → 展示当前版本与版本历史 → 上传新版本 / 在线编辑(OnlyOffice)
  * / 回滚。value 为 docId；首次初始化得到 docId 后通过 onChange 回写，供流程表单持久化。</p>
  *
- * <p>在线编辑依赖后端 {@code editorConfig}（OnlyOffice 已部署）；未部署时 {@code canEdit=false}，
- * 仅保留「上传新版本 + 下载 + 回滚」，符合方案 L1 兜底。</p>
+ * <p>在线编辑依赖后端 {@code editorType}：wps 走 WPS WebOffice，onlyoffice（默认）走 DOCS；
+ * 未部署对应编辑器时 {@code canEdit=false}，仅保留「上传新版本 + 下载 + 回滚」，符合方案 L1 兜底。</p>
  */
 const OdocField: React.FC<OdocFieldProps> = ({ value, instanceId, defId, fieldTitle, disabled, readOnly, onChange }) => {
   const locked = !!disabled || !!readOnly;
@@ -68,7 +67,7 @@ const OdocField: React.FC<OdocFieldProps> = ({ value, instanceId, defId, fieldTi
   const [current, setCurrent] = useState<OdocVersion | undefined>();
   const [versions, setVersions] = useState<OdocVersion[]>([]);
   const [canEdit, setCanEdit] = useState(false);
-  const [editorConfig, setEditorConfig] = useState<OdocEditorConfig | null>(null);
+  const [initData, setInitData] = useState<OdocDocInit | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [info, setInfo] = useState<OdocTaohongInfo | null>(null);
   const [mouldId, setMouldId] = useState<any>(undefined);
@@ -103,7 +102,7 @@ const OdocField: React.FC<OdocFieldProps> = ({ value, instanceId, defId, fieldTi
             setCurrent(init.currentVersion);
             setVersions(init.versions || []);
             setCanEdit(!!init.canEdit);
-            setEditorConfig(init.editorConfig || null);
+            setInitData(init);
           }
         })
         .finally(() => setLoading(false));
@@ -322,7 +321,7 @@ const OdocField: React.FC<OdocFieldProps> = ({ value, instanceId, defId, fieldTi
 
       <OdocEditorModal
         open={editorOpen}
-        config={editorConfig}
+        init={initData}
         onClose={() => setEditorOpen(false)}
         onSaved={() => {
           setEditorOpen(false);

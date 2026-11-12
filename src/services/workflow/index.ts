@@ -1999,23 +1999,47 @@ export interface OdocEditorConfig {
   editorConfig?: { callbackUrl?: string; lang?: string; mode?: string; user?: any };
 }
 
+/** WPS WebOffice 统一配置（与后端 WpsEditorConfig 同契约，P2 新增） */
+export interface WpsEditorConfig {
+  editorType?: string;
+  mode?: string;
+  fileExt?: string;
+  fileName?: string;
+  readOnly?: boolean;
+  appId?: string;
+  fileId?: string;
+  token?: string;
+  timestamp?: number;
+  permission?: string;
+  userId?: string;
+  userName?: string;
+  jssdkUrl?: string;
+  contentUrl?: string;
+  uploadUrl?: string;
+  domain?: string;
+}
+
 export interface OdocDocInit {
   docId?: string;
   title?: string;
   docStatus?: number;
   currentVersion?: OdocVersion;
   versions?: OdocVersion[];
+  /** 编辑器类型：onlyoffice / wps（WPS 统一改造 P2） */
+  editorType?: string;
   /** 未部署 OnlyOffice 时为 null */
   editorConfig?: OdocEditorConfig | null;
+  /** WPS WebOffice 配置（editor=wps 且已配置 WPS 时非 null；P2 新增） */
+  wpsEditorConfig?: WpsEditorConfig | null;
   canEdit?: boolean;
 }
 
 export const odocApi = {
-  /** 获取或创建正文（按流程实例） */
-  init: (instanceId: any, defId?: any, title?: string, edit = true) =>
+  /** 获取或创建正文（按流程实例）。editor: auto(默认) / onlyoffice / wps */
+  init: (instanceId: any, defId?: any, title?: string, edit = true, editor = 'auto') =>
     request<ApiResponse<OdocDocInit>>(`${WORKFLOW}/odoc/doc/init`, {
       method: 'POST',
-      params: { instanceId, defId, title, edit },
+      params: { instanceId, defId, title, edit, editor },
     }),
   /** 正文主记录（「相关文档」字段回显用：id → 标题） */
   getDoc: (docId: any) =>
