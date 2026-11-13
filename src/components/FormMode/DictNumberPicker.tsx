@@ -42,7 +42,9 @@ export const DictNumberField: React.FC<{
   const meta = BROWSER_TYPE_META[browserType];
   const [open, setOpen] = useState(false);
   const label = meta?.label || '浏览';
-  const names = value ? value.split(',').filter(Boolean) : [];
+  // 后端某些场景可能回传非字符串值（数字 / null），先归一化再 split，避免整页崩溃
+  const strValue = value == null ? '' : String(value);
+  const names = strValue ? strValue.split(',').filter(Boolean) : [];
   const inactive = disabled || readOnly;
 
   return (
@@ -103,7 +105,7 @@ const DictNumberPicker: React.FC<{
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<BrowseItem[]>([]);
   const [kw, setKw] = useState('');
-  const [sel, setSel] = useState<string[]>(value ? value.split(',').filter(Boolean) : []);
+  const [sel, setSel] = useState<string[]>(value == null ? [] : String(value).split(',').filter(Boolean));
 
   useEffect(() => {
     let alive = true;

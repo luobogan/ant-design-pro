@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Button, Card, Empty, List, Modal, Select, Space, Spin, Tag, Tooltip, message } from 'antd';
+import { Button, Card, Empty, List, Modal, Select, Space, Spin, Tag, Tooltip, Upload, message } from 'antd';
 import {
   EditOutlined,
   UploadOutlined,
@@ -19,6 +19,9 @@ import {
 } from '@/services/workflow';
 import OdocEditorModal from './OdocEditorModal';
 import OdocLayoutSeal from './OdocLayoutSeal';
+
+/** 兼容 R 包装：取 data；若已是裸对象则原样返回（request 默认只解到 ApiResponse 信封层） */
+const unwrap = (res: any): any => (res && res.data !== undefined ? res.data : res) || {};
 
 interface OdocFieldProps {
   /** 正文ID（docId）；空时按 instanceId 首次初始化 */
@@ -71,19 +74,27 @@ const OdocField: React.FC<OdocFieldProps> = ({ value, instanceId, defId, fieldTi
   const [editorOpen, setEditorOpen] = useState(false);
   const [info, setInfo] = useState<OdocTaohongInfo | null>(null);
   const [mouldId, setMouldId] = useState<any>(undefined);
+  // 后端对「无当前版本」可能返回空的 {} 而非 null，版本号缺失即视为无当前版本
+  const hasCurrent = !!(current && (current as any).versionId != null);
 
   const reload = useCallback(async (id: any) => {
-    if (!id) return;
+    if (!instanceId) return;
     setLoading(true);
     try {
-      const list: OdocVersion[] = (await odocApi.versions(id)) || [];
-      setVersions(list);
-      setCurrent(list[0]);
-      taohongApi.info(id).then(setInfo).catch(() => setInfo(null));
+      // 重新拉取 init：上传首个版本后 current 由 null 变非 null，canEdit 才会变 true，
+      // 「在线编辑」按钮依赖 canEdit；单纯拉 versions 不会刷新 canEdit / wpsEditorConfig
+      const init = unwrap(await odocApi.init(instanceId, defId, fieldTitle, true, 'wps'));
+      if (init?.docId) {
+        setCanEdit(!!init.canEdit);
+        setInitData(init);
+        setCurrent(init.currentVersion);
+        setVersions(init.versions || []);
+      }
+      taohongApi.info(init?.docId || id).then((r) => setInfo(unwrap(r))).catch(() => setInfo(null));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [instanceId, defId, fieldTitle]);
 
   useEffect(() => {
     /**
@@ -100,7 +111,8 @@ const OdocField: React.FC<OdocFieldProps> = ({ value, instanceId, defId, fieldTi
       if (!instanceId) return;
       setLoading(true);
       try {
-        const init = await odocApi.init(instanceId, defId, fieldTitle, true, 'wps');
+        // request 默认解到 ApiResponse 信封层，需再 unwrap 一层取 payload
+        const init = unwrap(await odocApi.init(instanceId, defId, fieldTitle, true, 'wps'));
         if (!init?.docId) return;
         if (!keepDocId) {
           // 正文首次创建：init 返回的 docId 为权威值，并回写表单字段
@@ -241,12 +253,12 @@ const OdocField: React.FC<OdocFieldProps> = ({ value, instanceId, defId, fieldTi
               <Button icon={<ReloadOutlined />} onClick={() => reload(docId)}>
                 刷新
               </Button>
-              {current && (
+              {hasCurrent && (
                 <Tooltip title="下载当前版本">
                   <Button
                     icon={<DownloadOutlined />}
                     onClick={async () => {
-                      const u = await odocContentUrl(current.id);
+                      const u = await odocContentUrl(current!.id);
                       if (u) window.open(u, '_blank');
                     }}
                   >
@@ -255,11 +267,11 @@ const OdocField: React.FC<OdocFieldProps> = ({ value, instanceId, defId, fieldTi
                 </Tooltip>
               )}
             </Space>
-            {current && (
+            {hasCurrent && (
               <div style={{ marginTop: 8 }}>
-                当前版本：v{String(current.versionId)} · {String(current.fileName)} ·{' '}
-                <Tag>{fileTypeLabel(current.docFileType)}</Tag>
-                {current.hasUsedTemplet === 1 && <Tag color="red">已套红</Tag>}
+                当前版本：v{String(current!.versionId)} · {String(current!.fileName)} ·{' '}
+                <Tag>{fileTypeLabel(current!.docFileType)}</Tag>
+                {current!.hasUsedTemplet === 1 && <Tag color="red">已套红</Tag>}
               </div>
             )}
             <div style={{ marginTop: 8 }}>
