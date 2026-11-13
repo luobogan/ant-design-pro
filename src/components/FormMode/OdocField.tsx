@@ -86,27 +86,45 @@ const OdocField: React.FC<OdocFieldProps> = ({ value, instanceId, defId, fieldTi
   }, []);
 
   useEffect(() => {
+    /**
+     * 加载正文初始化信息。
+     *
+     * <p>无论正文是否已存在都必须调用：{@code canEdit} 决定「在线编辑」按钮是否渲染，
+     * {@code wpsEditorConfig} 决定弹窗内渲染 WPS 还是 OnlyOffice，二者都只由 init 返回。
+     * 后端 init 按 instanceId 复用已有正文（不会重复创建），故 keepDocId 场景安全。</p>
+     *
+     * <p>editor 显式传 'wps'：后端仅在 editor=wps 时返回 wpsEditorConfig；
+     * 后端亦有 auto 兜底（WPS 已配置即走 WPS），此处为显式契约，避免依赖兜底。</p>
+     */
+    const loadInit = async (keepDocId: boolean) => {
+      if (!instanceId) return;
+      setLoading(true);
+      try {
+        const init = await odocApi.init(instanceId, defId, fieldTitle, true, 'wps');
+        if (!init?.docId) return;
+        if (!keepDocId) {
+          // 正文首次创建：init 返回的 docId 为权威值，并回写表单字段
+          setDocId(init.docId);
+          onChange?.(init.docId);
+          setCurrent(init.currentVersion);
+          setVersions(init.versions || []);
+        }
+        setCanEdit(!!init.canEdit);
+        setInitData(init);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     if (value) {
+      // 正文已存在（表单已绑定 docId）：除刷新版本链外，仍须取编辑器配置，
+      // 否则 canEdit 恒为 false、「在线编辑」按钮不渲染，弹窗内也拿不到 wpsEditorConfig
       setDocId(value);
       reload(value);
+      loadInit(true);
       return;
     }
-    if (instanceId) {
-      setLoading(true);
-      odocApi
-        .init(instanceId, defId, fieldTitle, true)
-        .then((init?: OdocDocInit) => {
-          if (init?.docId) {
-            setDocId(init.docId);
-            onChange?.(init.docId);
-            setCurrent(init.currentVersion);
-            setVersions(init.versions || []);
-            setCanEdit(!!init.canEdit);
-            setInitData(init);
-          }
-        })
-        .finally(() => setLoading(false));
-    }
+    loadInit(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, instanceId]);
 
