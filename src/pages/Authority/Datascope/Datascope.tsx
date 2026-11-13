@@ -53,7 +53,8 @@ interface DataPermission {
   scopeType: string;
   scopeTypeName?: string;
   scopeClass: string;
-  visibleField: string;
+  scopeField: string;
+  scopeValue?: string;
   remark: string;
   createTime: string;
   tenantId: string;
@@ -77,7 +78,10 @@ const DataPermissionPage: React.FC = () => {
     useState<DataPermission | null>(null);
   const [selectedTenantId, setSelectedTenantId] = useState<string>('000000');
   const [tenantTree, setTenantTree] = useState<any[]>([]);
-  const [form] = Form.useForm();
+  const [formAdd] = Form.useForm();
+  const [formEdit] = Form.useForm();
+  const watchedAddScopeType = Form.useWatch('scopeType', formAdd);
+  const watchedEditScopeType = Form.useWatch('scopeType', formEdit);
 
   // 获取全局状态
   const { initialState } = useModel('@@initialState');
@@ -103,13 +107,18 @@ const DataPermissionPage: React.FC = () => {
     return tenantId;
   };
 
+  // 默认选中当前租户，避免非超管用户菜单列表为空
+  useEffect(() => {
+    setSelectedTenantId(getCurrentTenantId());
+  }, []);
+
   const currentTenantId = getCurrentTenantId();
   const isSuperAdmin = currentTenantId === '000000';
 
   // 新增弹窗打开时预填充表单
   useEffect(() => {
     if (addModalVisible && currentMenu) {
-      form.setFieldsValue({
+      formAdd.setFieldsValue({
         scopeName: `${currentMenu.name} [暂无]`,
         resourceCode: currentMenu.code,
         scopeColumn: '-',
@@ -117,7 +126,7 @@ const DataPermissionPage: React.FC = () => {
         tenantId: currentTenantId,
       });
     }
-  }, [addModalVisible, currentMenu, form, currentTenantId]);
+  }, [addModalVisible, currentMenu, formAdd, currentTenantId]);
 
   // 获取租户列表
   const {
@@ -205,7 +214,8 @@ const DataPermissionPage: React.FC = () => {
       scopeColumn: item.scopeColumn || item.scopeField || item.field || '-',
       scopeType: item.scopeType || item.type || '',
       scopeClass: item.scopeClass || item.className || '',
-      visibleField: item.visibleField || item.column || '*',
+      scopeField: item.scopeField || item.visibleField || '*',
+      scopeValue: item.scopeValue || '',
       tenantId: item.tenantId || item.tenant_id || '',
       scopeTypeName: getScopeTypeName(item.scopeType || item.type),
     }));
@@ -325,6 +335,13 @@ const DataPermissionPage: React.FC = () => {
       width: 150,
     },
     {
+      title: '可见字段',
+      dataIndex: 'scopeField',
+      key: 'scopeField',
+      width: 150,
+      render: (v) => v || '*',
+    },
+    {
       title: '规则类型',
       dataIndex: 'scopeTypeName',
       key: 'scopeTypeName',
@@ -381,10 +398,8 @@ const DataPermissionPage: React.FC = () => {
         try {
           // 将 React.Key[] 转换为 string[]
           const idList = ids.map((id) => String(id));
-          // 尝试不同的参数格式
           await dataPermissionApi.remove({
             ids: idList,
-            id: idList[0], // 单个删除时优先使用 id
           });
           message.success('删除成功');
           setSelectedRowKeys([]);
@@ -405,13 +420,13 @@ const DataPermissionPage: React.FC = () => {
   };
 
   const handleAdd = () => {
-    form.resetFields();
+    formAdd.resetFields();
     setAddModalVisible(true);
   };
 
   const handleAddOk = async () => {
     try {
-      const values = await form.validateFields();
+      const values = await formAdd.validateFields();
       // 字段映射：将前端字段名转换为后端期望的字段名
       const submitData = {
         scopeName: values.scopeName,
@@ -419,7 +434,8 @@ const DataPermissionPage: React.FC = () => {
         scopeColumn: values.scopeColumn,
         scopeType: values.scopeType,
         scopeClass: values.scopeClass,
-        visibleField: values.visibleField,
+        scopeField: values.visibleField,
+        scopeValue: values.scopeValue,
         remark: values.remark,
         menuId: currentMenu?.id,
         tenantId: values.tenantId || currentTenantId,
@@ -435,7 +451,7 @@ const DataPermissionPage: React.FC = () => {
 
   const handleEditOk = async () => {
     try {
-      const values = await form.validateFields();
+      const values = await formEdit.validateFields();
       // 字段映射：将前端字段名转换为后端期望的字段名
       const submitData = {
         id: currentDataPermission?.id,
@@ -444,7 +460,8 @@ const DataPermissionPage: React.FC = () => {
         scopeColumn: values.scopeColumn,
         scopeType: values.scopeType,
         scopeClass: values.scopeClass,
-        visibleField: values.visibleField,
+        scopeField: values.visibleField,
+        scopeValue: values.scopeValue,
         remark: values.remark,
         menuId: currentMenu?.id,
         tenantId: values.tenantId || currentTenantId,
@@ -465,16 +482,6 @@ const DataPermissionPage: React.FC = () => {
 
   const handleEdit = (record: DataPermission) => {
     setCurrentDataPermission(record);
-    // 确保 scopeType 是字符串类型，因为 Select 组件的 value 是字符串
-    form.setFieldsValue({
-      scopeName: record.scopeName,
-      resourceCode: record.resourceCode,
-      scopeColumn: record.scopeColumn,
-      scopeType: record.scopeType ? String(record.scopeType) : undefined,
-      scopeClass: record.scopeClass,
-      visibleField: record.visibleField,
-      remark: record.remark,
-    });
     setEditModalVisible(true);
   };
 
@@ -587,9 +594,10 @@ const DataPermissionPage: React.FC = () => {
         onCancel={() => setAddModalVisible(false)}
         onOk={handleAddOk}
         width={700}
+        destroyOnClose
       >
         <Form
-          form={form}
+          form={formAdd}
           layout="horizontal"
           style={{ padding: '24px' }}
           labelCol={{ span: 4 }}
@@ -667,6 +675,18 @@ const DataPermissionPage: React.FC = () => {
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
+                name="scopeValue"
+                label="权限值域"
+                hidden={watchedAddScopeType !== '5'}
+                rules={watchedAddScopeType === '5' ? [{ required: true, message: '请输入权限值域' }] : []}
+              >
+                <Input placeholder="请输入自定义权限值域（如部门ID集合）" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
                 name="scopeClass"
                 label="权限类名"
                 rules={[{ required: true, message: '请输入权限类名' }]}
@@ -693,9 +713,20 @@ const DataPermissionPage: React.FC = () => {
         onCancel={() => setEditModalVisible(false)}
         onOk={handleEditOk}
         width={700}
+        destroyOnClose
       >
         <Form
-          form={form}
+          form={formEdit}
+          initialValues={currentDataPermission ? {
+            scopeName: currentDataPermission.scopeName,
+            resourceCode: currentDataPermission.resourceCode,
+            scopeColumn: currentDataPermission.scopeColumn,
+            scopeType: currentDataPermission.scopeType ? String(currentDataPermission.scopeType) : undefined,
+            scopeClass: currentDataPermission.scopeClass,
+            visibleField: currentDataPermission.scopeField,
+            scopeValue: currentDataPermission.scopeValue,
+            remark: currentDataPermission.remark,
+          } : {}}
           layout="horizontal"
           style={{ padding: '24px' }}
           labelCol={{ span: 4 }}
@@ -755,6 +786,16 @@ const DataPermissionPage: React.FC = () => {
                 rules={[{ required: true, message: '请输入可见字段' }]}
               >
                 <Input placeholder="请输入可见字段" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="scopeValue"
+                label="权限值域"
+                hidden={watchedEditScopeType !== '5'}
+                rules={watchedEditScopeType === '5' ? [{ required: true, message: '请输入权限值域' }] : []}
+              >
+                <Input placeholder="请输入自定义权限值域（如部门ID集合）" />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -831,7 +872,13 @@ const DataPermissionPage: React.FC = () => {
                 <Col span={12}>
                   <p>
                     <strong>可见字段：</strong>
-                    {currentDataPermission.visibleField}
+                    {currentDataPermission.scopeField || '*'}
+                  </p>
+                </Col>
+                <Col span={12}>
+                  <p>
+                    <strong>权限值域：</strong>
+                    {currentDataPermission.scopeValue || '-'}
                   </p>
                 </Col>
               </Row>
