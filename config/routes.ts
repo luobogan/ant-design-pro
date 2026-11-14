@@ -52,6 +52,19 @@ export default [
         name: 'welcome',
         component: './Portal/Home',
       },
+      // 数据权限 · 字段管理：由 /authority/datascope 页面按钮进入，
+      // 无对应 blade_menu 行，故静态声明（不套组件型菜单的 standalone 规则）。
+      {
+        path: '/authority/datascope/fields',
+        component: './Authority/Datascope/FieldPermission',
+      },
+      // 通用列表（ScopeGrid）配置预览：与字段管理同为数据权限模块的辅助页，
+      // 由「可见字段」区域的「列表预览」按钮进入（带 ?menuId=），无独立 blade_menu 行，
+      // 故与 fields 一样静态声明，不套组件型菜单的 standalone 规则。
+      {
+        path: '/authority/datascope/grid',
+        component: './Authority/Datascope/GridPreview',
+      },
       // 消息中心：菜单驱动（blade_menu code='message'，path=/message），无需在此静态声明。
       // 入口是顶部消息铃铛（MessageBell → navigate('/message')）。
       // 注：此前访问 /message 报 404 并非缺菜单，而是 blade-system 宕机导致

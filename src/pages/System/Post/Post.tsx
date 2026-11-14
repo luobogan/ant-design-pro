@@ -6,7 +6,7 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
-import StandardTable from '@/components/StandardTable';
+import ScopeGrid from '@/components/ScopeGrid';
 import type { ProColumns } from '@ant-design/pro-components';
 import {
   App,
@@ -167,7 +167,8 @@ const Post: React.FC = () => {
     }
   };
 
-  const columns: ProColumns<PostItem>[] = [
+  /** 数据列：作为 ScopeGrid 的回退列（未配置可见字段时展示） */
+  const dataColumns: ProColumns<PostItem>[] = [
     {
       title: t('pages.system.post.column.postName', '岗位名称'),
       dataIndex: 'postName',
@@ -209,35 +210,37 @@ const Post: React.FC = () => {
       width: 180,
       search: false,
     },
-    {
-      title: t('pages.system.common.column.option', '操作'),
-      valueType: 'option',
-      key: 'option',
-      width: 180,
-      fixed: 'right',
-      render: (_: any, record: PostItem) => [
-        hasButton('post', 'post_view') && (
-          <a key="view" onClick={() => handleView(record)}>
-            <EyeOutlined /> {t('pages.system.common.view', '查看')}
-          </a>
-        ),
-        hasButton('post', 'post_edit') && (
-          <a key="edit" onClick={() => handleEdit(record)}>
-            <EditOutlined /> {t('pages.system.common.edit', '编辑')}
-          </a>
-        ),
-        hasButton('post', 'post_remove') && (
-          <a
-            key="remove"
-            style={{ color: '#ff4d4f' }}
-            onClick={() => handleRemove([record.id as React.Key])}
-          >
-            <DeleteOutlined /> {t('pages.system.common.remove', '删除')}
-          </a>
-        ),
-      ].filter(Boolean),
-    },
   ];
+
+  /** 操作列始终渲染（extraColumns 追加在动态列之后），权限仍走既有 hasButton */
+  const optionColumn: ProColumns<PostItem> = {
+    title: t('pages.system.common.column.option', '操作'),
+    valueType: 'option',
+    key: 'option',
+    width: 180,
+    fixed: 'right',
+    render: (_: any, record: PostItem) => [
+      hasButton('post', 'post_view') && (
+        <a key="view" onClick={() => handleView(record)}>
+          <EyeOutlined /> {t('pages.system.common.view', '查看')}
+        </a>
+      ),
+      hasButton('post', 'post_edit') && (
+        <a key="edit" onClick={() => handleEdit(record)}>
+          <EditOutlined /> {t('pages.system.common.edit', '编辑')}
+        </a>
+      ),
+      hasButton('post', 'post_remove') && (
+        <a
+          key="remove"
+          style={{ color: '#ff4d4f' }}
+          onClick={() => handleRemove([record.id as React.Key])}
+        >
+          <DeleteOutlined /> {t('pages.system.common.remove', '删除')}
+        </a>
+      ),
+    ].filter(Boolean),
+  };
 
   const isView = modalMode === 'view';
   const batchRemoveTips = t(
@@ -251,67 +254,18 @@ const Post: React.FC = () => {
       title={t('pages.system.post.title', '岗位管理')}
       subTitle={t('pages.system.post.subtitle', '维护岗位信息，可按名称/编号/分类查询')}
     >
-      <StandardTable<PostItem>
+      {/*
+        通用列表组件：menuId 由 ScopeGrid 按当前路由 (/system/post) 从菜单树自动反查，
+        scopeId 默认 0，与「可见字段」保存端一致；未配置可见字段时回退 dataColumns。
+        按钮权限仍走页面既有 hasButton / toolBarRender（不传 pageCode，避免自动按钮重复渲染）。
+      */}
+      <ScopeGrid<PostItem>
         rowKey="id"
-        actionRef={actionRef}
-        headerTitle={t('pages.system.post.listTitle', '岗位列表')}
-        columns={columns}
-        rowSelection={{
-          selectedRowKeys,
-          onChange: (keys) => setSelectedRowKeys(keys),
-        }}
-        tableAlertRender={({ selectedRowKeys: keys, onCleanSelected }) =>
-          keys.length > 0 ? (
-            <Space size={16}>
-              <span>
-                {t('pages.system.common.selected', '已选')} {keys.length}{' '}
-                {t('pages.system.common.items', '项')}
-              </span>
-              <a onClick={onCleanSelected}>
-                {t('pages.system.common.clearSelected', '取消选择')}
-              </a>
-            </Space>
-          ) : null
-        }
-        tableAlertOptionRender={() =>
-          selectedRowKeys.length > 0 ? (
-            <a
-              style={{ color: '#ff4d4f' }}
-              onClick={() => handleRemove(selectedRowKeys, batchRemoveTips)}
-            >
-              {t('pages.system.common.batchRemove', '批量删除')}
-            </a>
-          ) : null
-        }
-        toolBarRender={() => [
-          hasButton('post', 'post_add') && (
-            <Button key="add" type="primary" onClick={handleAdd}>
-              <PlusOutlined /> {t('pages.system.post.action.add', '新增岗位')}
-            </Button>
-          ),
-          selectedRowKeys.length > 0 && hasButton('post', 'post_remove') && (
-            <Button
-              key="batchRemove"
-              danger
-              onClick={() => handleRemove(selectedRowKeys, batchRemoveTips)}
-            >
-              <DeleteOutlined /> {t('pages.system.common.batchRemove', '批量删除')}
-            </Button>
-          ),
-          <Button
-            key="refresh"
-            onClick={() => {
-              setSelectedRowKeys([]);
-              actionRef.current?.reload?.();
-            }}
-          >
-            <ReloadOutlined /> {t('pages.system.common.refresh', '刷新')}
-          </Button>,
-        ].filter(Boolean)}
-        search={{ labelWidth: 'auto' }}
+        fallbackColumns={dataColumns}
+        extraColumns={[optionColumn]}
         request={async (params) => {
           const { current, pageSize, ...rest } = params as Record<string, any>;
-          // 后端 Query 分页参数为 current / size
+          // 后端 Query 分页参数为 current / size；sorter / filter 由 ProTable 透传在 rest 中
           const res = await postApi.list({ current, size: pageSize, ...rest });
           const page = pickPayload<any>(res, {}) || {};
           const list: PostItem[] = Array.isArray(page)
@@ -323,8 +277,63 @@ const Post: React.FC = () => {
             total: Array.isArray(page) ? list.length : Number(page.total ?? 0),
           };
         }}
-        pagination={{ defaultPageSize: 10, showSizeChanger: true }}
-        dateFormatter="string"
+        tableProps={{
+          actionRef,
+          headerTitle: t('pages.system.post.listTitle', '岗位列表'),
+          rowSelection: {
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys),
+          },
+          tableAlertRender: ({ selectedRowKeys: keys, onCleanSelected }: any) =>
+            keys.length > 0 ? (
+              <Space size={16}>
+                <span>
+                  {t('pages.system.common.selected', '已选')} {keys.length}{' '}
+                  {t('pages.system.common.items', '项')}
+                </span>
+                <a onClick={onCleanSelected}>
+                  {t('pages.system.common.clearSelected', '取消选择')}
+                </a>
+              </Space>
+            ) : null,
+          tableAlertOptionRender: () =>
+            selectedRowKeys.length > 0 ? (
+              <a
+                style={{ color: '#ff4d4f' }}
+                onClick={() => handleRemove(selectedRowKeys, batchRemoveTips)}
+              >
+                {t('pages.system.common.batchRemove', '批量删除')}
+              </a>
+            ) : null,
+          toolBarRender: () => [
+            hasButton('post', 'post_add') && (
+              <Button key="add" type="primary" onClick={handleAdd}>
+                <PlusOutlined /> {t('pages.system.post.action.add', '新增岗位')}
+              </Button>
+            ),
+            selectedRowKeys.length > 0 && hasButton('post', 'post_remove') && (
+              <Button
+                key="batchRemove"
+                danger
+                onClick={() => handleRemove(selectedRowKeys, batchRemoveTips)}
+              >
+                <DeleteOutlined /> {t('pages.system.common.batchRemove', '批量删除')}
+              </Button>
+            ),
+            <Button
+              key="refresh"
+              onClick={() => {
+                setSelectedRowKeys([]);
+                actionRef.current?.reload?.();
+              }}
+            >
+              <ReloadOutlined /> {t('pages.system.common.refresh', '刷新')}
+            </Button>,
+          ].filter(Boolean),
+          search: { labelWidth: 'auto' },
+          pagination: { defaultPageSize: 10, showSizeChanger: true },
+          dateFormatter: 'string',
+        }}
       />
 
       <Modal

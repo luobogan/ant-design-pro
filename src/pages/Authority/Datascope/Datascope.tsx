@@ -12,24 +12,27 @@ import { PageContainer } from '@ant-design/pro-components';
 import StandardTable from '@/components/StandardTable';
 import { useRequest } from '@umijs/max';
 import {
+  App,
   Button,
   Card,
   Col,
   Form,
   Input,
   Modal,
-  message,
   Row,
   Select,
   Space,
   Tag,
+  Tooltip,
   Tree,
 } from 'antd';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as dataPermissionApi from '@/services/authority/dataPermission';
+import { submitScopeFields, type ScopeFieldConfig } from '@/services/authority/dataPermission';
 import * as menuApi from '@/services/system/menu';
 import * as tenantApi from '@/services/system/tenant';
 import { useModel } from '@umijs/max';
+import VisibleFieldSelector from './components/VisibleFieldSelector';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -68,6 +71,7 @@ interface Tenant {
 }
 
 const DataPermissionPage: React.FC = () => {
+  const { message, modal } = App.useApp();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [configModalVisible, setConfigModalVisible] = useState<boolean>(false);
   const [addModalVisible, setAddModalVisible] = useState<boolean>(false);
@@ -82,6 +86,8 @@ const DataPermissionPage: React.FC = () => {
   const [formEdit] = Form.useForm();
   const watchedAddScopeType = Form.useWatch('scopeType', formAdd);
   const watchedEditScopeType = Form.useWatch('scopeType', formEdit);
+  const watchedAddScopeColumn = Form.useWatch('scopeColumn', formAdd);
+  const watchedEditScopeColumn = Form.useWatch('scopeColumn', formEdit);
 
   // 获取全局状态
   const { initialState } = useModel('@@initialState');
@@ -338,8 +344,17 @@ const DataPermissionPage: React.FC = () => {
       title: '可见字段',
       dataIndex: 'scopeField',
       key: 'scopeField',
-      width: 150,
-      render: (v) => v || '*',
+      width: 180,
+      render: (v: string) => {
+        const text = v || '*';
+        return (
+          <Tooltip title={text}>
+            <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {text}
+            </span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '规则类型',
@@ -391,7 +406,7 @@ const DataPermissionPage: React.FC = () => {
   };
 
   const handleDelete = (ids: React.Key[]) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除',
       content: `确定要删除选中的 ${ids.length} 个数据权限吗？`,
       onOk: async () => {
@@ -419,14 +434,69 @@ const DataPermissionPage: React.FC = () => {
     handleDelete(selectedRowKeys);
   };
 
+  // 「可见字段」区域输出的字段草稿（勾选 = 前端列表展示），提交数据权限时一并同步
+  const pendingFieldsRef = useRef<ScopeFieldConfig[]>([]);
+
   const handleAdd = () => {
     formAdd.resetFields();
+    pendingFieldsRef.current = [];
     setAddModalVisible(true);
+  };
+
+  /**
+   * 提交前安全校验。
+   * 后端 BladeDataScopeHandler 把 scopeField 原样拼进 select {} from (...)，
+   * scopeColumn 拼进 where scope.{}，均不做转义，故前端必须阻断非法标识符，
+   * 避免分号、注释、引号等注入字符落库。
+   * scopeColumn 未包含在可见字段时直接阻断：后端派生表 (原SQL) 不含该列，
+   * 执行时必然报错。存量配置若因此无法保存，应补齐可见字段或改用 *，
+   * 而不是放行一条必然失效的规则。
+   */
+  const SAFE_SQL_COLUMN = /^[A-Za-z_][A-Za-z0-9_$]*$/;
+  const validateScopeField = (scopeField: string, scopeColumn: string): string | null => {
+    const field = (scopeField ?? '').trim();
+    if (field !== '*') {
+      const columns = field.split(',').map((s) => s.trim()).filter(Boolean);
+      if (!columns.length) return '可见字段不能为空，请填写 * 或具体列名';
+      const illegal = columns.filter((c) => !SAFE_SQL_COLUMN.test(c));
+      if (illegal.length) {
+        return `可见字段包含非法列名：${illegal.join(', ')}；仅允许字母、数字、下划线`;
+      }
+      const column = (scopeColumn ?? '').trim();
+      if (column && !SAFE_SQL_COLUMN.test(column)) {
+        return `权限字段 ${column} 不是合法列名`;
+      }
+      if (column && !columns.includes(column)) {
+        return `权限字段 ${column} 不在可见字段中；后端派生表不含该列，执行 SQL 时必然报错，请勾选该字段或改用 *`;
+      }
+    }
+    return null;
+  };
+
+  /**
+   * 把「可见字段」的勾选结果同步成前端列表动态列配置。
+   * scopeId=0 表示菜单级默认配置（与字段管理页一致），勾选集合与 scopeField 同源。
+   * 同步失败只告警：数据权限规则本身已保存，不回滚。
+   */
+  const syncScopeFields = async (resourceCode?: string) => {
+    const menuId = currentMenu?.id;
+    const fields = pendingFieldsRef.current;
+    if (!menuId || !fields.length) return;
+    try {
+      await submitScopeFields({ scopeId: 0, menuId, resourceCode, fields });
+    } catch (_e) {
+      message.warning('可见字段已保存，但前端列表列配置同步失败，请重试');
+    }
   };
 
   const handleAddOk = async () => {
     try {
       const values = await formAdd.validateFields();
+      const invalid = validateScopeField(values.visibleField, values.scopeColumn);
+      if (invalid) {
+        message.error(invalid);
+        return;
+      }
       // 字段映射：将前端字段名转换为后端期望的字段名
       const submitData = {
         scopeName: values.scopeName,
@@ -441,6 +511,7 @@ const DataPermissionPage: React.FC = () => {
         tenantId: values.tenantId || currentTenantId,
       };
       await dataPermissionApi.submit(submitData);
+      await syncScopeFields(values.resourceCode);
       message.success('添加成功');
       setAddModalVisible(false);
       refreshDataPermission();
@@ -452,6 +523,11 @@ const DataPermissionPage: React.FC = () => {
   const handleEditOk = async () => {
     try {
       const values = await formEdit.validateFields();
+      const invalid = validateScopeField(values.visibleField, values.scopeColumn);
+      if (invalid) {
+        message.error(invalid);
+        return;
+      }
       // 字段映射：将前端字段名转换为后端期望的字段名
       const submitData = {
         id: currentDataPermission?.id,
@@ -467,6 +543,7 @@ const DataPermissionPage: React.FC = () => {
         tenantId: values.tenantId || currentTenantId,
       };
       await dataPermissionApi.submit(submitData);
+      await syncScopeFields(values.resourceCode);
       message.success('编辑成功');
       setEditModalVisible(false);
       refreshDataPermission();
@@ -481,6 +558,7 @@ const DataPermissionPage: React.FC = () => {
   };
 
   const handleEdit = (record: DataPermission) => {
+    pendingFieldsRef.current = [];
     setCurrentDataPermission(record);
     setEditModalVisible(true);
   };
@@ -495,7 +573,10 @@ const DataPermissionPage: React.FC = () => {
   ];
 
   return (
-    <PageContainer title="数据权限管理" subTitle="基于菜单的数据权限配置管理">
+    <PageContainer
+      title="数据权限管理"
+      subTitle="基于菜单的数据权限配置管理（字段展示在「可见字段」区域勾选）"
+    >
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
           <Card title="租户选择" variant="outlined" style={{ height: 'calc(100vh - 200px)' }}>
@@ -593,15 +674,16 @@ const DataPermissionPage: React.FC = () => {
         open={addModalVisible}
         onCancel={() => setAddModalVisible(false)}
         onOk={handleAddOk}
-        width={700}
+        width={1080}
         destroyOnClose
       >
         <Form
           form={formAdd}
+          initialValues={{ visibleField: '*', tenantId: currentTenantId }}
           layout="horizontal"
           style={{ padding: '24px' }}
-          labelCol={{ span: 4 }}
-          wrapperCol={{ span: 20 }}
+          labelCol={{ span: 8 }}
+          wrapperCol={{ span: 16 }}
         >
           <Row gutter={16}>
             <Col span={12}>
@@ -664,17 +746,6 @@ const DataPermissionPage: React.FC = () => {
             </Col>
             <Col span={12}>
               <Form.Item
-                name="visibleField"
-                label="可见字段"
-                rules={[{ required: true, message: '请输入可见字段' }]}
-              >
-                <Input placeholder="请输入可见字段" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
                 name="scopeValue"
                 label="权限值域"
                 hidden={watchedAddScopeType !== '5'}
@@ -696,10 +767,25 @@ const DataPermissionPage: React.FC = () => {
             </Col>
           </Row>
           <Form.Item
-            name="remark"
-            label="备注"
+            name="visibleField"
+            label="可见字段"
             labelCol={{ span: 4 }}
             wrapperCol={{ span: 20 }}
+            rules={[{ required: true, message: '请选择或输入可见字段' }]}
+          >
+            <VisibleFieldSelector
+              menuId={currentMenu?.id}
+              menuCode={currentMenu?.code}
+              scopeColumn={watchedAddScopeColumn}
+              restoreOnMount
+              onFieldsChange={(f) => { pendingFieldsRef.current = f; }}
+            />
+          </Form.Item>
+          <Form.Item
+            name="remark"
+            label="备注"
+            labelCol={{ span: 8 }}
+            wrapperCol={{ span: 16 }}
           >
             <TextArea rows={3} placeholder="请输入备注" />
           </Form.Item>
@@ -712,7 +798,7 @@ const DataPermissionPage: React.FC = () => {
         open={editModalVisible}
         onCancel={() => setEditModalVisible(false)}
         onOk={handleEditOk}
-        width={700}
+        width={1080}
         destroyOnClose
       >
         <Form
@@ -723,14 +809,14 @@ const DataPermissionPage: React.FC = () => {
             scopeColumn: currentDataPermission.scopeColumn,
             scopeType: currentDataPermission.scopeType ? String(currentDataPermission.scopeType) : undefined,
             scopeClass: currentDataPermission.scopeClass,
-            visibleField: currentDataPermission.scopeField,
+            visibleField: currentDataPermission.scopeField || '*',
             scopeValue: currentDataPermission.scopeValue,
             remark: currentDataPermission.remark,
           } : {}}
           layout="horizontal"
           style={{ padding: '24px' }}
-          labelCol={{ span: 4 }}
-          wrapperCol={{ span: 20 }}
+          labelCol={{ span: 8 }}
+          wrapperCol={{ span: 16 }}
         >
           <Row gutter={16}>
             <Col span={12}>
@@ -781,15 +867,6 @@ const DataPermissionPage: React.FC = () => {
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
-                name="visibleField"
-                label="可见字段"
-                rules={[{ required: true, message: '请输入可见字段' }]}
-              >
-                <Input placeholder="请输入可见字段" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
                 name="scopeValue"
                 label="权限值域"
                 hidden={watchedEditScopeType !== '5'}
@@ -809,10 +886,24 @@ const DataPermissionPage: React.FC = () => {
             </Col>
           </Row>
           <Form.Item
-            name="remark"
-            label="备注"
+            name="visibleField"
+            label="可见字段"
             labelCol={{ span: 4 }}
             wrapperCol={{ span: 20 }}
+            rules={[{ required: true, message: '请选择或输入可见字段' }]}
+          >
+            <VisibleFieldSelector
+              menuId={currentMenu?.id}
+              menuCode={currentMenu?.code}
+              scopeColumn={watchedEditScopeColumn}
+              onFieldsChange={(f) => { pendingFieldsRef.current = f; }}
+            />
+          </Form.Item>
+          <Form.Item
+            name="remark"
+            label="备注"
+            labelCol={{ span: 8 }}
+            wrapperCol={{ span: 16 }}
           >
             <TextArea rows={3} placeholder="请输入备注" />
           </Form.Item>
