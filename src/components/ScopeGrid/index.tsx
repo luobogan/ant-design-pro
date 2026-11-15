@@ -50,6 +50,12 @@ import {
 } from '@/services/formmode/fieldPermApi';
 import { useAutoMenuId } from './useAutoMenuId';
 import { getFieldTypeLabel, mapFieldToControlType } from '@/components/FormMode/fieldTypes';
+import {
+  BROWSER_TYPE_META,
+  resolveItemNames,
+  splitIds,
+  type PersonOrgCategory,
+} from '@/components/FormMode/personOrg';
 import type {
   ScopeGridActionPayload,
   ScopeGridButton,
@@ -161,10 +167,12 @@ const renderFieldTypeTitle = (title: any, label: string): React.ReactNode => (
 const EditableCell: React.FC<{
   value: any;
   controlType?: ColumnControlType;
+  /** 已解析好的展示文本（浏览按钮类：人名 / 部门名等）；有值则优先于原始值 */
+  displayText?: string;
   /** 常驻编辑态：打开即显示输入控件，不显示文本 + 编辑图标 */
   alwaysEdit?: boolean;
   onSave?: (value: string) => void | Promise<void>;
-}> = ({ value, controlType = 'text', alwaysEdit = false, onSave }) => {
+}> = ({ value, controlType = 'text', displayText, alwaysEdit = false, onSave }) => {
   const [editing, setEditing] = useState(alwaysEdit);
   const [draft, setDraft] = useState('');
   const committedRef = useRef(false);
@@ -181,6 +189,8 @@ const EditableCell: React.FC<{
 
   const truthy = String(value) === '1' || value === true || String(value) === 'true';
   const display = (): string => {
+    // 浏览按钮类已反查出人名/部门名 → 直接展示名称，不再显示裸 ID
+    if (displayText) return displayText;
     if (value == null || value === '') return '—';
     if (controlType === 'checkbox') return truthy ? '是' : '否';
     if (controlType === 'number' && !Number.isNaN(Number(value))) {
@@ -410,19 +420,89 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
     [configs],
   );
 
-  /** 每列的控件类型：componentControl 开启时按「组件字段类型」解析，否则按数据库类型推断 */
+  /** 每列的控件类型：浏览按钮类始终按「组件字段类型」解析（人员/部门列要显示名称），
+   *  其余列在 componentControl 开启时按组件类型，否则沿用数据库类型推断 */
   const controlTypeByName = useMemo(() => {
     const map = new Map<string, ColumnControlType>();
     (configs || []).forEach((c) => {
       if (c?.fieldName && !map.has(c.fieldName)) {
+        const comp = resolveComponentControlType(c);
         map.set(
           c.fieldName,
-          componentControl ? resolveComponentControlType(c) : resolveColumnControlType(c),
+          comp === 'browser' ? comp : (componentControl ? comp : resolveColumnControlType(c)),
         );
       }
     });
     return map;
   }, [configs, componentControl]);
+
+  /**
+   * 浏览按钮类列清单：fieldHtmlType=3 且 fieldType 命中浏览按钮类型表
+   * （人力资源/部门/角色/岗位…）→ 单元格需要反查显示名称。
+   */
+  const browserCols = useMemo(() => {
+    const cols = new Map<string, PersonOrgCategory>();
+    (configs || []).forEach((c) => {
+      if (!c?.fieldName) return;
+      if (String(c.fieldHtmlType ?? '').trim() !== '3') return;
+      const meta = BROWSER_TYPE_META[Number(c.fieldType)];
+      if (!meta?.category) return;
+      cols.set(c.fieldName, meta.category);
+    });
+    return cols;
+  }, [configs]);
+
+  /** 最近一次请求返回的行（request 模式下用于反查名称；dataSource 模式直接用 dataSource） */
+  const [requestRows, setRequestRows] = useState<T[]>([]);
+  const rows = useMemo(() => (Array.isArray(dataSource) ? dataSource : requestRows), [dataSource, requestRows]);
+
+  /** 包装 request：记录最近一次返回的行，供浏览按钮类字段反查显示名称 */
+  const wrappedRequest = useMemo(() => {
+    if (!request) return undefined;
+    return async (params: any, sort: any, filter: any) => {
+      const res: any = await request(params, sort, filter);
+      const list = Array.isArray(res?.data) ? (res.data as T[]) : [];
+      setRequestRows(list);
+      return res;
+    };
+  }, [request]);
+
+  /** 字段名 → { id → 名称 }；人员走 /user/names 批量，部门/角色/岗位走内存字典
+   *  （与表单预览 ExcelPreview 的 FieldControl 完全同一套解析） */
+  const [displayNames, setDisplayNames] = useState<Record<string, Record<string, string>>>({});
+
+  useEffect(() => {
+    if (!browserCols.size || !rows.length) return;
+    let alive = true;
+    browserCols.forEach((category, fieldName) => {
+      const ids = new Set<string>();
+      rows.forEach((row: any) => {
+        splitIds(row?.[fieldName]).forEach((id) => ids.add(id));
+      });
+      if (!ids.size) return;
+      resolveItemNames(category, Array.from(ids))
+        .then((items) => {
+          if (!alive) return;
+          const map: Record<string, string> = {};
+          (items || []).forEach((it) => { map[String(it.id)] = it.name; });
+          setDisplayNames((prev) => ({ ...prev, [fieldName]: { ...(prev[fieldName] || {}), ...map } }));
+        })
+        .catch(() => {
+          // 名称反查失败 → 保留原始值展示（fail-open）
+        });
+    });
+    return () => { alive = false; };
+  }, [rows, browserCols]);
+
+  /** 某字段的显示名称（多值以「、」连接）；查不到返回 undefined */
+  const displayTextOf = useCallback((fieldName: string, value: any): string | undefined => {
+    const dict = displayNames[fieldName];
+    if (!dict) return undefined;
+    const ids = splitIds(value);
+    if (!ids.length) return undefined;
+    const names = ids.map((id) => dict[id]).filter(Boolean);
+    return names.length ? names.join('、') : undefined;
+  }, [displayNames]);
 
   /** 每列的「组件字段类型」中文标签（单行文本 / 人力资源 / 下拉框 / 日期 …），
    * 由 fieldHtmlType + fieldType 经 getFieldTypeLabel 得出，与 formmode/tabledesign 同源。
@@ -552,6 +632,7 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
             <EditableCell
               value={record[name]}
               controlType={controlTypeByName.get(name)}
+              displayText={displayTextOf(name, record[name])}
             />
           ),
         } as ProColumns<T>;
@@ -562,6 +643,7 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
           <EditableCell
             value={record[name]}
             controlType={controlTypeByName.get(name)}
+            displayText={displayTextOf(name, record[name])}
             alwaysEdit={defaultEditable}
             onSave={onCellSave
               ? (v: string) => onCellSave({ row: record, fieldName: name, value: v, refresh })
@@ -613,7 +695,7 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
     return result;
   }, [
     baseColumns, permByName, preference, extraColumns, rowButtons, editableNames,
-    controlTypeByName, fieldTypeLabelByName, showFieldType, componentControl,
+    controlTypeByName, fieldTypeLabelByName, showFieldType, componentControl, displayTextOf,
     defaultEditable, onCellSave,
     rowActions, actionColumnTitle, actionColumnWidth, rowKey, onButtonClick, refresh,
   ]);
@@ -741,7 +823,7 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
             rowKey={rowKey}
             columns={columns}
             dataSource={dataSource}
-            request={request}
+            request={wrappedRequest}
             actionRef={actionRef as any}
             rowSelection={rowSelection}
             scroll={resolvedScroll}

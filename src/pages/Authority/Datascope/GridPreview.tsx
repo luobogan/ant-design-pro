@@ -5,22 +5,25 @@
  * 数据权限模块的辅助页，无独立 blade_menu 行）。
  * 入口：数据权限配置弹窗「可见字段」区域的「列表预览」按钮，带 ?menuId= 自动带入菜单。
  *
- * 用途：把「可见字段勾选 → 前端动态列 → 字段级权限 → 按钮权限」整条链路可视化，
- * 用 mock 数据渲染，不依赖任何业务接口；管理员可把当前列配置保存为菜单级默认列。
+ * 用途：把「可见字段勾选 → 前端动态列 → 字段级权限 → 按钮权限」整条链路可视化。
+ *
+ * ⚠️ 数据口径（与表单预览 ExcelPreviewPage 一致）：
+ *   1. **真实数据**：走 `POST /api/blade-formmode/form-data/page-scope/{formId}`，
+ *      由后端按 `blade_scope_data` 的行级规则（scope_column / scope_type / scope_value）
+ *      过滤、并按 scope_field 裁列 —— 即「当前数据权限配置下的真实数据」，**不使用任何 mock**。
+ *   2. **值形态**：浏览按钮类字段返回原始值（id 逗号串），显示名称由前端按需反查
+ *      （与 FieldControl / personOrg 同一套解析，见 ScopeGrid 内置的名称解析）。
+ *   3. **组件统一**：列表容器只用 ScopeGrid（通用列表）组件，不引入其它表格组件。
  */
-import {
-  DeleteOutlined,
-  PlusOutlined,
-  ReloadOutlined,
-} from '@ant-design/icons';
+import { ReloadOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import { history, useLocation } from '@umijs/max';
-import { App, Alert, Button, Card, Input, Select, Space, Switch, Tag } from 'antd';
+import { Alert, App, Button, Card, Input, Select, Space, Tag } from 'antd';
 import React, { useEffect, useMemo, useState } from 'react';
 import ScopeGrid from '@/components/ScopeGrid';
-import { getFieldTypeLabel } from '@/components/FormMode/fieldTypes';
 import {
+  fetchScopeFormData,
   submitScopeFields,
   type ScopeFieldConfig,
 } from '@/services/authority/dataPermission';
@@ -32,64 +35,40 @@ interface MenuOption {
   code?: string;
 }
 
-interface MockRow {
-  id: string;
-  [key: string]: any;
-}
+/** 真实业务行：列由 blade_scope_field 决定，字段名动态 */
+type RealRow = Record<string, any> & { id?: any };
+
+/** 无列配置时的回退列（fail-open，与 ScopeGrid 契约一致，保证不白屏） */
+const DEFAULT_COLUMNS: ProColumns<RealRow>[] = [
+  { title: 'ID', dataIndex: 'id', width: 90, hideInSearch: true },
+  { title: '创建时间', dataIndex: 'modedatacreatedate', hideInSearch: true },
+];
 
 /**
- * 各「组件字段类型」的 mock 示例值（键为 getFieldTypeLabel 的中文标签）。
- * 预览页据此让每列呈现对应组件的样子：人力资源/部门列显示人名、部门名，
- * 日期列显示日期，附件列显示文件名 —— 而不是一律「字段名 - 序号」。
+ * 「可见字段」配置里记住的业务表单（与 VisibleFieldSelector 同一份 localStorage 记忆）。
+ * blade_menu / blade_scope_data 都没有 formId 绑定列，业务表单由用户手选并按 menuId 记忆，
+ * 故预览页按同一份记忆取 formId —— 与字段配置同源，不会张冠李戴。
  */
-const COMP_MOCK_VALUES: Record<string, any[]> = {
-  人力资源: ['张三', '李四', '王五'],
-  多人力资源: ['张三、李四', '王五、赵六'],
-  部门: ['技术部', '财务部', '市场部'],
-  多部门: ['技术部、财务部', '市场部、运营部'],
-  分部: ['华东分部', '华南分部'],
-  角色: ['管理员', '普通角色'],
-  岗位: ['部门经理', '业务专员'],
-  日期: ['2026-11-14', '2026-12-01', '2027-01-08'],
-  时间: ['2026-11-14 10:00:00', '2026-12-01 09:30:00'],
-  下拉框: ['选项A', '选项B', '选项C'],
-  单选框: ['选项A', '选项B'],
-  复选框: ['是', '否'],
-  附件上传: ['合同.pdf', '发票.jpg'],
-  图片上传: ['照片.png', '现场.jpg'],
-  整数: [1000, 2000, 3000],
-  浮点数: [12.5, 23.75, 41.2],
-  多行文本: ['多行内容 1', '多行内容 2'],
-};
-
-/** 无列配置时的回退列，保证预览页不白屏（与 ScopeGrid 的 fail-open 契约一致） */
-const DEFAULT_COLUMNS: ProColumns<MockRow>[] = [
-  { title: 'ID', dataIndex: 'id', width: 90, hideInSearch: true },
-  { title: '名称', dataIndex: 'name', hideInSearch: true },
-  { title: '编码', dataIndex: 'code', hideInSearch: true },
-  { title: '状态', dataIndex: 'status', hideInSearch: true },
-  { title: '创建时间', dataIndex: 'createTime', valueType: 'dateTime', hideInSearch: true },
-];
+const formMemoryKey = (menuId?: string) => `datascope:visibleField:form:${menuId || 'default'}`;
 
 const GridPreview: React.FC = () => {
   const { message } = App.useApp();
   const location = useLocation();
   // Umi Max 的 useLocation() 不带 query 属性，必须自行解析 search，
   // 否则 ?menuId= 会被丢掉、列配置请求根本不会发出。
-  const queryMenuId = useMemo(
-    () => new URLSearchParams(location.search || '').get('menuId') || undefined,
+  const searchParams = useMemo(
+    () => new URLSearchParams(location.search || ''),
     [location.search],
   );
+  const queryMenuId = searchParams.get('menuId') || undefined;
+  const queryFormId = searchParams.get('formId') || undefined;
 
   const [menus, setMenus] = useState<MenuOption[]>([]);
   const [menuId, setMenuId] = useState<string | undefined>(queryMenuId);
   const [pageCodeInput, setPageCodeInput] = useState<string>('');
-  const [formId, setFormId] = useState<string>('');
+  const [formIdInput, setFormIdInput] = useState<string>('');
   const [configs, setConfigs] = useState<ScopeFieldConfig[]>([]);
   const [refreshToken, setRefreshToken] = useState(0);
-  const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
-  // 打开即处于编辑态（参考 antdprov5 EditableProTable 把 editableKeys 初始化为所有行）
-  const [alwaysEdit, setAlwaysEdit] = useState(true);
 
   useEffect(() => {
     let alive = true;
@@ -126,60 +105,42 @@ const GridPreview: React.FC = () => {
   );
   const effectivePageCode = pageCodeInput || menuCode || '';
 
-  /** 按当前列配置补齐 mock 值，直观看到「勾选了哪些字段就显示哪些列」 */
-  const baseRows = useMemo<MockRow[]>(() => {
-    const visible = configs.filter((c) => c?.fieldName && c.isVisible !== 0);
-    const names = visible.length
-      ? visible.map((c) => c.fieldName)
-      : ['id', 'name', 'code', 'status', 'createTime'];
-    const cfgByName = new Map(configs.map((c) => [c.fieldName, c]));
-    return Array.from({ length: 8 }, (_, i) => {
-      const row: MockRow = { id: String(i + 1) };
-      names.forEach((n) => {
-        if (row[n] != null) return;
-        const cfg = cfgByName.get(n);
-        const html = String(cfg?.fieldHtmlType ?? '');
-        const sub = String(cfg?.fieldType ?? '');
-        // 组件字段类型（与列头标签、字段元数据表格同源）：人力资源 / 部门 / 日期 …
-        const compLabel = html ? getFieldTypeLabel(html, sub) : '';
-        const db = String(cfg?.fieldDbType || '').toLowerCase();
-        if (COMP_MOCK_VALUES[compLabel]) {
-          const pool = COMP_MOCK_VALUES[compLabel];
-          row[n] = pool[i % pool.length];
-        } else if (/datetime|timestamp/.test(db)) row[n] = '2026-11-14 10:00:00';
-        else if (/^date$|^time$/.test(db)) row[n] = '2026-11-14';
-        else if (/int|decimal|numeric|float|double|bigint/.test(db)) row[n] = (i + 1) * 1000;
-        else if (/text|blob|json/.test(db)) row[n] = `${n} 多行内容 ${i + 1}`;
-        else if (/time|date/i.test(n)) row[n] = '2026-11-14 10:00:00';
-        else row[n] = `${n} - ${i + 1}`;
+  /** 业务表单 ID：URL > 手填 > 本地记忆（与「可见字段」配置同一份） */
+  const formId = useMemo(() => {
+    if (queryFormId) return queryFormId;
+    const manual = formIdInput.trim();
+    if (manual) return manual;
+    try {
+      return localStorage.getItem(formMemoryKey(menuId)) || '';
+    } catch (_e) {
+      return '';
+    }
+  }, [queryFormId, formIdInput, menuId]);
+
+  /**
+   * 资源编号：用于定位数据权限行级规则（blade_scope_data.resource_code = 菜单 code）。
+   * 优先取可见字段配置里保存的 resourceCode（保存时写入），回退到菜单 code。
+   */
+  const resourceCode = useMemo(
+    () => configs.find((c) => c?.resourceCode)?.resourceCode || menuCode || '',
+    [configs, menuCode],
+  );
+
+  /** 真实数据请求（无业务表单时不请求，交由页面提示） */
+  const request = useMemo(() => {
+    if (!formId) return undefined;
+    return async (params: any) => {
+      const page = await fetchScopeFormData({
+        formId,
+        resourceCode,
+        current: params?.current || 1,
+        size: params?.pageSize || 10,
       });
-      return row;
-    });
-  }, [configs]);
+      return { data: page.records, total: page.total, success: true };
+    };
+  }, [formId, resourceCode]);
 
-  // 预览页用本地 state 承接行内编辑结果（mock 环境，无业务写接口）
-  const [dataSource, setDataSource] = useState<MockRow[]>([]);
-  useEffect(() => {
-    setDataSource(baseRows);
-  }, [baseRows]);
-
-  /** 操作栏演示：mock 数据下的新增 / 删除，不落库 */
-  const addRow = () => {
-    const names = configs.filter((c) => c?.fieldName && c.isVisible !== 0).map((c) => c.fieldName);
-    const row: MockRow = { id: `new_${Date.now()}` };
-    names.forEach((n) => { row[n] = `${n} - 新增`; });
-    setDataSource((prev) => [...prev, row]);
-    message.success('已新增一行（仅本地 mock）');
-  };
-
-  const removeRows = (ids: React.Key[]) => {
-    if (!ids.length) return;
-    const idSet = new Set(ids.map(String));
-    setDataSource((prev) => prev.filter((r) => !idSet.has(String(r.id))));
-    setSelectedKeys([]);
-    message.success(`已删除 ${ids.length} 行（仅本地 mock）`);
-  };
-
+  /** 管理员「保存为菜单级默认列」（写库，仍由页面负责，组件不直接写） */
   const handleSaveColumns = async (list: ScopeFieldConfig[]) => {
     if (!menuId) {
       message.warning('请先选择关联菜单');
@@ -193,6 +154,7 @@ const GridPreview: React.FC = () => {
       await submitScopeFields({
         scopeId: 0,
         menuId,
+        resourceCode,
         fields: list.map((f, idx) => ({ ...f, sort: f.sort ?? idx })),
       });
       message.success('已保存为菜单级默认列');
@@ -217,7 +179,7 @@ const GridPreview: React.FC = () => {
         showIcon
         style={{ marginBottom: 16 }}
         message="界面路径：/authority/datascope/grid"
-        description="从数据权限配置弹窗「可见字段」区域的「列表预览」进入，会自动带入当前菜单。勾选的可见字段决定本页列；字段级权限按当前用户叠加；工具栏与行内操作按钮由 /menu/buttons 按角色下发。本页用 mock 数据，不依赖业务接口。"
+        description="从数据权限配置弹窗「可见字段」区域的「列表预览」进入，会自动带入当前菜单。数据为**真实业务数据**：由后端按当前数据权限规则（scope_column / scope_type / scope_value）过滤并按可见字段裁列；浏览按钮类字段显示名称由前端按需反查（与表单预览同一套解析）。本页只用 ScopeGrid 组件实现。"
       />
 
       <Card variant="outlined" size="small" style={{ marginBottom: 16 }}>
@@ -242,13 +204,14 @@ const GridPreview: React.FC = () => {
             allowClear
             style={{ width: 200 }}
           />
-          <span>formId（字段权限）</span>
+          <span>formId（业务表单）</span>
           <Input
-            value={formId}
-            onChange={(e) => setFormId(e.target.value)}
-            placeholder="可选，按当前用户叠加"
+            value={formIdInput}
+            onChange={(e) => setFormIdInput(e.target.value)}
+            placeholder="留空则用「可见字段」记住的表单"
             allowClear
-            style={{ width: 200 }}
+            style={{ width: 240 }}
+            data-testid="grid-preview-formid"
           />
           <Button
             icon={<ReloadOutlined />}
@@ -259,88 +222,32 @@ const GridPreview: React.FC = () => {
         </Space>
       </Card>
 
+      {!formId && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="未确定业务表单，无法加载真实数据"
+          description="请先在「数据权限配置 → 可见字段」里为该菜单选择业务表单（表单选择会被按菜单记住），或在上方直接填写 formId。"
+        />
+      )}
+
       <Card variant="outlined" size="small">
-        <ScopeGrid<MockRow>
+        <ScopeGrid<RealRow>
           menuId={menuId}
           scopeId={0}
           pageCode={effectivePageCode}
           formId={formId || undefined}
           rowKey="id"
-          dataSource={dataSource}
+          request={request}
           fallbackColumns={DEFAULT_COLUMNS}
           onConfigsChange={(list) => setConfigs(list as ScopeFieldConfig[])}
           onSaveColumns={handleSaveColumns}
-          defaultEditable={alwaysEdit}
-          showFieldType
           componentControl
-          onCellSave={({ row, fieldName, value }) => {
-            setDataSource((prev) =>
-              prev.map((r) => (r.id === row.id ? { ...r, [fieldName]: value } : r)),
-            );
-            message.success(`已更新 ${fieldName}`);
-          }}
+          showFieldType
           refreshToken={refreshToken}
-          onSelectRow={(keys) => setSelectedKeys(keys)}
-          rowActions={(record) => [
-            <Button
-              key="view"
-              type="link"
-              size="small"
-              onClick={() => message.info(`查看行 ${record.id}`)}
-            >
-              查看
-            </Button>,
-            <Button
-              key="edit"
-              type="link"
-              size="small"
-              onClick={() => message.info(`编辑行 ${record.id}`)}
-            >
-              编辑
-            </Button>,
-            <Button
-              key="remove"
-              type="link"
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={() => removeRows([record.id])}
-            >
-              删除
-            </Button>,
-          ]}
-          renderLeftButton={() => [
-            <Button
-              key="add"
-              type="primary"
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={addRow}
-            >
-              新增一行
-            </Button>,
-            <Button
-              key="batch"
-              size="small"
-              danger
-              disabled={!selectedKeys.length}
-              onClick={() => removeRows(selectedKeys)}
-            >
-              {selectedKeys.length ? `批量删除 (${selectedKeys.length})` : '批量删除'}
-            </Button>,
-          ]}
-          onButtonClick={({ btn }) =>
-            message.info(`按钮 ${btn.name || btn.code} 由业务页处理（此处仅演示权限分派）`)
-          }
           renderRightButton={() => (
             <Space size={8}>
-              <Switch
-                size="small"
-                checked={alwaysEdit}
-                onChange={setAlwaysEdit}
-                data-testid="grid-preview-always-edit"
-              />
-              <span style={{ fontSize: 12 }}>默认编辑</span>
               <Tag color="blue">{configs.length} 个字段配置</Tag>
             </Space>
           )}
@@ -348,7 +255,6 @@ const GridPreview: React.FC = () => {
             search: false,
             options: false,
             toolBarRender: false,
-            pagination: { pageSize: 5 },
           }}
         />
       </Card>

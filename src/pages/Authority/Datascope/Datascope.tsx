@@ -474,6 +474,27 @@ const DataPermissionPage: React.FC = () => {
   };
 
   /**
+   * 自定义值域（规则类型 = 自定义）的受限形态。
+   *
+   * <p>后端动态 SQL 链路（formmode 的 JdbcTemplate）无法像 MyBatis 拦截器那样把任意 SQL 片段
+   * 原样拼进语句，因此只接受「列 IN (纯数字列表)」与「列 = 数字」两种形态；
+   * 解析不出来时后端按「无可见数据」处理（<b>不是</b>放行全部，否则等于没配权限），
+   * 所以这里提前阻断，避免管理员配出一条必然查不到数据的规则。</p>
+   */
+  const CUSTOM_SCOPE_VALUE_IN =
+    /^(?:(?:where|and)\s+)?(?:scope\.)?[A-Za-z_][A-Za-z0-9_$]*\s+in\s*\(\s*\d+(?:\s*,\s*\d+)*\s*\)$/i;
+  const CUSTOM_SCOPE_VALUE_EQ = /^(?:(?:where|and)\s+)?(?:scope\.)?[A-Za-z_][A-Za-z0-9_$]*\s*=\s*\d+$/i;
+  const validateCustomScopeValue = (scopeType: string, scopeValue: string): string | null => {
+    if (scopeType !== '5') return null;
+    const value = (scopeValue ?? '').trim();
+    if (!value) return '权限值域不能为空';
+    if (!CUSTOM_SCOPE_VALUE_IN.test(value) && !CUSTOM_SCOPE_VALUE_EQ.test(value)) {
+      return '权限值域仅支持「列 IN (数字列表)」或「列 = 数字」两种形态，例如：where scope.dept_id in (1,2)';
+    }
+    return null;
+  };
+
+  /**
    * 把「可见字段」的勾选结果同步成前端列表动态列配置。
    * scopeId=0 表示菜单级默认配置（与字段管理页一致），勾选集合与 scopeField 同源。
    * 同步失败只告警：数据权限规则本身已保存，不回滚。
@@ -495,6 +516,11 @@ const DataPermissionPage: React.FC = () => {
       const invalid = validateScopeField(values.visibleField, values.scopeColumn);
       if (invalid) {
         message.error(invalid);
+        return;
+      }
+      const invalidCustom = validateCustomScopeValue(values.scopeType, values.scopeValue);
+      if (invalidCustom) {
+        message.error(invalidCustom);
         return;
       }
       // 字段映射：将前端字段名转换为后端期望的字段名
@@ -526,6 +552,11 @@ const DataPermissionPage: React.FC = () => {
       const invalid = validateScopeField(values.visibleField, values.scopeColumn);
       if (invalid) {
         message.error(invalid);
+        return;
+      }
+      const invalidCustom = validateCustomScopeValue(values.scopeType, values.scopeValue);
+      if (invalidCustom) {
+        message.error(invalidCustom);
         return;
       }
       // 字段映射：将前端字段名转换为后端期望的字段名
@@ -750,8 +781,9 @@ const DataPermissionPage: React.FC = () => {
                 label="权限值域"
                 hidden={watchedAddScopeType !== '5'}
                 rules={watchedAddScopeType === '5' ? [{ required: true, message: '请输入权限值域' }] : []}
+                extra="仅支持「列 IN (数字列表)」或「列 = 数字」，例如：where scope.dept_id in (1,2)"
               >
-                <Input placeholder="请输入自定义权限值域（如部门ID集合）" />
+                <Input placeholder="如：where scope.dept_id in (1,2)" />
               </Form.Item>
             </Col>
           </Row>
@@ -871,8 +903,9 @@ const DataPermissionPage: React.FC = () => {
                 label="权限值域"
                 hidden={watchedEditScopeType !== '5'}
                 rules={watchedEditScopeType === '5' ? [{ required: true, message: '请输入权限值域' }] : []}
+                extra="仅支持「列 IN (数字列表)」或「列 = 数字」，例如：where scope.dept_id in (1,2)"
               >
-                <Input placeholder="请输入自定义权限值域（如部门ID集合）" />
+                <Input placeholder="如：where scope.dept_id in (1,2)" />
               </Form.Item>
             </Col>
             <Col span={12}>
