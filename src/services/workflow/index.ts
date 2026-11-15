@@ -243,7 +243,7 @@ export interface MyRequestItem {
   defName?: string;
   /** 表单ID */
   formId?: string;
-  /** 实例状态 0运行中 1通过 2不通过 3撤销 4暂停 */
+  /** 实例状态 0运行中 1通过 2不通过 3撤销 4暂停 5草稿 */
   status?: number;
   /** 当前节点名称 */
   currentNodeName?: string;
@@ -1047,7 +1047,7 @@ export async function fetchTaskPage(
  * <p>后端返回 MyBatis-Plus 分页对象（records + total），页面按分页消费；
  * 仍保留异常降级：服务未启动 / 无权限时为空态 + Alert，不重复弹全局错误。</p>
  */
-export async function listMyRequests(params?: { current?: number; pageSize?: number; title?: string }) {
+export async function listMyRequests(params?: { current?: number; pageSize?: number; title?: string; status?: number }) {
   return request<ApiResponse<{ records?: MyRequestItem[]; total?: number }>>(`${WORKFLOW}/instance/mine`, {
     method: 'GET',
     params,

@@ -2,7 +2,7 @@ import { useModel } from '@umijs/max';
 import { PageContainer } from '@ant-design/pro-components';
 import StandardTable from '@/components/StandardTable';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Alert, Badge, Button, Popconfirm, message } from 'antd';
+import { Alert, Badge, Button, Popconfirm, Tabs, message } from 'antd';
 import { useRef, useState } from 'react';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import { useVisibilityRefresh } from '@/hooks/useVisibilityRefresh';
@@ -33,6 +33,9 @@ const MyRequestList: React.FC = () => {
   // 切回本标签时补拉列表（纯前端 L1，不改后端、不引入 WS）
   useVisibilityRefresh(actionRef);
   const [backendMissing, setBackendMissing] = useState(false);
+  // 页签：全部 / 草稿（草稿态 status=5，后端 /instance/mine 已支持 status 过滤）
+  const [activeTab, setActiveTab] = useState<string>('all');
+  const activeStatus = activeTab === 'draft' ? 5 : undefined;
 
   const openProgress = (record: MyRequestItem) => {
     window.open(`/workflow/create/start?defId=${record.defId}&mode=instance&instanceId=${record.id}`, '_blank');
@@ -143,7 +146,16 @@ const MyRequestList: React.FC = () => {
           description="请稍后重试；若持续失败，请联系管理员检查 blade-workflow 服务与登录态（GET /api/blade-workflow/instance/mine）。"
         />
       )}
+      <Tabs
+        activeKey={activeTab}
+        onChange={(k) => setActiveTab(k)}
+        items={[
+          { key: 'all', label: '全部' },
+          { key: 'draft', label: '草稿' },
+        ]}
+      />
       <StandardTable<MyRequestItem>
+        key={activeTab}
         actionRef={actionRef}
         rowKey={(r) => r.id || `${r.title}`}
         columns={columns}
@@ -156,6 +168,7 @@ const MyRequestList: React.FC = () => {
               current: params.current,
               pageSize: params.pageSize,
               title: params.title as string | undefined,
+              status: activeStatus,
             });
             // 后端返回 MyBatis-Plus 分页对象 { records, total, current, size }；
             // 兼容「直接返回数组」的形态，避免后端调整载荷时白屏。

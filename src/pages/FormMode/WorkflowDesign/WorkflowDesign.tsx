@@ -131,8 +131,8 @@ const buildDefaultBpmn = (def: WfProcessDefinition): string => {
   const poolSize = freeEnabled ? freePoolSizeOf(def) : 0;
   const endX = 460 + poolSize * 150;
 
-  const freeTasks = Array.from({ length: poolSize }, (_, i) => {
-    const k = i + 1;
+  const freeTasks = Array.from({ length: Math.max(0, poolSize - 1) }, (_, i) => {
+    const k = i + 2;
     return `    <bpmn:userTask id="Free_${k}" name="通用审批${k}">
       <bpmn:extensionElements>
         <wf:node xmlns:wf="http://www.springblade.org/workflow" nodeType="1" sortOrder="${10 + k}">
@@ -143,16 +143,16 @@ const buildDefaultBpmn = (def: WfProcessDefinition): string => {
     <bpmn:sequenceFlow id="Flow_Free_${k}_end" sourceRef="Free_${k}" targetRef="EndEvent_1" />`;
   }).join('\n');
 
-  const freeShapes = Array.from({ length: poolSize }, (_, i) => {
-    const k = i + 1;
+  const freeShapes = Array.from({ length: Math.max(0, poolSize - 1) }, (_, i) => {
+    const k = i + 2;
     const x = 460 + i * 150;
     return `      <bpmndi:BPMNShape id="Free_${k}_di" bpmnElement="Free_${k}">
         <dc:Bounds x="${x}" y="240" width="100" height="80" />
       </bpmndi:BPMNShape>`;
   }).join('\n');
 
-  const freeEdges = Array.from({ length: poolSize }, (_, i) => {
-    const k = i + 1;
+  const freeEdges = Array.from({ length: Math.max(0, poolSize - 1) }, (_, i) => {
+    const k = i + 2;
     const x = 460 + i * 150;
     return `      <bpmndi:BPMNEdge id="Flow_Free_${k}_end_di" bpmnElement="Flow_Free_${k}_end">
         <di:waypoint x="${x + 100}" y="280" />
