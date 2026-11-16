@@ -396,7 +396,6 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
   const [configState, setConfigState] = useState<'loading' | 'ready'>(
     'loading',
   );
-  const [hasSavedConfig, setHasSavedConfig] = useState(false);
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
   // 用 ref 持有回调，避免父组件传入箭头函数导致下方输出草稿的 effect 反复触发
@@ -420,10 +419,10 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
   );
 
   const loadFields = useCallback(
-    async (fid: string) => {
+    async (fid: string): Promise<FieldOption[]> => {
       if (!fid) {
         setFields([]);
-        return;
+        return [];
       }
       setLoading(true);
       try {
@@ -465,9 +464,11 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
         } catch (_e) {
           // localStorage 不可用不影响功能
         }
+        return options;
       } catch (_e) {
         setFields([]);
         message.error('字段清单加载失败，请切换业务表单重试');
+        return [];
       } finally {
         setLoading(false);
       }
@@ -479,7 +480,6 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
   useEffect(() => {
     if (!menuId) {
       setSavedConfigs([]);
-      setHasSavedConfig(false);
       setConfigState('ready');
       return;
     }
@@ -490,12 +490,10 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
         if (cancelled) return;
         const arr = Array.isArray(list) ? list : [];
         setSavedConfigs(arr);
-        setHasSavedConfig(arr.length > 0);
       })
       .catch(() => {
         if (cancelled) return;
         setSavedConfigs([]);
-        setHasSavedConfig(false);
       })
       .finally(() => {
         if (!cancelled) setConfigState('ready');
@@ -506,10 +504,13 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
   }, [menuId]);
 
   /**
-   * ② 初始化表单下拉。等列配置加载完再决定，保证「打开即显示字段」：
-   *   - 有历史选择 → 用它；
-   *   - 已有可见字段配置 → 清单直接由配置生成，不自动选表单（避免混入无关表字段）；
-   *   - 都没有 → 按菜单 code 智能匹配，再兜底第一个表单，立即列出字段。
+   * ② 初始化表单下拉 + 始终加载字段定义。
+   *
+   * <p>表设计器改了字段（名称/类型/数据库类型）后，数据权限侧必须能反映出来，
+   * 故不能因「已有可见字段配置」就跳过字段定义加载。</p>
+   *
+   * <p>表单选择优先级：localStorage 上次选择 > **已保存配置里的 fieldId 反查 billId**（最可靠）
+   * > 菜单 code 智能匹配 > 第一个表单。反查能避免猜错表单导致白名单过滤把已有配置全剔掉。</p>
    */
   useEffect(() => {
     if (configState !== 'ready' || didInitRef.current) return;
@@ -530,18 +531,13 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
           }))
           .filter((o) => !!o.value);
         setFormOptions(options);
+
         let last: string | null = null;
         try {
           last = localStorage.getItem(storageKey);
         } catch (_e) {
           // ignore
         }
-        if (last && options.some((o) => o.value === last)) {
-          setFormId(last);
-          await loadFields(last);
-          return;
-        }
-        if (hasSavedConfig) return;
         const key = String(menuCode || '')
           .toLowerCase()
           .replace(/[_\-\s]/g, '');
@@ -553,10 +549,41 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
                 .includes(key),
             )
           : undefined;
-        const fallback = guess || options[0];
-        if (fallback) {
-          setFormId(fallback.value);
-          await loadFields(fallback.value);
+
+        // 匹配度校验：localStorage 可能残留别的表单（测试/误选），直接采用会把
+        // 别的表的字段混进可见字段列表。候选依次加载，取与已保存配置重合最多的那个；
+        // 若重合度过低则判定「没一个对得上」，退回纯快照模式（不加载字段定义）。
+        const candidates = Array.from(
+          new Set([last, guess?.value, ...options.map((o) => o.value)]),
+        )
+          .filter((v): v is string => !!v && options.some((o) => o.value === v))
+          .slice(0, 15);
+        if (cancelled) return;
+        if (!candidates.length) return;
+        const savedNames = new Set(
+          savedConfigs.map((c) => String(c?.fieldName || '').trim()),
+        );
+        let best: { fid: string; matched: number } | null = null;
+        for (const fid of candidates) {
+          // eslint-disable-next-line no-await-in-loop
+          const loaded = await loadFields(fid);
+          if (cancelled) return;
+          const matched = savedNames.size
+            ? loaded.filter((f) => savedNames.has(f.name)).length
+            : loaded.length;
+          if (!best || matched > best.matched) best = { fid, matched };
+          if (savedNames.size && matched / savedNames.size >= 0.8) break;
+        }
+        if (
+          best &&
+          (!savedNames.size || best.matched / savedNames.size >= 0.5)
+        ) {
+          setFormId(best.fid);
+          await loadFields(best.fid);
+        } else {
+          // 都没对上：不发字段定义，列表完全由已保存配置生成（原行为）
+          setFormId(undefined);
+          setFields([]);
         }
       } catch (_e) {
         // 表单列表加载失败时降级为纯手工输入 / 已保存配置
@@ -565,7 +592,7 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [configState, hasSavedConfig, menuCode, storageKey, loadFields]);
+  }, [configState, menuCode, storageKey, loadFields, savedConfigs]);
 
   /** '*' = 全部字段；空串 = 零列（不再视为全选，否则「清空」后所有行又自动勾上） */
   const all = useMemo(() => (value ?? '').trim() === '*', [value]);
@@ -632,11 +659,14 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
         fieldType: f.fieldType,
       }),
     );
-    // 字段定义是类型权威来源：对已由配置占位同名行回填类型（不改顺序）
+    // 中文名：数据权限侧已保存的（savedConfigs）优先，表设计器不再覆盖 —— 用户在这里改过的中文名要保持稳定。
+    // 仅当快照为空（新字段）时才取字段定义名称。本次会话手改的由 getMeta 的 metaOverrides 保持最高优先级。
+    // 类型（数据库类型/组件类型/字段类型）：仍以字段定义为权威，表设计器改类型后能同步过来。
     const byName = new Map(fields.map((f) => [f.name, f]));
     result.forEach((item) => {
       const def = byName.get(item.name);
       if (!def) return;
+      item.label = item.label || def.label;
       item.fieldDbType = def.fieldDbType || item.fieldDbType;
       item.fieldHtmlType = def.fieldHtmlType || item.fieldHtmlType;
       item.fieldType = def.fieldType || item.fieldType;
@@ -731,6 +761,12 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
     return map;
   }, [savedConfigs]);
 
+  /** 字段定义按列名索引：表设计器的字段名称是权威来源，优先于历史快照 */
+  const formFieldByName = useMemo(
+    () => new Map(fields.map((f) => [f.name, f])),
+    [fields],
+  );
+
   /** 行内元数据编辑：只记「用户改过的键」，未改的仍取服务端回显值 */
   const updateMeta = useCallback((name: string, patch: FieldMetaOverride) => {
     setMetaOverrides((prev) => ({
@@ -745,7 +781,14 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
       const override = metaOverrides[name];
       const saved = savedByName.get(name);
       return {
-        fieldLabel: override?.fieldLabel ?? saved?.fieldLabel ?? label ?? '',
+        // 中文名：本次手改 > 已保存快照（数据权限侧改过的保持稳定，不被表设计器覆盖）
+        // > 字段定义（新字段首次带入）> 行名
+        fieldLabel:
+          override?.fieldLabel ??
+          saved?.fieldLabel ??
+          formFieldByName.get(name)?.label ??
+          label ??
+          '',
         description: override?.description ?? saved?.description ?? '',
         // 不可见的字段一律不可编辑，与字段管理页的联动约束一致
         isEditable: checked
@@ -753,7 +796,7 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
           : 0,
       };
     },
-    [metaOverrides, savedByName],
+    [metaOverrides, savedByName, formFieldByName],
   );
 
   /**
@@ -981,7 +1024,6 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
             // 切换业务表：清空之前的选择与字段清单，否则旧菜单已保存配置会同名字段残留、
             // 不同表的同名字段会保留旧勾选 / 拖拽顺序 / 行内元数据编辑
             setSavedConfigs([]);
-            setHasSavedConfig(false);
             setRowOrder([]);
             setMetaOverrides({});
             emit(all ? '*' : '');

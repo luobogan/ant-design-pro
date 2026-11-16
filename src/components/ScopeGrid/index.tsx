@@ -1012,8 +1012,12 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
       // 只 reload，不往 requestRows 里塞本地行：requestRows 只是「名称反查」的旁路数据源，
       // 往里插只有主键的半成品行会让表格的行列判定失真（行 key 取不到 → 行编辑态串行）。
       actionRef.current?.reload?.();
+      // 新增行是空行，若停在只读态会排在列表最前、看起来「只显示列名」。
+      // 直接把新行切进行编辑态，引导用户立刻填写，避免留下空行。
+      const rk = rowKeyOf(created);
+      if (rk) setEditingRowKey(rk);
     }
-  }, [onRowAdd]);
+  }, [onRowAdd, rowKeyOf]);
 
   /** 删除行：页面负责落库删除，成功后 reload 列表 */
   const handleRowDelete = useCallback(

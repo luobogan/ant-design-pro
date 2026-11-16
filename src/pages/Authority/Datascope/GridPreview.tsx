@@ -362,7 +362,6 @@ const GridPreview: React.FC = () => {
           onCellSave={handleCellSave}
           componentControl
           browserEditable
-          showFieldType
           /**
            * 编辑形态：`cell` = 可编辑列常驻输入控件（失焦即存）；`row` = 操作列点「编辑」
            * 进入行编辑态，行尾「保存 / 取消」，只提交该行实际改动的格子。
