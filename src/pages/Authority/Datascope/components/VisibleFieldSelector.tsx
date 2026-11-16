@@ -61,8 +61,17 @@ import {
   Tag,
   Tooltip,
 } from 'antd';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { listScopeFields, type ScopeFieldConfig } from '@/services/authority/dataPermission';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  listScopeFields,
+  type ScopeFieldConfig,
+} from '@/services/authority/dataPermission';
 import { fieldApi, formApi } from '@/services/formmode';
 import { getFieldTypeLabel } from '@/components/FormMode/fieldTypes';
 
@@ -146,7 +155,9 @@ interface FieldMetaOverride {
 
 /** 字段类型只读展示：由 fieldDbType 映射中文名，无法识别时原样显示 */
 const formatFieldType = (dbType?: string): string => {
-  const db = String(dbType || '').trim().toLowerCase();
+  const db = String(dbType || '')
+    .trim()
+    .toLowerCase();
   if (!db) return '—';
   if (/datetime|timestamp/.test(db)) return '日期时间';
   if (/^date$|^time$/.test(db)) return '日期';
@@ -172,9 +183,24 @@ interface SortableRowProps {
 
 /** 一体化字段配置行：勾选=前端展示 + 中文名/说明/可编辑 + 拖拽排序 */
 const SortableRow: React.FC<SortableRowProps> = ({
-  row, meta, dbType, compTypeLabel, formTypeLabel, onToggle, onRemove, onMetaChange, disabled,
+  row,
+  meta,
+  dbType,
+  compTypeLabel,
+  formTypeLabel,
+  onToggle,
+  onRemove,
+  onMetaChange,
+  disabled,
 }) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
     id: row.name,
   });
 
@@ -183,7 +209,11 @@ const SortableRow: React.FC<SortableRowProps> = ({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.6 : 1,
-    background: isDragging ? 'rgba(22,119,255,0.06)' : row.checked ? 'rgba(22,119,255,0.03)' : undefined,
+    background: isDragging
+      ? 'rgba(22,119,255,0.06)'
+      : row.checked
+        ? 'rgba(22,119,255,0.03)'
+        : undefined,
     position: 'relative',
     zIndex: isDragging ? 1 : undefined,
   };
@@ -210,34 +240,66 @@ const SortableRow: React.FC<SortableRowProps> = ({
         />
       </Tooltip>
       <Tooltip title={row.name}>
-        <span style={{ ...ellipsis, flex: '0 0 140px', fontFamily: 'monospace' }}>{row.name}</span>
+        <span
+          style={{ ...ellipsis, flex: '0 0 140px', fontFamily: 'monospace' }}
+        >
+          {row.name}
+        </span>
       </Tooltip>
       <Tooltip title={`数据库类型（只读）：${dbType || '未识别'}`}>
         <span
           style={{ flex: '0 0 92px', minWidth: 0, whiteSpace: 'nowrap' }}
           data-testid={`vfs-dbtype-${row.name}`}
         >
-          <Tag color="blue" style={{ margin: 0, maxWidth: 88, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <Tag
+            color="blue"
+            style={{
+              margin: 0,
+              maxWidth: 88,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
             {formatFieldType(dbType)}
           </Tag>
         </span>
       </Tooltip>
-      <Tooltip title={`组件类型（只读，来自表单设计 fieldHtmlType）：${compTypeLabel || '—'}`}>
+      <Tooltip
+        title={`组件类型（只读，来自表单设计 fieldHtmlType）：${compTypeLabel || '—'}`}
+      >
         <span
           style={{ flex: '0 0 92px', minWidth: 0, whiteSpace: 'nowrap' }}
           data-testid={`vfs-comptype-${row.name}`}
         >
-          <Tag color="cyan" style={{ margin: 0, maxWidth: 88, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <Tag
+            color="cyan"
+            style={{
+              margin: 0,
+              maxWidth: 88,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
             {compTypeLabel || '—'}
           </Tag>
         </span>
       </Tooltip>
-      <Tooltip title={`字段类型（只读，来自表单设计）：${formTypeLabel || '—'}`}>
+      <Tooltip
+        title={`字段类型（只读，来自表单设计）：${formTypeLabel || '—'}`}
+      >
         <span
           style={{ flex: '0 0 100px', minWidth: 0, whiteSpace: 'nowrap' }}
           data-testid={`vfs-formtype-${row.name}`}
         >
-          <Tag color="geekblue" style={{ margin: 0, maxWidth: 96, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <Tag
+            color="geekblue"
+            style={{
+              margin: 0,
+              maxWidth: 96,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
             {formTypeLabel || '—'}
           </Tag>
         </span>
@@ -255,7 +317,9 @@ const SortableRow: React.FC<SortableRowProps> = ({
         size="small"
         placeholder="说明"
         value={meta.description ?? ''}
-        onChange={(e) => onMetaChange(row.name, { description: e.target.value })}
+        onChange={(e) =>
+          onMetaChange(row.name, { description: e.target.value })
+        }
         disabled={disabled}
         data-testid={`vfs-desc-${row.name}`}
         style={{ flex: '1 1 150px', minWidth: 90 }}
@@ -277,7 +341,9 @@ const SortableRow: React.FC<SortableRowProps> = ({
           <Checkbox
             checked={meta.isEditable === 1}
             disabled={disabled || !row.checked}
-            onChange={(e) => onMetaChange(row.name, { isEditable: e.target.checked ? 1 : 0 })}
+            onChange={(e) =>
+              onMetaChange(row.name, { isEditable: e.target.checked ? 1 : 0 })
+            }
             data-testid={`vfs-editable-${row.name}`}
           >
             <span style={{ fontSize: 12 }}>可编辑</span>
@@ -314,16 +380,22 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
   disabled,
 }) => {
   const { message } = App.useApp();
-  const [formOptions, setFormOptions] = useState<{ value: string; label: string; tableName?: string }[]>([]);
+  const [formOptions, setFormOptions] = useState<
+    { value: string; label: string; tableName?: string }[]
+  >([]);
   const [formId, setFormId] = useState<string | undefined>();
   const [fields, setFields] = useState<FieldOption[]>([]);
   const [savedConfigs, setSavedConfigs] = useState<ScopeFieldConfig[]>([]);
   // 弹窗内直接编辑的字段元数据（中文名 / 说明 / 可编辑），只记录被改过的键
-  const [metaOverrides, setMetaOverrides] = useState<Record<string, FieldMetaOverride>>({});
+  const [metaOverrides, setMetaOverrides] = useState<
+    Record<string, FieldMetaOverride>
+  >({});
   // 行显示顺序：勾选只切换状态、不重排行；只有拖拽才改这个顺序
   const [rowOrder, setRowOrder] = useState<string[]>([]);
   // 列配置是否已拉取完成 / 是否已有配置：决定「打开即显示字段」的数据来源
-  const [configState, setConfigState] = useState<'loading' | 'ready'>('loading');
+  const [configState, setConfigState] = useState<'loading' | 'ready'>(
+    'loading',
+  );
   const [hasSavedConfig, setHasSavedConfig] = useState(false);
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
@@ -355,21 +427,33 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
       }
       setLoading(true);
       try {
-        const res: any = await fieldApi.getByFormId(fid);
-        const list: any[] = Array.isArray(res) ? res : res?.data ?? [];
+        // 只取主表字段（isMain=1）：明细表字段在 formtable_main_{bill}_dtN，
+        // 动态列表查的是主表，混进来会永远显示「主表无此列」且无法编辑。
+        const res: any = await fieldApi.getByFormIdAndIsMain(fid, 1);
+        const list: any[] = Array.isArray(res) ? res : (res?.data ?? []);
         const options: FieldOption[] = list
           .map((f, idx) => {
             // 后端 fieldDbName 常为空字符串（物理列名实际落在 fieldName），
             // 必须用 || 而非 ??，否则空串会吞掉所有字段。
             const name = String(
-              f?.fieldDbName || f?.fielddbname || f?.fieldName || f?.fieldname || '',
+              f?.fieldDbName ||
+                f?.fielddbname ||
+                f?.fieldName ||
+                f?.fieldname ||
+                '',
             ).trim();
             return {
               name,
               label: String(f?.fieldLabel || f?.fieldlabel || '').trim(),
-              sort: Number(f?.dsOrder ?? f?.sort ?? f?.fieldOrder ?? f?.fieldorder ?? idx),
-              fieldDbType: String(f?.fieldDbType ?? f?.fielddbtype ?? '').trim(),
-              fieldHtmlType: String(f?.fieldHtmlType ?? f?.fieldhtmltype ?? '').trim(),
+              sort: Number(
+                f?.dsOrder ?? f?.sort ?? f?.fieldOrder ?? f?.fieldorder ?? idx,
+              ),
+              fieldDbType: String(
+                f?.fieldDbType ?? f?.fielddbtype ?? '',
+              ).trim(),
+              fieldHtmlType: String(
+                f?.fieldHtmlType ?? f?.fieldhtmltype ?? '',
+              ).trim(),
               fieldType: String(f?.fieldType ?? f?.fieldtype ?? '').trim(),
             };
           })
@@ -434,13 +518,17 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
     (async () => {
       try {
         const res: any = await formApi.getAll();
-        const list: any[] = Array.isArray(res) ? res : res?.data ?? [];
+        const list: any[] = Array.isArray(res) ? res : (res?.data ?? []);
         if (cancelled) return;
-        const options = list.map((b) => ({
-          value: String(b?.id ?? ''),
-          label: String(b?.formName ?? b?.tableName ?? b?.name ?? b?.id ?? ''),
-          tableName: b?.tableName,
-        })).filter((o) => !!o.value);
+        const options = list
+          .map((b) => ({
+            value: String(b?.id ?? ''),
+            label: String(
+              b?.formName ?? b?.tableName ?? b?.name ?? b?.id ?? '',
+            ),
+            tableName: b?.tableName,
+          }))
+          .filter((o) => !!o.value);
         setFormOptions(options);
         let last: string | null = null;
         try {
@@ -454,10 +542,16 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
           return;
         }
         if (hasSavedConfig) return;
-        const key = String(menuCode || '').toLowerCase().replace(/[_\-\s]/g, '');
+        const key = String(menuCode || '')
+          .toLowerCase()
+          .replace(/[_\-\s]/g, '');
         const guess = key
           ? options.find((o) =>
-            `${o.label}${o.tableName || ''}`.toLowerCase().replace(/[_\-\s]/g, '').includes(key))
+              `${o.label}${o.tableName || ''}`
+                .toLowerCase()
+                .replace(/[_\-\s]/g, '')
+                .includes(key),
+            )
           : undefined;
         const fallback = guess || options[0];
         if (fallback) {
@@ -476,8 +570,19 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
   /** '*' = 全部字段；空串 = 零列（不再视为全选，否则「清空」后所有行又自动勾上） */
   const all = useMemo(() => (value ?? '').trim() === '*', [value]);
 
-  const checkedNames = useMemo(() => splitColumns(value), [value]);
-  const invalidNames = useMemo(() => checkedNames.filter((n) => !isSafeColumn(n)), [checkedNames]);
+  const checkedNames = useMemo(() => {
+    const names = splitColumns(value);
+    // 字段定义已加载时，只认当前表单的主表字段（fields 已按 isMain=1 过滤）。
+    // 历史脏数据（明细表字段被误写进 scope_field）不能靠回显重新混进列表，
+    // 否则这些列永远「主表无此列」且无法编辑；用户下次保存即被自然淘汰。
+    if (!fields.length) return names;
+    const valid = new Set(fields.map((f) => f.name));
+    return names.filter((n) => valid.has(n));
+  }, [value, fields]);
+  const invalidNames = useMemo(
+    () => checkedNames.filter((n) => !isSafeColumn(n)),
+    [checkedNames],
+  );
 
   /**
    * 字段清单：blade_scope_field 已保存配置优先（决定顺序 / 中文名），再并入业务表单字段。
@@ -487,25 +592,46 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
   const catalog = useMemo<FieldOption[]>(() => {
     const result: FieldOption[] = [];
     const seen = new Set<string>();
-    const push = (name: string | undefined, label: string, sort: number, meta: Partial<FieldOption> = {}) => {
+    const push = (
+      name: string | undefined,
+      label: string,
+      sort: number,
+      meta: Partial<FieldOption> = {},
+    ) => {
       const n = String(name || '').trim();
       if (!n || seen.has(n) || !isSafeColumn(n)) return;
       seen.add(n);
       result.push({ name: n, label, sort, ...meta });
     };
+    // 字段定义已加载时，savedConfigs 里不在主表字段清单中的项（历史误导入的
+    // 明细表字段）一律不进 catalog —— 否则它们会作为「自定义列」永远留在表格里。
+    const validNames = fields.length
+      ? new Set(fields.map((f) => f.name))
+      : null;
     [...savedConfigs]
+      .filter(
+        (c) => !validNames || validNames.has(String(c?.fieldName || '').trim()),
+      )
       .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))
       .forEach((c, i) =>
-        push(c?.fieldName, String(c?.fieldLabel || ''), typeof c?.sort === 'number' ? c.sort : i, {
-          fieldDbType: c?.fieldDbType,
-          fieldHtmlType: c?.fieldHtmlType,
-          fieldType: c?.fieldType,
-        }));
-    fields.forEach((f) => push(f.name, f.label, f.sort, {
-      fieldDbType: f.fieldDbType,
-      fieldHtmlType: f.fieldHtmlType,
-      fieldType: f.fieldType,
-    }));
+        push(
+          c?.fieldName,
+          String(c?.fieldLabel || ''),
+          typeof c?.sort === 'number' ? c.sort : i,
+          {
+            fieldDbType: c?.fieldDbType,
+            fieldHtmlType: c?.fieldHtmlType,
+            fieldType: c?.fieldType,
+          },
+        ),
+      );
+    fields.forEach((f) =>
+      push(f.name, f.label, f.sort, {
+        fieldDbType: f.fieldDbType,
+        fieldHtmlType: f.fieldHtmlType,
+        fieldType: f.fieldType,
+      }),
+    );
     // 字段定义是类型权威来源：对已由配置占位同名行回填类型（不改顺序）
     const byName = new Map(fields.map((f) => [f.name, f]));
     result.forEach((item) => {
@@ -540,20 +666,26 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
     fields.forEach((f) => m.set(f.name, f));
     return m;
   }, [fields, savedConfigs]);
-  const formTypeOf = useCallback((name: string): string => {
-    const def = formTypeDefs.get(name);
-    if (!def) return '—';
-    const label = getFieldTypeLabel(def.fieldHtmlType, def.fieldType);
-    // 回显态（savedConfigs 未记录 fieldType 子类型）时，浏览按钮类降级为干净的大类，避免「浏览按钮(-)」观感
-    return label.endsWith('(-)') ? label.slice(0, -3) : label;
-  }, [formTypeDefs]);
+  const formTypeOf = useCallback(
+    (name: string): string => {
+      const def = formTypeDefs.get(name);
+      if (!def) return '—';
+      const label = getFieldTypeLabel(def.fieldHtmlType, def.fieldType);
+      // 回显态（savedConfigs 未记录 fieldType 子类型）时，浏览按钮类降级为干净的大类，避免「浏览按钮(-)」观感
+      return label.endsWith('(-)') ? label.slice(0, -3) : label;
+    },
+    [formTypeDefs],
+  );
   /** 组件类型大类（fieldHtmlType 维度）：浏览按钮 / 下拉框 / 单行文本 / 日期 / 附件 …（不含子类型） */
-  const compTypeOf = useCallback((name: string): string => {
-    const def = formTypeDefs.get(name);
-    if (!def) return '—';
-    const label = getFieldTypeLabel(def.fieldHtmlType, undefined);
-    return label.endsWith('(-)') ? label.slice(0, -3) : label;
-  }, [formTypeDefs]);
+  const compTypeOf = useCallback(
+    (name: string): string => {
+      const def = formTypeDefs.get(name);
+      if (!def) return '—';
+      const label = getFieldTypeLabel(def.fieldHtmlType, undefined);
+      return label.endsWith('(-)') ? label.slice(0, -3) : label;
+    },
+    [formTypeDefs],
+  );
 
   /**
    * 稳定的行顺序：优先拖拽后的顺序，否则按配置 sort。
@@ -567,7 +699,10 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
 
   /** 行顺序 + 手动添加、不在字段清单中的自定义列 */
   const allOrderedNames = useMemo(
-    () => [...orderedNames, ...checkedNames.filter((n) => !orderedNames.includes(n))],
+    () => [
+      ...orderedNames,
+      ...checkedNames.filter((n) => !orderedNames.includes(n)),
+    ],
     [orderedNames, checkedNames],
   );
 
@@ -598,7 +733,10 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
 
   /** 行内元数据编辑：只记「用户改过的键」，未改的仍取服务端回显值 */
   const updateMeta = useCallback((name: string, patch: FieldMetaOverride) => {
-    setMetaOverrides((prev) => ({ ...prev, [name]: { ...prev[name], ...patch } }));
+    setMetaOverrides((prev) => ({
+      ...prev,
+      [name]: { ...prev[name], ...patch },
+    }));
   }, []);
 
   /** 某行最终展示的元数据（用户覆盖 > 服务端 > 字段清单） */
@@ -610,7 +748,9 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
         fieldLabel: override?.fieldLabel ?? saved?.fieldLabel ?? label ?? '',
         description: override?.description ?? saved?.description ?? '',
         // 不可见的字段一律不可编辑，与字段管理页的联动约束一致
-        isEditable: checked ? (override?.isEditable ?? saved?.isEditable ?? 0) : 0,
+        isEditable: checked
+          ? (override?.isEditable ?? saved?.isEditable ?? 0)
+          : 0,
       };
     },
     [metaOverrides, savedByName],
@@ -623,7 +763,8 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
    * 避免覆盖该条规则原本的 scopeField。
    */
   useEffect(() => {
-    if (!restoreOnMount || restoredRef.current || configState !== 'ready') return;
+    if (!restoreOnMount || restoredRef.current || configState !== 'ready')
+      return;
     const raw = (value ?? '').trim();
     if (raw !== '' && raw !== '*') {
       restoredRef.current = true;
@@ -634,7 +775,9 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
       return;
     }
     const names = [...savedConfigs]
-      .filter((c) => c?.fieldName && isSafeColumn(c.fieldName) && c.isVisible !== 0)
+      .filter(
+        (c) => c?.fieldName && isSafeColumn(c.fieldName) && c.isVisible !== 0,
+      )
       .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))
       .map((c) => c.fieldName);
     restoredRef.current = true;
@@ -674,13 +817,17 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
     const k = keyword.trim().toLowerCase();
     if (!k) return rows;
     return rows.filter(
-      (r) => r.name.toLowerCase().includes(k) || (r.label || '').toLowerCase().includes(k),
+      (r) =>
+        r.name.toLowerCase().includes(k) ||
+        (r.label || '').toLowerCase().includes(k),
     );
   }, [rows, keyword]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
   );
 
   /** 切换勾选：只改 scopeField 串，行顺序保持不变（当前行不移动、不移除） */
@@ -735,12 +882,51 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
   /** 表头全选状态：全选 / 半选 / 全不选 */
   const headerCheckedSet = new Set(all ? allOrderedNames : checkedNames);
   const headerAllChecked =
-    allOrderedNames.length > 0 && allOrderedNames.every((n) => headerCheckedSet.has(n));
+    allOrderedNames.length > 0 &&
+    allOrderedNames.every((n) => headerCheckedSet.has(n));
   const headerSomeChecked =
     !headerAllChecked && allOrderedNames.some((n) => headerCheckedSet.has(n));
   const handleHeaderCheck = (checked: boolean) => {
     if (checked) selectAll();
     else clearAll();
+  };
+
+  /**
+   * 表头「隐藏」列的全选状态：与行内同义（勾选 = 隐藏该字段）。
+   * 行内是 `checked={!row.checked}`，故「全部隐藏」= 所有行都未展示。
+   */
+  const headerHiddenAll = rows.length > 0 && rows.every((r) => !r.checked);
+  const headerHiddenSome = !headerHiddenAll && rows.some((r) => !r.checked);
+
+  /** 勾选 = 全部隐藏（清空展示集合）；取消勾选 = 全部展示 */
+  const handleHeaderHiddenCheck = (checked: boolean) => {
+    if (disabled) return;
+    if (checked) clearAll();
+    else selectAll();
+  };
+
+  /**
+   * 表头「可编辑」列的全选状态：**仅统计「已勾选展示」的行**
+   * （未展示的行本身不可编辑，行内 checkbox 也是 disabled）。
+   */
+  const editableRows = useMemo(() => rows.filter((r) => r.checked), [rows]);
+  const headerEditableAll =
+    editableRows.length > 0 &&
+    editableRows.every((r) => getMeta(r.name, r.label, true).isEditable === 1);
+  const headerEditableSome =
+    !headerEditableAll &&
+    editableRows.some((r) => getMeta(r.name, r.label, true).isEditable === 1);
+
+  /** 勾选 = 全部可编辑；取消勾选 = 全部不可编辑（只作用于已展示的行） */
+  const handleHeaderEditableCheck = (checked: boolean) => {
+    if (disabled) return;
+    setMetaOverrides((prev) => {
+      const next = { ...prev };
+      editableRows.forEach((r) => {
+        next[r.name] = { ...next[r.name], isEditable: checked ? 1 : 0 };
+      });
+      return next;
+    });
   };
 
   const needScopeColumn =
@@ -870,7 +1056,13 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
           >
             <span style={{ flex: '0 0 18px' }} />
             <Tooltip title="全选 / 取消全选（勾选 = 前端列表展示）">
-              <span style={{ flex: '0 0 24px', display: 'inline-flex', alignItems: 'center' }}>
+              <span
+                style={{
+                  flex: '0 0 24px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+              >
                 <Checkbox
                   checked={headerAllChecked}
                   indeterminate={headerSomeChecked}
@@ -886,13 +1078,41 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
             <span style={{ flex: '0 0 100px' }}>字段类型</span>
             <span style={{ flex: '1 1 150px' }}>中文名</span>
             <span style={{ flex: '1 1 130px' }}>说明</span>
-            <span style={{ flex: '0 0 62px' }}>隐藏</span>
-            <span style={{ flex: '0 0 68px' }}>可编辑</span>
+            <Tooltip title="勾选 = 全部隐藏该字段（不在前端列表展示）；取消勾选 = 全部展示。作用于当前清单的全部字段">
+              <span style={{ flex: '0 0 62px', whiteSpace: 'nowrap' }}>
+                <Checkbox
+                  checked={headerHiddenAll}
+                  indeterminate={headerHiddenSome}
+                  onChange={(e) => handleHeaderHiddenCheck(e.target.checked)}
+                  disabled={disabled || !rows.length}
+                  data-testid="vfs-hidden-all"
+                >
+                  <span style={{ fontSize: 12 }}>隐藏</span>
+                </Checkbox>
+              </span>
+            </Tooltip>
+            <Tooltip title="勾选 = 全部字段可编辑；取消勾选 = 全部不可编辑。仅对已勾选展示的字段生效（未展示的行本身不可编辑）">
+              <span style={{ flex: '0 0 68px', whiteSpace: 'nowrap' }}>
+                <Checkbox
+                  checked={headerEditableAll}
+                  indeterminate={headerEditableSome}
+                  onChange={(e) => handleHeaderEditableCheck(e.target.checked)}
+                  disabled={disabled || !editableRows.length}
+                  data-testid="vfs-editable-all"
+                >
+                  <span style={{ fontSize: 12 }}>可编辑</span>
+                </Checkbox>
+              </span>
+            </Tooltip>
             <span style={{ flex: '0 0 24px' }} />
           </div>
 
           <Spin spinning={loading} size="small">
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={onDragEnd}
+            >
               <SortableContext
                 items={visibleRows.map((r) => r.name)}
                 strategy={verticalListSortingStrategy}
@@ -916,7 +1136,11 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
                   ) : (
                     <Empty
                       image={Empty.PRESENTED_IMAGE_SIMPLE}
-                      description={keyword ? '无匹配字段' : '该菜单暂无字段配置，可切换业务表单或在下方手动输入列名'}
+                      description={
+                        keyword
+                          ? '无匹配字段'
+                          : '该菜单暂无字段配置，可切换业务表单或在下方手动输入列名'
+                      }
                       style={{ margin: '16px 0' }}
                     />
                   )}
@@ -936,7 +1160,11 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
           data-testid="vfs-raw"
           value={value ?? ''}
           readOnly
-          style={{ fontFamily: 'monospace', background: 'rgba(0,0,0,0.02)', cursor: 'default' }}
+          style={{
+            fontFamily: 'monospace',
+            background: 'rgba(0,0,0,0.02)',
+            cursor: 'default',
+          }}
         />
         <Space size={8} wrap style={{ marginTop: 8, width: '100%' }}>
           <Button
@@ -955,7 +1183,12 @@ const VisibleFieldSelector: React.FC<VisibleFieldSelectorProps> = ({
           >
             反选
           </Button>
-          <Button size="small" onClick={clearAll} disabled={disabled} data-testid="vfs-clear">
+          <Button
+            size="small"
+            onClick={clearAll}
+            disabled={disabled}
+            data-testid="vfs-clear"
+          >
             清空
           </Button>
           <Button size="small" onClick={() => emit('*')} disabled={disabled}>

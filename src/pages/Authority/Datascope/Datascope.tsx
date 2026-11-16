@@ -23,7 +23,6 @@ import {
   Select,
   Space,
   Tag,
-  Tooltip,
   Tree,
 } from 'antd';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -339,22 +338,6 @@ const DataPermissionPage: React.FC = () => {
       dataIndex: 'scopeColumn',
       key: 'scopeColumn',
       width: 150,
-    },
-    {
-      title: '可见字段',
-      dataIndex: 'scopeField',
-      key: 'scopeField',
-      width: 180,
-      render: (v: string) => {
-        const text = v || '*';
-        return (
-          <Tooltip title={text}>
-            <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {text}
-            </span>
-          </Tooltip>
-        );
-      },
     },
     {
       title: '规则类型',

@@ -120,3 +120,65 @@ export async function fetchScopeFormData(params: {
     current: Number(page.current ?? current),
   };
 }
+
+/**
+ * 按「单元格」更新业务数据（通用列表行内编辑）。
+ *
+ * <p>后端 `PUT /api/blade-formmode/form-data/{formId}/{dataId}/cell`，
+ * body = `{ fieldName, value }`。与整体覆盖接口（`PUT /{formId}/{dataId}`）的差异：
+ * **只改这一格**，其余字段一律保留库中原值 —— 列表页只提交「这一格改了什么」，
+ * 整体覆盖会把未加载/未渲染的字段清空。</p>
+ */
+export async function updateScopeCell(params: {
+  formId: string | number;
+  dataId: string | number;
+  /** 数据库列名 */
+  fieldName: string;
+  value: any;
+}): Promise<boolean> {
+  const { formId, dataId, fieldName, value } = params;
+  const res: any = await request(`/api/blade-formmode/form-data/${formId}/${dataId}/cell`, {
+    method: 'PUT',
+    data: { fieldName, value },
+  });
+  return res?.data === true;
+}
+
+/**
+ * 新增业务数据行（通用列表「新增行」）。
+ *
+ * <p>后端 `POST /api/blade-formmode/form-data/{formId}`，body = 字段名→值的 Map，
+ * 返回新行主键 id。只传主表真实存在的列（后端会按列元数据过滤），
+ * 审计列由后端写入。</p>
+ */
+export async function createScopeRow(params: {
+  formId: string | number;
+  /** 初始字段值（可为空对象 = 先建空行，再逐格填写） */
+  fields?: Record<string, any>;
+}): Promise<string | number | null> {
+  const { formId, fields } = params;
+  const res: any = await request(`/api/blade-formmode/form-data/${formId}`, {
+    method: 'POST',
+    data: fields ?? {},
+  });
+  const id = res?.data;
+  return id === undefined || id === null ? null : id;
+}
+
+/**
+ * 删除业务数据行（通用列表「删除」）。
+ *
+ * <p>后端 `POST /api/blade-formmode/form-data/{formId}/batch-delete`，body = id 数组。</p>
+ */
+export async function deleteScopeRows(params: {
+  formId: string | number;
+  dataIds: (string | number)[];
+}): Promise<boolean> {
+  const { formId, dataIds } = params;
+  if (!dataIds?.length) return true;
+  const res: any = await request(`/api/blade-formmode/form-data/${formId}/batch-delete`, {
+    method: 'POST',
+    data: dataIds,
+  });
+  return res?.success !== false;
+}

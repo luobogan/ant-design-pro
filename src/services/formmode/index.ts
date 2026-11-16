@@ -346,6 +346,23 @@ export const fieldDefinitionApi = {
   },
 
   /**
+   * 按表单ID + 主/明细标记获取字段。
+   *
+   * <p>`getByFormId` 返回主表 + 全部明细表字段（isMain 0/1 混合）。
+   * 数据权限「可见字段」只对应**主表**的动态列表列，明细表字段混进来会导致
+   * 列头显示「主表无此列」、且这些字段永远无法保存 —— 故必须传 `isMain=1`。</p>
+   */
+  getByFormIdAndIsMain: async (formId: string, isMain: 0 | 1) => {
+    const response = await request<BladeResponse<FieldDefinition[]>>(
+      `${FIELD_DEFINITION_BASE_URL}/by-form/${formId}/is-main/${isMain}`,
+      {
+        method: 'GET',
+      },
+    );
+    return response.data;
+  },
+
+  /**
    * 获取字段详情
    */
   getById: async (id: string) => {

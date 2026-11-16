@@ -21,6 +21,7 @@ import {
   ArrowDownOutlined,
   ArrowUpOutlined,
   EditOutlined,
+  PlusOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
@@ -41,42 +42,83 @@ import {
   Tooltip,
 } from 'antd';
 import dayjs from 'dayjs';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useScopeFieldColumns } from '@/components/DynamicScopeTable';
-import StandardTable from '@/components/StandardTable';
 import {
-  getFieldPermByForm,
-  type FieldPerm,
-} from '@/services/formmode/fieldPermApi';
-import { useAutoMenuId } from './useAutoMenuId';
-import { getFieldTypeLabel, mapFieldToControlType } from '@/components/FormMode/fieldTypes';
+  getFieldTypeLabel,
+  mapFieldToControlType,
+} from '@/components/FormMode/fieldTypes';
+import { PersonOrgPicker } from '@/components/FormMode/PersonOrgPicker';
 import {
   BROWSER_TYPE_META,
+  joinIds,
+  type PersonOrgCategory,
+  type PersonOrgItem,
   resolveItemNames,
   splitIds,
-  type PersonOrgCategory,
 } from '@/components/FormMode/personOrg';
+import StandardTable from '@/components/StandardTable';
+import {
+  type FieldPerm,
+  getFieldPermByForm,
+} from '@/services/formmode/fieldPermApi';
 import type {
   ScopeGridActionPayload,
   ScopeGridButton,
   ScopeGridColumnPreference,
   ScopeGridProps,
 } from './types';
+import { useAutoMenuId } from './useAutoMenuId';
 
 /** 列控件类型（由 blade_scope_field 的类型元数据解析，避免按数字编码直接映射） */
 export type ColumnControlType =
-  | 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'checkbox'
-  | 'radio' | 'browser' | 'attachment' | 'custom' | 'odoc';
+  | 'text'
+  | 'textarea'
+  | 'number'
+  | 'date'
+  | 'datetime'
+  | 'select'
+  | 'checkbox'
+  | 'radio'
+  | 'browser'
+  | 'attachment'
+  | 'custom'
+  | 'odoc';
 
 const CONTROL_TYPE_LABEL: Record<ColumnControlType, string> = {
-  text: '文本', textarea: '多行文本', number: '数字', date: '日期',
-  datetime: '日期时间', select: '选择框', checkbox: '复选框',
-  radio: '单选框', browser: '浏览按钮', attachment: '附件', custom: '自定义', odoc: '正文',
+  text: '文本',
+  textarea: '多行文本',
+  number: '数字',
+  date: '日期',
+  datetime: '日期时间',
+  select: '选择框',
+  checkbox: '复选框',
+  radio: '单选框',
+  browser: '浏览按钮',
+  attachment: '附件',
+  custom: '自定义',
+  odoc: '正文',
 };
 
 const CONTROL_TYPES: ColumnControlType[] = [
-  'text', 'textarea', 'number', 'date', 'datetime', 'select', 'checkbox',
-  'radio', 'browser', 'attachment', 'custom', 'odoc',
+  'text',
+  'textarea',
+  'number',
+  'date',
+  'datetime',
+  'select',
+  'checkbox',
+  'radio',
+  'browser',
+  'attachment',
+  'custom',
+  'odoc',
 ];
 
 /**
@@ -85,7 +127,12 @@ const CONTROL_TYPES: ColumnControlType[] = [
  * 强行渲染会退化成「空 Select」——这正是历史 bug 的根因，故一律只读展示。
  */
 const INLINE_EDIT_CONTROLS: ColumnControlType[] = [
-  'text', 'textarea', 'number', 'date', 'datetime', 'checkbox',
+  'text',
+  'textarea',
+  'number',
+  'date',
+  'datetime',
+  'checkbox',
 ];
 
 /**
@@ -97,9 +144,14 @@ export const resolveColumnControlType = (cfg?: {
   fieldDbType?: string;
   fieldHtmlType?: string;
 }): ColumnControlType => {
-  const html = String(cfg?.fieldHtmlType || '').trim().toLowerCase();
-  if (CONTROL_TYPES.includes(html as ColumnControlType)) return html as ColumnControlType;
-  const db = String(cfg?.fieldDbType || '').trim().toLowerCase();
+  const html = String(cfg?.fieldHtmlType || '')
+    .trim()
+    .toLowerCase();
+  if (CONTROL_TYPES.includes(html as ColumnControlType))
+    return html as ColumnControlType;
+  const db = String(cfg?.fieldDbType || '')
+    .trim()
+    .toLowerCase();
   if (/datetime|timestamp/.test(db)) return 'datetime';
   if (/^date$|^time$/.test(db)) return 'date';
   if (/int|decimal|numeric|float|double|bigint/.test(db)) return 'number';
@@ -125,7 +177,11 @@ export const resolveComponentControlType = (cfg?: {
 }): ColumnControlType => {
   const html = String(cfg?.fieldHtmlType ?? '').trim();
   // 没有组件类型（fieldHtmlType 为空）→ 无法判定，退回数据库类型推断
-  if (!html || html.toLowerCase() === 'undefined' || html.toLowerCase() === 'null') {
+  if (
+    !html ||
+    html.toLowerCase() === 'undefined' ||
+    html.toLowerCase() === 'null'
+  ) {
     return resolveColumnControlType(cfg);
   }
   const ct = mapFieldToControlType({
@@ -133,31 +189,88 @@ export const resolveComponentControlType = (cfg?: {
     fieldType: cfg?.fieldType,
   });
   switch (ct) {
-    case 'textarea': return 'textarea';
+    case 'textarea':
+      return 'textarea';
     case 'number':
-    case 'wholeNumber': return 'number';
-    case 'date': return 'date';
-    case 'datetime': return 'datetime';
-    case 'select': return 'select';
-    case 'radio': return 'radio';
-    case 'checkbox': return 'checkbox';
-    case 'attachment': return 'attachment';
-    case 'browser': return 'browser';
-    case 'custom': return 'custom';
-    case 'odoc': return 'odoc';
-    default: return 'text';
+    case 'wholeNumber':
+      return 'number';
+    case 'date':
+      return 'date';
+    case 'datetime':
+      return 'datetime';
+    case 'select':
+      return 'select';
+    case 'radio':
+      return 'radio';
+    case 'checkbox':
+      return 'checkbox';
+    case 'attachment':
+      return 'attachment';
+    case 'browser':
+      return 'browser';
+    case 'custom':
+      return 'custom';
+    case 'odoc':
+      return 'odoc';
+    default:
+      return 'text';
   }
 };
 
-/** 列头叠加「组件字段类型」标签（与 formmode/tabledesign 同源），便于预览对照 */
-const renderFieldTypeTitle = (title: any, label: string): React.ReactNode => (
-  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+/**
+ * 列头叠加「组件字段类型」标签（与 formmode/tabledesign 同源），便于预览对照。
+ *
+ * @param extra 额外警示标签（如「主表无此列」：该列在数据源里根本不存在）
+ */
+const renderFieldTypeTitle = (
+  title: any,
+  label?: string,
+  extra?: { text: string; color: string },
+): React.ReactNode => (
+  <span
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 4,
+      whiteSpace: 'nowrap',
+    }}
+  >
     <span>{title}</span>
-    <Tag color="geekblue" style={{ marginInlineEnd: 0, lineHeight: '18px', fontSize: 12 }}>
-      {label}
-    </Tag>
+    {label ? (
+      <Tag
+        color="geekblue"
+        style={{ marginInlineEnd: 0, lineHeight: '18px', fontSize: 12 }}
+      >
+        {label}
+      </Tag>
+    ) : null}
+    {extra ? (
+      <Tag
+        color={extra.color}
+        style={{ marginInlineEnd: 0, lineHeight: '18px', fontSize: 12 }}
+      >
+        {extra.text}
+      </Tag>
+    ) : null}
   </span>
 );
+
+/**
+ * 浏览按钮类字段的行内编辑上下文。
+ * 由单元格抛给 ScopeGrid 顶层，**顶层只维护一个选择器实例**（避免每格都实例化）。
+ */
+export interface BrowserEditContext {
+  /** 数据库列名 */
+  fieldName: string;
+  /** 浏览按钮类型（E9 编号），决定选择器类别与是否多选 */
+  browserType?: number;
+  /** 人员 / 部门 / 分部 … */
+  category: PersonOrgCategory;
+  /** 是否多选 */
+  multiple: boolean;
+  /** 当前值（id 逗号串） */
+  value: string;
+}
 
 /**
  * 可编辑单元格：由 is_editable=1 驱动，且按字段类型加载对应控件
@@ -166,13 +279,40 @@ const renderFieldTypeTitle = (title: any, label: string): React.ReactNode => (
  */
 const EditableCell: React.FC<{
   value: any;
+  /** 数据库列名（浏览按钮编辑回调需要） */
+  fieldName?: string;
   controlType?: ColumnControlType;
   /** 已解析好的展示文本（浏览按钮类：人名 / 部门名等）；有值则优先于原始值 */
   displayText?: string;
   /** 常驻编辑态：打开即显示输入控件，不显示文本 + 编辑图标 */
   alwaysEdit?: boolean;
+  /**
+   * 延迟提交：失焦只把值交给上层记为**草稿**，不立即落库。
+   * 行编辑模式用：整行改完点「保存」再统一提交。
+   */
+  deferCommit?: boolean;
+  /** 草稿变更回调（deferCommit 时触发，不落库） */
+  onDraftChange?: (value: string) => void;
+  /** 浏览按钮类字段是否允许编辑（默认 false） */
+  browserEditable?: boolean;
+  /** 浏览按钮类型（E9 编号） */
+  browserType?: number;
+  /** 点击浏览按钮格：请求上层打开人员/部门选择器 */
+  onBrowserEdit?: (ctx: BrowserEditContext) => void;
   onSave?: (value: string) => void | Promise<void>;
-}> = ({ value, controlType = 'text', displayText, alwaysEdit = false, onSave }) => {
+}> = ({
+  value,
+  fieldName,
+  controlType = 'text',
+  displayText,
+  alwaysEdit = false,
+  deferCommit = false,
+  onDraftChange,
+  browserEditable = false,
+  browserType,
+  onBrowserEdit,
+  onSave,
+}) => {
   const [editing, setEditing] = useState(alwaysEdit);
   const [draft, setDraft] = useState('');
   const committedRef = useRef(false);
@@ -187,7 +327,8 @@ const EditableCell: React.FC<{
     committedRef.current = false;
   }, [alwaysEdit]);
 
-  const truthy = String(value) === '1' || value === true || String(value) === 'true';
+  const truthy =
+    String(value) === '1' || value === true || String(value) === 'true';
   const display = (): string => {
     // 浏览按钮类已反查出人名/部门名 → 直接展示名称，不再显示裸 ID
     if (displayText) return displayText;
@@ -207,14 +348,22 @@ const EditableCell: React.FC<{
   const readOnlyNode = (): React.ReactNode => {
     if (controlType === 'browser') {
       return (
-        <Tag color="blue" style={{ margin: 0 }} data-testid="scope-grid-cell-browser">
+        <Tag
+          color="blue"
+          style={{ margin: 0 }}
+          data-testid="scope-grid-cell-browser"
+        >
           {display()}
         </Tag>
       );
     }
     if (controlType === 'attachment') {
       return (
-        <Tag color="cyan" style={{ margin: 0 }} data-testid="scope-grid-cell-attachment">
+        <Tag
+          color="cyan"
+          style={{ margin: 0 }}
+          data-testid="scope-grid-cell-attachment"
+        >
           {display()}
         </Tag>
       );
@@ -223,8 +372,50 @@ const EditableCell: React.FC<{
   };
 
   // 无保存回调 → 只读；控件类型不支持行内编辑（浏览按钮/选择框/附件…）→ 只读，
-  // 避免渲染成没有 options 的空 Select
-  if (!onSave || !INLINE_EDIT_CONTROLS.includes(controlType)) return readOnlyNode();
+  // 避免渲染成没有 options 的空 Select。
+  // 浏览按钮类例外：开启 browserEditable 后走「点击弹选择器」，不是行内控件。
+  const isBrowser = controlType === 'browser';
+  const canEdit = isBrowser
+    ? Boolean(browserEditable && onSave && onBrowserEdit)
+    : Boolean(onSave) && INLINE_EDIT_CONTROLS.includes(controlType);
+  if (!canEdit) return readOnlyNode();
+
+  // 浏览按钮类：点击打开人员/部门选择器（选择器由 ScopeGrid 顶层统一持有）
+  if (isBrowser) {
+    const meta = BROWSER_TYPE_META[Number(browserType)];
+    return (
+      <Tooltip
+        title={`点击选择（${meta?.label || CONTROL_TYPE_LABEL.browser}）`}
+      >
+        <span
+          onClick={() => {
+            committedRef.current = false;
+            onBrowserEdit?.({
+              fieldName: fieldName || '',
+              browserType,
+              category: meta?.category || 'hrm',
+              multiple: meta?.multiple !== false,
+              value: value == null ? '' : String(value),
+            });
+          }}
+          style={{
+            cursor: 'pointer',
+            borderBottom: '1px dashed #1677ff',
+            display: 'inline-block',
+            minWidth: 24,
+          }}
+          data-testid="scope-grid-cell-browser-editable"
+        >
+          <Tag color="blue" style={{ margin: 0 }}>
+            {display()}
+          </Tag>
+          <EditOutlined
+            style={{ marginLeft: 6, color: '#1677ff', fontSize: 12 }}
+          />
+        </span>
+      </Tooltip>
+    );
+  }
 
   const commit = async (next?: string) => {
     if (committedRef.current) return;
@@ -233,6 +424,12 @@ const EditableCell: React.FC<{
     const val = next ?? draft;
     if (val === (value == null ? '' : String(value))) {
       if (alwaysEdit) committedRef.current = false;
+      return;
+    }
+    if (deferCommit) {
+      // 行编辑模式：只记草稿，由行「保存」统一提交（避免一改多格就多次写库+刷新）
+      onDraftChange?.(val);
+      committedRef.current = false;
       return;
     }
     await onSave(val);
@@ -252,11 +449,16 @@ const EditableCell: React.FC<{
     if (controlType === 'number') {
       return (
         <InputNumber
-          size="small" autoFocus {...testId}
+          size="small"
+          autoFocus={!alwaysEdit}
+          {...testId}
           value={draft === '' ? undefined : Number(draft)}
           onChange={(v) => setDraft(v == null ? '' : String(v))}
           onBlur={() => commit()}
-          onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel(); }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') cancel();
+          }}
         />
       );
     }
@@ -264,22 +466,34 @@ const EditableCell: React.FC<{
       const fmt = controlType === 'date' ? 'YYYY-MM-DD' : 'YYYY-MM-DD HH:mm:ss';
       return (
         <DatePicker
-          size="small" autoFocus {...testId}
+          size="small"
+          autoFocus={!alwaysEdit}
+          {...testId}
           showTime={controlType === 'datetime'}
           format={fmt}
           value={draft ? dayjs(draft) : undefined}
           onChange={(d) => setDraft(d ? d.format(fmt) : '')}
-          onOpenChange={(open) => { if (!open) commit(); }}
+          onOpenChange={(open) => {
+            if (!open) commit();
+          }}
         />
       );
     }
     if (controlType === 'checkbox') {
       return (
         <Select
-          size="small" autoFocus {...testId}
+          size="small"
+          autoFocus={!alwaysEdit}
+          {...testId}
           value={draft}
-          options={[{ value: '1', label: '是' }, { value: '0', label: '否' }]}
-          onChange={(v) => { setDraft(String(v)); commit(String(v)); }}
+          options={[
+            { value: '1', label: '是' },
+            { value: '0', label: '否' },
+          ]}
+          onChange={(v) => {
+            setDraft(String(v));
+            commit(String(v));
+          }}
           onBlur={() => commit()}
         />
       );
@@ -287,22 +501,30 @@ const EditableCell: React.FC<{
     if (controlType === 'textarea') {
       return (
         <Input.TextArea
-          size="small" autoFocus {...testId}
+          size="small"
+          autoFocus={!alwaysEdit}
+          {...testId}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => commit()}
-          onKeyDown={(e) => { if (e.key === 'Escape') cancel(); }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') cancel();
+          }}
         />
       );
     }
     return (
       <Input
-        size="small" autoFocus {...testId}
+        size="small"
+        autoFocus={!alwaysEdit}
+        {...testId}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onPressEnter={() => commit()}
         onBlur={() => commit()}
-        onKeyDown={(e) => { if (e.key === 'Escape') cancel(); }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') cancel();
+        }}
       />
     );
   }
@@ -315,13 +537,22 @@ const EditableCell: React.FC<{
           setDraft(value == null ? '' : String(value));
           setEditing(true);
         }}
-        style={{ cursor: 'text', borderBottom: '1px dashed #1677ff', display: 'inline-block', minWidth: 24 }}
+        style={{
+          cursor: 'text',
+          borderBottom: '1px dashed #1677ff',
+          display: 'inline-block',
+          minWidth: 24,
+        }}
         data-testid="scope-grid-cell-editable"
       >
-        {controlType === 'checkbox'
-          ? <Tag color={truthy ? 'green' : 'default'}>{display()}</Tag>
-          : display()}
-        <EditOutlined style={{ marginLeft: 6, color: '#1677ff', fontSize: 12 }} />
+        {controlType === 'checkbox' ? (
+          <Tag color={truthy ? 'green' : 'default'}>{display()}</Tag>
+        ) : (
+          display()
+        )}
+        <EditOutlined
+          style={{ marginLeft: 6, color: '#1677ff', fontSize: 12 }}
+        />
       </span>
     </Tooltip>
   );
@@ -356,22 +587,51 @@ const isPrimary = (btn: ScopeGridButton) =>
 
 function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
   const {
-    menuId, scopeId, resourceCode, pageCode, formId,
+    menuId,
+    scopeId,
+    resourceCode,
+    pageCode,
+    formId,
     rowKey = 'id',
-    request, dataSource,
-    fallbackColumns, extraColumns,
-    renderSearchForm, renderLeftButton, renderRightButton,
-    onButtonClick, onCellSave, rowActions, onSelectRow, onConfigsChange, onSaveColumns,
+    request,
+    dataSource,
+    fallbackColumns,
+    extraColumns,
+    renderSearchForm,
+    renderLeftButton,
+    renderRightButton,
+    onButtonClick,
+    onCellSave,
+    rowActions,
+    onSelectRow,
+    onConfigsChange,
+    onSaveColumns,
     defaultEditable = false,
-    actionColumnTitle = '操作', actionColumnWidth = 180,
+    editMode = 'cell',
+    rowEditButtons = true,
+    onRowAdd,
+    onRowDelete,
+    actionColumnTitle = '操作',
+    actionColumnWidth = 180,
     enableColumnSetting = true,
     showFieldType = false,
     componentControl = false,
-    refreshToken, tableProps,
+    browserEditable = false,
+    refreshToken,
+    tableProps,
   } = props;
 
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [fieldPerms, setFieldPerms] = useState<FieldPerm[]>([]);
+  /**
+   * 行编辑态：当前正在编辑的行主键（editMode='row'）。
+   * 该行的可编辑列渲染成输入控件；改动先落草稿（rowDrafts），点「保存」才逐格提交。
+   */
+  const [editingRowKey, setEditingRowKey] = useState<string | null>(null);
+  /** 行草稿：{ 行主键: { 字段名: 草稿值 } } */
+  const [rowDrafts, setRowDrafts] = useState<
+    Record<string, Record<string, string>>
+  >({});
   const [preference, setPreference] = useState<ScopeGridColumnPreference>({});
   const [settingOpen, setSettingOpen] = useState(false);
   const internalActionRef = useRef<any>(null);
@@ -402,8 +662,10 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
   } = useScopeFieldColumns<T>({
     menuId: effectiveMenuId,
     scopeId: effectiveScopeId,
-    resourceCode, fallbackColumns,
-    onlyVisible: true, refreshToken,
+    resourceCode,
+    fallbackColumns,
+    onlyVisible: true,
+    refreshToken,
   });
 
   useEffect(() => {
@@ -412,11 +674,12 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
 
   /** 静态列配置里 isEditable=1 的字段 —— 「可编辑」的唯一配置源 */
   const editableNames = useMemo(
-    () => new Set(
-      (configs || [])
-        .filter((c) => c?.fieldName && c.isEditable === 1)
-        .map((c) => c.fieldName),
-    ),
+    () =>
+      new Set(
+        (configs || [])
+          .filter((c) => c?.fieldName && c.isEditable === 1)
+          .map((c) => c.fieldName),
+      ),
     [configs],
   );
 
@@ -429,7 +692,11 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
         const comp = resolveComponentControlType(c);
         map.set(
           c.fieldName,
-          comp === 'browser' ? comp : (componentControl ? comp : resolveColumnControlType(c)),
+          comp === 'browser'
+            ? comp
+            : componentControl
+              ? comp
+              : resolveColumnControlType(c),
         );
       }
     });
@@ -438,23 +705,99 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
 
   /**
    * 浏览按钮类列清单：fieldHtmlType=3 且 fieldType 命中浏览按钮类型表
-   * （人力资源/部门/角色/岗位…）→ 单元格需要反查显示名称。
+   * （人力资源/部门/角色/岗位…）→ 单元格需要反查显示名称；
+   * 开启 browserEditable 时还要按类型打开对应的人员/部门选择器。
    */
   const browserCols = useMemo(() => {
-    const cols = new Map<string, PersonOrgCategory>();
+    const cols = new Map<
+      string,
+      { category: PersonOrgCategory; browserType: number; multiple: boolean }
+    >();
     (configs || []).forEach((c) => {
       if (!c?.fieldName) return;
       if (String(c.fieldHtmlType ?? '').trim() !== '3') return;
       const meta = BROWSER_TYPE_META[Number(c.fieldType)];
       if (!meta?.category) return;
-      cols.set(c.fieldName, meta.category);
+      cols.set(c.fieldName, {
+        category: meta.category,
+        browserType: meta.browserType,
+        multiple: meta.multiple !== false,
+      });
     });
     return cols;
   }, [configs]);
 
   /** 最近一次请求返回的行（request 模式下用于反查名称；dataSource 模式直接用 dataSource） */
   const [requestRows, setRequestRows] = useState<T[]>([]);
-  const rows = useMemo(() => (Array.isArray(dataSource) ? dataSource : requestRows), [dataSource, requestRows]);
+  const rows = useMemo(
+    () => (Array.isArray(dataSource) ? dataSource : requestRows),
+    [dataSource, requestRows],
+  );
+
+  /**
+   * 数据源里**实际存在**的字段名集合（取首行的键）。
+   *
+   * <p>用于识别「列配置里有、但数据源根本没有」的列 —— 典型场景：表单设计里配了
+   * `hrmid` 等字段，物理主表却没建这些列（E9 迁移遗留）。这类列无论怎么编辑都会被
+   * 后端拒绝（字段不存在于主表），故前端直接置为只读并在列头标注，避免点了必然报错。</p>
+   *
+   * <p>无数据行时返回 null（不判定），避免空页时把所有列都误判为缺失。</p>
+   */
+  const dataFieldKeys = useMemo<Set<string> | null>(() => {
+    if (!rows.length) return null;
+    // 取**字段最全**的一行，而非首行：本地新增的行只有主键（id），
+    // 用它判定会把所有真实列误判成「主表无此列」。
+    let best: string[] | null = null;
+    for (const r of rows) {
+      if (!r || typeof r !== 'object') continue;
+      const keys = Object.keys(r);
+      if (!best || keys.length > best.length) best = keys;
+    }
+    return best ? new Set(best) : null;
+  }, [rows]);
+
+  /** 取行的主键值（行编辑/草稿的索引键） */
+  const rowKeyOf = useCallback(
+    (record: any) => {
+      const v = record?.[rowKey];
+      return v == null ? '' : String(v);
+    },
+    [rowKey],
+  );
+
+  /** 记录某行某字段的草稿值（行编辑模式下失焦时调用，不落库） */
+  const setRowDraft = useCallback(
+    (rk: string, fieldName: string, value: string) => {
+      setRowDrafts((prev) => ({
+        ...prev,
+        [rk]: { ...(prev[rk] || {}), [fieldName]: value },
+      }));
+    },
+    [],
+  );
+
+  /** 进入行编辑态（清掉该行旧草稿，避免残留上一次的改动） */
+  const enterRowEdit = useCallback(
+    (record: any) => {
+      const rk = rowKeyOf(record);
+      setRowDrafts((prev) => {
+        const next = { ...prev };
+        delete next[rk];
+        return next;
+      });
+      setEditingRowKey(rk);
+    },
+    [rowKeyOf],
+  );
+
+  /** 放弃行编辑：丢弃草稿，恢复原值 */
+  const cancelRowEdit = useCallback(() => {
+    setEditingRowKey(null);
+    setRowDrafts((prev) => {
+      if (Object.keys(prev).length === 0) return prev;
+      return {};
+    });
+  }, []);
 
   /** 包装 request：记录最近一次返回的行，供浏览按钮类字段反查显示名称 */
   const wrappedRequest = useMemo(() => {
@@ -469,40 +812,70 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
 
   /** 字段名 → { id → 名称 }；人员走 /user/names 批量，部门/角色/岗位走内存字典
    *  （与表单预览 ExcelPreview 的 FieldControl 完全同一套解析） */
-  const [displayNames, setDisplayNames] = useState<Record<string, Record<string, string>>>({});
+  const [displayNames, setDisplayNames] = useState<
+    Record<string, Record<string, string>>
+  >({});
 
   useEffect(() => {
     if (!browserCols.size || !rows.length) return;
     let alive = true;
-    browserCols.forEach((category, fieldName) => {
+    browserCols.forEach((meta, fieldName) => {
       const ids = new Set<string>();
       rows.forEach((row: any) => {
-        splitIds(row?.[fieldName]).forEach((id) => ids.add(id));
+        splitIds(row?.[fieldName]).forEach((id) => {
+          ids.add(id);
+        });
       });
       if (!ids.size) return;
-      resolveItemNames(category, Array.from(ids))
+      resolveItemNames(meta.category, Array.from(ids))
         .then((items) => {
           if (!alive) return;
           const map: Record<string, string> = {};
-          (items || []).forEach((it) => { map[String(it.id)] = it.name; });
-          setDisplayNames((prev) => ({ ...prev, [fieldName]: { ...(prev[fieldName] || {}), ...map } }));
+          (items || []).forEach((it) => {
+            map[String(it.id)] = it.name;
+          });
+          setDisplayNames((prev) => ({
+            ...prev,
+            [fieldName]: { ...(prev[fieldName] || {}), ...map },
+          }));
         })
         .catch(() => {
           // 名称反查失败 → 保留原始值展示（fail-open）
         });
     });
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, [rows, browserCols]);
 
   /** 某字段的显示名称（多值以「、」连接）；查不到返回 undefined */
-  const displayTextOf = useCallback((fieldName: string, value: any): string | undefined => {
-    const dict = displayNames[fieldName];
-    if (!dict) return undefined;
-    const ids = splitIds(value);
-    if (!ids.length) return undefined;
-    const names = ids.map((id) => dict[id]).filter(Boolean);
-    return names.length ? names.join('、') : undefined;
-  }, [displayNames]);
+  const displayTextOf = useCallback(
+    (fieldName: string, value: any): string | undefined => {
+      const dict = displayNames[fieldName];
+      if (!dict) return undefined;
+      const ids = splitIds(value);
+      if (!ids.length) return undefined;
+      const names = ids.map((id) => dict[id]).filter(Boolean);
+      return names.length ? names.join('、') : undefined;
+    },
+    [displayNames],
+  );
+
+  /**
+   * 浏览按钮类字段的编辑弹窗（**顶层单例**）：
+   * 每格都实例化选择器会重复渲染大量 DOM，故这里只保留一份状态，
+   * 单元格通过 onBrowserEdit 抛上下文上来。
+   */
+  const [browserEdit, setBrowserEdit] = useState<
+    (BrowserEditContext & { record: any }) | null
+  >(null);
+
+  const openBrowserEdit = useCallback(
+    (ctx: BrowserEditContext, record: any) => {
+      setBrowserEdit({ ...ctx, record });
+    },
+    [],
+  );
 
   /** 每列的「组件字段类型」中文标签（单行文本 / 人力资源 / 下拉框 / 日期 …），
    * 由 fieldHtmlType + fieldType 经 getFieldTypeLabel 得出，与 formmode/tabledesign 同源。
@@ -543,7 +916,9 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
     getFieldPermByForm(formId).then((list) => {
       if (alive) setFieldPerms(Array.isArray(list) ? list : []);
     });
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, [formId]);
 
   const permByName = useMemo(() => {
@@ -585,6 +960,71 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
     actionRef.current?.reload?.();
   }, [refreshColumns]);
 
+  /**
+   * 保存行编辑：**只提交该行实际改动的格子**。
+   *
+   * <p>逐格走单元格级接口（`onCellSave`），未改动的字段一律不碰 ——
+   * 业务数据表的渲染列通常少于物理列，整行提交会把未渲染字段清空。</p>
+   *
+   * <p>提交过程用 `silent` 模式（不逐格弹提示、不逐格刷新），最后统一刷新一次。</p>
+   */
+  const saveRowEdit = useCallback(
+    async (record: any) => {
+      const rk = rowKeyOf(record);
+      const draft = rowDrafts[rk] || {};
+      const changes: { field: string; value: string }[] = [];
+      Object.keys(draft).forEach((f) => {
+        const orig = record?.[f] == null ? '' : String(record[f]);
+        if (draft[f] !== orig) changes.push({ field: f, value: draft[f] });
+      });
+      if (!changes.length) {
+        cancelRowEdit();
+        return;
+      }
+      for (const c of changes) {
+        // 串行提交：同一行的多格按顺序写入，避免并发写同一行
+        // eslint-disable-next-line no-await-in-loop
+        await onCellSave?.({
+          row: record,
+          fieldName: c.field,
+          value: c.value,
+          refresh: () => {},
+          silent: true,
+        });
+      }
+      cancelRowEdit();
+      refresh();
+    },
+    [rowKeyOf, rowDrafts, onCellSave, cancelRowEdit, refresh],
+  );
+
+  /**
+   * 新增行：调页面回调落库拿新行，然后 reload 列表。
+   *
+   * <p>必须 reload 而非本地插入：request 模式下表格数据由 ProTable 内部持有
+   * （`requestRows` 只是给名称反查用的旁路数据源），本地插入不会渲染出来。
+   * 主表按 `id DESC` 排序，新建行 id 最大 → reload 后自然排在最前。</p>
+   */
+  const handleRowAdd = useCallback(async () => {
+    if (!onRowAdd) return;
+    const created = await onRowAdd();
+    if (created) {
+      // 只 reload，不往 requestRows 里塞本地行：requestRows 只是「名称反查」的旁路数据源，
+      // 往里插只有主键的半成品行会让表格的行列判定失真（行 key 取不到 → 行编辑态串行）。
+      actionRef.current?.reload?.();
+    }
+  }, [onRowAdd]);
+
+  /** 删除行：页面负责落库删除，成功后 reload 列表 */
+  const handleRowDelete = useCallback(
+    async (record: any) => {
+      if (!onRowDelete) return;
+      await onRowDelete(record);
+      actionRef.current?.reload?.();
+    },
+    [onRowDelete],
+  );
+
   const handleReset = useCallback(() => {
     if (actionRef.current?.reloadAndRest) actionRef.current.reloadAndRest();
     else actionRef.current?.reload?.();
@@ -613,16 +1053,35 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
     // 补自适应最小宽度 + isEditable=1 的行内编辑渲染（用户字段权限 editable=false 时降级只读）
     const decorated = ordered.map((c) => {
       const name = columnKey(c);
-      const width = typeof c.width === 'number' && c.width > 0
-        ? c.width
-        : defaultColumnWidth(c);
+      const width =
+        typeof c.width === 'number' && c.width > 0
+          ? c.width
+          : defaultColumnWidth(c);
       const base: ProColumns<T> = { ...c, width };
-      const typeLabel = showFieldType ? fieldTypeLabelByName.get(name) : undefined;
-      const withTitle: ProColumns<T> = typeLabel
-        ? { ...base, title: renderFieldTypeTitle(base.title, typeLabel) }
-        : base;
+      const typeLabel = showFieldType
+        ? fieldTypeLabelByName.get(name)
+        : undefined;
+      // 数据源里根本没有这一列（表单设计配了、但物理主表没建该列）→ 不可编辑，列头标注
+      const missingInSource =
+        !!name && !!dataFieldKeys && !dataFieldKeys.has(name);
+      const withTitle: ProColumns<T> =
+        typeLabel || missingInSource
+          ? {
+              ...base,
+              title: renderFieldTypeTitle(
+                base.title,
+                typeLabel,
+                missingInSource
+                  ? { text: '主表无此列', color: 'warning' }
+                  : undefined,
+              ),
+            }
+          : base;
       if (!name) return withTitle;
-      const editable = editableNames.has(name) && permByName.get(name)?.editable !== false;
+      const editable =
+        editableNames.has(name) &&
+        permByName.get(name)?.editable !== false &&
+        !missingInSource;
       if (!editable) {
         // 组件类型模式：不可编辑列同样按组件类型只读展示（人力资源/部门列显示对应标签）
         if (!componentControl) return withTitle;
@@ -639,17 +1098,41 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
       }
       return {
         ...withTitle,
-        render: (_dom: any, record: T) => (
-          <EditableCell
-            value={record[name]}
-            controlType={controlTypeByName.get(name)}
-            displayText={displayTextOf(name, record[name])}
-            alwaysEdit={defaultEditable}
-            onSave={onCellSave
-              ? (v: string) => onCellSave({ row: record, fieldName: name, value: v, refresh })
-              : undefined}
-          />
-        ),
+        render: (_dom: any, record: T) => {
+          const rk = rowKeyOf(record);
+          // 行编辑态：该行可编辑列渲染成输入控件，改动先落草稿
+          // rk 为空（数据行缺主键）时**不得**判定为编辑中：否则所有行的 rk 都相等，
+          // editingRowKey 会同时命中每一行，导致整表都进入编辑态。
+          const rowEditing = editMode === 'row' && !!rk && editingRowKey === rk;
+          // 行编辑模式下，未进入编辑态的行按**纯只读**展示（无虚线/编辑图标），
+          // 与 EditableProTable 一致 —— 只有正在编辑的那一行才显示输入控件。
+          const rowModeReadOnly = editMode === 'row' && !rowEditing;
+          return (
+            <EditableCell
+              value={record[name]}
+              fieldName={name}
+              controlType={controlTypeByName.get(name)}
+              displayText={displayTextOf(name, record[name])}
+              alwaysEdit={defaultEditable || rowEditing}
+              deferCommit={rowEditing}
+              onDraftChange={(v) => setRowDraft(rk, name, v)}
+              browserEditable={!rowModeReadOnly && browserEditable}
+              browserType={browserCols.get(name)?.browserType}
+              onBrowserEdit={(ctx) => openBrowserEdit(ctx, record)}
+              onSave={
+                onCellSave && !rowModeReadOnly
+                  ? (v: string) =>
+                      onCellSave({
+                        row: record,
+                        fieldName: name,
+                        value: v,
+                        refresh,
+                      })
+                  : undefined
+              }
+            />
+          );
+        },
       } as ProColumns<T>;
     });
 
@@ -660,7 +1143,11 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
      * 权限按钮（/menu/buttons，action=2/3）与页面自定义 rowActions 合并到同一列；
      * 即使该 pageCode 没有任何按钮配置，只要传了 rowActions 也会渲染操作列。
      */
-    if (rowButtons.length || rowActions) {
+    if (
+      rowButtons.length ||
+      rowActions ||
+      (editMode === 'row' && rowEditButtons)
+    ) {
       result.push({
         title: actionColumnTitle,
         key: '__scope_grid_action__',
@@ -668,36 +1155,117 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
         width: actionColumnWidth,
         fixed: 'right',
         hideInSearch: true,
-        render: (_dom: any, record: T) => [
-          ...rowButtons.map((btn) => (
-            <Button
-              key={`perm-${btn.code}`}
-              type="link"
-              size="small"
-              danger={isDanger(btn)}
-              onClick={() => {
-                const payload: ScopeGridActionPayload<T> = {
-                  btn,
-                  keys: [record[rowKey] as React.Key],
-                  rows: [record],
-                  refresh,
-                };
-                onButtonClick?.(payload);
-              }}
-            >
-              {btn.name || btn.code}
-            </Button>
-          )),
-          ...(rowActions?.(record, refresh) ?? []),
-        ],
+        render: (_dom: any, record: T) => {
+          const rk = rowKeyOf(record);
+          // rk 为空（数据行缺主键）时不判定为编辑中，避免整表进入编辑态
+          const rowEditing = editMode === 'row' && !!rk && editingRowKey === rk;
+          // 行编辑按钮：编辑 → 该行进入编辑态；编辑中 → 保存 / 取消
+          const editBtns: React.ReactNode[] = [];
+          if (editMode === 'row' && rowEditButtons) {
+            if (rowEditing) {
+              editBtns.push(
+                <a
+                  key="__scope_row_save"
+                  data-row-id={rk}
+                  onClick={() => saveRowEdit(record)}
+                >
+                  保存
+                </a>,
+              );
+              editBtns.push(
+                <a
+                  key="__scope_row_cancel"
+                  data-row-id={rk}
+                  onClick={cancelRowEdit}
+                >
+                  取消
+                </a>,
+              );
+            } else {
+              editBtns.push(
+                <a
+                  key="__scope_row_edit"
+                  data-row-id={rk}
+                  onClick={() => enterRowEdit(record)}
+                >
+                  编辑
+                </a>,
+              );
+            }
+          }
+          // 删除行
+          if (onRowDelete) {
+            editBtns.push(
+              <a
+                key="__scope_row_delete"
+                style={{ color: '#ff4d4f' }}
+                onClick={() => handleRowDelete(record)}
+              >
+                删除
+              </a>,
+            );
+          }
+          return [
+            ...editBtns,
+            ...rowButtons.map((btn) => (
+              <Button
+                key={`perm-${btn.code}`}
+                type="link"
+                size="small"
+                danger={isDanger(btn)}
+                onClick={() => {
+                  const payload: ScopeGridActionPayload<T> = {
+                    btn,
+                    keys: [record[rowKey] as React.Key],
+                    rows: [record],
+                    refresh,
+                  };
+                  onButtonClick?.(payload);
+                }}
+              >
+                {btn.name || btn.code}
+              </Button>
+            )),
+            ...(rowActions?.(record, refresh) ?? []),
+          ];
+        },
       } as ProColumns<T>);
     }
     return result;
   }, [
-    baseColumns, permByName, preference, extraColumns, rowButtons, editableNames,
-    controlTypeByName, fieldTypeLabelByName, showFieldType, componentControl, displayTextOf,
-    defaultEditable, onCellSave,
-    rowActions, actionColumnTitle, actionColumnWidth, rowKey, onButtonClick, refresh,
+    baseColumns,
+    permByName,
+    preference,
+    extraColumns,
+    rowButtons,
+    editableNames,
+    controlTypeByName,
+    fieldTypeLabelByName,
+    showFieldType,
+    componentControl,
+    displayTextOf,
+    defaultEditable,
+    onCellSave,
+    browserEditable,
+    browserCols,
+    openBrowserEdit,
+    dataFieldKeys,
+    editMode,
+    rowEditButtons,
+    editingRowKey,
+    rowKeyOf,
+    setRowDraft,
+    enterRowEdit,
+    cancelRowEdit,
+    saveRowEdit,
+    onRowDelete,
+    handleRowDelete,
+    rowActions,
+    actionColumnTitle,
+    actionColumnWidth,
+    rowKey,
+    onButtonClick,
+    refresh,
   ]);
 
   /**
@@ -761,12 +1329,12 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
 
   const rowSelection = onSelectRow
     ? {
-      selectedRowKeys,
-      onChange: (keys: React.Key[], rows: T[]) => {
-        setSelectedRowKeys(keys);
-        onSelectRow(keys, rows);
-      },
-    }
+        selectedRowKeys,
+        onChange: (keys: React.Key[], rows: T[]) => {
+          setSelectedRowKeys(keys);
+          onSelectRow(keys, rows);
+        },
+      }
     : undefined;
 
   return (
@@ -793,13 +1361,28 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
               type={isPrimary(btn) ? 'primary' : 'default'}
               danger={isDanger(btn)}
               onClick={() =>
-                onButtonClick?.({ btn, keys: selectedRowKeys, rows: [], refresh })
+                onButtonClick?.({
+                  btn,
+                  keys: selectedRowKeys,
+                  rows: [],
+                  refresh,
+                })
               }
             >
               {btn.name || btn.code}
             </Button>
           ))}
           {renderLeftButton?.()}
+          {onRowAdd && (
+            <Button
+              icon={<PlusOutlined />}
+              size="small"
+              onClick={handleRowAdd}
+              data-testid="scope-grid-row-add"
+            >
+              新增行
+            </Button>
+          )}
         </Space>
         <Space size={8} wrap>
           {enableColumnSetting && (
@@ -906,16 +1489,40 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
           )}
         </div>
       </Modal>
+
+      {/* 浏览按钮类字段的编辑弹窗：顶层单例（每格实例化会重复渲染大量 DOM） */}
+      {browserEditable && browserEdit && (
+        <PersonOrgPicker
+          open
+          browserType={browserEdit.browserType}
+          category={browserEdit.category}
+          multiple={browserEdit.multiple}
+          value={browserEdit.value}
+          title="选择"
+          onCancel={() => setBrowserEdit(null)}
+          onOk={async (ids: string[], _items: PersonOrgItem[]) => {
+            const target = browserEdit;
+            setBrowserEdit(null);
+            if (!target) return;
+            await onCellSave?.({
+              row: target.record,
+              fieldName: target.fieldName,
+              value: joinIds(ids),
+              refresh,
+            });
+          }}
+        />
+      )}
     </div>
   );
 }
 
 export type {
-  ScopeGridProps,
-  ScopeGridButton,
+  ResolvedColumn,
   ScopeGridActionPayload,
+  ScopeGridButton,
   ScopeGridCellSavePayload,
   ScopeGridColumnPreference,
-  ResolvedColumn,
+  ScopeGridProps,
 } from './types';
 export default ScopeGrid;

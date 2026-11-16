@@ -33,6 +33,11 @@ export interface ScopeGridCellSavePayload<T> {
   fieldName: string;
   value: string;
   refresh: () => void;
+  /**
+   * 静默模式：行编辑「保存」批量提交时为 true —— 不弹成功提示、不触发刷新
+   * （由行保存统一提示与刷新，避免一改多格就刷 N 次表）。
+   */
+  silent?: boolean;
 }
 
 /** 个人列偏好（localStorage，按 menuId + pageCode 隔离） */
@@ -74,6 +79,33 @@ export interface ScopeGridProps<T extends Record<string, any>> {
    */
   defaultEditable?: boolean;
   /**
+   * 编辑形态：
+   *
+   * <p>- `cell`（默认）：单元格级。`defaultEditable=true` 时可编辑列**常驻**输入控件，失焦即存；
+   * 否则点击单元格进入编辑。</p>
+   *
+   * <p>- `row`：行级。操作列出现「编辑」，点该行进入编辑态（该行可编辑列变输入框），
+   * 行尾出现「保存 / 取消」。保存时**只提交该行实际改动的格子**（逐格走单元格级接口），
+   * 未改动的字段绝不会被覆盖 —— 业务数据表列多于渲染列时，整行提交会清空未渲染字段，故不可用。</p>
+   */
+  editMode?: 'cell' | 'row';
+  /**
+   * 行编辑模式下，行内「编辑 / 保存 / 取消」按钮（默认 true）。
+   */
+  rowEditButtons?: boolean;
+  /**
+   * 新增行：回调返回新行数据，组件把它插到列表顶部（仅 request 模式有效）。
+   * 返回的行若已落库，需带主键字段（rowKey）。
+   */
+  onRowAdd?: () =>
+    | Promise<Record<string, any> | undefined>
+    | Record<string, any>
+    | undefined;
+  /**
+   * 删除行：由页面决定如何删除（组件不直接写库）。
+   */
+  onRowDelete?: (row: T) => void | Promise<void>;
+  /**
    * 自定义行操作，与按钮权限自动生成的行内按钮合并到同一个「操作」列。
    * 即使该 pageCode 在 /menu/buttons 里没有任何按钮，只要传了它就会渲染操作列。
    */
@@ -102,6 +134,16 @@ export interface ScopeGridProps<T extends Record<string, any>> {
    * 列表预览页可开启以对照组件类型设计。
    */
   componentControl?: boolean;
+  /**
+   * 浏览按钮类字段（人力资源/部门等）是否允许行内编辑。
+   *
+   * <p>默认 false：浏览按钮类字段在通用列表里没有可用的行内控件（Phase Q 起一律只读展示，
+   * 强行渲染会退化成「空 Select」）。开启后点击单元格会弹出人员/部门选择器
+   * （`PersonOrgPicker`，与表单预览同一套），选中后回写该格。</p>
+   *
+   * <p>依赖：需同时提供 {@link ScopeGridProps.onCellSave}，否则仍然只读。</p>
+   */
+  browserEditable?: boolean;
   /** 外部数据变更后改变此值即可重新拉取列配置 */
   refreshToken?: string | number;
   tableProps?: Partial<ProTableProps<T, any>>;
