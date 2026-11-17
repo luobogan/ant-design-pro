@@ -68,10 +68,24 @@ const ExcelPreviewPageContent: React.FC = () => {
             setLayoutData(pkg.layoutJson ? JSON.parse(pkg.layoutJson) : null);
             // 构建节点权限解析器（文档 §3.3-3：以权限函数替代布尔 readOnly）
             // B5 行级：按「scope|field」登记；解析时按 dt{idx}_r{row} → dt{idx} → main 回退
-            const permByScopeField = new Map<string, any>();
+            const permByScopeField = new Map<string, number>();
             (pkg.fieldPerms || []).forEach((p: any) => {
               const sc = p.scope || 'main';
-              permByScopeField.set(`${sc}|${p.fieldName}`, p);
+              // 兼容两种返回形态：① 数字 perm（0隐藏/1只读/2可编辑/3必填，流程侧 wf_node_field_perm）；
+              // ② FieldPermVO 三维度布尔（visible/editable/required，非流程侧 modefieldauthorize）。
+              // 修复：此前存整个对象却与数字比较（perm===1/3/0 恒 false），导致审批态权限全部失效。
+              let code: number;
+              if (typeof p === 'number') {
+                code = p;
+              } else if (typeof p?.perm === 'number') {
+                code = p.perm;
+              } else {
+                const visible = p?.visible !== false;
+                const editable = p?.editable !== false;
+                const required = p?.required === true;
+                code = !visible ? 0 : required ? 3 : editable ? 2 : 1;
+              }
+              permByScopeField.set(`${sc}|${p?.fieldName || ''}`, code);
             });
             const scopeChain = (scope?: string): string[] => {
               const s = scope || 'main';

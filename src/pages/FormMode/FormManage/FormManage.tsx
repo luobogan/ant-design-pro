@@ -428,7 +428,7 @@ const FormManageList: React.FC = () => {
               Excel设计
             </Button>
           )}
-          {hasPermission('formmanage_aae') && (
+          {hasPermission('formmanage_right') && (
             <Button
               type="link"
               size="small"

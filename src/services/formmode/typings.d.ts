@@ -261,6 +261,10 @@ export interface FieldDefinition {
   needExcel?: number;
   /** 扩展属性（JSON格式） */
   extend?: FieldExtend;
+  /** 是否主表字段：1主表 0明细表（ismain） */
+  isMain?: number;
+  /** 明细表索引（detailtable，1 起算；isMain=0 时有效） */
+  detailTable?: number;
 }
 
 /** 字段选项配置（对标泛微E9 selectItem 表） */

@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Drawer,
+  Input,
   message,
   Select,
   Space,
@@ -21,9 +22,8 @@ import {
   ModeFieldAuthorize,
   ModeRightInfo,
   resolveModeId,
-  saveFieldAuthorizes,
-  saveModeDataScopes,
-  saveModeRights,
+  saveAllRights,
+  getRightVersion,
 } from '@/services/formmode/rightApi';
 import { fieldApi } from '@/services/formmode';
 import type { FieldDefinition } from '@/services/formmode/typings';
@@ -50,14 +50,16 @@ const OBJTYPE_OPTS = [
   { value: 3, label: '岗位' },
   { value: 4, label: '人员' },
 ];
+// 权限项只列出后端真正校验的类型：
+// 6导入/7导出在 blade-formmode 无业务数据导入/导出端点（导出仅为前端下载布局 JSON，
+// ecology 表单结构导入属管理员建模操作、由 @PreAuth 门槛控制），配置后永不生效。
+// 移除以免误导；后端 RightType 枚举保留 6/7 作为未来扩展位。
 const RIGHTTYPE_OPTS = [
   { value: 1, label: '可见' },
   { value: 2, label: '新建' },
   { value: 3, label: '编辑' },
   { value: 4, label: '删除' },
   { value: 5, label: '详情' },
-  { value: 6, label: '导入' },
-  { value: 7, label: '导出' },
 ];
 const RIGHTVALUE_OPTS = [
   { value: 1, label: '可见' },
@@ -66,6 +68,16 @@ const RIGHTVALUE_OPTS = [
 const SCOPE_TYPE_OPTS = [
   { value: 1, label: '查看' },
   { value: 2, label: '维护' },
+];
+const CONDITION_OP_OPTS = [
+  { value: 'eq', label: '等于' },
+  { value: 'ne', label: '不等于' },
+  { value: 'gt', label: '大于' },
+  { value: 'ge', label: '大于等于' },
+  { value: 'lt', label: '小于' },
+  { value: 'le', label: '小于等于' },
+  { value: 'like', label: '包含' },
+  { value: 'in', label: '属于列表' },
 ];
 
 // objtype（统一编码 1角色2部门3岗位4人员）→ personOrg 类别
@@ -189,6 +201,7 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
   const [modeRights, setModeRights] = useState<ModeRightInfo[]>([]);
   const [fieldAuths, setFieldAuths] = useState<ModeFieldAuthorize[]>([]);
   const [dataScopes, setDataScopes] = useState<ModeDataShareRule[]>([]);
+  const [rightVersion, setRightVersion] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -206,15 +219,17 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
         setModeId(mid);
         setFields(flds || []);
         if (mid) {
-          const [mr, fa, ds] = await Promise.all([
+          const [mr, fa, ds, ver] = await Promise.all([
             getModeRights(mid),
             getFieldAuthorizes(mid),
             getModeDataScopes(mid),
+            getRightVersion(mid),
           ]);
           if (cancelled) return;
           setModeRights(mr || []);
           setFieldAuths(fa || []);
           setDataScopes(ds || []);
+          setRightVersion(ver || 0);
         } else {
           setModeRights([]);
           setFieldAuths([]);
@@ -243,13 +258,16 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
     setFieldAuths((prev) => prev.map((a, i) => (i === idx ? { ...a, [key]: val } : a)));
   const removeAuth = (idx: number) => setFieldAuths((prev) => prev.filter((_, i) => i !== idx));
   const addAuth = () =>
-    setFieldAuths((prev) => [...prev, { fieldid: undefined, objtype: 1, objid: undefined, rightvalue: 1 }]);
+    setFieldAuths((prev) => [...prev, { fieldid: undefined, objtype: 1, objid: undefined, includesub: 0, rightvalue: 1 }]);
 
   const updateScope = (idx: number, key: keyof ModeDataShareRule, val: any) =>
     setDataScopes((prev) => prev.map((s, i) => (i === idx ? { ...s, [key]: val } : s)));
   const removeScope = (idx: number) => setDataScopes((prev) => prev.filter((_, i) => i !== idx));
   const addScope = () =>
-    setDataScopes((prev) => [...prev, { type: 1, objtype: 1, objid: undefined, includeSub: 0, creatorSelf: 0 }]);
+    setDataScopes((prev) => [...prev, {
+      type: 1, objtype: 1, objid: undefined, includeSub: 0, creatorSelf: 0,
+      conditionEnabled: 0, conditionField: '', conditionOp: 'eq', conditionValue: '',
+    }]);
 
   const handleSave = async () => {
     if (!modeId) {
@@ -261,24 +279,46 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       const cleanRights = modeRights.filter((r) => r.objid != null);
       const cleanAuths = fieldAuths.filter((a) => a.objid != null && a.fieldid != null);
       const cleanScopes = dataScopes.filter((s) => s.objid != null);
-      await Promise.all([
-        saveModeRights(modeId, cleanRights),
-        saveFieldAuthorizes(modeId, cleanAuths),
-        saveModeDataScopes(modeId, cleanScopes),
-      ]);
+      await saveAllRights(modeId, {
+        rights: cleanRights,
+        fieldAuthorizes: cleanAuths,
+        dataScopes: cleanScopes,
+        expectedVersion: rightVersion,
+      });
+      setRightVersion((v) => v + 1);
       message.success('权限配置已保存');
       onClose();
-    } catch (e) {
-      message.error('保存失败');
+    } catch (e: any) {
+      const msg = e?.message || e?.msg || '';
+      if (msg.includes('版本') || msg.includes('他人') || msg.includes('修改')) {
+        message.warning('权限配置已被他人修改，请关闭后重新打开再编辑');
+        setRightVersion(await getRightVersion(modeId).catch(() => rightVersion));
+      } else {
+        message.error('保存失败');
+      }
     } finally {
       setSaving(false);
     }
   };
 
-  const fieldOptions = fields.map((f) => ({
-    value: f.id,
-    label: f.fieldLabel ? `${f.fieldLabel}(${f.fieldName})` : f.fieldName,
-  }));
+  // 字段按归属分组：主表 + 明细表1..N。字段权限的 scope 由后端按 isMain/detailTable 派生，
+  // 这里只在下拉里标注归属，避免用户把明细字段误当主表字段配置。
+  const fieldOptions = (() => {
+    const groups = new Map<string, { value: string; label: string }[]>();
+    groups.set('主表', []);
+    for (const f of fields) {
+      const isDetail = f.isMain === 0 || (f.detailTable != null && f.detailTable > 0);
+      const group = isDetail ? `明细表${f.detailTable ?? '?'}` : '主表';
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group)!.push({
+        value: f.id,
+        label: f.fieldLabel ? `${f.fieldLabel}(${f.fieldName})` : f.fieldName,
+      });
+    }
+    return Array.from(groups.entries())
+      .filter(([, opts]) => opts.length > 0)
+      .map(([label, opts]) => ({ label, options: opts }));
+  })();
 
   const rightColumns: ColumnsType<ModeRightInfo> = [
     {
@@ -391,6 +431,19 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       ),
     },
     {
+      title: '含子级',
+      dataIndex: 'includesub',
+      width: 80,
+      render: (v, r, i) => (
+        <Switch
+          checked={v === 1}
+          onChange={(c) => updateAuth(i, 'includesub', c ? 1 : 0)}
+          disabled={disabled || r.objtype !== 2}
+          title={r.objtype === 2 ? '授权部门含子部门' : '仅部门授权可配置'}
+        />
+      ),
+    },
+    {
       title: '权限',
       dataIndex: 'rightvalue',
       width: 130,
@@ -475,6 +528,57 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       ),
     },
     {
+      title: '条件授权',
+      dataIndex: 'conditionEnabled',
+      width: 90,
+      render: (v, _r, i) => (
+        <Switch checked={v === 1} onChange={(c) => updateScope(i, 'conditionEnabled', c ? 1 : 0)} disabled={disabled} />
+      ),
+    },
+    {
+      title: '条件字段',
+      dataIndex: 'conditionField',
+      width: 130,
+      render: (v, _r, i) => (
+        <Input
+          value={v ?? ''}
+          placeholder="数据库列名"
+          onChange={(e) => updateScope(i, 'conditionField', e.target.value)}
+          disabled={disabled || _r.conditionEnabled !== 1}
+          size="small"
+        />
+      ),
+    },
+    {
+      title: '操作符',
+      dataIndex: 'conditionOp',
+      width: 110,
+      render: (v, _r, i) => (
+        <Select
+          value={v ?? 'eq'}
+          options={CONDITION_OP_OPTS}
+          onChange={(x) => updateScope(i, 'conditionOp', x)}
+          disabled={disabled || _r.conditionEnabled !== 1}
+          size="small"
+          style={{ width: 100 }}
+        />
+      ),
+    },
+    {
+      title: '条件值',
+      dataIndex: 'conditionValue',
+      width: 140,
+      render: (v, _r, i) => (
+        <Input
+          value={v ?? ''}
+          placeholder="in 用逗号分隔"
+          onChange={(e) => updateScope(i, 'conditionValue', e.target.value)}
+          disabled={disabled || _r.conditionEnabled !== 1}
+          size="small"
+        />
+      ),
+    },
+    {
       title: '操作',
       width: 80,
       render: (_v, _r, i) => (
@@ -517,7 +621,7 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
             dataSource={fieldAuths}
             pagination={false}
             size="small"
-            scroll={{ x: 720 }}
+            scroll={{ x: 810 }}
             locale={{ emptyText: '暂无配置' }}
           />
         </Space>
@@ -537,7 +641,7 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
             dataSource={dataScopes}
             pagination={false}
             size="small"
-            scroll={{ x: 720 }}
+            scroll={{ x: 1180 }}
             locale={{ emptyText: '暂无配置' }}
           />
         </Space>

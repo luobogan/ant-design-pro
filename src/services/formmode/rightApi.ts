@@ -34,6 +34,8 @@ export interface ModeFieldAuthorize {
   /** 授权对象类型：1角色 2部门 3岗位 4人员 */
   objtype?: number;
   objid?: number;
+  /** 授权部门是否含子部门：1是 0否（仅 objtype=2 有效） */
+  includesub?: number;
   /** 权限：1可见 2可编辑 */
   rightvalue?: number;
   tenantId?: string;
@@ -56,6 +58,14 @@ export interface ModeDataShareRule {
   includeSub?: number;
   /** 仅本人创建的数据可见（与共享叠加）：1是 0否 */
   creatorSelf?: number;
+  /** 条件化授权：启用开关 1是 0否 */
+  conditionEnabled?: number;
+  /** 条件化授权：条件字段（数据库列名） */
+  conditionField?: string;
+  /** 条件化授权：操作符 eq/ne/gt/ge/lt/le/like/in */
+  conditionOp?: string;
+  /** 条件化授权：条件值（in 用逗号分隔） */
+  conditionValue?: string;
   tenantId?: string;
 }
 
@@ -109,4 +119,28 @@ export const getModeDataScopes = async (modeId: string | number): Promise<ModeDa
 export const saveModeDataScopes = async (modeId: string | number, rules: ModeDataShareRule[]): Promise<boolean> => {
   const res: any = await request(`${API_BASE_PATH}/right/scope/${modeId}`, { method: 'POST', data: rules });
   return !!res?.success;
+};
+
+/**
+ * 一次性保存模块权限 + 字段权限 + 数据范围（后端单事务）。
+ *
+ * 替代前端 Promise.all 并发调三个独立接口，避免跨表不一致中间态。
+ */
+export const saveAllRights = async (
+  modeId: string | number,
+  batch: {
+    rights: ModeRightInfo[];
+    fieldAuthorizes: ModeFieldAuthorize[];
+    dataScopes: ModeDataShareRule[];
+    expectedVersion?: number | null;
+  },
+): Promise<boolean> => {
+  const res: any = await request(`${API_BASE_PATH}/right/all/${modeId}`, { method: 'POST', data: batch });
+  return !!res?.success;
+};
+
+/** 读取权限配置当前版本号（乐观锁），保存时作为 expectedVersion 带回 */
+export const getRightVersion = async (modeId: string | number): Promise<number> => {
+  const res: any = await request(`${API_BASE_PATH}/right/version/${modeId}`, { method: 'GET' });
+  return Number(res?.data ?? 0);
 };
