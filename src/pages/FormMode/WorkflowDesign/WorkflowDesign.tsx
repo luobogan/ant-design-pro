@@ -130,9 +130,12 @@ const buildDefaultBpmn = (def: WfProcessDefinition): string => {
   const freeEnabled = Number(def.isFree ?? 0) === 1;
   const poolSize = freeEnabled ? freePoolSizeOf(def) : 0;
   const endX = 460 + poolSize * 150;
+  // 自由流程发起时会立即 complete「创建」节点，token 必须流入池内首节点 Free_1：
+  // 若 Flow_2 仍指向 EndEvent，发起瞬间即归档，自由流程根本无法编排（历史默认画布的致命错误）。
+  const firstFlowTarget = freeEnabled ? 'Free_1' : 'EndEvent_1';
 
-  const freeTasks = Array.from({ length: Math.max(0, poolSize - 1) }, (_, i) => {
-    const k = i + 2;
+  const freeTasks = Array.from({ length: poolSize }, (_, i) => {
+    const k = i + 1;
     return `    <bpmn:userTask id="Free_${k}" name="通用审批${k}">
       <bpmn:extensionElements>
         <wf:node xmlns:wf="http://www.springblade.org/workflow" nodeType="1" sortOrder="${10 + k}">
@@ -143,16 +146,16 @@ const buildDefaultBpmn = (def: WfProcessDefinition): string => {
     <bpmn:sequenceFlow id="Flow_Free_${k}_end" sourceRef="Free_${k}" targetRef="EndEvent_1" />`;
   }).join('\n');
 
-  const freeShapes = Array.from({ length: Math.max(0, poolSize - 1) }, (_, i) => {
-    const k = i + 2;
+  const freeShapes = Array.from({ length: poolSize }, (_, i) => {
+    const k = i + 1;
     const x = 460 + i * 150;
     return `      <bpmndi:BPMNShape id="Free_${k}_di" bpmnElement="Free_${k}">
         <dc:Bounds x="${x}" y="240" width="100" height="80" />
       </bpmndi:BPMNShape>`;
   }).join('\n');
 
-  const freeEdges = Array.from({ length: Math.max(0, poolSize - 1) }, (_, i) => {
-    const k = i + 2;
+  const freeEdges = Array.from({ length: poolSize }, (_, i) => {
+    const k = i + 1;
     const x = 460 + i * 150;
     return `      <bpmndi:BPMNEdge id="Flow_Free_${k}_end_di" bpmnElement="Flow_Free_${k}_end">
         <di:waypoint x="${x + 100}" y="280" />
@@ -160,6 +163,15 @@ const buildDefaultBpmn = (def: WfProcessDefinition): string => {
         <di:waypoint x="${endX + 18}" y="118" />
       </bpmndi:BPMNEdge>`;
   }).join('\n');
+
+  // 自由流程：Flow_2 折向下连到 Free_1 左缘中心(460,280)；普通流程仍水平连到结束(前 y=118)。
+  const flow2Waypoints = freeEnabled
+    ? `<di:waypoint x="370" y="118" />
+        <di:waypoint x="415" y="118" />
+        <di:waypoint x="415" y="280" />
+        <di:waypoint x="460" y="280" />`
+    : `<di:waypoint x="370" y="118" />
+        <di:waypoint x="${endX}" y="118" />`;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_${pid}" targetNamespace="http://bpmn.io/schema/bpmn">
@@ -173,7 +185,7 @@ const buildDefaultBpmn = (def: WfProcessDefinition): string => {
         </wf:node>
       </bpmn:extensionElements>
     </bpmn:userTask>
-    <bpmn:sequenceFlow id="Flow_2" sourceRef="UserTask_1" targetRef="EndEvent_1" />
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="UserTask_1" targetRef="${firstFlowTarget}" />
     <bpmn:endEvent id="EndEvent_1" name="结束" />
 ${freeTasks ? `${freeTasks}\n` : ''}  </bpmn:process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
@@ -194,8 +206,7 @@ ${freeShapes ? `${freeShapes}\n` : ''}      <bpmndi:BPMNEdge id="Flow_1_di" bpmn
         <di:waypoint x="270" y="118" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_2_di" bpmnElement="Flow_2">
-        <di:waypoint x="370" y="118" />
-        <di:waypoint x="${endX}" y="118" />
+${flow2Waypoints}
       </bpmndi:BPMNEdge>
 ${freeEdges ? `${freeEdges}\n` : ''}    </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
