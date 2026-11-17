@@ -13,7 +13,7 @@ export interface ModeRightInfo {
   modeid?: number | string;
   /** 权限类型：1可见 2新建 3编辑 4删除 5详情 6导入 7导出 */
   righttype?: number;
-  /** 授权对象类型：1角色 2部门 3岗位 4人员 */
+  /** 授权对象类型：1角色 2部门 3岗位 4人员 5分部 */
   objtype?: number;
   objid?: number;
   objname?: string;
@@ -31,7 +31,7 @@ export interface ModeFieldAuthorize {
   modeid?: number | string;
   /** 字段ID（workflow_billfield.id） */
   fieldid?: number;
-  /** 授权对象类型：1角色 2部门 3岗位 4人员 */
+  /** 授权对象类型：1角色 2部门 3岗位 4人员 5分部 */
   objtype?: number;
   objid?: number;
   /** 授权部门是否含子部门：1是 0否（仅 objtype=2 有效） */
@@ -50,7 +50,7 @@ export interface ModeDataShareRule {
   modeid?: number | string;
   /** 权限类型：1查看 2维护 */
   type?: number;
-  /** 授权对象类型：1角色 2部门 3岗位 4人员 */
+  /** 授权对象类型：1角色 2部门 3岗位 4人员 5分部 */
   objtype?: number;
   /** 授权对象ID */
   objid?: number;
@@ -66,6 +66,8 @@ export interface ModeDataShareRule {
   conditionOp?: string;
   /** 条件化授权：条件值（in 用逗号分隔） */
   conditionValue?: string;
+  /** 矩阵主体（objtype=7）：矩阵结果字段名 */
+  matrixValueField?: string;
   tenantId?: string;
 }
 

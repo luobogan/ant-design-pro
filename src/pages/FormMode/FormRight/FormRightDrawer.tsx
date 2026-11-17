@@ -49,6 +49,8 @@ const OBJTYPE_OPTS = [
   { value: 2, label: '部门' },
   { value: 3, label: '岗位' },
   { value: 4, label: '人员' },
+  { value: 5, label: '分部' },
+  { value: 7, label: '矩阵' },
 ];
 // 权限项只列出后端真正校验的类型：
 // 6导入/7导出在 blade-formmode 无业务数据导入/导出端点（导出仅为前端下载布局 JSON，
@@ -86,12 +88,17 @@ const OBJTYPE_TO_CATEGORY: Record<number, PersonOrgCategory> = {
   2: 'dept',
   3: 'post',
   4: 'hrm',
+  5: 'branch',
+  // 7=矩阵：objid 为矩阵ID，用现有 role 选择器近似（矩阵列表暂无独立浏览按钮）
+  7: 'role',
 };
 const CATEGORY_PLACEHOLDER: Record<number, string> = {
   1: '选择角色',
   2: '选择部门',
   3: '选择岗位',
   4: '选择人员',
+  5: '选择分部',
+  7: '选择矩阵',
 };
 
 /**
@@ -574,6 +581,20 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
           placeholder="in 用逗号分隔"
           onChange={(e) => updateScope(i, 'conditionValue', e.target.value)}
           disabled={disabled || _r.conditionEnabled !== 1}
+          size="small"
+        />
+      ),
+    },
+    {
+      title: '矩阵结果字段',
+      dataIndex: 'matrixValueField',
+      width: 130,
+      render: (v, r, i) => (
+        <Input
+          value={v ?? ''}
+          placeholder="如 owner"
+          onChange={(e) => updateScope(i, 'matrixValueField', e.target.value)}
+          disabled={disabled || r.objtype !== 7}
           size="small"
         />
       ),
