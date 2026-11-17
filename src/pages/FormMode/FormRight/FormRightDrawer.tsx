@@ -4,6 +4,7 @@ import {
   Button,
   Drawer,
   Input,
+  InputNumber,
   message,
   Select,
   Space,
@@ -27,6 +28,7 @@ import {
 } from '@/services/formmode/rightApi';
 import { fieldApi } from '@/services/formmode';
 import type { FieldDefinition } from '@/services/formmode/typings';
+import * as matrixApi from '@/pages/System/Matrix/service';
 import {
   itemsOfCategory,
   loadPersonOrgData,
@@ -115,15 +117,36 @@ const ObjPicker: React.FC<{
 }> = ({ objtype, value, disabled, onChange }) => {
   const category = OBJTYPE_TO_CATEGORY[objtype];
   const isHrm = category === 'hrm';
+  const isMatrix = objtype === 7;
   const [baseOptions, setBaseOptions] = useState<{ value: number; label: string }[]>([]);
   const [selectedName, setSelectedName] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
   const toOpts = (list: PersonOrgItem[]) => list.map((i) => ({ value: Number(i.id), label: i.name }));
 
-  // 组织类（角色/部门/岗位）：一次性加载候选
+  // 矩阵（objtype=7）：从矩阵管理 API 加载候选（避免手填 matrixId）
   useEffect(() => {
-    if (!category || isHrm) return;
+    if (!isMatrix) return;
+    let cancelled = false;
+    setLoading(true);
+    matrixApi.list()
+      .then((res: any) => {
+        const arr = Array.isArray(res) ? res : res?.data;
+        if (!cancelled && Array.isArray(arr)) {
+          setBaseOptions(arr.map((m: any) => ({
+            value: Number(m.id),
+            label: m.matrixName || m.name || String(m.id),
+          })));
+        }
+      })
+      .catch(() => { if (!cancelled) setBaseOptions([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [isMatrix]);
+
+  // 组织类（角色/部门/岗位/分部）：一次性加载候选
+  useEffect(() => {
+    if (!category || isHrm || isMatrix) return;
     let cancelled = false;
     loadPersonOrgData()
       .then((data) => {
@@ -135,7 +158,7 @@ const ObjPicker: React.FC<{
     return () => {
       cancelled = true;
     };
-  }, [category, isHrm]);
+  }, [category, isHrm, isMatrix]);
 
   // 人员：首次加载首页
   useEffect(() => {
@@ -154,9 +177,9 @@ const ObjPicker: React.FC<{
     };
   }, [isHrm]);
 
-  // 反查当前已选值名称
+  // 反查当前已选值名称（矩阵由自身 list 覆盖，无需 personOrg 反查）
   useEffect(() => {
-    if (value == null || !category) {
+    if (value == null || !category || isMatrix) {
       setSelectedName('');
       return;
     }
@@ -169,7 +192,7 @@ const ObjPicker: React.FC<{
     return () => {
       cancelled = true;
     };
-  }, [category, value]);
+  }, [category, value, isMatrix]);
 
   const options =
     value != null && selectedName && !baseOptions.some((o) => o.value === value)
@@ -198,6 +221,50 @@ const ObjPicker: React.FC<{
       onChange={(v) => onChange(v)}
       onSearch={handleSearch}
       style={{ width: 180 }}
+    />
+  );
+};
+
+/**
+ * 矩阵结果字段下拉：按选中矩阵加载 field_type=1（结果维度）字段，避免手填 field_key。
+ */
+const MatrixValueFieldSelect: React.FC<{
+  matrixId?: number;
+  value?: string;
+  disabled?: boolean;
+  onChange: (v?: string) => void;
+}> = ({ matrixId, value, disabled, onChange }) => {
+  const [options, setOptions] = useState<{ value: string; label: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (matrixId == null) { setOptions([]); return; }
+    let cancelled = false;
+    setLoading(true);
+    matrixApi.fields(matrixId)
+      .then((res: any) => {
+        const arr = Array.isArray(res) ? res : res?.data;
+        if (!cancelled && Array.isArray(arr)) {
+          setOptions(arr
+            .filter((f: any) => Number(f.fieldType) === 1)
+            .map((f: any) => ({ value: f.fieldKey, label: f.displayName || f.fieldKey })));
+        }
+      })
+      .catch(() => { if (!cancelled) setOptions([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [matrixId]);
+  return (
+    <Select
+      value={value || undefined}
+      options={options}
+      loading={loading}
+      disabled={disabled}
+      allowClear
+      showSearch
+      optionFilterProp="label"
+      onChange={(v) => onChange(v)}
+      placeholder="选择结果字段"
+      style={{ width: 120 }}
     />
   );
 };
@@ -381,6 +448,26 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       ),
     },
     {
+      title: '密级下限',
+      dataIndex: 'showlevel',
+      width: 90,
+      render: (v, _r, i) => (
+        <InputNumber min={0} max={100} value={v ?? null} placeholder="不限"
+          onChange={(x) => updateRight(i, 'showlevel', x == null ? undefined : Number(x))}
+          disabled={disabled} style={{ width: 80 }} />
+      ),
+    },
+    {
+      title: '密级上限',
+      dataIndex: 'showlevel2',
+      width: 90,
+      render: (v, _r, i) => (
+        <InputNumber min={0} max={100} value={v ?? null} placeholder="不封顶"
+          onChange={(x) => updateRight(i, 'showlevel2', x == null ? undefined : Number(x))}
+          disabled={disabled} style={{ width: 80 }} />
+      ),
+    },
+    {
       title: '操作',
       width: 80,
       render: (_v, _r, i) => (
@@ -527,6 +614,26 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       ),
     },
     {
+      title: '密级下限',
+      dataIndex: 'showlevel',
+      width: 90,
+      render: (v, _r, i) => (
+        <InputNumber min={0} max={100} value={v ?? null} placeholder="不限"
+          onChange={(x) => updateScope(i, 'showlevel', x == null ? undefined : Number(x))}
+          disabled={disabled} style={{ width: 80 }} />
+      ),
+    },
+    {
+      title: '密级上限',
+      dataIndex: 'showlevel2',
+      width: 90,
+      render: (v, _r, i) => (
+        <InputNumber min={0} max={100} value={v ?? null} placeholder="不封顶"
+          onChange={(x) => updateScope(i, 'showlevel2', x == null ? undefined : Number(x))}
+          disabled={disabled} style={{ width: 80 }} />
+      ),
+    },
+    {
       title: '仅本人创建可见',
       dataIndex: 'creatorSelf',
       width: 130,
@@ -590,12 +697,11 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       dataIndex: 'matrixValueField',
       width: 130,
       render: (v, r, i) => (
-        <Input
-          value={v ?? ''}
-          placeholder="如 owner"
-          onChange={(e) => updateScope(i, 'matrixValueField', e.target.value)}
+        <MatrixValueFieldSelect
+          matrixId={r.objtype === 7 ? Number(r.objid) : undefined}
+          value={v}
           disabled={disabled || r.objtype !== 7}
-          size="small"
+          onChange={(x) => updateScope(i, 'matrixValueField', x)}
         />
       ),
     },
@@ -662,7 +768,7 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
             dataSource={dataScopes}
             pagination={false}
             size="small"
-            scroll={{ x: 1180 }}
+            scroll={{ x: 1360 }}
             locale={{ emptyText: '暂无配置' }}
           />
         </Space>

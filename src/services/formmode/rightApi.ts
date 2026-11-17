@@ -19,6 +19,10 @@ export interface ModeRightInfo {
   objname?: string;
   /** 是否含子级：1是 0否 */
   includesub?: number;
+  /** 密级下限（E9 showlevel，0~100） */
+  showlevel?: number;
+  /** 密级上限（E9 showlevel2，NULL=不封顶） */
+  showlevel2?: number;
   tenantId?: string;
 }
 
@@ -68,6 +72,10 @@ export interface ModeDataShareRule {
   conditionValue?: string;
   /** 矩阵主体（objtype=7）：矩阵结果字段名 */
   matrixValueField?: string;
+  /** 密级下限（E9 showlevel，0~100） */
+  showlevel?: number;
+  /** 密级上限（E9 showlevel2，NULL=不封顶） */
+  showlevel2?: number;
   tenantId?: string;
 }
 
