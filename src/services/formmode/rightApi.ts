@@ -149,6 +149,19 @@ export const saveAllRights = async (
   return !!res?.success;
 };
 
+/**
+ * 查询当前用户对某表单的模块操作权限码（1可见 2新建 3编辑 4删除 5详情）。
+ * 供通用列表按建模权限驱动操作按钮；失败返回空数组（菜单按钮体系继续工作）。
+ */
+export const getUserRightTypes = async (formId: string | number): Promise<number[]> => {
+  try {
+    const res: any = await request(`${API_BASE_PATH}/right/user-right-types/${formId}`, { method: 'GET' });
+    return Array.isArray(res?.data) ? res.data.map(Number) : [];
+  } catch (_e) {
+    return [];
+  }
+};
+
 /** 读取权限配置当前版本号（乐观锁），保存时作为 expectedVersion 带回 */
 export const getRightVersion = async (modeId: string | number): Promise<number> => {
   const res: any = await request(`${API_BASE_PATH}/right/version/${modeId}`, { method: 'GET' });

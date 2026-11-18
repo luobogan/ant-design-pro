@@ -199,6 +199,7 @@ const GridPreview: React.FC = () => {
         dataId,
         fieldName: payload.fieldName,
         value: payload.value,
+        resourceCode,
       });
       if (ok) {
         if (!payload.silent) {

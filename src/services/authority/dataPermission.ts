@@ -135,9 +135,12 @@ export async function updateScopeCell(params: {
   /** 数据库列名 */
   fieldName: string;
   value: any;
+  /** 资源码（菜单 code），后端写链路据此套数据权限行规则 */
+  resourceCode?: string;
 }): Promise<boolean> {
-  const { formId, dataId, fieldName, value } = params;
-  const res: any = await request(`/api/blade-formmode/form-data/${formId}/${dataId}/cell`, {
+  const { formId, dataId, fieldName, value, resourceCode } = params;
+  const qs = resourceCode ? `?resourceCode=${encodeURIComponent(resourceCode)}` : '';
+  const res: any = await request(`/api/blade-formmode/form-data/${formId}/${dataId}/cell${qs}`, {
     method: 'PUT',
     data: { fieldName, value },
   });

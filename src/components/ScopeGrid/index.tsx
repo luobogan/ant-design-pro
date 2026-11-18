@@ -68,6 +68,7 @@ import {
   type FieldPerm,
   getFieldPermByForm,
 } from '@/services/formmode/fieldPermApi';
+import { getUserRightTypes } from '@/services/formmode/rightApi';
 import type {
   ScopeGridActionPayload,
   ScopeGridButton,
@@ -623,6 +624,8 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
 
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [fieldPerms, setFieldPerms] = useState<FieldPerm[]>([]);
+  /** 建模模块权限码（1可见 2新建 3编辑 4删除 5详情）；空数组=未配置/失败，不收窄按钮 */
+  const [userRightTypes, setUserRightTypes] = useState<number[]>([]);
   /**
    * 行编辑态：当前正在编辑的行主键（editMode='row'）。
    * 该行的可编辑列渲染成输入控件；改动先落草稿（rowDrafts），点「保存」才逐格提交。
@@ -897,13 +900,32 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
     () => (getPageButtons?.(pageCode) || []) as ScopeGridButton[],
     [getPageButtons, pageCode],
   );
+  /**
+   * 建模模块权限收窄按钮：仅当后端返回了非空权限码时才生效（未配置/失败 fail-open）。
+   * alias → righttype：add→2新建, delete→4删除, edit→3编辑, detail/view→1可见。
+   * 无映射关系的按钮保持原样，不误伤自定义按钮。
+   */
+  const allowedByModeRight = useCallback(
+    (btn: ScopeGridButton): boolean => {
+      if (!userRightTypes.length) return true;
+      const alias = String((btn as any).alias || (btn as any).code || '').toLowerCase();
+      const need: number | undefined =
+        alias.includes('add') || alias.includes('create') ? 2
+        : alias.includes('delete') || alias.includes('remove') ? 4
+        : alias.includes('edit') || alias.includes('update') ? 3
+        : alias.includes('detail') || alias.includes('view') ? 1
+        : undefined;
+      return need === undefined || userRightTypes.includes(need);
+    },
+    [userRightTypes],
+  );
   const topButtons = useMemo(
-    () => buttons.filter((b) => b.action === 1 || b.action === 3),
-    [buttons],
+    () => buttons.filter((b) => (b.action === 1 || b.action === 3) && allowedByModeRight(b)),
+    [buttons, allowedByModeRight],
   );
   const rowButtons = useMemo(
-    () => buttons.filter((b) => b.action === 2 || b.action === 3),
-    [buttons],
+    () => buttons.filter((b) => (b.action === 2 || b.action === 3) && allowedByModeRight(b)),
+    [buttons, allowedByModeRight],
   );
 
   /** ③ 用户字段权限（按当前用户），失败/空数组一律 fail-open */
@@ -915,6 +937,21 @@ function ScopeGrid<T extends Record<string, any>>(props: ScopeGridProps<T>) {
     let alive = true;
     getFieldPermByForm(formId).then((list) => {
       if (alive) setFieldPerms(Array.isArray(list) ? list : []);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [formId]);
+
+  /** ③-b 建模模块权限：按当前用户收窄操作按钮（空=未配置/失败，fail-open 不收窄） */
+  useEffect(() => {
+    if (formId == null || formId === '') {
+      setUserRightTypes([]);
+      return;
+    }
+    let alive = true;
+    getUserRightTypes(formId).then((list) => {
+      if (alive) setUserRightTypes(Array.isArray(list) ? list : []);
     });
     return () => {
       alive = false;
