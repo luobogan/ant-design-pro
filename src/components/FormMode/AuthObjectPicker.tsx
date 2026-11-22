@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Button, Select, Space } from 'antd';
 import { PersonOrgPicker } from './PersonOrgPicker';
 import { resolveItemNames, type PersonOrgCategory } from './personOrg';
-import * as matrixApi from '@/pages/System/Matrix/service';
+import MatrixPicker from './MatrixPicker';
 
 /**
  * 建模权限统一「授权对象」模型。
@@ -94,7 +94,6 @@ const AuthObjectPicker: React.FC<AuthObjectPickerProps> = ({
 }) => {
   const [open, setOpen] = useState(false);
   const [displayNames, setDisplayNames] = useState<string[]>([]);
-  const [matrixOptions, setMatrixOptions] = useState<Array<{ value: number; label: string }>>([]);
 
   const type = Number(objtype);
   const category = AUTH_OBJECT_CATEGORY[type];
@@ -103,7 +102,15 @@ const AuthObjectPicker: React.FC<AuthObjectPickerProps> = ({
   const text = placeholder || AUTH_OBJECT_PLACEHOLDER[type] || '选择授权对象';
 
   useEffect(() => {
-    if (!ids.length || isMatrix || !category) {
+    if (!ids.length) {
+      setDisplayNames([]);
+      return;
+    }
+    if (isMatrix) {
+      setDisplayNames(ids.map(String));
+      return;
+    }
+    if (!category) {
       setDisplayNames([]);
       return;
     }
@@ -117,47 +124,29 @@ const AuthObjectPicker: React.FC<AuthObjectPickerProps> = ({
     return () => { cancelled = true; };
   }, [ids.join(','), category, isMatrix]);
 
-  useEffect(() => {
-    if (!isMatrix) return;
-    let cancelled = false;
-    matrixApi.list()
-      .then((res: any) => {
-        const arr = Array.isArray(res) ? res : res?.data;
-        if (!cancelled && Array.isArray(arr)) {
-          setMatrixOptions(arr.map((m: any) => ({
-            value: Number(m.id),
-            label: m.matrixName || m.name || String(m.id),
-          })));
-        }
-      })
-      .catch(() => { if (!cancelled) setMatrixOptions([]); });
-    return () => { cancelled = true; };
-  }, [isMatrix]);
-
   if (isMatrix) {
+    const buttonText = displayNames.length
+      ? (displayNames.length > 2 ? `已选 ${displayNames.length} 个矩阵` : displayNames.join('、'))
+      : text;
     return (
-      <Select
-        mode={multiple ? 'multiple' : undefined}
-        showSearch
-        optionFilterProp="label"
-        style={{ width: multiple ? 260 : 180, ...style }}
-        size={size}
-        value={multiple ? ids : (ids[0] ?? undefined)}
-        options={matrixOptions}
-        placeholder={text}
-        disabled={disabled}
-        allowClear
-        maxTagCount="responsive"
-        onChange={(v: any) => {
-          if (multiple) {
-            const next = (Array.isArray(v) ? v : []).map(Number);
-            setDisplayNames(next.map((id) => matrixOptions.find((o) => o.value === id)?.label || String(id)));
-            onChange(next);
-          } else {
-            onChange(v == null ? undefined : Number(v));
-          }
-        }}
-      />
+      <Space size={4}>
+        <Button size={size} disabled={disabled} style={style} onClick={() => setOpen(true)}>
+          {buttonText}
+        </Button>
+        <MatrixPicker
+          open={open}
+          multiple={multiple}
+          value={ids.join(',')}
+          title={text}
+          onCancel={() => setOpen(false)}
+          onOk={(selectedIds, items) => {
+            setOpen(false);
+            const next = (selectedIds || []).filter(Boolean).map(Number);
+            setDisplayNames((items || []).map((m) => String(m.matrixName || m.id)));
+            onChange(multiple ? next : next[0]);
+          }}
+        />
+      </Space>
     );
   }
 

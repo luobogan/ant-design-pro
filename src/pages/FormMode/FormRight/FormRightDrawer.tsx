@@ -652,7 +652,13 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       render: (_v, r, i) => {
         const objtype = r.subjects?.[0]?.objtype ?? 1;
         return <AuthObjectTypeSelect value={objtype} disabled={disabled}
-          onChange={(x) => updateFieldGroup(i, { subjects: (r.subjects || []).map((s) => ({ ...s, objtype: x, objid: '' })) })} />;
+          onChange={(x) => {
+            const current = r.subjects || [];
+            const next = current.length
+              ? current.map((s) => ({ ...s, objtype: x, objid: '' }))
+              : [{ objtype: x, objid: '', includesub: 0 }];
+            updateFieldGroup(i, { subjects: next });
+          }} />;
       },
     },
     {
