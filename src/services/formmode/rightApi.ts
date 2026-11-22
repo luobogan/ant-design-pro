@@ -80,16 +80,14 @@ export interface ModeDataShareRule {
 }
 
 /** 由表单ID反查模块ID（modeinfo.id）；无模块返回 null */
-export const resolveModeId = async (formId: string | number): Promise<number | null> => {
+export const resolveModeId = async (formId: string | number): Promise<string | null> => {
   try {
     const res: any = await request(`${API_BASE_PATH}/right/resolve-mode/${formId}`, { method: 'GET' });
     const data = res?.data;
-    // ⚠️ 兜底：线上后端在「无模块」时返回的是空对象 {}（而非 Long 或 null），
-    // 若直接把 {} 当 modeId 拼进 URL → /right/mode/[object Object]（400）。
-    // 仅当返回值为有限数字时才视为有效 moduleId，其余一律视为「无模块」。
-    if (data == null || typeof data === 'object') return null;
-    const num = Number(data);
-    return Number.isFinite(num) ? num : null;
+    // ⚠️ modeId 是雪花ID（19位），JS Number 会丢精度，必须保持字符串透传。
+    // 后端「无模块」时可能返回空对象 {} 或 null，均视为无模块。
+    if (data == null || typeof data === 'object' || String(data).trim() === '') return null;
+    return String(data);
   } catch (e) {
     return null;
   }
@@ -113,9 +111,75 @@ export const getFieldAuthorizes = async (modeId: string | number): Promise<ModeF
   return Array.isArray(res?.data) ? res.data : [];
 };
 
+export interface FieldAuthGroupSubjectVO {
+  objtype: number;
+  objid: number | string;
+  includesub?: number;
+}
+
+export interface FieldAuthGroupVO {
+  id?: string;
+  groupName?: string;
+  subjects: FieldAuthGroupSubjectVO[];
+  fields: Array<{ fieldId: number; rightvalue: 0 | 1 | 2 }>;
+}
+
+/** 查询字段权限授权对象组（多选对象共享一份字段权限） */
+export const getFieldAuthGroups = async (modeId: string | number): Promise<FieldAuthGroupVO[]> => {
+  const res: any = await request(`${API_BASE_PATH}/right/field/groups/${modeId}`, { method: 'GET' });
+  const rows = Array.isArray(res?.data) ? res.data : [];
+  return rows.map((g: any) => ({
+    id: g.id == null ? undefined : String(g.id),
+    groupName: g.group_name || g.groupName || '',
+    subjects: Array.isArray(g.subjects) ? g.subjects.map((s: any) => ({
+      objtype: Number(s.objtype),
+      objid: String(s.objid),
+      includesub: Number(s.includesub || 0),
+    })) : [],
+    fields: Array.isArray(g.fields) ? g.fields.map((f: any) => ({
+      fieldId: Number(f.fieldId ?? f.fieldid),
+      rightvalue: Number(f.rightvalue) as 0 | 1 | 2,
+    })) : [],
+  }));
+};
+
 /** 保存字段权限（全量替换） */
 export const saveFieldAuthorizes = async (modeId: string | number, auths: ModeFieldAuthorize[]): Promise<boolean> => {
   const res: any = await request(`${API_BASE_PATH}/right/field/${modeId}`, { method: 'POST', data: auths });
+  return !!res?.success;
+};
+
+/** 按主体字段权限保存请求（所有雪花ID用字符串） */
+export interface FieldSubjectSavePayload {
+  objtype: number;
+  objid: string;
+  tenantId?: string;
+  modeVersions?: Record<string, number>;
+  modes: Array<{
+    modeId: string;
+    formId?: string;
+    fields: Array<{ fieldId: number; rightvalue: 0 | 1 | 2 }>;
+  }>;
+}
+
+/** 按主体查询跨模块字段权限 */
+export const getFieldAuthorizesBySubject = async (
+  objtype: number,
+  objid: string | number,
+): Promise<ModeFieldAuthorize[]> => {
+  const res: any = await request(`${API_BASE_PATH}/right/field/subject`, {
+    method: 'GET',
+    params: { objtype, objid: String(objid) },
+  });
+  return Array.isArray(res?.data) ? res.data : [];
+};
+
+/** 按主体差异保存跨模块字段权限 */
+export const saveFieldAuthorizesBySubject = async (payload: FieldSubjectSavePayload): Promise<boolean> => {
+  const res: any = await request(`${API_BASE_PATH}/right/field/subject/batch`, {
+    method: 'PUT',
+    data: payload,
+  });
   return !!res?.success;
 };
 
@@ -141,8 +205,15 @@ export const saveAllRights = async (
   batch: {
     rights: ModeRightInfo[];
     fieldAuthorizes: ModeFieldAuthorize[];
+    fieldGroups?: FieldAuthGroupVO[];
     dataScopes: ModeDataShareRule[];
     expectedVersion?: number | null;
+    /** 是否同步授权「表单数据」菜单给模块权限中配置的角色（默认 true） */
+    grantMenuAccess?: boolean;
+    /** 方案C：一表单一菜单 */
+    formId?: string;
+    formMenuName?: string;
+    roleMenuNames?: Record<string, string>;
   },
 ): Promise<boolean> => {
   const res: any = await request(`${API_BASE_PATH}/right/all/${modeId}`, { method: 'POST', data: batch });

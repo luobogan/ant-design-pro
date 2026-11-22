@@ -283,7 +283,11 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
       const formattedPath = Func.formatRoutePath(item.path);
       const pathParts = formattedPath.split('/').filter(Boolean);
 
-      const rawPage = pathParts[pathParts.length - 1];
+      // 方案C：一表单一菜单 path=/formmode/formview/{formId}，末段是数字ID，
+      // 不能当作组件名推导；统一映射到 FormView 组件。
+      const isFormDataMenuPath = /^\/formmode\/formview\/\d+$/.test(String(item.path || ''))
+        || /^formdata_view_\d+$/.test(String(item.code || ''));
+      const rawPage = isFormDataMenuPath ? 'formview' : pathParts[pathParts.length - 1];
       const [module, page] = [toPascalCase(pathParts[0]), toPascalCase(rawPage)];
 
       // 子按钮组件页收集：对**所有带 path 的菜单**执行（含顶级单段菜单），
@@ -437,7 +441,9 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
         // ④ 大小写变体：菜单 path 经 toPascalCase 推导出的目录名可能与磁盘实际大小写不一致
         //    （如 /system/topmenu → TopMenu，而目录实际是 Topmenu；打包器按精确路径匹配，大小写不符即失败）
         // 中间段（3 段以上路径的第 2..n-1 段）参与嵌套目录推导，例如 /workflow/create/start 的 create。
-        const midDirs = pathParts.length > 2 ? pathParts.slice(1, -1) : [];
+        // 方案C：/formmode/formview/{formId} 的 formview 是组件段，不是中间目录，
+        // 否则会按嵌套目录 ./pages/Formmode/Formview/Formview.tsx 推导而 404。
+        const midDirs = isFormDataMenuPath ? [] : (pathParts.length > 2 ? pathParts.slice(1, -1) : []);
         const componentPath = `./pages/${module}/${page}/${page}.tsx`;
         const componentIndexPath = `./pages/${module}/${page}/index.tsx`;
         const loaders = buildComponentLoaders(module, page, rawPage, midDirs);

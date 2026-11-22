@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
@@ -6,6 +6,7 @@ import {
   Input,
   InputNumber,
   message,
+  Modal,
   Select,
   Space,
   Switch,
@@ -22,20 +23,16 @@ import {
   ModeDataShareRule,
   ModeFieldAuthorize,
   ModeRightInfo,
+  FieldAuthGroupVO,
   resolveModeId,
   saveAllRights,
   getRightVersion,
+  getFieldAuthGroups,
 } from '@/services/formmode/rightApi';
 import { fieldApi } from '@/services/formmode';
 import type { FieldDefinition } from '@/services/formmode/typings';
 import * as matrixApi from '@/pages/System/Matrix/service';
-import {
-  itemsOfCategory,
-  loadPersonOrgData,
-  queryUsers,
-  resolveItemNames,
-} from '@/components/FormMode/personOrg';
-import type { PersonOrgCategory, PersonOrgItem } from '@/components/FormMode/personOrg';
+import AuthObjectPicker, { AUTH_OBJECT_TYPE_OPTIONS, AuthObjectTypeSelect } from '@/components/FormMode/AuthObjectPicker';
 
 interface Props {
   /** 表单ID（workflow_bill.id）；权限按反查出的 modeId 落库 */
@@ -44,16 +41,6 @@ interface Props {
   onClose: () => void;
 }
 
-// objtype 编码已统一为 moderightinfo/modefieldauthorize 规范：1角色 2部门 3岗位 4人员
-//（modedatasharerule 历史编码 1人员2部门3角色4岗位 已由 V2026.10.20_005 迁移 + 引擎对齐，三处一致）
-const OBJTYPE_OPTS = [
-  { value: 1, label: '角色' },
-  { value: 2, label: '部门' },
-  { value: 3, label: '岗位' },
-  { value: 4, label: '人员' },
-  { value: 5, label: '分部' },
-  { value: 7, label: '矩阵' },
-];
 // 权限项只列出后端真正校验的类型：
 // 6导入/7导出在 blade-formmode 无业务数据导入/导出端点（导出仅为前端下载布局 JSON，
 // ecology 表单结构导入属管理员建模操作、由 @PreAuth 门槛控制），配置后永不生效。
@@ -66,6 +53,7 @@ const RIGHTTYPE_OPTS = [
   { value: 5, label: '详情' },
 ];
 const RIGHTVALUE_OPTS = [
+  { value: 0, label: '隐藏' },
   { value: 1, label: '可见' },
   { value: 2, label: '可编辑' },
 ];
@@ -83,147 +71,6 @@ const CONDITION_OP_OPTS = [
   { value: 'like', label: '包含' },
   { value: 'in', label: '属于列表' },
 ];
-
-// objtype（统一编码 1角色2部门3岗位4人员）→ personOrg 类别
-const OBJTYPE_TO_CATEGORY: Record<number, PersonOrgCategory> = {
-  1: 'role',
-  2: 'dept',
-  3: 'post',
-  4: 'hrm',
-  5: 'branch',
-  // 7=矩阵：objid 为矩阵ID，用现有 role 选择器近似（矩阵列表暂无独立浏览按钮）
-  7: 'role',
-};
-const CATEGORY_PLACEHOLDER: Record<number, string> = {
-  1: '选择角色',
-  2: '选择部门',
-  3: '选择岗位',
-  4: '选择人员',
-  5: '选择分部',
-  7: '选择矩阵',
-};
-
-/**
- * 授权对象选择器：按 objtype 切换 角色/部门/岗位/人员。
- * - 角色/部门/岗位：loadPersonOrgData 内存缓存（一次性加载，本地过滤）
- * - 人员：queryUsers 服务端分页搜索
- * - 已选值名称经 resolveItemNames 反查，保证回显（懒加载/切换类别后 options 未含该值时）
- */
-const ObjPicker: React.FC<{
-  objtype: number;
-  value?: number;
-  disabled?: boolean;
-  onChange: (v?: number) => void;
-}> = ({ objtype, value, disabled, onChange }) => {
-  const category = OBJTYPE_TO_CATEGORY[objtype];
-  const isHrm = category === 'hrm';
-  const isMatrix = objtype === 7;
-  const [baseOptions, setBaseOptions] = useState<{ value: number; label: string }[]>([]);
-  const [selectedName, setSelectedName] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-
-  const toOpts = (list: PersonOrgItem[]) => list.map((i) => ({ value: Number(i.id), label: i.name }));
-
-  // 矩阵（objtype=7）：从矩阵管理 API 加载候选（避免手填 matrixId）
-  useEffect(() => {
-    if (!isMatrix) return;
-    let cancelled = false;
-    setLoading(true);
-    matrixApi.list()
-      .then((res: any) => {
-        const arr = Array.isArray(res) ? res : res?.data;
-        if (!cancelled && Array.isArray(arr)) {
-          setBaseOptions(arr.map((m: any) => ({
-            value: Number(m.id),
-            label: m.matrixName || m.name || String(m.id),
-          })));
-        }
-      })
-      .catch(() => { if (!cancelled) setBaseOptions([]); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [isMatrix]);
-
-  // 组织类（角色/部门/岗位/分部）：一次性加载候选
-  useEffect(() => {
-    if (!category || isHrm || isMatrix) return;
-    let cancelled = false;
-    loadPersonOrgData()
-      .then((data) => {
-        if (!cancelled) setBaseOptions(toOpts(itemsOfCategory(data, category)));
-      })
-      .catch(() => {
-        if (!cancelled) setBaseOptions([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [category, isHrm, isMatrix]);
-
-  // 人员：首次加载首页
-  useEffect(() => {
-    if (!isHrm) return;
-    let cancelled = false;
-    setLoading(true);
-    queryUsers({ current: 1, size: 50 })
-      .then((page) => {
-        if (!cancelled) setBaseOptions(toOpts(page.records));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isHrm]);
-
-  // 反查当前已选值名称（矩阵由自身 list 覆盖，无需 personOrg 反查）
-  useEffect(() => {
-    if (value == null || !category || isMatrix) {
-      setSelectedName('');
-      return;
-    }
-    let cancelled = false;
-    resolveItemNames(category, [String(value)]).then((res) => {
-      if (cancelled) return;
-      const name = res[0]?.name;
-      setSelectedName(name && String(name) !== String(value) ? name : '');
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [category, value, isMatrix]);
-
-  const options =
-    value != null && selectedName && !baseOptions.some((o) => o.value === value)
-      ? [...baseOptions, { value, label: selectedName }]
-      : baseOptions;
-
-  const handleSearch = (kw: string) => {
-    if (!isHrm) return; // 组织类本地过滤即可
-    setLoading(true);
-    queryUsers({ keyword: kw.trim() || undefined, current: 1, size: 50 })
-      .then((page) => setBaseOptions(toOpts(page.records)))
-      .finally(() => setLoading(false));
-  };
-
-  return (
-    <Select
-      showSearch
-      optionFilterProp="label"
-      filterOption={isHrm ? false : undefined}
-      value={value}
-      options={options}
-      loading={loading}
-      disabled={disabled}
-      allowClear
-      placeholder={CATEGORY_PLACEHOLDER[objtype]}
-      onChange={(v) => onChange(v)}
-      onSearch={handleSearch}
-      style={{ width: 180 }}
-    />
-  );
-};
 
 /**
  * 矩阵结果字段下拉：按选中矩阵加载 field_type=1（结果维度）字段，避免手填 field_key。
@@ -270,12 +117,24 @@ const MatrixValueFieldSelect: React.FC<{
 };
 
 const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
-  const [modeId, setModeId] = useState<number | null>(null);
+  // modeId 是雪花ID，必须按字符串保存，避免 JS Number 精度丢失导致查错模块
+  const [modeId, setModeId] = useState<string | null>(null);
   const [fields, setFields] = useState<FieldDefinition[]>([]);
   const [modeRights, setModeRights] = useState<ModeRightInfo[]>([]);
   const [fieldAuths, setFieldAuths] = useState<ModeFieldAuthorize[]>([]);
   const [dataScopes, setDataScopes] = useState<ModeDataShareRule[]>([]);
   const [rightVersion, setRightVersion] = useState<number>(0);
+  // 字段权限：按主体配置视图
+  const [fieldViewMode, setFieldViewMode] = useState<'subject' | 'field'>('subject');
+  const [fieldGroups, setFieldGroups] = useState<FieldAuthGroupVO[]>([]);
+  const [fieldModalGroupIndex, setFieldModalGroupIndex] = useState<number | null>(null);
+
+
+  const [fieldModalSearch, setFieldModalSearch] = useState('');
+  const [fieldModalSelected, setFieldModalSelected] = useState<number[]>([]);
+  // 方案C：单个表单的数据菜单名 + 角色级显示名
+  const [formMenuName, setFormMenuName] = useState<string>('');
+  const [roleMenuNames, setRoleMenuNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -284,6 +143,8 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setFormMenuName('');
+      setRoleMenuNames({});
       try {
         const [mid, flds] = await Promise.all([
           resolveModeId(formId),
@@ -293,15 +154,17 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
         setModeId(mid);
         setFields(flds || []);
         if (mid) {
-          const [mr, fa, ds, ver] = await Promise.all([
+          const [mr, fa, fg, ds, ver] = await Promise.all([
             getModeRights(mid),
             getFieldAuthorizes(mid),
+            getFieldAuthGroups(mid),
             getModeDataScopes(mid),
             getRightVersion(mid),
           ]);
           if (cancelled) return;
           setModeRights(mr || []);
           setFieldAuths(fa || []);
+          setFieldGroups(fg || []);
           setDataScopes(ds || []);
           setRightVersion(ver || 0);
         } else {
@@ -343,6 +206,42 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       conditionEnabled: 0, conditionField: '', conditionOp: 'eq', conditionValue: '',
     }]);
 
+  // 多选授权对象：展开为标准明细行，不把多个 objid 塞进同一字段
+  const toIds = (v?: number | number[]): number[] => Array.isArray(v) ? v.map(Number) : (v == null ? [] : [Number(v)]);
+
+  const expandModeRightObjects = (index: number, values?: number | number[]) => {
+    const ids = toIds(values).filter(Number.isFinite);
+    setModeRights((prev) => {
+      const row = prev[index];
+      if (!row) return prev;
+      if (!ids.length) return prev.map((r, i) => i === index ? { ...r, objid: undefined } : r);
+      const rest = prev.filter((_, i) => i !== index);
+      return [...rest, ...ids.map((id) => ({ ...row, objid: id }))];
+    });
+  };
+
+  const expandAuthObjects = (index: number, values?: number | number[]) => {
+    const ids = toIds(values).filter(Number.isFinite);
+    setFieldAuths((prev) => {
+      const row = prev[index];
+      if (!row) return prev;
+      if (!ids.length) return prev.map((a, i) => i === index ? { ...a, objid: undefined } : a);
+      const rest = prev.filter((_, i) => i !== index);
+      return [...rest, ...ids.map((id) => ({ ...row, id: undefined, objid: id } as ModeFieldAuthorize))];
+    });
+  };
+
+  const expandScopeObjects = (index: number, values?: number | number[]) => {
+    const ids = toIds(values).filter(Number.isFinite);
+    setDataScopes((prev) => {
+      const row = prev[index];
+      if (!row) return prev;
+      if (!ids.length) return prev.map((r, i) => i === index ? { ...r, objid: undefined } : r);
+      const rest = prev.filter((_, i) => i !== index);
+      return [...rest, ...ids.map((id) => ({ ...row, id: undefined, objid: id } as ModeDataShareRule))];
+    });
+  };
+
   const handleSave = async () => {
     if (!modeId) {
       message.warning('该表单尚未创建模块，无法保存');
@@ -355,9 +254,14 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       const cleanScopes = dataScopes.filter((s) => s.objid != null);
       await saveAllRights(modeId, {
         rights: cleanRights,
-        fieldAuthorizes: cleanAuths,
+        fieldAuthorizes: fieldViewMode === 'field' ? cleanAuths : [],
+        fieldGroups: fieldViewMode === 'subject' ? fieldGroups : [],
         dataScopes: cleanScopes,
         expectedVersion: rightVersion,
+        grantMenuAccess: true,
+        formId: String(formId),
+        formMenuName,
+        roleMenuNames,
       });
       setRightVersion((v) => v + 1);
       message.success('权限配置已保存');
@@ -400,16 +304,8 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       dataIndex: 'objtype',
       width: 150,
       render: (v, _r, i) => (
-        <Select
-          value={v}
-          options={OBJTYPE_OPTS}
-          onChange={(x) => {
-            updateRight(i, 'objtype', x);
-            updateRight(i, 'objid', undefined);
-          }}
-          style={{ width: 120 }}
-          disabled={disabled}
-        />
+        <AuthObjectTypeSelect value={v} disabled={disabled}
+          onChange={(x) => { updateRight(i, 'objtype', x); updateRight(i, 'objid', undefined); }} />
       ),
     },
     {
@@ -417,13 +313,27 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       dataIndex: 'objid',
       width: 200,
       render: (v, record, i) => (
-        <ObjPicker
-          objtype={record.objtype ?? 1}
-          value={v}
-          disabled={disabled}
-          onChange={(x) => updateRight(i, 'objid', x)}
-        />
+        <AuthObjectPicker objtype={record.objtype ?? 1} multiple value={v == null ? [] : [v]} disabled={disabled}
+          onChange={(ids) => expandModeRightObjects(i, ids as number[])} />
       ),
+    },
+    {
+      title: '菜单显示名',
+      dataIndex: 'menuName',
+      width: 180,
+      render: (_v, record) => {
+        if (record.objtype !== 1 || record.objid == null) return <span style={{ color: '#bbb' }}>仅角色可配</span>;
+        const key = String(record.objid);
+        return (
+          <Input
+            size="small"
+            placeholder="留空用默认名"
+            value={roleMenuNames[key] || ''}
+            onChange={(e) => setRoleMenuNames((prev) => ({ ...prev, [key]: e.target.value }))}
+            disabled={disabled}
+          />
+        );
+      },
     },
     {
       title: '权限类型',
@@ -499,16 +409,8 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       dataIndex: 'objtype',
       width: 150,
       render: (v, _r, i) => (
-        <Select
-          value={v}
-          options={OBJTYPE_OPTS}
-          onChange={(x) => {
-            updateAuth(i, 'objtype', x);
-            updateAuth(i, 'objid', undefined);
-          }}
-          style={{ width: 120 }}
-          disabled={disabled}
-        />
+        <AuthObjectTypeSelect value={v} disabled={disabled}
+          onChange={(x) => { updateAuth(i, 'objtype', x); updateAuth(i, 'objid', undefined); }} />
       ),
     },
     {
@@ -516,12 +418,8 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       dataIndex: 'objid',
       width: 200,
       render: (v, record, i) => (
-        <ObjPicker
-          objtype={record.objtype ?? 1}
-          value={v}
-          disabled={disabled}
-          onChange={(x) => updateAuth(i, 'objid', x)}
-        />
+        <AuthObjectPicker objtype={record.objtype ?? 1} multiple value={v == null ? [] : [v]} disabled={disabled}
+          onChange={(ids) => expandAuthObjects(i, ids as number[])} />
       ),
     },
     {
@@ -580,16 +478,8 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       dataIndex: 'objtype',
       width: 150,
       render: (v, _r, i) => (
-        <Select
-          value={v}
-          options={OBJTYPE_OPTS}
-          onChange={(x) => {
-            updateScope(i, 'objtype', x);
-            updateScope(i, 'objid', undefined);
-          }}
-          style={{ width: 120 }}
-          disabled={disabled}
-        />
+        <AuthObjectTypeSelect value={v} disabled={disabled}
+          onChange={(x) => { updateScope(i, 'objtype', x); updateScope(i, 'objid', undefined); }} />
       ),
     },
     {
@@ -597,12 +487,8 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       dataIndex: 'objid',
       width: 200,
       render: (v, record, i) => (
-        <ObjPicker
-          objtype={record.objtype ?? 1}
-          value={v}
-          disabled={disabled}
-          onChange={(x) => updateScope(i, 'objid', x)}
-        />
+        <AuthObjectPicker objtype={record.objtype ?? 1} multiple value={v == null ? [] : [v]} disabled={disabled}
+          onChange={(ids) => expandScopeObjects(i, ids as number[])} />
       ),
     },
     {
@@ -714,12 +600,181 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
     },
   ];
 
+
+  // ===== 按授权对象组配置字段权限：一组对象共享一份字段权限 =====
+  const addFieldGroup = () => setFieldGroups((prev) => [
+    ...prev,
+    { groupName: '授权对象组' + (prev.length + 1), subjects: [], fields: [] },
+  ]);
+
+  const updateFieldGroup = (idx: number, patch: Partial<FieldAuthGroupVO>) =>
+    setFieldGroups((prev) => prev.map((g, i) => i === idx ? { ...g, ...patch } : g));
+
+  const removeFieldGroup = (idx: number) => setFieldGroups((prev) => prev.filter((_, i) => i !== idx));
+
+  const openGroupFieldModal = (idx: number) => {
+    setFieldModalGroupIndex(idx);
+    setFieldModalSearch('');
+    setFieldModalSelected([]);
+  };
+
+  const activeGroup = fieldModalGroupIndex == null ? null : fieldGroups[fieldModalGroupIndex];
+
+  const getGroupFieldRight = (fieldId: number): 0 | 1 | 2 | undefined => {
+    if (!activeGroup) return undefined;
+    const hit = (activeGroup.fields || []).find((f) => Number(f.fieldId) === Number(fieldId));
+    return hit?.rightvalue;
+  };
+
+  const setGroupFieldRight = (fieldId: number, rightvalue?: 0 | 1 | 2) => {
+    if (fieldModalGroupIndex == null) return;
+    setFieldGroups((prev) => prev.map((g, i) => {
+      if (i !== fieldModalGroupIndex) return g;
+      const rest = (g.fields || []).filter((f) => Number(f.fieldId) !== Number(fieldId));
+      return { ...g, fields: rightvalue == null ? rest : [...rest, { fieldId, rightvalue }] };
+    }));
+  };
+
+  const groupColumns: ColumnsType<FieldAuthGroupVO> = [
+    {
+      title: '组名称',
+      dataIndex: 'groupName',
+      width: 160,
+      render: (v, _r, i) => (
+        <Input size="small" value={v || ''} disabled={disabled}
+          onChange={(e) => updateFieldGroup(i, { groupName: e.target.value })} />
+      ),
+    },
+    {
+      title: '授权对象类型',
+      key: 'objtype',
+      width: 150,
+      render: (_v, r, i) => {
+        const objtype = r.subjects?.[0]?.objtype ?? 1;
+        return <AuthObjectTypeSelect value={objtype} disabled={disabled}
+          onChange={(x) => updateFieldGroup(i, { subjects: (r.subjects || []).map((s) => ({ ...s, objtype: x, objid: '' })) })} />;
+      },
+    },
+    {
+      title: '授权对象（多选）',
+      key: 'subjects',
+      width: 260,
+      render: (_v, r, i) => {
+        const objtype = r.subjects?.[0]?.objtype ?? 1;
+        return (
+          <AuthObjectPicker
+            objtype={objtype}
+            multiple
+            value={(r.subjects || []).filter((s) => s.objid !== '').map((s) => s.objid)}
+            disabled={disabled}
+            onChange={(ids) => {
+              const list = (Array.isArray(ids) ? ids : []).map(String).filter(Boolean);
+              const includesub = r.subjects?.[0]?.includesub ?? 0;
+              updateFieldGroup(i, { subjects: list.map((id) => ({ objtype, objid: id, includesub })) });
+            }}
+          />
+        );
+      },
+    },
+    {
+      title: '含子级',
+      key: 'includesub',
+      width: 90,
+      render: (_v, r, i) => {
+        const includesub = r.subjects?.[0]?.includesub ?? 0;
+        return (
+          <Switch size="small" checked={Number(includesub) === 1} disabled={disabled || (r.subjects?.[0]?.objtype ?? 1) !== 2}
+            onChange={(c) => updateFieldGroup(i, { subjects: (r.subjects || []).map((s) => ({ ...s, includesub: c ? 1 : 0 })) })} />
+        );
+      },
+    },
+    {
+      title: '已配置字段',
+      key: 'fieldCount',
+      width: 110,
+      render: (_v, r) => <Tag color={(r.fields || []).length ? 'blue' : 'default'}>{(r.fields || []).length} 个</Tag>,
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 170,
+      render: (_v, _r, i) => (
+        <Space size={4}>
+          <Button type="link" size="small" disabled={disabled || !(fieldGroups[i]?.subjects || []).length} onClick={() => openGroupFieldModal(i)}>配置字段</Button>
+          <Button danger type="link" size="small" disabled={disabled} onClick={() => removeFieldGroup(i)}>删除</Button>
+        </Space>
+      ),
+    },
+  ];
+
+  const modalFieldRows = useMemo(() => fields.filter((f) => {
+    const kw = fieldModalSearch.trim().toLowerCase();
+    return !kw || String(f.fieldName).toLowerCase().includes(kw) || String(f.fieldLabel || '').toLowerCase().includes(kw);
+  }), [fields, fieldModalSearch]);
+
+  const modalFieldColumns: ColumnsType<FieldDefinition> = [
+    { title: '字段名', dataIndex: 'fieldName', width: 150 },
+    { title: '字段名称', dataIndex: 'fieldLabel', width: 180 },
+    { title: '字段ID', dataIndex: 'id', width: 100 },
+    {
+      title: '权限',
+      key: 'rightvalue',
+      width: 160,
+      render: (_v, record) => (
+        <Select size="small" style={{ width: 130 }} value={getGroupFieldRight(Number(record.id))}
+          onChange={(rv) => setGroupFieldRight(Number(record.id), rv == null ? undefined : Number(rv) as 0 | 1 | 2)}
+          options={[
+            { value: undefined, label: '未设置' },
+            { value: 0, label: '隐藏' },
+            { value: 1, label: '只读' },
+            { value: 2, label: '可编辑' },
+          ]} />
+      ),
+    },
+  ];
+
+  const groupFieldModal = (
+    <Modal title={'配置字段权限 - ' + (activeGroup?.groupName || '授权对象组')}
+      open={fieldModalGroupIndex != null} onCancel={() => setFieldModalGroupIndex(null)}
+      onOk={() => setFieldModalGroupIndex(null)} okText="完成" width={900}>
+      <Space wrap style={{ marginBottom: 8 }}>
+        <Input.Search allowClear size="small" style={{ width: 240 }} placeholder="搜索字段"
+          value={fieldModalSearch} onChange={(e) => setFieldModalSearch(e.target.value)} />
+        <Button size="small" onClick={() => setFieldModalSelected(modalFieldRows.map((f) => Number(f.id)))}>全选</Button>
+        <Button size="small" onClick={() => setFieldModalSelected([])}>清空</Button>
+        <Select size="small" style={{ width: 140 }} placeholder="批量设置"
+          options={[{ value: 0, label: '隐藏' }, { value: 1, label: '只读' }, { value: 2, label: '可编辑' }]}
+          onChange={(rv) => {
+            const ids = fieldModalSelected.length ? fieldModalSelected : modalFieldRows.map((f) => Number(f.id));
+            ids.forEach((id) => setGroupFieldRight(id, Number(rv) as 0 | 1 | 2));
+          }} />
+      </Space>
+      <Table rowKey={(r) => String(r.id)} size="small" columns={modalFieldColumns}
+        dataSource={modalFieldRows} pagination={false} scroll={{ y: 420 }}
+        rowSelection={{ selectedRowKeys: fieldModalSelected.map(String), onChange: (keys) => setFieldModalSelected(keys.map(Number)) }} />
+    </Modal>
+  );
+
   const tabItems = [
     {
       key: 'right',
       label: '模块权限',
       children: (
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 100, color: '#666' }}>表单数据菜单名</span>
+            <Input
+              size="small"
+              style={{ width: 260 }}
+              placeholder="留空则使用表单名+数据"
+              value={formMenuName}
+              onChange={(e) => setFormMenuName(e.target.value)}
+              disabled={disabled}
+            />
+            <span style={{ color: '#999', fontSize: 12 }}>
+              保存后创建/更新该表单专属菜单，路径 /formmode/formview/{formId}
+            </span>
+          </div>
           <Button type="dashed" icon={<PlusOutlined />} onClick={addRight} disabled={disabled} block>
             新增模块权限
           </Button>
@@ -739,18 +794,26 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       label: '字段权限',
       children: (
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <Button type="dashed" icon={<PlusOutlined />} onClick={addAuth} disabled={disabled} block>
-            新增字段权限
-          </Button>
-          <Table
-            rowKey={(_, i) => `f-${i}`}
-            columns={authColumns}
-            dataSource={fieldAuths}
-            pagination={false}
-            size="small"
-            scroll={{ x: 810 }}
-            locale={{ emptyText: '暂无配置' }}
-          />
+          <Select size="small" style={{ width: 180 }} value={fieldViewMode}
+            options={[{ value: 'subject', label: '按主体配置' }, { value: 'field', label: '按字段明细' }]}
+            onChange={(v) => setFieldViewMode(v)} />
+          {fieldViewMode === 'subject' ? (
+            <>
+              <Button type="dashed" icon={<PlusOutlined />} onClick={addFieldGroup} disabled={disabled} block>
+                新增授权对象组
+              </Button>
+              <Table rowKey={(_, i) => 'g-' + i} size="small" columns={groupColumns}
+                dataSource={fieldGroups} pagination={false} locale={{ emptyText: '暂无配置' }} />
+            </>
+          ) : (
+            <>
+              <Button type="dashed" icon={<PlusOutlined />} onClick={addAuth} disabled={disabled} block>
+                新增字段权限
+              </Button>
+              <Table rowKey={(_, i) => `f-${i}`} columns={authColumns} dataSource={fieldAuths}
+                pagination={false} size="small" scroll={{ x: 810 }} locale={{ emptyText: '暂无配置' }} />
+            </>
+          )}
         </Space>
       ),
     },
@@ -804,6 +867,7 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
           <Tag color="blue">模块ID：{modeId}</Tag>
         </div>
       )}
+    {groupFieldModal}
     </Drawer>
   );
 };

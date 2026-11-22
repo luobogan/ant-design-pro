@@ -4,7 +4,7 @@ import {
   DatabaseOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
-import { Alert, Card, Modal, Space, Tabs, Tag, Tree } from 'antd';
+import { Alert, Card, Input, Modal, Space, Tabs, Tag, Tree } from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import React, { useEffect, useMemo, useState } from 'react';
 
@@ -26,6 +26,9 @@ interface PermissionConfigProps {
     dataScopeIds: React.Key[];
     apiIds: React.Key[];
   }) => void;
+  /** 角色级菜单显示名：加载/保存（不传则不显示该功能区） */
+  onLoadMenuNames?: () => Promise<Record<string, string>>;
+  onSaveMenuNames?: (names: Record<string, string>) => Promise<void>;
   loading?: boolean;
 }
 
@@ -41,6 +44,8 @@ const PermissionConfig: React.FC<PermissionConfigProps> = ({
   initialApiKeys,
   onCancel,
   onSave,
+  onLoadMenuNames,
+  onSaveMenuNames,
   loading,
 }) => {
   const [activeTab, setActiveTab] = useState<string>('menu');
@@ -49,6 +54,17 @@ const PermissionConfig: React.FC<PermissionConfigProps> = ({
     [],
   );
   const [checkedApiKeys, setCheckedApiKeys] = useState<React.Key[]>([]);
+  // 角色级菜单显示名：menuId -> 自定义名（空串表示未配置）
+  const [menuNameOverrides, setMenuNameOverrides] = useState<Record<string, string>>({});
+
+  // 加载该角色已有的菜单显示名配置
+  useEffect(() => {
+    if (!visible || !onLoadMenuNames) return;
+    let alive = true;
+    onLoadMenuNames().then((map) => { if (alive) setMenuNameOverrides(map || {}); })
+      .catch(() => { if (alive) setMenuNameOverrides({}); });
+    return () => { alive = false; };
+  }, [visible, onLoadMenuNames]);
 
   // 检查键是否在树中存在
   const isKeyInTree = (key: React.Key, tree: any[]): boolean => {
@@ -114,6 +130,19 @@ const PermissionConfig: React.FC<PermissionConfigProps> = ({
     const result = buildTree(menuTreeData);
     console.log('Final menu tree:', result);
     return result;
+  }, [menuTreeData]);
+
+  // 菜单ID → 原名（用于显示名配置区展示）
+  const menuIdToName = useMemo(() => {
+    const map: Record<string, string> = {};
+    const walk = (list: any[]) => {
+      (list || []).forEach((item) => {
+        if (item?.id || item?.key) map[String(item.id || item.key)] = item.name || item.title || item.label || '';
+        if (item?.children) walk(item.children);
+      });
+    };
+    walk(menuTreeData);
+    return map;
   }, [menuTreeData]);
 
   // 构建数据权限树 - 按菜单名称分组展示层级关系
@@ -259,7 +288,7 @@ const PermissionConfig: React.FC<PermissionConfigProps> = ({
   }, [apiTreeData]);
 
   // 处理保存
-  const handleSave = () => {
+  const handleSave = async () => {
     // 确保数据权限ID只包含实际ID（Long类型），过滤掉分组的key
     const validDataScopeIds = checkedDataScopeKeys.filter((key) => {
       const keyStr = String(key);
@@ -271,6 +300,10 @@ const PermissionConfig: React.FC<PermissionConfigProps> = ({
       dataScopeIds: validDataScopeIds,
       apiIds: checkedApiKeys,
     });
+    // 保存角色级菜单显示名（含清空：值为空串的条目传给后端删除配置）
+    if (onSaveMenuNames) {
+      try { await onSaveMenuNames(menuNameOverrides); } catch { /* 主权限已保存，菜单名失败由外层提示 */ }
+    }
   };
 
   return (
@@ -340,6 +373,31 @@ const PermissionConfig: React.FC<PermissionConfigProps> = ({
               showLine
             />
           </Card>
+          {onSaveMenuNames && checkedMenuKeys.length > 0 && (
+            <Card size="small" title="菜单显示名（可选）" style={{ marginTop: 8 }}
+              extra={<span style={{ color: '#999', fontSize: 12 }}>留空表示使用系统默认名称</span>}>
+              <Space direction="vertical" style={{ width: '100%' }} size={6}>
+                {checkedMenuKeys.map((key) => {
+                  const id = String(key);
+                  return (
+                    <Space key={id} style={{ width: '100%' }}>
+                      <span style={{ width: 180, textAlign: 'right', color: '#666' }}>
+                        {menuIdToName[id] || id}
+                      </span>
+                      <Input
+                        style={{ width: 260 }}
+                        size="small"
+                        placeholder={`默认：${menuIdToName[id] || ''}`}
+                        value={menuNameOverrides[id] || ''}
+                        onChange={(e) => setMenuNameOverrides((prev) => ({ ...prev, [id]: e.target.value }))}
+                      />
+                      <span style={{ color: '#999', fontSize: 12 }}>该角色下显示的菜单名</span>
+                    </Space>
+                  );
+                })}
+              </Space>
+            </Card>
+          )}
         </TabPane>
 
         {/* 数据权限 */}

@@ -258,6 +258,35 @@ const RolePage: React.FC = () => {
     }
   };
 
+  // 加载角色级菜单显示名（menuId -> 名称）
+  const loadMenuNames = React.useCallback(async (): Promise<Record<string, string>> => {
+    if (!currentRole?.id) return {};
+    try {
+      const res: any = await menuApi.roleNameList({ roleId: currentRole.id });
+      const rows = res?.data || [];
+      const map: Record<string, string> = {};
+      (Array.isArray(rows) ? rows : []).forEach((r: any) => {
+        if (r?.menu_id != null && r?.name_override) map[String(r.menu_id)] = String(r.name_override);
+      });
+      return map;
+    } catch { return {}; }
+  }, [currentRole?.id]);
+
+  // 保存角色级菜单显示名（逐条 save，空串由后端删除配置）
+  const saveMenuNames = async (names: Record<string, string>) => {
+    if (!currentRole?.id) return;
+    try {
+      const entries = Object.entries(names || {});
+      for (const [menuId, name] of entries) {
+        // 用字符串传 ID，避免雪花 ID 精度丢失
+        // eslint-disable-next-line no-await-in-loop
+        await menuApi.roleNameSave({ roleId: currentRole.id, menuId, name: String(name || '') });
+      }
+    } catch (e) {
+      message.warning('菜单显示名保存失败，权限配置已保存');
+    }
+  };
+
   // 打开人员管理弹窗
   const handleOpenUserModal = async (role: Role) => {
     setCurrentRole(role);
@@ -751,6 +780,8 @@ const RolePage: React.FC = () => {
         initialApiKeys={rolePermissions.apiIds}
         onCancel={() => setPermissionModalVisible(false)}
         onSave={handleSavePermission}
+        onLoadMenuNames={loadMenuNames}
+        onSaveMenuNames={saveMenuNames}
         loading={permissionLoading || menuTreeLoading}
       />
 

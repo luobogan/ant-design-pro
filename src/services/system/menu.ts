@@ -84,6 +84,16 @@ export async function removeRecursive(params: any) {
   });
 }
 
+// 查询角色级菜单显示名配置
+export async function roleNameList(params: { roleId?: string | number; menuId?: string | number }) {
+  return request(`${MENU_BASE_URL}/role-name/list`, { method: 'GET', params });
+}
+
+// 保存角色级菜单显示名（name 为空则删除配置；roleId/menuId 用字符串避免雪花ID精度丢失）
+export async function roleNameSave(params: { roleId: string | number; menuId: string | number; name: string }) {
+  return request(`${MENU_BASE_URL}/role-name/save`, { method: 'POST', data: params });
+}
+
 // 提交菜单信息
 export async function submit(params: any) {
   // 清理数据，确保所有字段都是可序列化的
