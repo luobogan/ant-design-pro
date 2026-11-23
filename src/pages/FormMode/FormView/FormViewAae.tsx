@@ -3,7 +3,7 @@ import { PageContainer } from '@ant-design/pro-components';
 import { useNavigate, useSearchParams } from '@umijs/max';
 import { Button, Card, message, Form } from 'antd';
 import React, { useState, useEffect } from 'react';
-import { formApi, dataApi } from '@/services/formmode';
+import { formApi, dataApi, fieldDefinitionApi } from '@/services/formmode';
 import type { FieldDefinition, FormDataFormData } from '@/services/formmode/typings';
 import FieldRenderer from './components/FieldRenderer';
 import { useFieldPerm } from './hooks/useFieldPerm';
@@ -18,6 +18,7 @@ const DataAae: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
   const [formFields, setFormFields] = useState<FieldDefinition[]>([]);
+  const [fieldConfigured, setFieldConfigured] = useState(false);
   const [formName, setFormName] = useState<string>('');
 
   // 通过 URL 参数获取模式和 ID
@@ -42,9 +43,13 @@ const DataAae: React.FC = () => {
         setFormName(formDetail.formName);
       }
 
-      // 获取字段定义
-      const fields = await dataApi.getFieldDefinitions(formId);
+      // 获取字段定义 + 配置完成状态
+      const [fields, configured] = await Promise.all([
+        dataApi.getFieldDefinitions(formId),
+        fieldDefinitionApi.isConfigured(formId),
+      ]);
       setFormFields(fields || []);
+      setFieldConfigured(!!configured);
 
       // 如果是编辑模式，获取数据详情并填充表单
       if (isEditMode && dataId) {
@@ -78,6 +83,10 @@ const DataAae: React.FC = () => {
   // 提交表单
   const handleSubmit = async () => {
     if (!formId) return;
+    if (!fieldConfigured) {
+      message.warning('请先完成字段配置，再进行数据编辑');
+      return;
+    }
 
     try {
       const values = await form.validateFields();
@@ -119,12 +128,24 @@ const DataAae: React.FC = () => {
     );
   }
 
+  if (!fetchLoading && !fieldConfigured) {
+    return (
+      <PageContainer title={pageTitle} onBack={() => navigate(`/formmode/formview?formId=${formId}`)}>
+        <Card>
+          <div style={{ textAlign: 'center', padding: '50px' }}>
+            该表单尚未完成字段配置，无法新增或编辑数据。请先到字段管理/表格设计器完成字段配置。
+          </div>
+        </Card>
+      </PageContainer>
+    );
+  }
+
   return (
     <PageContainer
       title={pageTitle}
       onBack={() => navigate(`/formmode/formview?formId=${formId}`)}
       extra={
-        <Button type="primary" icon={<SaveOutlined />} loading={loading} onClick={handleSubmit}>
+        <Button type="primary" icon={<SaveOutlined />} loading={loading} disabled={!fieldConfigured} onClick={handleSubmit}>
           保存
         </Button>
       }
@@ -152,7 +173,7 @@ const DataAae: React.FC = () => {
 
             {/* 提交按钮 */}
             <Form.Item>
-              <Button type="primary" onClick={handleSubmit} loading={loading}>
+              <Button type="primary" onClick={handleSubmit} loading={loading} disabled={!fieldConfigured}>
                 提交
               </Button>
               <Button style={{ marginLeft: 8 }} onClick={() => navigate(`/formmode/formview?formId=${formId}`)}>

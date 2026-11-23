@@ -333,6 +333,17 @@ export const fieldDefinitionApi = {
   },
 
   /**
+   * 判断字段配置是否完成（至少一个可用字段）
+   */
+  isConfigured: async (formId: string) => {
+    const response = await request<BladeResponse<boolean>>(
+      `${FIELD_DEFINITION_BASE_URL}/configured/${formId}`,
+      { method: 'GET' },
+    );
+    return !!response.data;
+  },
+
+  /**
    * 根据表单ID获取所有字段
    */
   getByFormId: async (formId: string) => {

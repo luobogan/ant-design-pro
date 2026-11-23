@@ -42,6 +42,7 @@ const FormManageList: React.FC = () => {
   // 权限配置抽屉状态
   const [rightVisible, setRightVisible] = useState(false);
   const [rightFormId, setRightFormId] = useState<string>();
+  const [rightFormName, setRightFormName] = useState<string>();
 
   const [searchForm] = Form.useForm();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -130,6 +131,7 @@ const FormManageList: React.FC = () => {
   // 权限配置
   const handleRightConfig = (record: FormDefinition) => {
     setRightFormId(record.id);
+    setRightFormName(record.formName);
     setRightVisible(true);
   };
 
@@ -564,6 +566,7 @@ const FormManageList: React.FC = () => {
       {/* 权限配置抽屉（模块权限 / 字段权限 / 数据范围） */}
       <FormRightDrawer
         formId={rightFormId}
+        formName={rightFormName}
         open={rightVisible}
         onClose={() => setRightVisible(false)}
       />

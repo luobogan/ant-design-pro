@@ -17,7 +17,7 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import React, { useEffect, useState } from 'react';
-import { formApi, dataApi } from '@/services/formmode';
+import { formApi, dataApi, fieldDefinitionApi } from '@/services/formmode';
 import { getUserRightTypes } from '@/services/formmode/rightApi';
 import type {
   FieldDefinition,
@@ -48,6 +48,7 @@ const FormDataList: React.FC = () => {
   const [data, setData] = useState<FormDataRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [formFields, setFormFields] = useState<FieldDefinition[]>([]);
+  const [fieldConfigured, setFieldConfigured] = useState(false);
   const [formName, setFormName] = useState<string>('');
   // 建模权限码：1可见 2新建 3编辑 4删除 5详情；用于没有菜单按钮码时仍能控制操作
   const [userRightTypes, setUserRightTypes] = useState<number[]>([]);
@@ -73,6 +74,8 @@ const FormDataList: React.FC = () => {
     formmode_remove: 4,
   };
   const hasPermission = (code: string) => {
+    // 字段配置未完成前，数据编辑界面不显示任何操作按钮
+    if (!fieldConfigured) return false;
     if (buttons.some((btn: any) => btn.code === code)) return true;
     const rightType = MODE_RIGHT_BY_BUTTON[code];
     return rightType != null && userRightTypes.includes(rightType);
@@ -115,9 +118,13 @@ const FormDataList: React.FC = () => {
         setFormName(formDetail.formName);
       }
 
-      // 获取字段定义
-      const fields = await dataApi.getFieldDefinitions(formId);
+      // 获取字段定义 + 配置完成状态（与后端写接口同一口径）
+      const [fields, configured] = await Promise.all([
+        dataApi.getFieldDefinitions(formId),
+        fieldDefinitionApi.isConfigured(formId),
+      ]);
       setFormFields(fields || []);
+      setFieldConfigured(!!configured);
     } catch (error) {
       console.error('获取表单信息失败:', error);
       message.error('获取表单信息失败');
@@ -164,10 +171,10 @@ const FormDataList: React.FC = () => {
 
   // 表单信息和字段定义加载完成后获取数据
   useEffect(() => {
-    if (formId && formFields.length > 0) {
+    if (formId && fieldConfigured) {
       fetchData();
     }
-  }, [formId, formFields]);
+  }, [formId, fieldConfigured]);
 
   // 搜索
   const handleSearch = () => {

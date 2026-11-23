@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -15,7 +15,7 @@ import {
   Tag,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PlusOutlined, TableOutlined } from '@ant-design/icons';
 import {
   getFieldAuthorizes,
   getModeDataScopes,
@@ -29,14 +29,17 @@ import {
   getRightVersion,
   getFieldAuthGroups,
 } from '@/services/formmode/rightApi';
-import { fieldApi } from '@/services/formmode';
+import { fieldApi, formApi, fieldDefinitionApi } from '@/services/formmode';
 import type { FieldDefinition } from '@/services/formmode/typings';
 import * as matrixApi from '@/pages/System/Matrix/service';
 import AuthObjectPicker, { AUTH_OBJECT_TYPE_OPTIONS, AuthObjectTypeSelect } from '@/components/FormMode/AuthObjectPicker';
+import { usePageButtons } from '@/hooks/usePageButtons';
+import ExcelDesign from '@/pages/FormMode/ExcelDesign/ExcelDesign';
 
 interface Props {
   /** 表单ID（workflow_bill.id）；权限按反查出的 modeId 落库 */
   formId?: string;
+  formName?: string;
   open: boolean;
   onClose: () => void;
 }
@@ -116,7 +119,8 @@ const MatrixValueFieldSelect: React.FC<{
   );
 };
 
-const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
+const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open, onClose }) => {
+  const { buttons } = usePageButtons();
   // modeId 是雪花ID，必须按字符串保存，避免 JS Number 精度丢失导致查错模块
   const [modeId, setModeId] = useState<string | null>(null);
   const [fields, setFields] = useState<FieldDefinition[]>([]);
@@ -131,12 +135,17 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
 
 
   const [fieldModalSearch, setFieldModalSearch] = useState('');
+  const [fieldModalScope, setFieldModalScope] = useState('main');
   const [fieldModalSelected, setFieldModalSelected] = useState<number[]>([]);
+  const [univerModalOpen, setUniverModalOpen] = useState(false);
+  const univerApiRef = useRef<{ save: () => Promise<boolean> } | null>(null);
   // 方案C：单个表单的数据菜单名 + 角色级显示名
   const [formMenuName, setFormMenuName] = useState<string>('');
   const [roleMenuNames, setRoleMenuNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [formName, setFormName] = useState(formNameProp || '');
+  const [fieldConfigured, setFieldConfigured] = useState(false);
 
   useEffect(() => {
     if (!open || !formId) return;
@@ -145,14 +154,19 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       setLoading(true);
       setFormMenuName('');
       setRoleMenuNames({});
+      setFieldConfigured(false);
       try {
-        const [mid, flds] = await Promise.all([
+        const [mid, flds, configured, formDetail] = await Promise.all([
           resolveModeId(formId),
           fieldApi.getByFormId(formId).catch(() => [] as FieldDefinition[]),
+          fieldDefinitionApi.isConfigured(formId).catch(() => false),
+          formNameProp ? Promise.resolve(null) : formApi.getById(formId).catch(() => null),
         ]);
         if (cancelled) return;
         setModeId(mid);
         setFields(flds || []);
+        setFieldConfigured(!!configured);
+        setFormName(formNameProp || (formDetail as any)?.formName || '');
         if (mid) {
           const [mr, fa, fg, ds, ver] = await Promise.all([
             getModeRights(mid),
@@ -164,7 +178,30 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
           if (cancelled) return;
           setModeRights(mr || []);
           setFieldAuths(fa || []);
-          setFieldGroups(fg || []);
+          if (fg && fg.length) {
+            setFieldGroups(fg);
+          } else {
+            // 老数据兼容：把旧的“一个字段一个主体”配置聚合成授权对象组展示，
+            // 保存时会按新组模型落库，避免列表为空导致操作按钮无处显示。
+            const legacyGroups = new Map<string, FieldAuthGroupVO>();
+            (fa || []).forEach((a: ModeFieldAuthorize) => {
+              if (a.groupId != null && a.groupId > 0) return; // 新组数据不重复聚合
+              if (a.objtype == null || a.objid == null || a.fieldid == null || a.rightvalue == null) return;
+              const key = a.objtype + '_' + a.objid;
+              if (!legacyGroups.has(key)) {
+                legacyGroups.set(key, {
+                  groupName: '旧配置-' + a.objid,
+                  subjects: [{ objtype: Number(a.objtype), objid: String(a.objid), includesub: Number(a.includesub || 0) }],
+                  fields: [],
+                });
+              }
+              legacyGroups.get(key)!.fields!.push({
+                fieldId: Number(a.fieldid),
+                rightvalue: Number(a.rightvalue) as 0 | 1 | 2,
+              });
+            });
+            setFieldGroups(Array.from(legacyGroups.values()));
+          }
           setDataScopes(ds || []);
           setRightVersion(ver || 0);
         } else {
@@ -240,6 +277,37 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
       const rest = prev.filter((_, i) => i !== index);
       return [...rest, ...ids.map((id) => ({ ...row, id: undefined, objid: id } as ModeDataShareRule))];
     });
+  };
+
+  const canExcelDesign = buttons.some((btn: any) => btn.code === 'exceldesign');
+  // 只把字段权限里可见/可编辑的字段交给 Univer 设计器
+  const univerAllowedFieldIds = useMemo(() => {
+    const ids = new Set<string>();
+    fieldGroups.forEach((g) => (g.fields || []).forEach((f) => {
+      if (Number(f.rightvalue) >= 1) ids.add(String(f.fieldId));
+    }));
+    return Array.from(ids);
+  }, [fieldGroups]);
+
+  const handleOpenExcelDesign = () => {
+    if (!formId || !univerAllowedFieldIds.length) {
+      message.warning('请先配置字段权限，再设计新增/编辑页面');
+      return;
+    }
+    univerApiRef.current = null;
+    setUniverModalOpen(true);
+  };
+
+  const handleSaveUniver = async () => {
+    if (!univerApiRef.current) {
+      message.warning('设计器尚未就绪');
+      return;
+    }
+    const ok = await univerApiRef.current.save();
+    if (ok) {
+      message.success('新增/编辑页面布局已保存');
+      setUniverModalOpen(false);
+    }
   };
 
   const handleSave = async () => {
@@ -451,9 +519,14 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
     },
     {
       title: '操作',
-      width: 80,
+      width: fieldConfigured && canExcelDesign ? 170 : 80,
       render: (_v, _r, i) => (
-        <Button danger type="link" size="small" icon={<DeleteOutlined />} onClick={() => removeAuth(i)} disabled={disabled} />
+        <Space size={4}>
+          {fieldConfigured && canExcelDesign && (
+            <Button type="link" size="small" icon={<TableOutlined />} onClick={handleOpenExcelDesign}>Univer设计</Button>
+          )}
+          <Button danger type="link" size="small" icon={<DeleteOutlined />} onClick={() => removeAuth(i)} disabled={disabled} />
+        </Space>
       ),
     },
   ];
@@ -615,7 +688,8 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
   const openGroupFieldModal = (idx: number) => {
     setFieldModalGroupIndex(idx);
     setFieldModalSearch('');
-    setFieldModalSelected([]);
+    setFieldModalScope('main');
+    setFieldModalSelected((fieldGroups[idx]?.fields || []).map((f) => Number(f.fieldId)));
   };
 
   const activeGroup = fieldModalGroupIndex == null ? null : fieldGroups[fieldModalGroupIndex];
@@ -628,11 +702,40 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
 
   const setGroupFieldRight = (fieldId: number, rightvalue?: 0 | 1 | 2) => {
     if (fieldModalGroupIndex == null) return;
+    setFieldModalSelected((prev) => rightvalue == null
+      ? prev.filter((id) => Number(id) !== Number(fieldId))
+      : (prev.some((id) => Number(id) === Number(fieldId)) ? prev : [...prev, Number(fieldId)]));
     setFieldGroups((prev) => prev.map((g, i) => {
       if (i !== fieldModalGroupIndex) return g;
       const rest = (g.fields || []).filter((f) => Number(f.fieldId) !== Number(fieldId));
       return { ...g, fields: rightvalue == null ? rest : [...rest, { fieldId, rightvalue }] };
     }));
+  };
+
+  // 勾选/取消勾选字段 = 加入/移出当前授权对象组
+  const setGroupSelectedFields = (ids: number[]) => {
+    if (fieldModalGroupIndex == null) return;
+    const selected = Array.from(new Set(ids.map(Number)));
+    setFieldModalSelected(selected);
+    setFieldGroups((prev) => prev.map((g, i) => {
+      if (i !== fieldModalGroupIndex) return g;
+      const selectedSet = new Set(selected);
+      const kept = (g.fields || []).filter((f) => selectedSet.has(Number(f.fieldId)));
+      const keptIds = new Set(kept.map((f) => Number(f.fieldId)));
+      const added = selected
+        .filter((id) => !keptIds.has(id))
+        .map((id) => ({ fieldId: id, rightvalue: 1 as const }));
+      return { ...g, fields: [...kept, ...added] };
+    }));
+  };
+
+  // 只替换某个主表/明细表页签内的勾选，避免切换页签后清掉其它表的字段
+  const replaceScopeSelection = (scope: string, ids: number[]) => {
+    const scopeIds = new Set(sortedConfigFields
+      .filter((f) => fieldScopeOf(f) === scope)
+      .map((f) => Number(f.id)));
+    const others = fieldModalSelected.filter((id) => !scopeIds.has(Number(id)));
+    setGroupSelectedFields([...others, ...ids.map(Number)]);
   };
 
   const groupColumns: ColumnsType<FieldAuthGroupVO> = [
@@ -703,22 +806,63 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
     {
       title: '操作',
       key: 'action',
-      width: 170,
+      width: fieldConfigured && canExcelDesign ? 260 : 170,
       render: (_v, _r, i) => (
         <Space size={4}>
           <Button type="link" size="small" disabled={disabled || !(fieldGroups[i]?.subjects || []).length} onClick={() => openGroupFieldModal(i)}>配置字段</Button>
+          {fieldConfigured && canExcelDesign && (
+            <Button type="link" size="small" icon={<TableOutlined />} onClick={handleOpenExcelDesign}>Univer设计</Button>
+          )}
           <Button danger type="link" size="small" disabled={disabled} onClick={() => removeFieldGroup(i)}>删除</Button>
         </Space>
       ),
     },
   ];
 
-  const modalFieldRows = useMemo(() => fields.filter((f) => {
+  const fieldScopeOf = (f: FieldDefinition) => {
+    const dt = Number(f.detailTable || 0);
+    // 与后端 scopeOfField 对齐：isMain=1 或 detailTable<=0 都归主表
+    return Number(f.isMain) === 1 || dt <= 0 ? 'main' : `dt${dt}`;
+  };
+  const fieldScopeLabel = (scope: string) => scope === 'main' ? '主表' : scope.replace('dt', '明细表');
+  const fieldScopeRank = (scope: string) => scope === 'main' ? 0 : (Number(scope.replace('dt', '')) || 9999);
+
+  // 字段按「主表 → 明细表1 → 明细表2 → ...」分组，组内按 fieldOrder 排序
+  const sortedConfigFields = useMemo(() => [...fields].sort((a, b) => {
+    const sa = fieldScopeOf(a), sb = fieldScopeOf(b);
+    const rank = fieldScopeRank(sa) - fieldScopeRank(sb);
+    if (rank !== 0) return rank;
+    const oa = Number(a.fieldOrder ?? 0), ob = Number(b.fieldOrder ?? 0);
+    if (oa !== ob) return oa - ob;
+    return String(a.id).localeCompare(String(b.id), undefined, { numeric: true });
+  }), [fields]);
+
+  const fieldScopeTabs = useMemo(() => {
+    const scopeSet = new Set(sortedConfigFields.map(fieldScopeOf));
+    if (!scopeSet.size) scopeSet.add('main');
+    return Array.from(scopeSet)
+      .sort((a, b) => fieldScopeRank(a) - fieldScopeRank(b))
+      .map((scope) => ({
+        value: scope,
+        label: `${fieldScopeLabel(scope)}（${sortedConfigFields.filter((f) => fieldScopeOf(f) === scope).length}）`,
+      }));
+  }, [sortedConfigFields]);
+
+  const modalFieldRows = useMemo(() => sortedConfigFields.filter((f) => {
     const kw = fieldModalSearch.trim().toLowerCase();
-    return !kw || String(f.fieldName).toLowerCase().includes(kw) || String(f.fieldLabel || '').toLowerCase().includes(kw);
-  }), [fields, fieldModalSearch]);
+    const scopeOk = fieldScopeOf(f) === fieldModalScope;
+    return scopeOk && (!kw
+      || String(f.fieldName).toLowerCase().includes(kw)
+      || String(f.fieldLabel || '').toLowerCase().includes(kw));
+  }), [sortedConfigFields, fieldModalSearch, fieldModalScope]);
 
   const modalFieldColumns: ColumnsType<FieldDefinition> = [
+    {
+      title: '字段归属',
+      key: 'scope',
+      width: 100,
+      render: (_v, record) => <Tag>{fieldScopeLabel(fieldScopeOf(record))}</Tag>,
+    },
     { title: '字段名', dataIndex: 'fieldName', width: 150 },
     { title: '字段名称', dataIndex: 'fieldLabel', width: 180 },
     { title: '字段ID', dataIndex: 'id', width: 100 },
@@ -742,22 +886,62 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
   const groupFieldModal = (
     <Modal title={'配置字段权限 - ' + (activeGroup?.groupName || '授权对象组')}
       open={fieldModalGroupIndex != null} onCancel={() => setFieldModalGroupIndex(null)}
-      onOk={() => setFieldModalGroupIndex(null)} okText="完成" width={900}>
-      <Space wrap style={{ marginBottom: 8 }}>
-        <Input.Search allowClear size="small" style={{ width: 240 }} placeholder="搜索字段"
-          value={fieldModalSearch} onChange={(e) => setFieldModalSearch(e.target.value)} />
-        <Button size="small" onClick={() => setFieldModalSelected(modalFieldRows.map((f) => Number(f.id)))}>全选</Button>
-        <Button size="small" onClick={() => setFieldModalSelected([])}>清空</Button>
-        <Select size="small" style={{ width: 140 }} placeholder="批量设置"
-          options={[{ value: 0, label: '隐藏' }, { value: 1, label: '只读' }, { value: 2, label: '可编辑' }]}
-          onChange={(rv) => {
-            const ids = fieldModalSelected.length ? fieldModalSelected : modalFieldRows.map((f) => Number(f.id));
-            ids.forEach((id) => setGroupFieldRight(id, Number(rv) as 0 | 1 | 2));
-          }} />
-      </Space>
-      <Table rowKey={(r) => String(r.id)} size="small" columns={modalFieldColumns}
-        dataSource={modalFieldRows} pagination={false} scroll={{ y: 420 }}
-        rowSelection={{ selectedRowKeys: fieldModalSelected.map(String), onChange: (keys) => setFieldModalSelected(keys.map(Number)) }} />
+      onOk={() => setFieldModalGroupIndex(null)} okText="完成"
+      width="min(1100px, calc(100vw - 48px))"
+      style={{ top: 12 }}
+      bodyStyle={{ height: 'calc(100vh - 150px)', padding: 0, overflow: 'hidden' }}
+      styles={{ body: { height: 'calc(100vh - 150px)', padding: 0, overflow: 'hidden' } }}>
+      <div style={{ display: 'flex', height: '100%', minHeight: 0 }}>
+        <div style={{ width: 190, minWidth: 190, borderRight: '1px solid #f0f0f0', overflow: 'auto', padding: 8 }}>
+          <div style={{ color: '#999', fontSize: 12, margin: '4px 4px 8px' }}>表列表</div>
+          {fieldScopeTabs.map((tab) => (
+            <Button
+              key={tab.value}
+              type={fieldModalScope === tab.value ? 'primary' : 'text'}
+              block
+              style={{ textAlign: 'left', marginBottom: 4 }}
+              onClick={() => setFieldModalScope(tab.value)}
+            >
+              {tab.label}
+            </Button>
+          ))}
+        </div>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', padding: 12 }}>
+          <Space wrap style={{ marginBottom: 8 }}>
+            <Input.Search allowClear size="small" style={{ width: 240 }} placeholder="搜索当前表字段"
+              value={fieldModalSearch} onChange={(e) => setFieldModalSearch(e.target.value)} />
+            <Button size="small" onClick={() => replaceScopeSelection(
+              fieldModalScope,
+              sortedConfigFields.filter((f) => fieldScopeOf(f) === fieldModalScope).map((f) => Number(f.id)),
+            )}>全选当前表</Button>
+            <Button size="small" onClick={() => replaceScopeSelection(fieldModalScope, [])}>清空当前表</Button>
+            <Select size="small" style={{ width: 140 }} placeholder="批量设置"
+              options={[{ value: 0, label: '隐藏' }, { value: 1, label: '只读' }, { value: 2, label: '可编辑' }]}
+              onChange={(rv) => {
+                if (!fieldModalSelected.length) {
+                  message.warning('请先勾选要设置的字段');
+                  return;
+                }
+                fieldModalSelected.forEach((id) => setGroupFieldRight(Number(id), Number(rv) as 0 | 1 | 2));
+              }} />
+            <span style={{ color: '#999', fontSize: 12 }}>勾选字段即加入当前组，取消勾选即移出；默认只读</span>
+          </Space>
+          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            <Table
+              rowKey={(r) => String(r.id)}
+              size="small"
+              columns={modalFieldColumns}
+              dataSource={modalFieldRows}
+              pagination={false}
+              scroll={{ y: 'calc(100vh - 300px)' }}
+              rowSelection={{
+                selectedRowKeys: fieldModalSelected.map(String),
+                onChange: (keys) => replaceScopeSelection(fieldModalScope, keys.map(Number)),
+              }}
+            />
+          </div>
+        </div>
+      </div>
     </Modal>
   );
 
@@ -803,6 +987,11 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
           <Select size="small" style={{ width: 180 }} value={fieldViewMode}
             options={[{ value: 'subject', label: '按主体配置' }, { value: 'field', label: '按字段明细' }]}
             onChange={(v) => setFieldViewMode(v)} />
+          {fieldConfigured && canExcelDesign && (
+            <Button type="primary" icon={<TableOutlined />} onClick={handleOpenExcelDesign}>
+              配置新增/编辑页面（Univer Excel 设计）
+            </Button>
+          )}
           {fieldViewMode === 'subject' ? (
             <>
               <Button type="dashed" icon={<PlusOutlined />} onClick={addFieldGroup} disabled={disabled} block>
@@ -873,6 +1062,33 @@ const FormRightDrawer: React.FC<Props> = ({ formId, open, onClose }) => {
           <Tag color="blue">模块ID：{modeId}</Tag>
         </div>
       )}
+    <Modal
+      title={`新增/编辑页面设计 - ${formName || formId || ''}`}
+      open={univerModalOpen}
+      onCancel={() => setUniverModalOpen(false)}
+      afterClose={() => { univerApiRef.current = null; }}
+      width="min(1500px, calc(100vw - 48px))"
+      style={{ top: 12, maxWidth: 'calc(100vw - 48px)' }}
+      bodyStyle={{ height: 'calc(100vh - 150px)', padding: 0, overflow: 'hidden' }}
+      styles={{ body: { height: 'calc(100vh - 150px)', padding: 0, overflow: 'hidden' } }}
+      destroyOnHidden
+      footer={
+        <Space>
+          <Button onClick={() => setUniverModalOpen(false)}>取消</Button>
+          <Button type="primary" onClick={handleSaveUniver}>保存布局</Button>
+        </Space>
+      }
+    >
+      <div style={{ height: '100%', overflow: 'hidden' }}>
+        <ExcelDesign
+          embedded
+          formId={formId}
+          formName={formName}
+          allowedFieldIds={univerAllowedFieldIds}
+          onReady={(api) => { univerApiRef.current = api; }}
+        />
+      </div>
+    </Modal>
     {groupFieldModal}
     </Drawer>
   );

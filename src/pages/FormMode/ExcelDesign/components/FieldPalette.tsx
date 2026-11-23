@@ -290,9 +290,11 @@ interface FieldPaletteProps {
   usedFieldKeys?: Set<string>;
   /** 仅显示指定明细表序号的字段（用于明细表子画布）；不传则显示主表 + 全部明细表 */
   detailTableFilter?: number;
+  /** 仅显示这些字段ID；不传显示全部（用于字段权限联动） */
+  allowedFieldIds?: string[];
 }
 
-const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover, formId, usedFieldKeys, detailTableFilter }) => {
+const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover, formId, usedFieldKeys, detailTableFilter, allowedFieldIds }) => {
   const [searchText, setSearchText] = useState('');
   const [loading, setLoading] = useState(false);
   const [fields, setFields] = useState<FieldDefinition[]>([]);
@@ -300,6 +302,10 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
   const [detailTableFields, setDetailTableFields] = useState<Record<number, FieldDefinition[]>>({});
   // 分组方式：按明细表 / 按类型 / 按使用状态
   const [groupMode, setGroupMode] = useState<FieldGroupMode>('table');
+  const allowedFieldIdSet = useMemo(
+    () => new Set((allowedFieldIds || []).map(String)),
+    [(allowedFieldIds || []).join(',')],
+  );
   // 已折叠的分组 key
   const [collapsedKeys, setCollapsedKeys] = useState<string[]>([]);
 
@@ -333,7 +339,9 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
             if (isDeleted) {
               console.log('[FieldPalette] 过滤已删除字段:', f.fieldName, f.fieldLabel, '| isDeleted:', deletedFlag, '| status:', statusValue);
             }
-            return !isDeleted;
+            if (isDeleted) return false;
+            if (allowedFieldIdSet.size > 0 && !allowedFieldIdSet.has(String(f.id))) return false;
+            return true;
           });
 
           console.log('[FieldPalette] 原始字段数:', data.length, '过滤后字段数:', filteredData.length);
@@ -371,7 +379,7 @@ const FieldPalette: React.FC<FieldPaletteProps> = ({ onFieldSelect, onFieldHover
     };
 
     loadFields();
-  }, [formId]);
+  }, [formId, allowedFieldIdSet]);
 
   // ── 分组与搜索 ──────────────────────────────────────────────────────────
   // 展示范围（对齐 ecology「主表标记 + 子画布」模型）：

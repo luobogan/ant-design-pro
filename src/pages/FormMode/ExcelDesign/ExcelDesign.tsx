@@ -183,6 +183,8 @@ export interface ExcelDesignProps {
   nodeKey?: string;
   /** 内嵌模式：用于弹窗/抽屉内渲染，去掉外层 PageContainer 外壳并撑满父容器 */
   embedded?: boolean;
+  /** 字段白名单（来自字段权限配置）：只展示这些字段；不传显示全部 */
+  allowedFieldIds?: string[];
   /**
    * 把「保存」能力回传给宿主（供弹窗底部「保存」按钮调用）。
    * 这样保存入口不依赖 Univer 原生 ribbon 的注册时序，弹窗里一定有可用的保存。
@@ -201,6 +203,13 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     props.formName ?? searchParams.get('formName') ?? (formId ? `表单${formId}` : '');
   const nodeKey = props.nodeKey ?? searchParams.get('nodeKey') ?? undefined;
   const { message } = App.useApp();
+
+  // 字段权限白名单：传入时，主表/明细表选项都必须按此收敛
+  const allowedFieldIdSet = useMemo(
+    () => props.allowedFieldIds?.length ? new Set(props.allowedFieldIds.map(String)) : null,
+    [(props.allowedFieldIds || []).join(',')],
+  );
+  const isFieldAllowed = (f: any) => !allowedFieldIdSet || allowedFieldIdSet.has(String(f?.id));
 
   const [selectedField, setSelectedField] = useState<any>(null);
   // 表单字段选项（供「属性面板 → 合计字段选择器」使用：合计字段需指定对哪个字段求和）
@@ -246,7 +255,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         const arr = Array.isArray(list) ? list : list?.records || [];
         if (!alive) return;
         setFieldOptions(
-          arr.map((f: any) => ({
+          arr.filter((f: any) => isFieldAllowed(f)).map((f: any) => ({
             label: `${f.fieldLabel || f.fieldName}（${f.fieldName}）`,
             value: f.fieldName,
           })),
@@ -258,7 +267,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     return () => {
       alive = false;
     };
-  }, [formId]);
+  }, [formId, allowedFieldIdSet]);
   const [layoutData, setLayoutData] = useState<any>({});
   // 镜像 ref：在异步回调里读取最新的 layoutData，避免闭包捕获到初始空对象
   const layoutDataRef = useRef(layoutData);
@@ -821,7 +830,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         if (cancelled || !data || !Array.isArray(data)) return;
         const counts: Record<number, number> = {};
         data.forEach((f: any) => {
-          if (f.isMain === 0 && f.detailTable && Number(f.detailTable) > 0) {
+          if (f.isMain === 0 && f.detailTable && Number(f.detailTable) > 0 && isFieldAllowed(f)) {
             const idx = Number(f.detailTable);
             counts[idx] = (counts[idx] || 0) + 1;
           }
@@ -837,7 +846,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
       }
     })();
     return () => { cancelled = true; };
-  }, [formId]);
+  }, [formId, allowedFieldIdSet]);
 
   // ──────────────────────────────────────────────
   // 监听 Univer 右键菜单事件
@@ -1288,10 +1297,15 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
   // 打开 / 关闭明细表子画布
   // ──────────────────────────────────────────────
   const openDetailCanvas = useCallback((idx: number) => {
+    // 字段权限白名单下，未授权字段所属的明细表不允许进入设计
+    if (allowedFieldIdSet && !detailTableOptions.some((o) => o.idx === idx)) {
+      message.warning(`明细表${idx}没有可配置的字段权限，已跳过`);
+      return;
+    }
     // 记下沉主画布 API，待子画布关闭后恢复（子实例会把 window.univerExcelGrid 覆盖为自身）
     mainGridApiRef.current = (window as any).univerExcelGrid;
     setEditingDetail(idx);
-  }, []);
+  }, [allowedFieldIdSet, detailTableOptions, message]);
 
   // 主表画布中某明细表标记被删除（整行/整列删除、清空内容、快捷键删除等）时，
   // 级联清理对应的明细表子画布布局，避免「孤儿明细表」（标记没了但子画布布局还在，数据关联失效）。
@@ -2164,21 +2178,22 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
 
   const stageHeight = props.embedded ? '100%' : 'calc(100vh - 200px)';
   const stage = (
-    <Spin spinning={loading}>
-      <div style={{ display: 'flex', height: stageHeight }}>
+    <Spin spinning={loading} style={{ display: 'block', height: '100%' }}>
+      <div style={{ display: 'flex', height: stageHeight, minHeight: 0, overflow: 'hidden' }}>
             {/* 左侧字段面板 */}
-            <div style={{ width: 250, borderRight: '1px solid #f0f0f0', overflow: 'auto' }}>
+            <div style={{ width: 250, minWidth: 250, borderRight: '1px solid #f0f0f0', overflow: 'auto' }}>
               <FieldPalette
                 onFieldSelect={handleFieldSelect}
                 onFieldHover={handleFieldHover}
                 formId={formId || undefined}
                 usedFieldKeys={usedFieldKeys}
+                allowedFieldIds={props.allowedFieldIds}
               />
             </div>
 
             {/* 中间 Univer Excel 区域 */}
-            <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
-              <Card>
+            <div style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '16px' }}>
+              <Card style={{ minWidth: 0 }}>
                 {/* 布局类型切换：按「编辑 / 显示 / 监控 / 打印」分别设计与保存布局（自有值）。
                     读取与保存均带上 layoutType，后端按 (form_id, layout_type, node_key) 回退取布局。 */}
                 <Space style={{ marginBottom: 8 }} align="center">
@@ -2262,7 +2277,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
             </div>
 
             {/* 右侧：表单结构（主表/明细表层级 + 字段属性三态 + 删除字段）+ 字段属性配置 */}
-            <div style={{ width: 320, borderLeft: '1px solid #f0f0f0', overflow: 'auto' }}>
+            <div style={{ width: 320, minWidth: 320, borderLeft: '1px solid #f0f0f0', overflow: 'auto' }}>
               <div style={{ padding: '10px 12px', borderBottom: '1px solid #f0f0f0' }}>
                 <LayoutStructurePanel
                   mainLayout={layoutData}
@@ -2343,6 +2358,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
                 onFieldHover={handleFieldHover}
                 formId={formId || undefined}
                 usedFieldKeys={usedFieldKeys}
+                allowedFieldIds={props.allowedFieldIds}
                 detailTableFilter={editingDetail}
               />
             </div>
@@ -2438,6 +2454,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
                     onFieldHover={handleFieldHover}
                     formId={formId || undefined}
                     usedFieldKeys={usedFieldKeys}
+                allowedFieldIds={props.allowedFieldIds}
                   />
                 </div>
                 {/* 中间：该标签页的独立 Excel 画布 */}
