@@ -120,6 +120,8 @@ export interface FieldAuthGroupSubjectVO {
 export interface FieldAuthGroupVO {
   id?: string;
   groupName?: string;
+  /** 稳定组标识，作为 Univer 布局 nodeKey */
+  groupKey?: string;
   subjects: FieldAuthGroupSubjectVO[];
   fields: Array<{ fieldId: number; rightvalue: 0 | 1 | 2 }>;
 }
@@ -131,6 +133,7 @@ export const getFieldAuthGroups = async (modeId: string | number): Promise<Field
   return rows.map((g: any) => ({
     id: g.id == null ? undefined : String(g.id),
     groupName: g.group_name || g.groupName || '',
+    groupKey: g.group_key || g.groupKey || (g.id != null ? `group-${g.id}` : undefined),
     subjects: Array.isArray(g.subjects) ? g.subjects.map((s: any) => ({
       objtype: Number(s.objtype),
       objid: String(s.objid),

@@ -618,6 +618,49 @@ const buildFieldIndex = (sheet: any, maxR: number, maxC: number): Record<string,
   return idx;
 };
 
+/**
+ * Univer 弹层统一挂到 body：
+ * 默认 popupRoot 生成在设计器容器内部，嵌入 AntD Modal 时右键菜单会被 modal-body 的
+ * overflow:hidden 裁切。这里在初始化前确保 body 根节点存在，并通过 popupRootId 指定给它。
+ */
+const UNIVER_POPUP_ROOT_ID = 'formmode-univer-popup-root';
+const ensureUniverPopupRoot = () => {
+  const styleText = `
+    #${UNIVER_POPUP_ROOT_ID} {
+      position: fixed !important;
+      inset: 0 !important;
+      z-index: 1300 !important;
+      overflow: visible !important;
+      pointer-events: none !important;
+    }
+    #${UNIVER_POPUP_ROOT_ID} > * { pointer-events: auto !important; }
+    .ant-app [id="${UNIVER_POPUP_ROOT_ID}"] { display: none !important; }
+    /* Univer 原生右键菜单/子菜单默认 1070/1080，低于 AntD Modal 的 1200 */
+    .univer-popup,
+    section.univer-popup,
+    [data-u-context-menu-submenu] {
+      z-index: 1400 !important;
+    }
+    .univer-popup-mask { z-index: 1390 !important; }
+  `;
+  let style = document.getElementById('formmode-univer-popup-style');
+  if (!style) {
+    style = document.createElement('style');
+    style.id = 'formmode-univer-popup-style';
+    document.head.appendChild(style);
+  }
+  style.textContent = styleText;
+  let root = document.getElementById(UNIVER_POPUP_ROOT_ID);
+  if (!root) {
+    root = document.createElement('div');
+    root.id = UNIVER_POPUP_ROOT_ID;
+    // 放到应用根节点之前，确保 document.getElementById 取到 body 级节点，
+    // 而不是 Univer workbench 内部渲染的同 id 占位节点。
+    document.body.prepend(root);
+  }
+  return root;
+};
+
 const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   sheetName,
   layoutData,
@@ -3186,7 +3229,11 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
         // Step 4: 注册 UniverUIPlugin（依赖前两个插件）
         console.log('[Univer Init] Step 4: 注册 UniverUIPlugin...');
         try {
-          univer.registerPlugin(UniverUIPlugin, { container: containerRef.current });
+          ensureUniverPopupRoot();
+          univer.registerPlugin(UniverUIPlugin, {
+            container: containerRef.current,
+            popupRootId: UNIVER_POPUP_ROOT_ID,
+          });
           console.log('[Univer Init] Step 4 OK');
         } catch (e) {
           console.error('[Univer Init] Step 4 失败: UniverUIPlugin 注册失败:', e);

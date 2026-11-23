@@ -138,6 +138,9 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
   const [fieldModalScope, setFieldModalScope] = useState('main');
   const [fieldModalSelected, setFieldModalSelected] = useState<number[]>([]);
   const [univerModalOpen, setUniverModalOpen] = useState(false);
+  // 当前 Univer 设计器实际使用的字段白名单：行内按钮用当前组，顶部按钮用全部组并集
+  const [univerDesignFieldIds, setUniverDesignFieldIds] = useState<string[]>([]);
+  const [univerDesignNodeKey, setUniverDesignNodeKey] = useState<string | undefined>(undefined);
   const univerApiRef = useRef<{ save: () => Promise<boolean> } | null>(null);
   // 方案C：单个表单的数据菜单名 + 角色级显示名
   const [formMenuName, setFormMenuName] = useState<string>('');
@@ -190,6 +193,7 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
               const key = a.objtype + '_' + a.objid;
               if (!legacyGroups.has(key)) {
                 legacyGroups.set(key, {
+                  groupKey: `legacy-${a.objtype}-${a.objid}`,
                   groupName: '旧配置-' + a.objid,
                   subjects: [{ objtype: Number(a.objtype), objid: String(a.objid), includesub: Number(a.includesub || 0) }],
                   fields: [],
@@ -280,8 +284,8 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
   };
 
   const canExcelDesign = buttons.some((btn: any) => btn.code === 'exceldesign');
-  // 只把字段权限里可见/可编辑的字段交给 Univer 设计器
-  const univerAllowedFieldIds = useMemo(() => {
+  // 顶部总按钮：所有授权对象组的字段并集
+  const allUniverAllowedFieldIds = useMemo(() => {
     const ids = new Set<string>();
     fieldGroups.forEach((g) => (g.fields || []).forEach((f) => {
       if (Number(f.rightvalue) >= 1) ids.add(String(f.fieldId));
@@ -289,12 +293,24 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
     return Array.from(ids);
   }, [fieldGroups]);
 
-  const handleOpenExcelDesign = () => {
-    if (!formId || !univerAllowedFieldIds.length) {
+  const fieldIdsOfGroup = (group?: FieldAuthGroupVO) => {
+    const ids = new Set<string>();
+    (group?.fields || []).forEach((f) => {
+      if (Number(f.rightvalue) >= 1) ids.add(String(f.fieldId));
+    });
+    return Array.from(ids);
+  };
+
+  const handleOpenExcelDesign = (group?: FieldAuthGroupVO) => {
+    const ids = group ? fieldIdsOfGroup(group) : allUniverAllowedFieldIds;
+    if (!formId || !ids.length) {
       message.warning('请先配置字段权限，再设计新增/编辑页面');
       return;
     }
     univerApiRef.current = null;
+    setUniverDesignFieldIds(ids);
+    // 行内按钮传了 group：按组隔离布局；顶部总按钮不传：使用表单级通用布局
+    setUniverDesignNodeKey(group ? (group.groupKey || `group-${group.id || ''}`) : undefined);
     setUniverModalOpen(true);
   };
 
@@ -675,9 +691,21 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
 
 
   // ===== 按授权对象组配置字段权限：一组对象共享一份字段权限 =====
+  const makeGroupKey = () => {
+    const rand = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    return `field-group-${rand}`;
+  };
+
   const addFieldGroup = () => setFieldGroups((prev) => [
     ...prev,
-    { groupName: '授权对象组' + (prev.length + 1), subjects: [], fields: [] },
+    {
+      groupKey: makeGroupKey(),
+      groupName: '授权对象组' + (prev.length + 1),
+      subjects: [],
+      fields: [],
+    },
   ]);
 
   const updateFieldGroup = (idx: number, patch: Partial<FieldAuthGroupVO>) =>
@@ -809,9 +837,9 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
       width: fieldConfigured && canExcelDesign ? 260 : 170,
       render: (_v, _r, i) => (
         <Space size={4}>
-          <Button type="link" size="small" disabled={disabled || !(fieldGroups[i]?.subjects || []).length} onClick={() => openGroupFieldModal(i)}>配置字段</Button>
+          <Button type="link" size="small" disabled={disabled} onClick={() => openGroupFieldModal(i)}>配置字段</Button>
           {fieldConfigured && canExcelDesign && (
-            <Button type="link" size="small" icon={<TableOutlined />} onClick={handleOpenExcelDesign}>Univer设计</Button>
+            <Button type="link" size="small" icon={<TableOutlined />} onClick={() => handleOpenExcelDesign(fieldGroups[i])}>Univer设计</Button>
           )}
           <Button danger type="link" size="small" disabled={disabled} onClick={() => removeFieldGroup(i)}>删除</Button>
         </Space>
@@ -1084,7 +1112,8 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
           embedded
           formId={formId}
           formName={formName}
-          allowedFieldIds={univerAllowedFieldIds}
+          nodeKey={univerDesignNodeKey}
+          allowedFieldIds={univerDesignFieldIds}
           onReady={(api) => { univerApiRef.current = api; }}
         />
       </div>

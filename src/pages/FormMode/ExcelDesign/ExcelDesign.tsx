@@ -211,6 +211,31 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
   );
   const isFieldAllowed = (f: any) => !allowedFieldIdSet || allowedFieldIdSet.has(String(f?.id));
 
+  /** 递归清理布局中的非白名单字段单元格（兼容 sheets / parentData / detailTables / tabTables） */
+  const filterLayoutByAllowedFields = (node: any): any => {
+    if (!allowedFieldIdSet || !node || typeof node !== 'object') return node;
+    Object.keys(node).forEach((key) => {
+      const value = node[key];
+      if (!value || typeof value !== 'object') return;
+      if (key === 'cellData') {
+        Object.keys(value).forEach((rk) => {
+          const row = value[rk];
+          if (!row || typeof row !== 'object') return;
+          Object.keys(row).forEach((ck) => {
+            const cell = row[ck];
+            const meta = cell?.fieldMeta;
+            const fieldId = meta?.fieldId ?? meta?.id ?? meta?.fieldid;
+            if (fieldId != null && String(fieldId) !== '' && !allowedFieldIdSet.has(String(fieldId))) {
+              delete row[ck];
+            }
+          });
+        });
+      }
+      filterLayoutByAllowedFields(value);
+    });
+    return node;
+  };
+
   const [selectedField, setSelectedField] = useState<any>(null);
   // 表单字段选项（供「属性面板 → 合计字段选择器」使用：合计字段需指定对哪个字段求和）
   const [fieldOptions, setFieldOptions] = useState<{ label: string; value: string }[]>([]);
@@ -991,6 +1016,12 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
           }
         } catch (e) {
           console.warn('[LoadFormLayout] 回填字段类型失败（不影响布局加载）:', e);
+        }
+
+        // 带字段权限白名单时，历史布局里的非授权字段不应进入设计画布
+        if (allowedFieldIdSet) {
+          layoutJson = filterLayoutByAllowedFields(layoutJson);
+          console.log('[LoadFormLayout] 已按字段权限白名单过滤旧布局');
         }
 
         // 竞态防护：初始异步加载若晚于用户拖入字段才返回，会覆盖掉已带字段元数据的布局，
