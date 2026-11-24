@@ -206,9 +206,9 @@ const FormDataList: React.FC = () => {
     navigate(`/formmode/formview/aae?mode=edit&id=${record.id}&formId=${formId}`);
   };
 
-  // 查看（复用 FormViewAae 的详情加载，已对齐 GET /by-form 端点）
+  // 查看：使用显示布局（layoutType=1），运行期由 AAE 页按当前用户命中组加载
   const handleView = (record: FormDataRecord) => {
-    navigate(`/formmode/formview/aae?mode=edit&id=${record.id}&formId=${formId}`);
+    navigate(`/formmode/formview/aae?mode=view&id=${record.id}&formId=${formId}`);
   };
 
   // 删除

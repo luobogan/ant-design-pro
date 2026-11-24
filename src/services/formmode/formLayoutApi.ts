@@ -52,6 +52,32 @@ export async function parseLayoutJson(layoutJson: string) {
   });
 }
 
+/** 查询表单四类布局类型显示名 */
+export async function getFormLayoutTypeNames(formId: string) {
+  return request(`/api/blade-formmode/form-layout/type-names/${formId}`, { method: 'GET' });
+}
+
+/** 保存表单布局类型显示名 */
+export async function saveFormLayoutTypeName(data: {
+  formId: string;
+  layoutType: number;
+  layoutName: string;
+}) {
+  return request('/api/blade-formmode/form-layout/type-name/save', { method: 'POST', data });
+}
+
+/** 同步表单布局到其它组或其它布局类型 */
+export async function syncFormLayout(data: {
+  formId: string;
+  sourceNodeKey?: string;
+  sourceLayoutType: number;
+  targetNodeKeys?: string[];
+  targetLayoutTypes?: number[];
+  overwrite?: boolean;
+}) {
+  return request('/api/blade-formmode/form-layout/sync', { method: 'POST', data });
+}
+
 /**
  * 删除表单布局
  * @param id 布局ID

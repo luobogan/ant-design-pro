@@ -11,11 +11,12 @@ import {
   Space,
   Switch,
   Table,
+  Checkbox,
   Tabs,
   Tag,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { DeleteOutlined, PlusOutlined, TableOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, PlusOutlined, SyncOutlined, TableOutlined } from '@ant-design/icons';
 import {
   getFieldAuthorizes,
   getModeDataScopes,
@@ -35,6 +36,8 @@ import * as matrixApi from '@/pages/System/Matrix/service';
 import AuthObjectPicker, { AUTH_OBJECT_TYPE_OPTIONS, AuthObjectTypeSelect } from '@/components/FormMode/AuthObjectPicker';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import ExcelDesign from '@/pages/FormMode/ExcelDesign/ExcelDesign';
+import { LAYOUT_TYPES, DEFAULT_LAYOUT_TYPE_NAMES, layoutTypeName } from '@/pages/FormMode/ExcelDesign/layoutTypes';
+import { getFormLayout, getFormLayoutTypeNames, saveFormLayoutTypeName, syncFormLayout } from '@/services/formmode/formLayoutApi';
 
 interface Props {
   /** 表单ID（workflow_bill.id）；权限按反查出的 modeId 落库 */
@@ -141,6 +144,16 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
   // 当前 Univer 设计器实际使用的字段白名单：行内按钮用当前组，顶部按钮用全部组并集
   const [univerDesignFieldIds, setUniverDesignFieldIds] = useState<string[]>([]);
   const [univerDesignNodeKey, setUniverDesignNodeKey] = useState<string | undefined>(undefined);
+  const [univerLayoutType, setUniverLayoutType] = useState<number>(0);
+  const [layoutTypeNames, setLayoutTypeNames] = useState<Record<number, string>>({ ...DEFAULT_LAYOUT_TYPE_NAMES });
+  const [configuredLayoutTypes, setConfiguredLayoutTypes] = useState<Set<number>>(new Set());
+  const [layoutNameEditing, setLayoutNameEditing] = useState<number | null>(null);
+  const [layoutNameDraft, setLayoutNameDraft] = useState('');
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncMode, setSyncMode] = useState<'groups' | 'types'>('groups');
+  const [syncTargetNodes, setSyncTargetNodes] = useState<string[]>([]);
+  const [syncTargetTypes, setSyncTargetTypes] = useState<number[]>([]);
+  const [syncOverwrite, setSyncOverwrite] = useState(false);
   const univerApiRef = useRef<{ save: () => Promise<boolean> } | null>(null);
   // 方案C：单个表单的数据菜单名 + 角色级显示名
   const [formMenuName, setFormMenuName] = useState<string>('');
@@ -301,6 +314,31 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
     return Array.from(ids);
   };
 
+  const loadLayoutTypeMeta = async (nodeKey?: string) => {
+    if (!formId) return;
+    try {
+      const namesRes: any = await getFormLayoutTypeNames(formId);
+      const rows = Array.isArray(namesRes?.data) ? namesRes.data : [];
+      const names: Record<number, string> = { ...DEFAULT_LAYOUT_TYPE_NAMES };
+      rows.forEach((r: any) => {
+        const t = Number(r?.layoutType ?? r?.layout_type);
+        const n = String(r?.layoutName ?? r?.layout_name ?? '').trim();
+        if (n && [0, 1, 3, 4].includes(t)) names[t] = n;
+      });
+      setLayoutTypeNames(names);
+
+      const checks = await Promise.all(LAYOUT_TYPES.map(async (t) => {
+        try {
+          const res: any = await getFormLayout(formId, t.value, nodeKey, false);
+          return !!res?.data?.layoutJson;
+        } catch { return false; }
+      }));
+      const configured = new Set<number>();
+      LAYOUT_TYPES.forEach((t, i) => { if (checks[i]) configured.add(t.value); });
+      setConfiguredLayoutTypes(configured);
+    } catch { /* 默认值兜底 */ }
+  };
+
   const handleOpenExcelDesign = (group?: FieldAuthGroupVO) => {
     const ids = group ? fieldIdsOfGroup(group) : allUniverAllowedFieldIds;
     if (!formId || !ids.length) {
@@ -308,10 +346,65 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
       return;
     }
     univerApiRef.current = null;
+    setUniverLayoutType(0);
+    setLayoutNameEditing(null);
+    setSyncModalOpen(false);
     setUniverDesignFieldIds(ids);
     // 行内按钮传了 group：按组隔离布局；顶部总按钮不传：使用表单级通用布局
     setUniverDesignNodeKey(group ? (group.groupKey || `group-${group.id || ''}`) : undefined);
     setUniverModalOpen(true);
+    loadLayoutTypeMeta(group ? (group.groupKey || `group-${group.id || ''}`) : undefined);
+  };
+
+  const handleSaveLayoutTypeName = async (type: number) => {
+    const name = layoutNameDraft.trim();
+    if (!formId || !name) {
+      message.warning('显示名不能为空');
+      return;
+    }
+    const res: any = await saveFormLayoutTypeName({ formId, layoutType: type, layoutName: name });
+    if (res?.success === false) {
+      message.error(res?.msg || '显示名保存失败');
+      return;
+    }
+    setLayoutTypeNames((prev) => ({ ...prev, [type]: name }));
+    setLayoutNameEditing(null);
+    message.success('布局显示名已保存');
+  };
+
+  const openSyncModal = (mode: 'groups' | 'types') => {
+    setSyncMode(mode);
+    setSyncTargetNodes([]);
+    setSyncTargetTypes([]);
+    setSyncOverwrite(false);
+    setSyncModalOpen(true);
+  };
+
+  const handleSyncLayout = async () => {
+    if (!formId) return;
+    if (syncMode === 'groups' && !syncTargetNodes.length) {
+      message.warning('请选择目标组');
+      return;
+    }
+    if (syncMode === 'types' && !syncTargetTypes.length) {
+      message.warning('请选择目标布局类型');
+      return;
+    }
+    const res: any = await syncFormLayout({
+      formId,
+      sourceNodeKey: univerDesignNodeKey,
+      sourceLayoutType: univerLayoutType,
+      targetNodeKeys: syncMode === 'groups' ? syncTargetNodes : undefined,
+      targetLayoutTypes: syncMode === 'types' ? syncTargetTypes : undefined,
+      overwrite: syncOverwrite,
+    });
+    if (res?.success === false) {
+      message.error(res?.msg || '布局同步失败');
+      return;
+    }
+    message.success(`已同步 ${res?.data ?? 0} 个目标`);
+    setSyncModalOpen(false);
+    loadLayoutTypeMeta(univerDesignNodeKey);
   };
 
   const handleSaveUniver = async () => {
@@ -321,7 +414,8 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
     }
     const ok = await univerApiRef.current.save();
     if (ok) {
-      message.success('新增/编辑页面布局已保存');
+      message.success(`「${layoutTypeName(univerLayoutType, layoutTypeNames)}」布局已保存`);
+      loadLayoutTypeMeta(univerDesignNodeKey);
       setUniverModalOpen(false);
     }
   };
@@ -1091,7 +1185,7 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
         </div>
       )}
     <Modal
-      title={`新增/编辑页面设计 - ${formName || formId || ''}`}
+      title={`Univer设计 - ${formName || formId || ''} - ${layoutTypeName(univerLayoutType, layoutTypeNames)}`}
       open={univerModalOpen}
       onCancel={() => setUniverModalOpen(false)}
       afterClose={() => { univerApiRef.current = null; }}
@@ -1103,19 +1197,93 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
       footer={
         <Space>
           <Button onClick={() => setUniverModalOpen(false)}>取消</Button>
-          <Button type="primary" onClick={handleSaveUniver}>保存布局</Button>
+          <Button type="primary" onClick={handleSaveUniver}>保存「{layoutTypeName(univerLayoutType, layoutTypeNames)}」布局</Button>
         </Space>
       }
     >
-      <div style={{ height: '100%', overflow: 'hidden' }}>
-        <ExcelDesign
-          embedded
-          formId={formId}
-          formName={formName}
-          nodeKey={univerDesignNodeKey}
-          allowedFieldIds={univerDesignFieldIds}
-          onReady={(api) => { univerApiRef.current = api; }}
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0' }}>
+          <Space wrap size={4}>
+            {LAYOUT_TYPES.map((t) => (
+              <Button
+                key={t.value}
+                size="small"
+                type={univerLayoutType === t.value ? 'primary' : 'default'}
+                onClick={() => setUniverLayoutType(t.value)}
+              >
+                {layoutTypeName(t.value, layoutTypeNames)}{configuredLayoutTypes.has(t.value) ? ' •' : ''}
+              </Button>
+            ))}
+            <Button size="small" icon={<EditOutlined />} onClick={() => {
+              setLayoutNameEditing(univerLayoutType);
+              setLayoutNameDraft(layoutTypeName(univerLayoutType, layoutTypeNames));
+            }}>改名</Button>
+            <Button size="small" icon={<SyncOutlined />} onClick={() => openSyncModal('groups')}
+              disabled={!formId || fieldGroups.length < 2}>同步到其他组</Button>
+            <Button size="small" icon={<SyncOutlined />} onClick={() => openSyncModal('types')}
+              disabled={!formId}>同步到其他布局类型</Button>
+          </Space>
+          {layoutNameEditing != null && (
+            <Space style={{ marginTop: 8 }}>
+              <Input size="small" style={{ width: 220 }} value={layoutNameDraft}
+                onChange={(e) => setLayoutNameDraft(e.target.value)}
+                onPressEnter={() => handleSaveLayoutTypeName(layoutNameEditing)} />
+              <Button size="small" type="primary" onClick={() => handleSaveLayoutTypeName(layoutNameEditing)}>保存名称</Button>
+              <Button size="small" onClick={() => setLayoutNameEditing(null)}>取消</Button>
+            </Space>
+          )}
+        </div>
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <ExcelDesign
+            embedded
+            formId={formId}
+            formName={formName}
+            nodeKey={univerDesignNodeKey}
+            allowedFieldIds={univerDesignFieldIds}
+            layoutType={univerLayoutType}
+            hideLayoutTypeSelect
+            onReady={(api) => { univerApiRef.current = api; }}
+          />
+        </div>
+      </div>
+    </Modal>
+    <Modal
+      title={syncMode === 'groups' ? '同步布局到同表单其他组' : '同步布局到其他布局类型'}
+      open={syncModalOpen}
+      onCancel={() => setSyncModalOpen(false)}
+      onOk={handleSyncLayout}
+      okText="确认同步"
+      cancelText="取消"
+      destroyOnHidden
+    >
+      <div style={{ marginBottom: 8, color: '#666' }}>
+        源布局：{layoutTypeName(univerLayoutType, layoutTypeNames)}（{univerDesignNodeKey || '表单级通用'}）
+      </div>
+      {syncMode === 'groups' ? (
+        <Checkbox.Group
+          value={syncTargetNodes}
+          onChange={(v) => setSyncTargetNodes(v.map(String))}
+          style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+          options={fieldGroups
+            .filter((g) => (g.groupKey || `group-${g.id || ''}`) !== univerDesignNodeKey)
+            .map((g) => ({
+              value: g.groupKey || `group-${g.id || ''}`,
+              label: `${g.groupName || '未命名组'}（${g.groupKey || g.id || ''}）`,
+            }))}
         />
+      ) : (
+        <Checkbox.Group
+          value={syncTargetTypes}
+          onChange={(v) => setSyncTargetTypes(v.map(Number))}
+          options={LAYOUT_TYPES.filter((t) => t.value !== univerLayoutType).map((t) => ({
+            value: t.value,
+            label: layoutTypeName(t.value, layoutTypeNames),
+          }))}
+        />
+      )}
+      <div style={{ marginTop: 12 }}>
+        <Switch checked={syncOverwrite} onChange={setSyncOverwrite} />
+        <span style={{ marginLeft: 8 }}>覆盖目标已有布局</span>
       </div>
     </Modal>
     {groupFieldModal}

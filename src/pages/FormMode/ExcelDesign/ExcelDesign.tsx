@@ -54,6 +54,7 @@ import { EXCEL_PREVIEW_DATA_KEY } from './ExcelPreviewPage';
 // 布局级代码块：存库需 base64 编码，规避后端 XSS 过滤剥掉 <script> 标签
 import { encodeScriptForStorage, decodeScriptFromStorage } from './utils/runLayoutScript';
 import { saveFormLayout, getFormLayout } from '@/services/formmode/formLayoutApi';
+import { LAYOUT_TYPES } from './layoutTypes';
 import { fieldDefinitionApi } from '@/services/formmode';
 // 字段类型编码 → 控件类型 / 中文标签的单一来源（含历史布局类型回填）
 import { backfillLayoutFieldMeta } from '@/components/FormMode/fieldTypes';
@@ -185,6 +186,10 @@ export interface ExcelDesignProps {
   embedded?: boolean;
   /** 字段白名单（来自字段权限配置）：只展示这些字段；不传显示全部 */
   allowedFieldIds?: string[];
+  /** 受控布局类型；传入后由外层页签控制 */
+  layoutType?: number;
+  /** 隐藏画布内部的布局类型下拉（外层已提供页签时传 true） */
+  hideLayoutTypeSelect?: boolean;
   /**
    * 把「保存」能力回传给宿主（供弹窗底部「保存」按钮调用）。
    * 这样保存入口不依赖 Univer 原生 ribbon 的注册时序，弹窗里一定有可用的保存。
@@ -302,7 +307,8 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
   // ⚠️ 与泛微 E9 layouttype（0显示 1新建 2编辑 3监控 4打印）不是同一套编码：
   //    同为「0」时，本项目是「编辑」、E9 是「显示」，语义相反。
   //    后端互转统一走 utils.E9LayoutTypeMapper；此处 UI 与接口均使用自有值，避免歧义。
-  const [layoutType, setLayoutType] = useState<number>(0);
+  const [innerLayoutType, setLayoutType] = useState<number>(props.layoutType ?? 0);
+  const layoutType = props.layoutType ?? innerLayoutType;
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [pendingField, setPendingField] = useState<any>(null);
@@ -1061,6 +1067,12 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
       setLoading(false);
     }
   };
+
+  // 受控布局类型变化：立即加载对应类型的布局
+  useEffect(() => {
+    if (props.layoutType == null) return;
+    loadFormLayout(true, props.layoutType);
+  }, [props.layoutType]);
 
   // ──────────────────────────────────────────────
   // 保存表单布局 - 从 UniverExcelGrid 获取数据
@@ -2227,25 +2239,22 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
               <Card style={{ minWidth: 0 }}>
                 {/* 布局类型切换：按「编辑 / 显示 / 监控 / 打印」分别设计与保存布局（自有值）。
                     读取与保存均带上 layoutType，后端按 (form_id, layout_type, node_key) 回退取布局。 */}
-                <Space style={{ marginBottom: 8 }} align="center">
-                  <span style={{ fontSize: 13, color: '#666' }}>布局类型</span>
-                  <Select
-                    size="small"
-                    style={{ width: 170 }}
-                    value={layoutType}
-                    onChange={(v: number) => {
-                      setLayoutType(v);
-                      // 立即以新类型重新加载（typeOverride 规避闭包读到切换前的旧值）
-                      loadFormLayout(true, v);
-                    }}
-                    options={[
-                      { label: '编辑（含新建）', value: 0 },
-                      { label: '显示', value: 1 },
-                      { label: '监控', value: 3 },
-                      { label: '打印', value: 4 },
-                    ]}
-                  />
-                </Space>
+                {!props.hideLayoutTypeSelect && (
+                  <Space style={{ marginBottom: 8 }} align="center">
+                    <span style={{ fontSize: 13, color: '#666' }}>布局类型</span>
+                    <Select
+                      size="small"
+                      style={{ width: 170 }}
+                      value={layoutType}
+                      onChange={(v: number) => {
+                        if (props.layoutType == null) setLayoutType(v);
+                        // 立即以新类型重新加载（typeOverride 规避闭包读到切换前的旧值）
+                        loadFormLayout(true, v);
+                      }}
+                      options={LAYOUT_TYPES.map((t) => ({ label: t.label, value: t.value }))}
+                    />
+                  </Space>
+                )}
                 {/* 操作区：模板 / 格式 / 插入 / 字段属性 / 明细表。
                     优先用 Univer 原生 Ribbon（registerDesignerRibbon 注册的「模板/格式/插入/字段属性/明细表」
                     5 个页签，紧贴原生「开始」之后）；原生注册成功时本 React 工具条隐藏（仅保留弹窗承载），

@@ -33,6 +33,36 @@ export interface FieldPerm {
  *
  * @param formId 表单ID（workflow_bill.id）
  */
+/** 运行期字段权限聚合结果（含当前命中组的 Univer 布局标识） */
+export interface RuntimeFieldPermResult {
+  fieldPerms: FieldPerm[];
+  layoutNodeKey?: string;
+  layoutType?: number;
+  layoutGroupName?: string;
+}
+
+/** 运行期字段权限 + 当前用户命中组布局标识 */
+export const getRuntimeFieldPermByForm = async (
+  formId: string | number,
+  layoutType: number,
+): Promise<RuntimeFieldPermResult> => {
+  try {
+    const res: any = await request(`${API_BASE_PATH}/right/runtime/field-perm/by-form/${formId}`, {
+      method: 'GET',
+      params: { layoutType },
+    });
+    const data = res?.data;
+    return {
+      fieldPerms: Array.isArray(data?.fieldPerms) ? data.fieldPerms : [],
+      layoutNodeKey: data?.layoutNodeKey || undefined,
+      layoutType: data?.layoutType ?? layoutType,
+      layoutGroupName: data?.layoutGroupName || undefined,
+    };
+  } catch (e) {
+    return { fieldPerms: [], layoutType };
+  }
+};
+
 export const getFieldPermByForm = async (formId: string | number): Promise<FieldPerm[]> => {
   try {
     const res: any = await request(`${API_BASE_PATH}/right/field-perm/by-form/${formId}`, {
