@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Button, Drawer, Empty, Input, InputNumber, message, Modal, Popconfirm, Select, Space, Steps, Table, Tag,
+  Button, Drawer, Empty, Input, InputNumber, message, Modal, Popconfirm, Select, Space, Steps, Switch, Table, Tag, TreeSelect,
 } from 'antd';
 import { CopyOutlined, DeleteOutlined, EditOutlined, PlusOutlined, TableOutlined } from '@ant-design/icons';
 import AuthObjectPicker from '@/components/FormMode/AuthObjectPicker';
 import { resolveItemNames, type PersonOrgCategory } from '@/components/FormMode/personOrg';
 import * as roleApi from '@/services/authority/role';
 import * as matrixApi from '@/pages/System/Matrix/service';
+import * as menuApi from '@/services/system/menu';
 import ExcelDesign from '@/pages/FormMode/ExcelDesign/ExcelDesign';
 import { fieldApi } from '@/services/formmode';
 import type { FieldDefinition } from '@/services/formmode/typings';
@@ -32,6 +33,17 @@ const SUBJECT_TYPES = [
 ];
 
 const PICKER_TYPE: Record<number, number> = { 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 7 };
+
+const MENU_ICON_OPTIONS = [
+  { value: 'file-text', label: '文档' },
+  { value: 'form', label: '表单' },
+  { value: 'table', label: '表格' },
+  { value: 'appstore', label: '应用' },
+  { value: 'dashboard', label: '仪表盘' },
+  { value: 'folder', label: '目录' },
+  { value: 'setting', label: '设置' },
+  { value: 'edit', label: '编辑' },
+];
 
 const SUBJECT_CATEGORY: Record<number, PersonOrgCategory> = {
   1: 'role',
@@ -104,12 +116,16 @@ const SCOPE_TYPES = [
   { value: 5, label: '自定义' },
 ];
 
+/** 人员方案按当前用户身份授权，机构维度由部门/分部等方案表达，不再提供机构档位。 */
+const scopeTypeOptions = (subjectType?: number) => Number(subjectType) === 4
+  ? SCOPE_TYPES.filter((item) => item.value === 1 || item.value === 2 || item.value === 5)
+  : SCOPE_TYPES;
+
 const SCOPE_RIGHT_TYPES = [
   { value: 1, label: '查看' },
   { value: 2, label: '新增' },
   { value: 3, label: '编辑' },
   { value: 4, label: '删除' },
-  { value: 5, label: '详情' },
 ];
 
 const emptyScheme = (formId?: string): AuthScheme => ({
@@ -125,7 +141,17 @@ const emptyScheme = (formId?: string): AuthScheme => ({
   rights: [],
   fieldGroups: [],
   dataScopes: [],
-  menu: { formMenuName: '', menuShares: [], roleMenuNames: {} },
+  menu: {
+    parentId: '0',
+    formMenuName: '',
+    menuPath: formId ? `/formmode/formview/${formId}` : '',
+    menuIcon: 'file-text',
+    menuAlias: '',
+    menuSort: 5,
+    menuStatus: 1,
+    menuShares: [],
+    roleMenuNames: {},
+  },
 });
 
 const newGroupKey = () => `scheme-group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -157,6 +183,10 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
   const [designGroup, setDesignGroup] = useState<number | null>(null);
   const [fieldSearch, setFieldSearch] = useState('');
   const [fieldScope, setFieldScope] = useState('main');
+  const [menuTree, setMenuTree] = useState<any[]>([]);
+  const [columnPickerIndex, setColumnPickerIndex] = useState<number | null>(null);
+  const [columnPickerValue, setColumnPickerValue] = useState('');
+  const [columnKeyword, setColumnKeyword] = useState('');
   const univerApiRef = useRef<{ save: () => Promise<boolean> } | null>(null);
 
   const load = async () => {
@@ -204,6 +234,10 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
     if (!open || !formId) return;
     load();
     fieldApi.getByFormId(formId).then((r: any) => setFields(Array.isArray(r) ? r : (r?.records || []))).catch(() => setFields([]));
+    menuApi.tree({}).then((r: any) => {
+      const rows = Array.isArray(r) ? r : (r?.data || []);
+      setMenuTree(Array.isArray(rows) ? rows : []);
+    }).catch(() => setMenuTree([]));
   }, [open, formId]);
 
   const update = (patch: Partial<AuthScheme>) => setScheme((prev) => prev ? { ...prev, ...patch } : prev);
@@ -300,19 +334,40 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
   const addScope = () => update({
     dataScopes: [...(scheme?.dataScopes || []), {
       type: 1,
-      scopeType: 3,
-      scopeColumn: 'create_dept',
+      scopeType: Number(scheme?.subjectType) === 4 ? 2 : 3,
+      scopeColumn: Number(scheme?.subjectType) === 4 ? 'modedatacreator' : 'create_dept',
       objtype: scheme?.subjectType,
       objid: scheme?.subjectId,
-      rightTypes: [1, 5],
+      rightTypes: [1],
       subjects: [],
     }],
   });
 
-  const numericColumns = useMemo(
-    () => fields.filter((f) => ['int', 'bigint', 'decimal', 'number', 'integer'].includes(String((f as any).fieldDbType || '').toLowerCase())),
-    [fields],
-  );
+  const numericColumns = useMemo(() => {
+    const seen = new Set<string>();
+    return fields
+      .filter((f) => ['int', 'bigint', 'decimal', 'number', 'integer'].includes(String((f as any).fieldDbType || '').toLowerCase()))
+      .filter((f) => {
+        const key = String(f.fieldDbName || f.fieldName || f.id || '').trim().toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }, [fields]);
+
+  const scopeColumnLabel = (value?: string) => {
+    if (!value) return '选择权限列';
+    const hit = numericColumns.find((f) => (f.fieldDbName || f.fieldName) === value);
+    return hit ? `${hit.fieldLabel || hit.fieldName}（${value}）` : value;
+  };
+
+  const scopeColumnRows = useMemo(() => {
+    const kw = columnKeyword.trim().toLowerCase();
+    if (!kw) return numericColumns;
+    return numericColumns.filter((f) => [
+      f.fieldName, f.fieldLabel, f.fieldDbName,
+    ].some((v) => String(v || '').toLowerCase().includes(kw)));
+  }, [numericColumns, columnKeyword]);
 
   const fieldScopeOf = (f: FieldDefinition) => {
     const dt = Number((f as any).detailTable || 0);
@@ -379,6 +434,21 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
       .map((id) => ({ fieldId: String(id), rightvalue: 1 as const }));
     setSchemeFields([...kept, ...added]);
   };
+
+  const menuParentOptions = useMemo(() => {
+    const currentMenuId = scheme?.menu?.menuId == null ? '' : String(scheme.menu.menuId);
+    const build = (nodes: any[]): any[] => (nodes || [])
+      .filter((n) => Number(n.category ?? 1) === 1 && String(n.id ?? n.value) !== currentMenuId)
+      .map((n) => {
+        const id = String(n.id ?? n.value ?? '');
+        return {
+          title: n.title || n.name || n.code || id,
+          value: id,
+          children: build(n.children || []),
+        };
+      });
+    return [{ title: '顶层菜单', value: '0' }, ...build(menuTree)];
+  }, [menuTree, scheme?.menu?.menuId]);
 
   const subjectPickerType = scheme ? PICKER_TYPE[scheme.subjectType] : undefined;
   useEffect(() => {
@@ -531,7 +601,70 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
 
   const step1 = scheme && (
     <Space direction="vertical" style={{ width: '100%' }} size={12}>
-      <div><div style={{ marginBottom: 6 }}>表单数据菜单名</div><Input style={{ width: 420 }} value={scheme.menu?.formMenuName} onChange={(e) => update({ menu: { ...scheme.menu, formMenuName: e.target.value } })} /></div>
+      <div style={{ border: '1px solid #f0f0f0', padding: 12 }}>
+        <div style={{ fontWeight: 600, marginBottom: 10 }}>菜单设置（门户左侧导航）</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+          <div>
+            <div style={{ marginBottom: 6 }}>上级菜单</div>
+            <TreeSelect
+              style={{ width: '100%' }}
+              value={scheme.menu?.parentId || '0'}
+              treeData={menuParentOptions}
+              treeDefaultExpandAll
+              showSearch
+              treeNodeFilterProp="title"
+              onChange={(v) => update({ menu: { ...scheme.menu, parentId: String(v || '0') } })}
+            />
+          </div>
+          <div>
+            <div style={{ marginBottom: 6 }}>菜单名称</div>
+            <Input
+              value={scheme.menu?.formMenuName}
+              placeholder="表单数据"
+              onChange={(e) => update({ menu: { ...scheme.menu, formMenuName: e.target.value } })}
+            />
+          </div>
+          <div>
+            <div style={{ marginBottom: 6 }}>菜单图标</div>
+            <Select
+              style={{ width: '100%' }}
+              value={scheme.menu?.menuIcon || 'file-text'}
+              options={MENU_ICON_OPTIONS}
+              onChange={(v) => update({ menu: { ...scheme.menu, menuIcon: v } })}
+            />
+          </div>
+          <div>
+            <div style={{ marginBottom: 6 }}>菜单别名</div>
+            <Input
+              value={scheme.menu?.menuAlias}
+              placeholder="可为空，默认同菜单名称"
+              onChange={(e) => update({ menu: { ...scheme.menu, menuAlias: e.target.value } })}
+            />
+          </div>
+          <div>
+            <div style={{ marginBottom: 6 }}>菜单排序</div>
+            <InputNumber
+              style={{ width: '100%' }}
+              min={0}
+              value={scheme.menu?.menuSort ?? 5}
+              onChange={(v) => update({ menu: { ...scheme.menu, menuSort: v ?? 5 } })}
+            />
+          </div>
+          <div>
+            <div style={{ marginBottom: 6 }}>显示状态</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 32 }}>
+              <Switch
+                checked={(scheme.menu?.menuStatus ?? 1) === 1}
+                onChange={(checked) => update({ menu: { ...scheme.menu, menuStatus: checked ? 1 : 0 } })}
+              />
+              <span style={{ color: '#666' }}>{(scheme.menu?.menuStatus ?? 1) === 1 ? '显示' : '隐藏'}</span>
+            </div>
+          </div>
+          <div style={{ gridColumn: '1 / -1', color: '#999' }}>
+            路由地址固定为 <code>/formmode/formview/{formId}</code>，新增编辑页自动作为其子菜单，避免动态路由组件无法定位。
+          </div>
+        </div>
+      </div>
       <Button type="dashed" icon={<PlusOutlined />} onClick={addRight} block>新增模块权限</Button>
       <Table
         rowKey={(_r, i) => String(i)}
@@ -642,6 +775,9 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
       <div style={{ color: '#666' }}>
         数据范围自动使用当前方案的授权对象：{scheme.subjectType === 7 ? '所有登录用户' : (scheme.subjectName || String(scheme.subjectId || '待选择'))}，无需重复配置。
       </div>
+      {Number(scheme.subjectType) === 4 ? (
+        <div style={{ color: '#999' }}>人员方案仅提供“全部可见 / 本人可见 / 自定义”；机构范围请配置部门、分部或全员方案。</div>
+      ) : null}
       <Button type="dashed" icon={<PlusOutlined />} onClick={addScope} block>新增数据范围</Button>
       <Table
         rowKey={(_r, i) => String(i)}
@@ -652,7 +788,7 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
           {
             title: '权限类型', dataIndex: 'rightTypes', width: 190,
             render: (v, r, i) => {
-              const rights = Array.isArray(v) && v.length ? v : (r.type === 2 ? [1, 3, 4] : [1, 5]);
+              const rights = Array.isArray(v) && v.length ? v : (r.type === 2 ? [1, 3, 4] : [1]);
               return (
                 <Select
                   mode="multiple"
@@ -672,18 +808,49 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
           },
           {
             title: '数据范围', dataIndex: 'scopeType', width: 190,
-            render: (v, _r, i) => <Select style={{ width: 170 }} value={v || 3} options={SCOPE_TYPES} onChange={(nv) => {
-              const next = [...(scheme.dataScopes || [])]; next[i] = { ...next[i], scopeType: nv }; update({ dataScopes: next });
-            }} />,
+            render: (v, _r, i) => {
+              const options = scopeTypeOptions(scheme.subjectType);
+              return (
+                <Select
+                  style={{ width: 170 }}
+                  value={v || (Number(scheme.subjectType) === 4 ? 2 : 3)}
+                  options={options}
+                  onChange={(nv) => {
+                    const next = [...(scheme.dataScopes || [])];
+                    next[i] = { ...next[i], scopeType: nv };
+                    update({ dataScopes: next });
+                  }}
+                />
+              );
+            },
           },
           {
             title: '权限列', dataIndex: 'scopeColumn', width: 180,
-            render: (v, r, i) => (
-              <Select
-                style={{ width: 160 }} value={v} allowClear showSearch optionFilterProp="label"
-                options={numericColumns.map((f) => ({ value: f.fieldDbName || f.fieldName, label: f.fieldLabel || f.fieldName }))}
-                onChange={(nv) => { const next = [...(scheme.dataScopes || [])]; next[i] = { ...next[i], scopeColumn: nv }; update({ dataScopes: next }); }}
-              />
+            render: (v, _r, i) => (
+              <Space.Compact style={{ width: 160 }}>
+                <Button
+                  style={{ width: 126, textAlign: 'left' }}
+                  onClick={() => {
+                    setColumnPickerIndex(i);
+                    setColumnPickerValue(v || '');
+                    setColumnKeyword('');
+                  }}
+                >
+                  {scopeColumnLabel(v)}
+                </Button>
+                {v ? (
+                  <Button
+                    danger
+                    onClick={() => {
+                      const next = [...(scheme.dataScopes || [])];
+                      next[i] = { ...next[i], scopeColumn: undefined };
+                      update({ dataScopes: next });
+                    }}
+                  >
+                    清
+                  </Button>
+                ) : null}
+              </Space.Compact>
             ),
           },
           {
@@ -780,6 +947,51 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
             <div style={{ padding: 40, textAlign: 'center', color: '#999' }}>请先为该字段组配置字段</div>
           )}
         </div>
+      </Modal>
+
+      <Modal
+        title="选择权限列"
+        open={columnPickerIndex != null}
+        width={720}
+        destroyOnHidden
+        onCancel={() => setColumnPickerIndex(null)}
+        onOk={() => {
+          if (columnPickerIndex == null || !columnPickerValue) {
+            message.warning('请选择权限列');
+            return;
+          }
+          const next = [...(scheme?.dataScopes || [])];
+          next[columnPickerIndex] = { ...next[columnPickerIndex], scopeColumn: columnPickerValue };
+          update({ dataScopes: next });
+          setColumnPickerIndex(null);
+        }}
+      >
+        <Input.Search
+          allowClear
+          style={{ marginBottom: 12 }}
+          placeholder="搜索字段名称 / 数据库列名"
+          value={columnKeyword}
+          onChange={(e) => setColumnKeyword(e.target.value)}
+        />
+        <Table
+          rowKey={(r) => String(r.fieldDbName || r.fieldName || r.id)}
+          size="small"
+          pagination={false}
+          scroll={{ y: 360 }}
+          dataSource={scopeColumnRows}
+          rowSelection={{
+            type: 'radio',
+            selectedRowKeys: columnPickerValue ? [columnPickerValue] : [],
+            onChange: (keys) => setColumnPickerValue(String(keys[0] || '')),
+          }}
+          locale={{ emptyText: <Empty description="没有可用字段" /> }}
+          columns={[
+            { title: '字段名称', dataIndex: 'fieldLabel', width: 180, render: (v, r) => v || r.fieldName },
+            { title: '字段名', dataIndex: 'fieldName', width: 160 },
+            { title: '数据库列名', dataIndex: 'fieldDbName', width: 180, render: (v, r) => v || r.fieldName },
+            { title: '字段类型', dataIndex: 'fieldDbType', width: 100 },
+          ]}
+        />
       </Modal>
     </Drawer>
   );

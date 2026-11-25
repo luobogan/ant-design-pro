@@ -268,7 +268,18 @@ export interface AuthScheme {
     rightTypes?: number[];
     subjects?: Array<{ objtype: number; objid?: string; includeSub?: number }>;
   }>;
-  menu?: { formMenuName?: string; menuShares?: MenuShare[]; roleMenuNames?: Record<string, string> };
+  menu?: {
+    menuId?: string;
+    formMenuName?: string;
+    parentId?: string;
+    menuPath?: string;
+    menuIcon?: string;
+    menuAlias?: string;
+    menuSort?: number;
+    menuStatus?: number;
+    menuShares?: MenuShare[];
+    roleMenuNames?: Record<string, string>;
+  };
 }
 
 export const listAuthSchemes = async (formId: string | number): Promise<AuthScheme[]> => {
