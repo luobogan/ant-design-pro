@@ -55,11 +55,13 @@ const FormAae: React.FC = () => {
       } else {
         // 新增：走 createFormMode，表单与模块（modeinfo）一同创建，
         // 因此新建表单即自带模块，权限抽屉不会再报「尚未创建模块」。
+        const dirId = new URLSearchParams(window.location.search).get('dirId');
         const result = await formModeApi.create({
           billname: data.formName,
           modename: data.modename || data.formName,
           modedescription: data.description,
           status: data.status,
+          ...(dirId ? { modeTreeField: Number(dirId) } : {}),
         });
         message.success('表单创建成功（已自动创建模块）');
         // 显示下一步选项

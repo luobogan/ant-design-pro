@@ -28,6 +28,7 @@ import {
   Tabs,
   Input,
   Select,
+  TreeSelect,
   InputNumber,
   Switch,
   Space,
@@ -42,6 +43,7 @@ import {
 } from 'antd';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { formApi, fieldApi, fieldOptionApi } from '@/services/formmode';
+import { getFormDir, listModeDirs, moveFormToDir, type ModeDir } from '@/services/formmode/modeDirApi';
 import type { WorkflowBill, FieldDefinitionFormData, FieldOption } from '@/services/formmode/typings';
 import BrowserTypePreview from './components/BrowserTypePreview';
 import BrowserTypePicker from './components/BrowserTypePicker';
@@ -243,6 +245,35 @@ const TableDesign: React.FC<TableDesignProps> = ({
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('design');
   const [loading, setLoading] = useState(false);
+  const [modeDirs, setModeDirs] = useState<ModeDir[]>([]);
+  const [selectedDirId, setSelectedDirId] = useState<string | undefined>();
+
+  const modeDirTreeData = useMemo(() => {
+    const byParent = new Map<string, ModeDir[]>();
+    modeDirs.forEach((d) => {
+      const parent = String(d.parentid ?? '0');
+      byParent.set(parent, [...(byParent.get(parent) || []), d]);
+    });
+    const used = new Set<string>();
+    const build = (parent: string): any[] => (byParent.get(parent) || []).map((d) => {
+      const key = String(d.id);
+      used.add(key);
+      return {
+        value: key,
+        title: d.name || `目录${d.id}`,
+        children: build(key),
+      };
+    });
+    const roots = build('0');
+    modeDirs.forEach((d) => {
+      const key = String(d.id);
+      if (!used.has(key)) {
+        used.add(key);
+        roots.push({ value: key, title: d.name || `目录${d.id}`, children: build(key) });
+      }
+    });
+    return roots;
+  }, [modeDirs]);
 
   // 表配置
   const [tableConfig, setTableConfig] = useState<Partial<WorkflowBill>>({
@@ -473,6 +504,15 @@ const TableDesign: React.FC<TableDesignProps> = ({
   // 已有表单列表（用于主表选择）
   const [existingForms, setExistingForms] = useState<WorkflowBill[]>([]);
   const [selectedSourceFormId, setSelectedSourceFormId] = useState<string>('');
+
+  useEffect(() => {
+    listModeDirs().then(setModeDirs).catch(() => setModeDirs([]));
+  }, []);
+
+  useEffect(() => {
+    if (!resolvedId) return;
+    getFormDir(resolvedId).then(setSelectedDirId).catch(() => setSelectedDirId(undefined));
+  }, [resolvedId]);
 
   // 新建表单时，自动获取下一个表名
   useEffect(() => {
@@ -2198,6 +2238,9 @@ const TableDesign: React.FC<TableDesignProps> = ({
         } as any);
         formId = result.id;
         setTableConfig(prev => ({ ...prev, id: formId }));
+        if (selectedDirId) {
+          await moveFormToDir(formId, selectedDirId);
+        }
         message.success('表单创建成功');
       } else {
         await formApi.update(formId, {
@@ -2582,6 +2625,30 @@ const TableDesign: React.FC<TableDesignProps> = ({
               </Col>
             </Row>
             <Row gutter={[24, 16]} style={{ marginTop: 8 }}>
+              <Col span={8}>
+                <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>建模目录</label>
+                <TreeSelect
+                  allowClear
+                  showSearch
+                  treeDefaultExpandAll
+                  treeNodeFilterProp="title"
+                  placeholder="请选择建模目录"
+                  style={{ width: '100%' }}
+                  value={selectedDirId}
+                  treeData={modeDirTreeData}
+                  onChange={async (dirId) => {
+                    setSelectedDirId(dirId);
+                    if (resolvedId) {
+                      try {
+                        await moveFormToDir(resolvedId, dirId);
+                        message.success('建模目录已保存');
+                      } catch (error: any) {
+                        message.error(error?.message || '建模目录保存失败');
+                      }
+                    }
+                  }}
+                />
+              </Col>
               <Col span={8}>
                 <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>表描述</label>
                 <TextArea

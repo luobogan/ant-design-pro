@@ -268,6 +268,7 @@ export interface AuthScheme {
     rightTypes?: number[];
     subjects?: Array<{ objtype: number; objid?: string; includeSub?: number }>;
   }>;
+  formManageScope?: { scopeType?: number; scopeValue?: string };
   menu?: {
     menuId?: string;
     formMenuName?: string;
@@ -333,6 +334,31 @@ export const deleteAuthSchemes = async (schemeIds: Array<string | number>): Prom
  * 查询当前用户对某表单的模块操作权限码（1可见 2新建 3编辑 4删除 5详情）。
  * 供通用列表按建模权限驱动操作按钮；失败返回空数组（菜单按钮体系继续工作）。
  */
+export interface FormManagePermission {
+  all: boolean;
+  formIds: string[];
+  rightTypes: number[];
+  formRights: Record<string, number[]>;
+}
+
+export const getFormManagePermission = async (): Promise<FormManagePermission> => {
+  try {
+    const res: any = await request(`${API_BASE_PATH}/right/form-manage-permission`, { method: 'GET' });
+    const formRights: Record<string, number[]> = {};
+    Object.entries(res?.data?.formRights || {}).forEach(([id, types]: [string, any]) => {
+      formRights[id] = (types || []).map((type: any) => Number(type));
+    });
+    return {
+      all: !!res?.data?.all,
+      formIds: (res?.data?.formIds || []).map((id: any) => String(id)),
+      rightTypes: (res?.data?.rightTypes || []).map((type: any) => Number(type)),
+      formRights,
+    };
+  } catch (_e) {
+    return { all: true, formIds: [], rightTypes: [], formRights: {} };
+  }
+};
+
 export const getUserRightTypes = async (formId: string | number): Promise<number[]> => {
   try {
     const res: any = await request(`${API_BASE_PATH}/right/user-right-types/${formId}`, { method: 'GET' });

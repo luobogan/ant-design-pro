@@ -1,15 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Button, Drawer, Empty, Input, InputNumber, message, Modal, Popconfirm, Select, Space, Steps, Switch, Table, Tag, TreeSelect,
+  Button, Checkbox, Drawer, Empty, Input, InputNumber, message, Modal, Popconfirm, Select, Space, Steps, Switch, Table, Tabs, Tag, TreeSelect,
 } from 'antd';
-import { CopyOutlined, DeleteOutlined, EditOutlined, PlusOutlined, TableOutlined } from '@ant-design/icons';
+import { CopyOutlined, DeleteOutlined, EditOutlined, PlusOutlined, SyncOutlined, TableOutlined } from '@ant-design/icons';
 import AuthObjectPicker from '@/components/FormMode/AuthObjectPicker';
 import { resolveItemNames, type PersonOrgCategory } from '@/components/FormMode/personOrg';
 import * as roleApi from '@/services/authority/role';
 import * as matrixApi from '@/pages/System/Matrix/service';
 import * as menuApi from '@/services/system/menu';
 import ExcelDesign from '@/pages/FormMode/ExcelDesign/ExcelDesign';
-import { fieldApi } from '@/services/formmode';
+import { LAYOUT_TYPES, DEFAULT_LAYOUT_TYPE_NAMES, layoutTypeName } from '@/pages/FormMode/ExcelDesign/layoutTypes';
+import {
+  getFormLayout, getFormLayoutTypeNames, saveFormLayoutTypeName, syncFormLayout,
+} from '@/services/formmode/formLayoutApi';
+import { fieldApi, formApi } from '@/services/formmode';
 import type { FieldDefinition } from '@/services/formmode/typings';
 import {
   copyAuthScheme, deleteAuthScheme, deleteAuthSchemes, listAuthSchemes, saveAuthScheme, saveAuthSchemes, type AuthScheme,
@@ -141,6 +145,7 @@ const emptyScheme = (formId?: string): AuthScheme => ({
   rights: [],
   fieldGroups: [],
   dataScopes: [],
+  formManageScope: { scopeType: 1, scopeValue: '' },
   menu: {
     parentId: '0',
     formMenuName: '',
@@ -184,9 +189,20 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
   const [fieldSearch, setFieldSearch] = useState('');
   const [fieldScope, setFieldScope] = useState('main');
   const [menuTree, setMenuTree] = useState<any[]>([]);
+  const [allForms, setAllForms] = useState<Array<{ id?: string; formName?: string }>>([]);
   const [columnPickerIndex, setColumnPickerIndex] = useState<number | null>(null);
   const [columnPickerValue, setColumnPickerValue] = useState('');
   const [columnKeyword, setColumnKeyword] = useState('');
+  const [univerLayoutType, setUniverLayoutType] = useState<number>(0);
+  const [layoutTypeNames, setLayoutTypeNames] = useState<Record<number, string>>({ ...DEFAULT_LAYOUT_TYPE_NAMES });
+  const [configuredLayoutTypes, setConfiguredLayoutTypes] = useState<Set<number>>(new Set());
+  const [layoutNameEditing, setLayoutNameEditing] = useState<number | null>(null);
+  const [layoutNameDraft, setLayoutNameDraft] = useState('');
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncMode, setSyncMode] = useState<'groups' | 'types'>('types');
+  const [syncTargetNodes, setSyncTargetNodes] = useState<string[]>([]);
+  const [syncTargetTypes, setSyncTargetTypes] = useState<number[]>([]);
+  const [syncOverwrite, setSyncOverwrite] = useState(false);
   const univerApiRef = useRef<{ save: () => Promise<boolean> } | null>(null);
 
   const load = async () => {
@@ -238,6 +254,7 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
       const rows = Array.isArray(r) ? r : (r?.data || []);
       setMenuTree(Array.isArray(rows) ? rows : []);
     }).catch(() => setMenuTree([]));
+    formApi.getAll().then((rows: any) => setAllForms(Array.isArray(rows) ? rows : [])).catch(() => setAllForms([]));
   }, [open, formId]);
 
   const update = (patch: Partial<AuthScheme>) => setScheme((prev) => prev ? { ...prev, ...patch } : prev);
@@ -665,6 +682,42 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
           </div>
         </div>
       </div>
+      <div style={{ border: '1px solid #f0f0f0', padding: 12 }}>
+        <div style={{ fontWeight: 600, marginBottom: 10 }}>表单建模数据范围（表单管理列表）</div>
+        <Space wrap>
+          <div>
+            <div style={{ marginBottom: 6 }}>范围类型</div>
+            <Select
+              style={{ width: 180 }}
+              value={scheme.formManageScope?.scopeType ?? 1}
+              options={[
+                { value: 1, label: '全部表单' },
+                { value: 2, label: '本人创建' },
+                { value: 3, label: '指定表单' },
+              ]}
+              onChange={(v) => update({ formManageScope: { ...scheme.formManageScope, scopeType: v } })}
+            />
+          </div>
+          {Number(scheme.formManageScope?.scopeType) === 3 ? (
+            <div style={{ minWidth: 360 }}>
+              <div style={{ marginBottom: 6 }}>指定表单</div>
+              <Select
+                mode="multiple"
+                style={{ width: '100%' }}
+                value={(scheme.formManageScope?.scopeValue || '').split(',').filter(Boolean)}
+                options={allForms.map((f) => ({
+                  value: String(f.id),
+                  label: `${f.formName || '未命名表单'}（${f.id}）`,
+                }))}
+                onChange={(values) => update({ formManageScope: { ...scheme.formManageScope, scopeValue: values.join(',') } })}
+              />
+            </div>
+          ) : null}
+        </Space>
+        <div style={{ marginTop: 8, color: '#999' }}>
+          此范围只控制“表单管理”列表能看到哪些表单，不影响第四步动态列表数据范围。
+        </div>
+      </div>
       <Button type="dashed" icon={<PlusOutlined />} onClick={addRight} block>新增模块权限</Button>
       <Table
         rowKey={(_r, i) => String(i)}
@@ -694,7 +747,21 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
         <div style={{ color: '#666' }}>
           当前方案的字段配置会自动归属于该授权对象；勾选字段即加入配置，取消勾选即移出。
         </div>
-        <Button size="small" icon={<TableOutlined />} onClick={() => setDesignGroup(0)}>Univer设计</Button>
+        <Button
+          size="small"
+          icon={<TableOutlined />}
+          onClick={() => {
+            const groupKey = scheme.fieldGroups?.[0]?.groupKey;
+            univerApiRef.current = null;
+            setUniverLayoutType(0);
+            setLayoutNameEditing(null);
+            setSyncModalOpen(false);
+            setDesignGroup(0);
+            loadLayoutTypeMeta(groupKey);
+          }}
+        >
+          Univer设计
+        </Button>
       </div>
 
       <div style={{ display: 'flex', gap: 12, border: '1px solid #f0f0f0', padding: 12 }}>
@@ -871,6 +938,88 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
   );
 
   const groupToDesign = designGroup == null ? null : scheme?.fieldGroups?.[designGroup];
+
+  const loadLayoutTypeMeta = async (nodeKey?: string) => {
+    if (!formId) return;
+    try {
+      const namesRes: any = await getFormLayoutTypeNames(formId);
+      const rows = Array.isArray(namesRes?.data) ? namesRes.data : [];
+      const names: Record<number, string> = { ...DEFAULT_LAYOUT_TYPE_NAMES };
+      rows.forEach((r: any) => {
+        const t = Number(r?.layoutType ?? r?.layout_type);
+        const n = String(r?.layoutName ?? r?.layout_name ?? '').trim();
+        if (n && [0, 1, 3, 4].includes(t)) names[t] = n;
+      });
+      setLayoutTypeNames(names);
+
+      const checks = await Promise.all(LAYOUT_TYPES.map(async (t) => {
+        try {
+          const res: any = await getFormLayout(formId, t.value, nodeKey, false);
+          return !!res?.data?.layoutJson;
+        } catch { return false; }
+      }));
+      setConfiguredLayoutTypes(new Set(LAYOUT_TYPES.filter((_t, i) => checks[i]).map((t) => t.value)));
+    } catch { /* 默认值兜底 */ }
+  };
+
+  const saveLayoutTypeName = async (type: number) => {
+    const name = layoutNameDraft.trim();
+    if (!formId || !name) {
+      message.warning('布局名称不能为空');
+      return;
+    }
+    const res: any = await saveFormLayoutTypeName({ formId, layoutType: type, layoutName: name });
+    if (res?.success === false) {
+      message.error(res?.msg || '布局名称保存失败');
+      return;
+    }
+    setLayoutTypeNames((prev) => ({ ...prev, [type]: name }));
+    setLayoutNameEditing(null);
+    message.success('布局名称已保存');
+  };
+
+  const handleSyncLayout = async () => {
+    if (!formId) return;
+    if (syncMode === 'groups' && !syncTargetNodes.length) {
+      message.warning('请选择目标方案组');
+      return;
+    }
+    if (syncMode === 'types' && !syncTargetTypes.length) {
+      message.warning('请选择目标布局类型');
+      return;
+    }
+    const res: any = await syncFormLayout({
+      formId,
+      sourceNodeKey: groupToDesign?.groupKey,
+      sourceLayoutType: univerLayoutType,
+      targetNodeKeys: syncMode === 'groups' ? syncTargetNodes : undefined,
+      targetLayoutTypes: syncMode === 'types' ? syncTargetTypes : undefined,
+      overwrite: syncOverwrite,
+    });
+    if (res?.success === false) {
+      message.error(res?.msg || '布局同步失败');
+      return;
+    }
+    message.success(`已同步 ${res?.data ?? 0} 个目标`);
+    setSyncModalOpen(false);
+    await loadLayoutTypeMeta(groupToDesign?.groupKey);
+  };
+
+  const otherGroupOptions = useMemo(() => {
+    const currentKey = groupToDesign?.groupKey;
+    const options: Array<{ value: string; label: string }> = [];
+    for (const item of schemes) {
+      for (const g of item.fieldGroups || []) {
+        const key = g.groupKey || `group-${g.id || ''}`;
+        if (!key || key === currentKey) continue;
+        options.push({
+          value: key,
+          label: `${item.schemeName || '未命名方案'} - ${g.groupName || '字段配置'}（${key}）`,
+        });
+      }
+    }
+    return options;
+  }, [schemes, groupToDesign?.groupKey]);
   // 与旧权限抽屉一致：隐藏字段不进入 Univer 设计白名单。
   const designFieldIds = useMemo(
     () => Array.from(new Set((groupToDesign?.fields || [])
@@ -919,7 +1068,7 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
       ) : schemeList}
 
       <Modal
-        title={`Univer设计 - ${groupToDesign?.groupName || ''}`}
+        title={`Univer设计 - ${groupToDesign?.groupName || ''} - ${layoutTypeName(univerLayoutType, layoutTypeNames)}`}
         open={designGroup != null}
         width="min(1500px, calc(100vw - 48px))"
         style={{ top: 12 }}
@@ -929,23 +1078,129 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
         onOk={async () => {
           if (designGroup == null) return;
           const ok = await univerApiRef.current?.save();
-          if (ok) { message.success('布局已保存'); setDesignGroup(null); }
+          if (ok) {
+            message.success(`「${layoutTypeName(univerLayoutType, layoutTypeNames)}」布局已保存`);
+            await loadLayoutTypeMeta(groupToDesign?.groupKey);
+            setDesignGroup(null);
+          }
         }}
       >
-        <div style={{ height: '100%', overflow: 'hidden' }}>
-          {groupToDesign && designFieldIds.length > 0 && formId ? (
-            <ExcelDesign
-              key={`${groupToDesign.groupKey || 'default'}-${designFieldSignature}`}
-              embedded
-              formId={formId}
-              formName={formName}
-              nodeKey={groupToDesign.groupKey}
-              allowedFieldIds={designFieldIds}
-              onReady={(api) => { univerApiRef.current = api; }}
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0' }}>
+            <Tabs
+              size="small"
+              activeKey={String(univerLayoutType)}
+              onChange={(key) => {
+                setUniverLayoutType(Number(key));
+                setLayoutNameEditing(null);
+              }}
+              items={LAYOUT_TYPES.map((t) => ({
+                key: String(t.value),
+                label: `${layoutTypeName(t.value, layoutTypeNames)}${configuredLayoutTypes.has(t.value) ? ' •' : ''}`,
+              }))}
             />
-          ) : (
-            <div style={{ padding: 40, textAlign: 'center', color: '#999' }}>请先为该字段组配置字段</div>
-          )}
+            <Space wrap size={4} style={{ marginTop: -4 }}>
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => {
+                  setLayoutNameEditing(univerLayoutType);
+                  setLayoutNameDraft(layoutTypeName(univerLayoutType, layoutTypeNames));
+                }}
+              >
+                改名
+              </Button>
+              <Button
+                size="small"
+                icon={<SyncOutlined />}
+                onClick={() => {
+                  setSyncMode('groups');
+                  setSyncTargetNodes([]);
+                  setSyncOverwrite(false);
+                  setSyncModalOpen(true);
+                }}
+              >
+                同步到其他方案组
+              </Button>
+              <Button
+                size="small"
+                icon={<SyncOutlined />}
+                onClick={() => {
+                  setSyncMode('types');
+                  setSyncTargetTypes([]);
+                  setSyncOverwrite(false);
+                  setSyncModalOpen(true);
+                }}
+              >
+                同步到其他布局类型
+              </Button>
+            </Space>
+            {layoutNameEditing != null ? (
+              <Space style={{ marginTop: 8 }}>
+                <Input
+                  size="small"
+                  style={{ width: 220 }}
+                  value={layoutNameDraft}
+                  onChange={(e) => setLayoutNameDraft(e.target.value)}
+                  onPressEnter={() => saveLayoutTypeName(layoutNameEditing)}
+                />
+                <Button size="small" type="primary" onClick={() => saveLayoutTypeName(layoutNameEditing)}>保存名称</Button>
+                <Button size="small" onClick={() => setLayoutNameEditing(null)}>取消</Button>
+              </Space>
+            ) : null}
+          </div>
+          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            {groupToDesign && designFieldIds.length > 0 && formId ? (
+              <ExcelDesign
+                key={`${groupToDesign.groupKey || 'default'}-${designFieldSignature}-${univerLayoutType}`}
+                embedded
+                formId={formId}
+                formName={formName}
+                nodeKey={groupToDesign.groupKey}
+                allowedFieldIds={designFieldIds}
+                layoutType={univerLayoutType}
+                hideLayoutTypeSelect
+                onReady={(api) => { univerApiRef.current = api; }}
+              />
+            ) : (
+              <div style={{ padding: 40, textAlign: 'center', color: '#999' }}>请先为该字段组配置字段</div>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        title={syncMode === 'groups' ? '同步布局到其它方案组' : '同步布局到其它布局类型'}
+        open={syncModalOpen}
+        onCancel={() => setSyncModalOpen(false)}
+        onOk={handleSyncLayout}
+        okText="确认同步"
+        cancelText="取消"
+        destroyOnHidden
+      >
+        <div style={{ marginBottom: 8, color: '#666' }}>
+          源布局：{layoutTypeName(univerLayoutType, layoutTypeNames)}（{groupToDesign?.groupKey || '表单级通用'}）
+        </div>
+        {syncMode === 'groups' ? (
+          <Checkbox.Group
+            value={syncTargetNodes}
+            onChange={(v) => setSyncTargetNodes(v.map(String))}
+            style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+            options={otherGroupOptions}
+          />
+        ) : (
+          <Checkbox.Group
+            value={syncTargetTypes}
+            onChange={(v) => setSyncTargetTypes(v.map(Number))}
+            options={LAYOUT_TYPES.filter((t) => t.value !== univerLayoutType).map((t) => ({
+              value: t.value,
+              label: layoutTypeName(t.value, layoutTypeNames),
+            }))}
+          />
+        )}
+        <div style={{ marginTop: 12 }}>
+          <Switch checked={syncOverwrite} onChange={setSyncOverwrite} />
+          <span style={{ marginLeft: 8 }}>覆盖目标已有布局</span>
         </div>
       </Modal>
 

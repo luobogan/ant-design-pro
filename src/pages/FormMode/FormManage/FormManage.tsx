@@ -1,4 +1,4 @@
-import { PlusOutlined, ReloadOutlined, DeleteOutlined, EditOutlined, EyeOutlined, SettingOutlined, SearchOutlined, TableOutlined, ImportOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, DeleteOutlined, EditOutlined, EyeOutlined, SettingOutlined, SearchOutlined, TableOutlined, ImportOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { useNavigate } from '@umijs/max';
 import { usePageButtons } from '@/hooks/usePageButtons';
@@ -17,10 +17,14 @@ import {
   Table,
   Tag,
   Switch,
+  TreeSelect,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { formApi, ecologyImportApi } from '@/services/formmode';
+import { getFormManagePermission, type FormManagePermission } from '@/services/formmode/rightApi';
+import { listModeDirs, moveFormsToDir, type ModeDir } from '@/services/formmode/modeDirApi';
+import FormDirTree from './components/FormDirTree';
 import type { WorkflowBill, PageParams } from '@/services/formmode/typings';
 import AuthSchemeDrawer from '@/pages/FormMode/FormRight/AuthSchemeDrawer';
 
@@ -43,6 +47,13 @@ const FormManageList: React.FC = () => {
   const [rightVisible, setRightVisible] = useState(false);
   const [rightFormId, setRightFormId] = useState<string>();
   const [rightFormName, setRightFormName] = useState<string>();
+  const [formManagePermission, setFormManagePermission] = useState<FormManagePermission>({ all: true, formIds: [], rightTypes: [], formRights: {} });
+  const [selectedDirId, setSelectedDirId] = useState<string | undefined>();
+  const [movingFormId, setMovingFormId] = useState<string | undefined>();
+  const [batchMoveVisible, setBatchMoveVisible] = useState(false);
+  const [batchMoveDirId, setBatchMoveDirId] = useState<string | undefined>();
+  const [batchMoving, setBatchMoving] = useState(false);
+  const [batchDirs, setBatchDirs] = useState<ModeDir[]>([]);
 
   const [searchForm] = Form.useForm();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -54,13 +65,49 @@ const FormManageList: React.FC = () => {
     total: 0,
   });
 
-  // 获取按钮权限
-  const hasPermission = (code: string) => {
-    return buttons.some((btn: any) => btn.code === code);
+  const batchDirTreeData = useMemo(() => {
+    const byParent = new Map<string, ModeDir[]>();
+    batchDirs.forEach((d) => {
+      const parent = String(d.parentid ?? '0');
+      byParent.set(parent, [...(byParent.get(parent) || []), d]);
+    });
+    const used = new Set<string>();
+    const build = (parent: string): any[] => (byParent.get(parent) || []).map((d) => {
+      const key = String(d.id);
+      used.add(key);
+      return { value: key, title: d.name || `目录${d.id}`, children: build(key) };
+    });
+    const roots = build('0');
+    batchDirs.forEach((d) => {
+      const key = String(d.id);
+      if (!used.has(key)) {
+        used.add(key);
+        roots.push({ value: key, title: d.name || `目录${d.id}`, children: build(key) });
+      }
+    });
+    return roots;
+  }, [batchDirs]);
+
+  // 菜单按钮 + 表单建模模块权限共同控制表单管理页操作。
+  const MODULE_RIGHT_BY_BUTTON: Record<string, number> = {
+    formmanage_view: 1,
+    formmanage_aae: 3,
+    formmanage_delete: 4,
+    formmanage_import: 6,
+  };
+  const hasPermission = (code: string, formId?: string | number) => {
+    if (!buttons.some((btn: any) => btn.code === code)) return false;
+    const rightType = MODULE_RIGHT_BY_BUTTON[code];
+    if (rightType == null) return true;
+    if (formId != null) {
+      const rowRights = formManagePermission.formRights[String(formId)];
+      if (rowRights) return rowRights.includes(rightType);
+    }
+    return formManagePermission.rightTypes.includes(rightType);
   };
 
   // 获取表单列表
-  const fetchData = async (params?: Partial<PageParams> & { formName?: string; status?: number }) => {
+  const fetchData = async (params?: Partial<PageParams> & { formName?: string; status?: number; dirId?: string }) => {
     setLoading(true);
     try {
       const values = searchForm.getFieldsValue();
@@ -69,6 +116,7 @@ const FormManageList: React.FC = () => {
         pageSize: params?.pageSize || pagination.pageSize,
         formName: values.formName || undefined,
         status: values.status !== undefined ? values.status : undefined,
+        dirId: params?.dirId !== undefined ? params.dirId : selectedDirId,
       };
 
       const result = await formApi.getList(queryParams);
@@ -89,6 +137,8 @@ const FormManageList: React.FC = () => {
 
   // 初始加载
   useEffect(() => {
+    getFormManagePermission().then(setFormManagePermission);
+    listModeDirs().then(setBatchDirs).catch(() => setBatchDirs([]));
     fetchData();
   }, []);
 
@@ -108,9 +158,35 @@ const FormManageList: React.FC = () => {
     fetchData();
   };
 
+  const handleBatchMove = async () => {
+    if (!batchMoveDirId) {
+      message.warning('请选择目标目录');
+      return;
+    }
+    const movableIds = selectedRowKeys
+      .map(String)
+      .filter((id) => hasPermission('formmanage_aae', id));
+    if (!movableIds.length) {
+      message.warning('所选表单没有移动权限');
+      return;
+    }
+    setBatchMoving(true);
+    try {
+      await moveFormsToDir(movableIds, batchMoveDirId);
+      message.success(`已移动 ${movableIds.length} 个表单`);
+      setBatchMoveVisible(false);
+      setSelectedRowKeys([]);
+      await fetchData();
+    } catch (error: any) {
+      message.error(error?.message || '批量移动失败');
+    } finally {
+      setBatchMoving(false);
+    }
+  };
+
   // 新增
   const handleAdd = () => {
-    navigate('/formmode/formmanage/aae?mode=add');
+    navigate(`/formmode/formmanage/aae?mode=add${selectedDirId ? `&dirId=${selectedDirId}` : ''}`);
   };
 
   // 编辑 - 跳转到表设计器并回显数据
@@ -400,7 +476,7 @@ const FormManageList: React.FC = () => {
       fixed: 'right',
       render: (_: any, record: FormDefinition) => (
         <Space size="small">
-          {hasPermission('formmanage_view') && (
+          {hasPermission('formmanage_view', record.id) && (
             <Button
               type="link"
               size="small"
@@ -410,7 +486,7 @@ const FormManageList: React.FC = () => {
               查看
             </Button>
           )}
-          {hasPermission('formmanage_aae') && (
+          {hasPermission('formmanage_aae', record.id) && (
             <Button
               type="link"
               size="small"
@@ -420,7 +496,7 @@ const FormManageList: React.FC = () => {
               编辑
             </Button>
           )}
-          {hasPermission('exceldesign') && (
+          {hasPermission('exceldesign', record.id) && (
             <Button
               type="link"
               size="small"
@@ -430,7 +506,7 @@ const FormManageList: React.FC = () => {
               Excel设计
             </Button>
           )}
-          {hasPermission('formmanage_right') && (
+          {hasPermission('formmanage_right', record.id) && (
             <Button
               type="link"
               size="small"
@@ -440,7 +516,12 @@ const FormManageList: React.FC = () => {
               权限
             </Button>
           )}
-          {hasPermission('formmanage_delete') && (
+          {hasPermission('formmanage_aae', record.id) && (
+            <Button type="link" size="small" onClick={() => setMovingFormId(String(record.id))}>
+              移动到目录
+            </Button>
+          )}
+          {hasPermission('formmanage_delete', record.id) && (
             <Button
               type="link"
               size="small"
@@ -474,6 +555,17 @@ const FormManageList: React.FC = () => {
           <Button icon={<ReloadOutlined />} onClick={handleRefresh}>
             刷新
           </Button>
+          {hasPermission('formmanage_aae') && selectedRowKeys.length > 0 && (
+            <Button
+              icon={<FolderOpenOutlined />}
+              onClick={() => {
+                setBatchMoveDirId(undefined);
+                setBatchMoveVisible(true);
+              }}
+            >
+              批量移动目录
+            </Button>
+          )}
           {hasPermission('formmanage_delete') && selectedRowKeys.length > 0 && (
             <Button danger icon={<DeleteOutlined />} onClick={handleBatchDelete}>
               批量删除
@@ -482,57 +574,107 @@ const FormManageList: React.FC = () => {
         </Space>
       }
     >
-      {/* 搜索表单 */}
-      <Card style={{ marginBottom: 16 }}>
-        <Form form={searchForm} layout="inline">
-          <Form.Item name="formName" label="表单名称">
-            <Input placeholder="请输入表单名称" allowClear />
-          </Form.Item>
-          <Form.Item name="status" label="状态">
-            <Select
-              placeholder="请选择状态"
-              allowClear
-              style={{ width: 120 }}
-              options={[
-                { value: 1, label: '启用' },
-                { value: 0, label: '禁用' },
-              ]}
+      <Row gutter={12} wrap={false}>
+        <Col width={280} flex="0 0 280px">
+          <Card style={{ height: 'calc(100vh - 220px)', minHeight: 420 }}>
+            <FormDirTree
+              value={selectedDirId}
+              onChange={(id) => {
+                setSelectedDirId(id);
+                fetchData({ current: 1, dirId: id });
+              }}
+              onChanged={() => fetchData({ current: 1 })}
+              movingFormId={movingFormId}
+              onMoved={() => {
+                setMovingFormId(undefined);
+                fetchData();
+              }}
             />
-          </Form.Item>
-          <Form.Item>
-            <Space>
-              <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
-                搜索
-              </Button>
-              <Button onClick={handleReset}>重置</Button>
-            </Space>
-          </Form.Item>
-        </Form>
-      </Card>
+          </Card>
+        </Col>
+        <Col flex="auto" style={{ minWidth: 0 }}>
+          {/* 搜索表单 */}
+          <Card style={{ marginBottom: 16 }}>
+            <Form form={searchForm} layout="inline">
+              <Form.Item name="formName" label="表单名称">
+                <Input placeholder="请输入表单名称" allowClear />
+              </Form.Item>
+              <Form.Item name="status" label="状态">
+                <Select
+                  placeholder="请选择状态"
+                  allowClear
+                  style={{ width: 120 }}
+                  options={[
+                    { value: 1, label: '启用' },
+                    { value: 0, label: '禁用' },
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item>
+                <Space>
+                  <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
+                    搜索
+                  </Button>
+                  <Button onClick={handleReset}>重置</Button>
+                </Space>
+              </Form.Item>
+            </Form>
+          </Card>
 
-      {/* 数据表格 */}
-      <Card>
-        <Table
-          rowKey="id"
-          columns={columns}
-          dataSource={data}
-          loading={loading}
-          scroll={{ x: 1200 }}
-          rowSelection={{
-            selectedRowKeys,
-            onChange: setSelectedRowKeys,
-          }}
-          pagination={{
-            ...pagination,
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (total) => `共 ${total} 条`,
-            onChange: (page, pageSize) => {
-              fetchData({ current: page, pageSize });
-            },
-          }}
-        />
-      </Card>
+          {/* 数据表格 */}
+          <Card>
+            <Table
+              rowKey="id"
+              columns={columns}
+              dataSource={data}
+              loading={loading}
+              scroll={{ x: 1200 }}
+              rowSelection={{
+                selectedRowKeys,
+                onChange: setSelectedRowKeys,
+              }}
+              pagination={{
+                ...pagination,
+                showSizeChanger: true,
+                showQuickJumper: true,
+                showTotal: (total) => `共 ${total} 条`,
+                onChange: (page, pageSize) => {
+                  fetchData({ current: page, pageSize });
+                },
+              }}
+            />
+          </Card>
+        </Col>
+      </Row>
+
+      <Modal
+        title={`批量移动目录（已选 ${selectedRowKeys.length} 个表单）`}
+        open={batchMoveVisible}
+        onCancel={() => setBatchMoveVisible(false)}
+        onOk={handleBatchMove}
+        okText="确认移动"
+        cancelText="取消"
+        confirmLoading={batchMoving}
+        destroyOnHidden
+      >
+        <div style={{ padding: '8px 0' }}>
+          <div style={{ marginBottom: 8 }}>目标目录</div>
+          <TreeSelect
+            allowClear={false}
+            showSearch
+            treeDefaultExpandAll
+            treeNodeFilterProp="title"
+            placeholder="请选择目标目录"
+            style={{ width: '100%' }}
+            value={batchMoveDirId}
+            treeData={batchDirTreeData}
+            onChange={setBatchMoveDirId}
+          />
+          <div style={{ marginTop: 8, color: '#999' }}>
+            只会移动当前账号有编辑权限的表单。
+          </div>
+        </div>
+      </Modal>
 
       {/* 从泛微 ecology 导入表单弹窗 */}
       <Modal
