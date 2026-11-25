@@ -11,7 +11,7 @@ import ExcelDesign from '@/pages/FormMode/ExcelDesign/ExcelDesign';
 import { fieldApi } from '@/services/formmode';
 import type { FieldDefinition } from '@/services/formmode/typings';
 import {
-  copyAuthScheme, deleteAuthScheme, deleteAuthSchemes, listAuthSchemes, saveAuthScheme, type AuthScheme,
+  copyAuthScheme, deleteAuthScheme, deleteAuthSchemes, listAuthSchemes, saveAuthScheme, saveAuthSchemes, type AuthScheme,
 } from '@/services/formmode/rightApi';
 
 interface Props {
@@ -253,8 +253,20 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
       message.warning('请选择授权对象');
       return;
     }
+    const existing = new Map<string, string>();
+    for (const item of schemes) {
+      if (Number(item.subjectType) !== Number(scheme.subjectType)) continue;
+      const id = item.subjectId == null ? '' : String(item.subjectId);
+      if (id && String(item.id) !== String(scheme.id)) existing.set(id, item.schemeName || String(item.id));
+    }
+    const conflicts = ids.filter((id) => existing.has(id));
+    if (conflicts.length) {
+      const names = conflicts.map((id) => `${subjectNames[subjectNameKey(scheme.subjectType, id)] || id}（${existing.get(id)}）`);
+      message.warning(`以下授权对象已有方案，不能重复创建：${names.join('、')}`);
+      return;
+    }
+
     setLoading(true);
-    const created: string[] = [];
     try {
       const resolvedNames = scheme.subjectType === 7
         ? { '0': '所有登录用户' }
@@ -263,27 +275,23 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
         ...prev,
         ...Object.fromEntries(Object.entries(resolvedNames).map(([id, name]) => [subjectNameKey(scheme.subjectType, id), name])),
       }));
+      const payloads: AuthScheme[] = [];
       if (scheme.id) {
-        await saveAuthScheme({ ...scheme, subjectId: ids[0], subjectName: resolvedNames[ids[0]] || scheme.subjectName });
-        created.push(String(scheme.id));
+        payloads.push({ ...scheme, subjectId: ids[0], subjectName: resolvedNames[ids[0]] || scheme.subjectName });
         for (let i = 1; i < ids.length; i++) {
-          const id = await saveAuthScheme(cloneSchemeForSubject(ids[i], i, resolvedNames[ids[i]]));
-          created.push(String(id));
+          payloads.push(cloneSchemeForSubject(ids[i], i, resolvedNames[ids[i]]));
         }
       } else {
         for (let i = 0; i < ids.length; i++) {
-          const id = await saveAuthScheme(cloneSchemeForSubject(ids[i], i, resolvedNames[ids[i]]));
-          created.push(String(id));
+          payloads.push(cloneSchemeForSubject(ids[i], i, resolvedNames[ids[i]]));
         }
       }
+      await saveAuthSchemes(payloads);
       message.success(ids.length > 1 ? `已生成 ${ids.length} 个授权方案` : '授权方案已保存');
       setScheme(null);
       setSubjectIds([]);
       await load();
     } catch (e: any) {
-      for (const id of created) {
-        try { await deleteAuthScheme(id); } catch { }
-      }
       message.error(e?.message || '保存失败');
     } finally {
       setLoading(false);

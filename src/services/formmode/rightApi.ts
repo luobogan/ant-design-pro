@@ -298,6 +298,16 @@ export const deleteAuthScheme = async (schemeId: string | number): Promise<boole
   return !!res?.success;
 };
 
+export const saveAuthSchemes = async (schemes: AuthScheme[]): Promise<string[]> => {
+  if (!schemes.length) return [];
+  const res: any = await request(`${API_BASE_PATH}/right/scheme/save-batch`, {
+    method: 'POST',
+    data: schemes,
+  });
+  if (!res?.success) throw new Error(res?.msg || '授权方案批量保存失败');
+  return (res.data || []).map((id: any) => String(id));
+};
+
 export const deleteAuthSchemes = async (schemeIds: Array<string | number>): Promise<number> => {
   if (!schemeIds.length) return 0;
   const res: any = await request(`${API_BASE_PATH}/right/scheme/delete-batch`, {
