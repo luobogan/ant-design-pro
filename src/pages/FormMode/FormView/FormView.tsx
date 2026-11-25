@@ -16,9 +16,10 @@ import {
   Tag,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { formApi, dataApi, fieldDefinitionApi } from '@/services/formmode';
 import { getUserRightTypes } from '@/services/formmode/rightApi';
+import { useRuntimeFieldPerm } from './hooks/useRuntimeFieldPerm';
 import type {
   FieldDefinition,
   FormDataRecord,
@@ -42,6 +43,8 @@ const FormDataList: React.FC = () => {
   const pathFormId = /^\/formmode\/formview\/(\d+)$/.exec(location.pathname)?.[1];
   const formId = pathFormId || params?.formId || searchParams.get('formId');
   const { buttons } = usePageButtons();
+  // 列表列与字段权限同源：layoutType=0（编辑布局口径），管理员/未收窄场景返回空数组。
+  const runtimeFieldPerm = useRuntimeFieldPerm(formId, 0);
 
   const [searchForm] = Form.useForm();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -61,6 +64,33 @@ const FormDataList: React.FC = () => {
     pageSize: 20,
     total: 0,
   });
+
+  // 动态列表只显示：当前用户可见字段 + 主表字段。
+  // fieldPerms 为空表示管理员或字段权限未收窄，此时显示全部主表业务字段。
+  const visibleFieldNames = useMemo(() => {
+    if (!runtimeFieldPerm.fieldPerms.length) return null;
+    return new Set(runtimeFieldPerm.fieldPerms
+      .filter((p) => p.visible !== false && (!p.scope || p.scope === 'main'))
+      .map((p) => String(p.fieldName)));
+  }, [runtimeFieldPerm.fieldPerms]);
+
+  const isListSystemColumn = (name?: string) => {
+    const n = String(name || '').trim().toLowerCase();
+    if (!n) return false;
+    if (n.startsWith('modedata') || n.startsWith('lastmod') || n.startsWith('create_') || n.startsWith('update_')) return true;
+    return ['id', 'main_id', 'request_id', 'mode_uuid', 'is_deleted', 'tenant_id'].includes(n);
+  };
+
+  const listFields = useMemo(() => {
+    return formFields.filter((field) => {
+      const detailTable = Number((field as any).detailTable || 0);
+      const isMain = Number((field as any).isMain) === 1 || detailTable <= 0;
+      if (!isMain) return false;
+      if (isListSystemColumn(field.fieldName) || isListSystemColumn((field as any).fieldDbName)) return false;
+      if (visibleFieldNames && !visibleFieldNames.has(String(field.fieldName))) return false;
+      return true;
+    });
+  }, [formFields, visibleFieldNames]);
 
   // 按钮权限：菜单按钮码 OR 建模权限码（方案C菜单通常没有单独按钮码）
   const MODE_RIGHT_BY_BUTTON: Record<string, number> = {
@@ -203,12 +233,22 @@ const FormDataList: React.FC = () => {
 
   // 编辑
   const handleEdit = (record: FormDataRecord) => {
-    navigate(`/formmode/formview/aae?mode=edit&id=${record.id}&formId=${formId}`);
+    const dataId = record?.id == null ? '' : String(record.id);
+    if (!dataId || !/^\d+$/.test(dataId)) {
+      message.warning('数据ID无效，无法编辑');
+      return;
+    }
+    navigate(`/formmode/formview/aae?mode=edit&id=${dataId}&formId=${formId}`);
   };
 
   // 查看：使用显示布局（layoutType=1），运行期由 AAE 页按当前用户命中组加载
   const handleView = (record: FormDataRecord) => {
-    navigate(`/formmode/formview/aae?mode=view&id=${record.id}&formId=${formId}`);
+    const dataId = record?.id == null ? '' : String(record.id);
+    if (!dataId || !/^\d+$/.test(dataId)) {
+      message.warning('数据ID无效，无法查看');
+      return;
+    }
+    navigate(`/formmode/formview/aae?mode=view&id=${dataId}&formId=${formId}`);
   };
 
   // 删除
@@ -264,8 +304,9 @@ const FormDataList: React.FC = () => {
       },
     ];
 
-    // 根据字段定义生成列（dataIndex 用 fieldDbName=DB 列名，与列表记录/保存/详情真键一致）
-    formFields.forEach((field) => {
+    // 根据当前用户可见的主表字段生成列
+    // dataIndex 用 fieldDbName=DB 列名，与列表记录/保存/详情真键一致
+    listFields.forEach((field) => {
       columns.push({
         // 优先展示中文标签，fieldName 是数据库技术字段名
         title: field.fieldLabel || field.fieldName,

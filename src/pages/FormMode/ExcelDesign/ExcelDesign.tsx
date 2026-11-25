@@ -842,9 +842,11 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
   // ──────────────────────────────────────────────
   useEffect(() => {
     if (formId) {
-      loadFormLayout();
+      // 字段权限白名单或布局节点变化时，必须重新加载并按最新白名单过滤旧布局，
+      // 否则字段配置变更后，已取消授权的字段仍会残留在 Univer 画布/配置中。
+      loadFormLayout(true);
     }
-  }, [formId]);
+  }, [formId, nodeKey, allowedFieldIdSet]);
 
   // ──────────────────────────────────────────────
   // 加载本表单拥有的明细表序号（用于「插入明细表」下拉）

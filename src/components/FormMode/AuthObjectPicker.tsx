@@ -64,7 +64,7 @@ export const AuthObjectTypeSelect: React.FC<AuthObjectTypeSelectProps> = ({
 
 export interface AuthObjectPickerProps {
   objtype: number | string;
-  /** 单选传单个值；多选传数组 */
+  /** 授权对象 ID 统一按字符串处理，避免雪花 ID 精度丢失 */
   value?: number | string | Array<number | string>;
   /** 是否多选授权对象 */
   multiple?: boolean;
@@ -72,14 +72,14 @@ export interface AuthObjectPickerProps {
   placeholder?: string;
   size?: 'small' | 'middle' | 'large';
   style?: React.CSSProperties;
-  /** multiple=false 返回单值；multiple=true 返回数组 */
-  onChange: (value?: number | number[]) => void;
+  /** multiple=false 返回单个字符串；multiple=true 返回字符串数组 */
+  onChange: (value?: string | string[]) => void;
 }
 
-const toIds = (value: AuthObjectPickerProps['value']): number[] => {
+const toIds = (value: AuthObjectPickerProps['value']): string[] => {
   if (value == null || value === '') return [];
   const arr = Array.isArray(value) ? value : [value];
-  return arr.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+  return arr.map((v) => String(v).trim()).filter(Boolean);
 };
 
 const AuthObjectPicker: React.FC<AuthObjectPickerProps> = ({
@@ -141,7 +141,7 @@ const AuthObjectPicker: React.FC<AuthObjectPickerProps> = ({
           onCancel={() => setOpen(false)}
           onOk={(selectedIds, items) => {
             setOpen(false);
-            const next = (selectedIds || []).filter(Boolean).map(Number);
+            const next = (selectedIds || []).filter(Boolean).map(String);
             setDisplayNames((items || []).map((m) => String(m.matrixName || m.id)));
             onChange(multiple ? next : next[0]);
           }}
@@ -172,7 +172,7 @@ const AuthObjectPicker: React.FC<AuthObjectPickerProps> = ({
         onCancel={() => setOpen(false)}
         onOk={(selectedIds, items) => {
           setOpen(false);
-          const next = (selectedIds || []).filter(Boolean).map(Number);
+          const next = (selectedIds || []).filter(Boolean).map(String);
           setDisplayNames((items || []).map((i) => String(i.name || i.id)));
           if (multiple) onChange(next);
           else onChange(next[0]);

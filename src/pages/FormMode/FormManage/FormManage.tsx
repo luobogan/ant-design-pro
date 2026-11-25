@@ -22,7 +22,7 @@ import type { ColumnsType } from 'antd/es/table';
 import React, { useEffect, useState } from 'react';
 import { formApi, ecologyImportApi } from '@/services/formmode';
 import type { WorkflowBill, PageParams } from '@/services/formmode/typings';
-import FormRightDrawer from '@/pages/FormMode/FormRight/FormRightDrawer';
+import AuthSchemeDrawer from '@/pages/FormMode/FormRight/AuthSchemeDrawer';
 
 const { Search } = Input;
 
@@ -563,8 +563,8 @@ const FormManageList: React.FC = () => {
         />
       </Modal>
 
-      {/* 权限配置抽屉（模块权限 / 字段权限 / 数据范围） */}
-      <FormRightDrawer
+      {/* 权限配置：授权方案列表 + 三步向导 */}
+      <AuthSchemeDrawer
         formId={rightFormId}
         formName={rightFormName}
         open={rightVisible}

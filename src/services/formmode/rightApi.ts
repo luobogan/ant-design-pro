@@ -15,7 +15,7 @@ export interface ModeRightInfo {
   righttype?: number;
   /** 授权对象类型：1角色 2部门 3岗位 4人员 5分部 */
   objtype?: number;
-  objid?: number;
+  objid?: number | string;
   objname?: string;
   /** 是否含子级：1是 0否 */
   includesub?: number;
@@ -37,7 +37,7 @@ export interface ModeFieldAuthorize {
   fieldid?: number;
   /** 授权对象类型：1角色 2部门 3岗位 4人员 5分部 */
   objtype?: number;
-  objid?: number;
+  objid?: number | string;
   /** 授权部门是否含子部门：1是 0否（仅 objtype=2 有效） */
   includesub?: number;
   /** 权限：1可见 2可编辑 */
@@ -56,8 +56,8 @@ export interface ModeDataShareRule {
   type?: number;
   /** 授权对象类型：1角色 2部门 3岗位 4人员 5分部 */
   objtype?: number;
-  /** 授权对象ID */
-  objid?: number;
+  /** 授权对象ID，统一按字符串处理以兼容雪花 ID */
+  objid?: number | string;
   /** 是否含子级：1是 0否 */
   includeSub?: number;
   /** 仅本人创建的数据可见（与共享叠加）：1是 0否 */
@@ -198,6 +198,27 @@ export const saveModeDataScopes = async (modeId: string | number, rules: ModeDat
   return !!res?.success;
 };
 
+/** 系统菜单可见范围：1角色 2人员 3部门 4分部 5岗位 6安全级别 7全员 */
+export interface MenuShare {
+  id?: string;
+  menuId?: string;
+  shareType: number;
+  shareId?: string;
+  includeSub?: number;
+  showlevel?: number;
+  showlevel2?: number;
+}
+
+/** 按模块查询表单数据菜单可见范围 */
+export const getFormMenuShares = async (modeId: string | number): Promise<MenuShare[]> => {
+  try {
+    const res: any = await request(`${API_BASE_PATH}/right/menu-shares/${modeId}`, { method: 'GET' });
+    return Array.isArray(res?.data) ? res.data : [];
+  } catch {
+    return [];
+  }
+};
+
 /**
  * 一次性保存模块权限 + 字段权限 + 数据范围（后端单事务）。
  *
@@ -217,10 +238,74 @@ export const saveAllRights = async (
     formId?: string;
     formMenuName?: string;
     roleMenuNames?: Record<string, string>;
+    menuShares?: MenuShare[];
   },
 ): Promise<boolean> => {
   const res: any = await request(`${API_BASE_PATH}/right/all/${modeId}`, { method: 'POST', data: batch });
   return !!res?.success;
+};
+
+/** 授权方案：一个方案对应一个授权对象 */
+export interface AuthScheme {
+  id?: string;
+  formId?: string;
+  schemeName?: string;
+  subjectType: number;
+  subjectId?: string;
+  subjectName?: string;
+  includeSub?: number;
+  matrixValueField?: string;
+  showlevel?: number;
+  showlevel2?: number;
+  priority?: number;
+  rights?: Array<{ id?: string; righttype: number; objname?: string; includesub?: number; showlevel?: number; showlevel2?: number }>;
+  fieldGroups?: Array<{ id?: string; groupKey?: string; groupName?: string; fields?: Array<{ fieldId: string; rightvalue: 0 | 1 | 2 }> }>;
+  dataScopes?: Array<{
+    id?: string; type?: number; objtype?: number; objid?: string; includeSub?: number; creatorSelf?: number;
+    conditionField?: string; conditionOp?: string; conditionValue?: string; conditionEnabled?: number;
+    matrixValueField?: string; showlevel?: number; showlevel2?: number;
+    scopeType?: number; scopeColumn?: string; scopeValue?: string;
+    rightTypes?: number[];
+    subjects?: Array<{ objtype: number; objid?: string; includeSub?: number }>;
+  }>;
+  menu?: { formMenuName?: string; menuShares?: MenuShare[]; roleMenuNames?: Record<string, string> };
+}
+
+export const listAuthSchemes = async (formId: string | number): Promise<AuthScheme[]> => {
+  const res: any = await request(`${API_BASE_PATH}/right/schemes/${formId}`, { method: 'GET' });
+  return Array.isArray(res?.data) ? res.data : [];
+};
+
+export const getAuthScheme = async (schemeId: string | number): Promise<AuthScheme | null> => {
+  const res: any = await request(`${API_BASE_PATH}/right/scheme/${schemeId}`, { method: 'GET' });
+  return res?.data || null;
+};
+
+export const saveAuthScheme = async (scheme: AuthScheme): Promise<string> => {
+  const res: any = await request(`${API_BASE_PATH}/right/scheme/save`, { method: 'POST', data: scheme });
+  if (!res?.success) throw new Error(res?.msg || '授权方案保存失败');
+  return String(res.data);
+};
+
+export const copyAuthScheme = async (schemeId: string | number): Promise<string> => {
+  const res: any = await request(`${API_BASE_PATH}/right/scheme/copy/${schemeId}`, { method: 'POST' });
+  if (!res?.success) throw new Error(res?.msg || '授权方案复制失败');
+  return String(res.data);
+};
+
+export const deleteAuthScheme = async (schemeId: string | number): Promise<boolean> => {
+  const res: any = await request(`${API_BASE_PATH}/right/scheme/${schemeId}`, { method: 'DELETE' });
+  return !!res?.success;
+};
+
+export const deleteAuthSchemes = async (schemeIds: Array<string | number>): Promise<number> => {
+  if (!schemeIds.length) return 0;
+  const res: any = await request(`${API_BASE_PATH}/right/scheme/delete-batch`, {
+    method: 'POST',
+    data: schemeIds.map((id) => Number(id)),
+  });
+  if (!res?.success) throw new Error(res?.msg || '授权方案批量删除失败');
+  return Number(res.data || 0);
 };
 
 /**

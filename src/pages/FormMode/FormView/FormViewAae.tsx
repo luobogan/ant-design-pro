@@ -1,12 +1,11 @@
 import { SaveOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { useNavigate, useSearchParams } from '@umijs/max';
-import { Button, Card, Form, Spin, message } from 'antd';
+import { Button, Card, Spin, message } from 'antd';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { formApi, dataApi, fieldDefinitionApi } from '@/services/formmode';
 import { getFormLayout } from '@/services/formmode/formLayoutApi';
-import type { FieldDefinition, FormDataFormData } from '@/services/formmode/typings';
-import FieldRenderer from './components/FieldRenderer';
+import type { FormDataFormData } from '@/services/formmode/typings';
 import { useRuntimeFieldPerm } from './hooks/useRuntimeFieldPerm';
 import ExcelPreview, { type ExcelPreviewHandle } from '../ExcelDesign/components/ExcelPreview';
 import { collectFieldValues, expandInitialValues, pickFieldNameValues } from '../ExcelDesign/utils/collectFieldValues';
@@ -17,7 +16,6 @@ const normalizeLayoutData = (raw: any): any | null => {
     const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
     if (!parsed || typeof parsed !== 'object') return null;
     if (parsed.sheets && Object.keys(parsed.sheets).length) return parsed;
-    // 兼容画布 parentData 形状：{ Sheet1: { sheets: {...} } }
     const sheetKey = Object.keys(parsed).find((k) => parsed[k]?.sheets);
     if (sheetKey) {
       return {
@@ -33,42 +31,44 @@ const normalizeLayoutData = (raw: any): any | null => {
 };
 
 /**
- * 表单数据新增/编辑/查看页面（AAE模式）
+ * 表单数据新增/编辑/查看页面。
  *
- * 有 Univer 布局：按当前用户命中的授权对象组 + layoutType 加载布局并用 ExcelPreview 渲染。
- * 无布局：继续按字段定义动态生成表单，保证兼容不阻断。
+ * 运行期只按「当前用户命中的字段权限组 groupKey + layoutType」加载 Univer 布局。
+ * 未命中组或没有对应布局时只提示，不再兜底动态字段表单或表单级通用布局。
  */
 const DataAae: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [form] = Form.useForm();
   const previewRef = useRef<ExcelPreviewHandle>(null);
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
   const [layoutLoading, setLayoutLoading] = useState(true);
-  const [formFields, setFormFields] = useState<FieldDefinition[]>([]);
   const [fieldConfigured, setFieldConfigured] = useState(false);
   const [formName, setFormName] = useState<string>('');
   const [initialFieldValues, setInitialFieldValues] = useState<Record<string, any>>({});
   const [layoutData, setLayoutData] = useState<any | null>(null);
 
   const mode = searchParams.get('mode') || 'add';
-  const dataId = searchParams.get('id');
+  const rawDataId = searchParams.get('id');
+  const dataId = rawDataId && /^\d+$/.test(rawDataId) ? rawDataId : null;
   const formId = searchParams.get('formId');
   const isViewMode = mode === 'view';
   const isEditMode = mode === 'edit' && !!dataId;
   const hasData = !!dataId && (isEditMode || isViewMode);
+  const invalidDataId = (mode === 'edit' || mode === 'view') && !dataId;
   // 0=编辑/新增布局，1=显示/查看布局
   const layoutType = isViewMode ? 1 : 0;
   const runtimePerm = useRuntimeFieldPerm(formId, layoutType);
   const nodePermission = runtimePerm.resolve;
 
-  const pageTitle = isViewMode
-    ? `查看数据 - ${formName || '加载中...'}`
-    : (isEditMode ? `编辑数据 - ${formName || '加载中...'}` : `新增数据 - ${formName || '加载中...'}`);
+  const pageTitle = invalidDataId
+    ? '数据ID无效'
+    : isViewMode
+      ? `查看数据 - ${formName || '加载中...'}`
+      : (isEditMode ? `编辑数据 - ${formName || '加载中...'}` : `新增数据 - ${formName || '加载中...'}`);
 
   const fetchFormInfo = async () => {
-    if (!formId) return;
+    if (!formId || invalidDataId) return;
     setFetchLoading(true);
     try {
       const formDetail = await formApi.getById(formId);
@@ -78,7 +78,6 @@ const DataAae: React.FC = () => {
         dataApi.getFieldDefinitions(formId),
         fieldDefinitionApi.isConfigured(formId),
       ]);
-      setFormFields(fields || []);
       setFieldConfigured(!!configured);
 
       if (hasData && dataId) {
@@ -86,12 +85,11 @@ const DataAae: React.FC = () => {
         if (formData) {
           const values: Record<string, any> = {};
           const valueMap = (formData as any).fieldValues;
-          fields?.forEach((field) => {
+          (fields || []).forEach((field) => {
             const key = (field.fieldDbName || field.fieldName) as string;
             values[key] = valueMap ? valueMap[key] : (formData as any)[key];
           });
           setInitialFieldValues(values);
-          form.setFieldsValue(values);
         }
       } else {
         setInitialFieldValues({});
@@ -106,22 +104,27 @@ const DataAae: React.FC = () => {
 
   useEffect(() => {
     if (formId) fetchFormInfo();
-  }, [formId, dataId, isEditMode, isViewMode]);
+  }, [formId, dataId, isEditMode, isViewMode, invalidDataId]);
 
-  // 按当前用户命中组 + 布局类型加载 Univer 布局；没有组时使用表单级布局
+  // 只加载当前用户命中组的布局；没有命中组或没有对应布局时不做任何兜底
   useEffect(() => {
     if (!formId || runtimePerm.loading) return;
     let cancelled = false;
     setLayoutLoading(true);
+    const nodeKey = runtimePerm.layoutNodeKey;
+    if (!nodeKey) {
+      setLayoutData(null);
+      setLayoutLoading(false);
+      return;
+    }
     (async () => {
       try {
-        const nodeKey = runtimePerm.layoutNodeKey;
-        const res: any = await getFormLayout(formId, layoutType, nodeKey, !nodeKey);
+        const res: any = await getFormLayout(formId, layoutType, nodeKey, false);
         const raw = res?.data?.layoutJson;
         const parsed = normalizeLayoutData(raw);
         if (!cancelled) setLayoutData(parsed);
       } catch (e) {
-        console.warn('[FormViewAae] 加载 Univer 布局失败，使用字段表单降级:', e);
+        console.warn('[FormViewAae] 加载 Univer 布局失败:', e);
         if (!cancelled) setLayoutData(null);
       } finally {
         if (!cancelled) setLayoutLoading(false);
@@ -136,16 +139,14 @@ const DataAae: React.FC = () => {
   );
 
   const submitData = async (values: Record<string, any>) => {
-    if (!formId) return;
+    if (!formId || !layoutData) return;
     if (!fieldConfigured) {
       message.warning('请先完成字段配置，再进行数据编辑');
       return;
     }
     try {
       setLoading(true);
-      const fieldValues = layoutData
-        ? pickFieldNameValues({ ...values, ...collectFieldValues(layoutData, values) })
-        : values;
+      const fieldValues = pickFieldNameValues({ ...values, ...collectFieldValues(layoutData, values) });
       const formData: FormDataFormData = {
         id: isEditMode && dataId ? dataId : undefined,
         formId,
@@ -173,12 +174,11 @@ const DataAae: React.FC = () => {
       message.warning('请先完成字段配置，再进行数据编辑');
       return;
     }
-    if (layoutData) {
-      previewRef.current?.submit();
+    if (!layoutData) {
+      message.warning('没有相应的布局，无法保存数据');
       return;
     }
-    const values = await form.validateFields();
-    await submitData(values);
+    previewRef.current?.submit();
   };
 
   if (!formId) {
@@ -207,16 +207,28 @@ const DataAae: React.FC = () => {
     <PageContainer
       title={pageTitle}
       onBack={() => navigate(`/formmode/formview?formId=${formId}`)}
-      extra={isViewMode ? undefined : (
-        <Button type="primary" icon={<SaveOutlined />} loading={loading} disabled={!fieldConfigured} onClick={handleSubmit}>
+      extra={isViewMode || invalidDataId ? undefined : (
+        <Button type="primary" icon={<SaveOutlined />} loading={loading} disabled={!fieldConfigured || !layoutData} onClick={handleSubmit}>
           保存
         </Button>
       )}
     >
       <Card>
-        {fetchLoading || layoutLoading || runtimePerm.loading ? (
+        {invalidDataId ? (
+          <div style={{ textAlign: 'center', padding: '50px' }}>
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>数据ID无效</div>
+            <div style={{ color: '#999' }}>请从数据列表重新进入查看或编辑页面。</div>
+          </div>
+        ) : fetchLoading || layoutLoading || runtimePerm.loading ? (
           <div style={{ textAlign: 'center', padding: '50px' }}><Spin tip="加载中..." /></div>
-        ) : layoutData ? (
+        ) : !layoutData ? (
+          <div style={{ textAlign: 'center', padding: '50px' }}>
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>没有相应的布局</div>
+            <div style={{ color: '#999' }}>
+              当前用户未命中字段权限组，或该组未配置当前类型的 Univer 布局。请联系管理员配置字段权限组并设计对应布局。
+            </div>
+          </div>
+        ) : (
           <ExcelPreview
             ref={previewRef}
             layoutData={layoutData}
@@ -234,25 +246,6 @@ const DataAae: React.FC = () => {
             onClose={() => navigate(`/formmode/formview?formId=${formId}`)}
             title={pageTitle}
           />
-        ) : (
-          <Form form={form} layout="vertical" style={{ maxWidth: 800, margin: '0 auto' }}>
-            {formFields.map((field) => (
-              <Form.Item
-                key={field.id}
-                name={field.fieldDbName || field.fieldName}
-                label={field.fieldLabel || field.fieldName}
-                rules={field.isRequired === 1 ? [{ required: true, message: `请输入${field.fieldLabel}` }] : []}
-              >
-                <FieldRenderer field={field} disabled={isViewMode || field.isReadOnly === 1} nodePermission={nodePermission} />
-              </Form.Item>
-            ))}
-            {!isViewMode && (
-              <Form.Item>
-                <Button type="primary" onClick={handleSubmit} loading={loading} disabled={!fieldConfigured}>提交</Button>
-                <Button style={{ marginLeft: 8 }} onClick={() => navigate(`/formmode/formview?formId=${formId}`)}>取消</Button>
-              </Form.Item>
-            )}
-          </Form>
         )}
       </Card>
     </PageContainer>

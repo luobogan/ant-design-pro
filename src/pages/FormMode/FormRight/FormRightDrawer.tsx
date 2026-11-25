@@ -29,6 +29,8 @@ import {
   saveAllRights,
   getRightVersion,
   getFieldAuthGroups,
+  getFormMenuShares,
+  MenuShare,
 } from '@/services/formmode/rightApi';
 import { fieldApi, formApi, fieldDefinitionApi } from '@/services/formmode';
 import type { FieldDefinition } from '@/services/formmode/typings';
@@ -158,6 +160,7 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
   // 方案C：单个表单的数据菜单名 + 角色级显示名
   const [formMenuName, setFormMenuName] = useState<string>('');
   const [roleMenuNames, setRoleMenuNames] = useState<Record<string, string>>({});
+  const [menuShares, setMenuShares] = useState<MenuShare[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formName, setFormName] = useState(formNameProp || '');
@@ -170,6 +173,7 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
       setLoading(true);
       setFormMenuName('');
       setRoleMenuNames({});
+      setMenuShares([]);
       setFieldConfigured(false);
       try {
         const [mid, flds, configured, formDetail] = await Promise.all([
@@ -184,12 +188,13 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
         setFieldConfigured(!!configured);
         setFormName(formNameProp || (formDetail as any)?.formName || '');
         if (mid) {
-          const [mr, fa, fg, ds, ver] = await Promise.all([
+          const [mr, fa, fg, ds, ver, shares] = await Promise.all([
             getModeRights(mid),
             getFieldAuthorizes(mid),
             getFieldAuthGroups(mid),
             getModeDataScopes(mid),
             getRightVersion(mid),
+            getFormMenuShares(mid).catch(() => [] as MenuShare[]),
           ]);
           if (cancelled) return;
           setModeRights(mr || []);
@@ -221,10 +226,19 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
           }
           setDataScopes(ds || []);
           setRightVersion(ver || 0);
+          if (shares && shares.length) {
+            setMenuShares(shares);
+          } else {
+            // 兼容旧数据：没有显式菜单共享时，按模块权限角色生成默认可见范围
+            setMenuShares((mr || [])
+              .filter((r) => r.objtype === 1 && r.objid != null)
+              .map((r) => ({ shareType: 1, shareId: String(r.objid), includeSub: 0 })));
+          }
         } else {
           setModeRights([]);
           setFieldAuths([]);
           setDataScopes([]);
+          setMenuShares([]);
         }
       } catch (e) {
         message.error('加载权限配置失败');
@@ -261,10 +275,12 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
     }]);
 
   // 多选授权对象：展开为标准明细行，不把多个 objid 塞进同一字段
-  const toIds = (v?: number | number[]): number[] => Array.isArray(v) ? v.map(Number) : (v == null ? [] : [Number(v)]);
+  const toIds = (v?: string | string[]): string[] => Array.isArray(v)
+    ? Array.from(new Set(v.map((id) => String(id).trim()).filter(Boolean)))
+    : (v == null || String(v).trim() === '' ? [] : [String(v).trim()]);
 
-  const expandModeRightObjects = (index: number, values?: number | number[]) => {
-    const ids = toIds(values).filter(Number.isFinite);
+  const expandModeRightObjects = (index: number, values?: string | string[]) => {
+    const ids = toIds(values);
     setModeRights((prev) => {
       const row = prev[index];
       if (!row) return prev;
@@ -274,8 +290,8 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
     });
   };
 
-  const expandAuthObjects = (index: number, values?: number | number[]) => {
-    const ids = toIds(values).filter(Number.isFinite);
+  const expandAuthObjects = (index: number, values?: string | string[]) => {
+    const ids = toIds(values);
     setFieldAuths((prev) => {
       const row = prev[index];
       if (!row) return prev;
@@ -285,8 +301,8 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
     });
   };
 
-  const expandScopeObjects = (index: number, values?: number | number[]) => {
-    const ids = toIds(values).filter(Number.isFinite);
+  const expandScopeObjects = (index: number, values?: string | string[]) => {
+    const ids = toIds(values);
     setDataScopes((prev) => {
       const row = prev[index];
       if (!row) return prev;
@@ -440,6 +456,18 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
         formId: String(formId),
         formMenuName,
         roleMenuNames,
+        menuShares: menuShares.filter((s) => {
+          if (!s.shareType) return false;
+          if (s.shareType === 7) return true;
+          if (s.shareType === 6) return s.showlevel != null || s.showlevel2 != null;
+          return s.shareId != null && String(s.shareId) !== '';
+        }).map((s) => ({
+          ...s,
+          shareId: s.shareType === 7 ? 0 : (s.shareId == null || s.shareId === '' ? undefined : Number(s.shareId)),
+          includeSub: s.shareType === 3 ? Number(s.includeSub || 0) : 0,
+          showlevel: s.shareType === 6 ? s.showlevel : undefined,
+          showlevel2: s.shareType === 6 ? s.showlevel2 : undefined,
+        })),
       });
       setRightVersion((v) => v + 1);
       message.success('权限配置已保存');
@@ -492,7 +520,7 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
       width: 200,
       render: (v, record, i) => (
         <AuthObjectPicker objtype={record.objtype ?? 1} multiple value={v == null ? [] : [v]} disabled={disabled}
-          onChange={(ids) => expandModeRightObjects(i, ids as number[])} />
+          onChange={(ids) => expandModeRightObjects(i, ids as string[])} />
       ),
     },
     {
@@ -597,7 +625,7 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
       width: 200,
       render: (v, record, i) => (
         <AuthObjectPicker objtype={record.objtype ?? 1} multiple value={v == null ? [] : [v]} disabled={disabled}
-          onChange={(ids) => expandAuthObjects(i, ids as number[])} />
+          onChange={(ids) => expandAuthObjects(i, ids as string[])} />
       ),
     },
     {
@@ -671,7 +699,7 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
       width: 200,
       render: (v, record, i) => (
         <AuthObjectPicker objtype={record.objtype ?? 1} multiple value={v == null ? [] : [v]} disabled={disabled}
-          onChange={(ids) => expandScopeObjects(i, ids as number[])} />
+          onChange={(ids) => expandScopeObjects(i, ids as string[])} />
       ),
     },
     {
@@ -1067,6 +1095,93 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
     </Modal>
   );
 
+  // 菜单可见范围：复用通用授权对象类型常量，并补充安全级别/全员
+  const MENU_SHARE_TYPE_OPTIONS = [
+    ...AUTH_OBJECT_TYPE_OPTIONS
+      .filter((o) => [1, 2, 3, 4, 5].includes(Number(o.value)))
+      .map((o) => {
+        const authType = Number(o.value);
+        const map: Record<number, number> = { 1: 1, 4: 2, 2: 3, 5: 4, 3: 5 };
+        return { value: map[authType], label: o.label };
+      }),
+    { value: 6, label: '安全级别' },
+    { value: 7, label: '全员' },
+  ];
+  const SHARE_TYPE_TO_AUTH_TYPE: Record<number, number> = { 1: 1, 2: 4, 3: 2, 4: 5, 5: 3 };
+  const AUTH_TYPE_TO_SHARE_TYPE: Record<number, number> = { 1: 1, 4: 2, 2: 3, 5: 4, 3: 5 };
+  const updateMenuShare = (idx: number, patch: Partial<MenuShare>) =>
+    setMenuShares((prev) => prev.map((s, i) => i === idx ? { ...s, ...patch } : s));
+  const removeMenuShare = (idx: number) => setMenuShares((prev) => prev.filter((_, i) => i !== idx));
+  const addMenuShare = () => setMenuShares((prev) => [...prev, { shareType: 1, shareId: undefined, includeSub: 0 }]);
+
+  const menuShareColumns: ColumnsType<MenuShare> = [
+    {
+      title: '可见类型',
+      key: 'shareType',
+      width: 150,
+      render: (_v, r, i) => (
+        <Select size="small" style={{ width: 130 }} value={r.shareType}
+          options={MENU_SHARE_TYPE_OPTIONS}
+          disabled={disabled}
+          onChange={(v) => updateMenuShare(i, {
+            shareType: Number(v),
+            shareId: undefined,
+            includeSub: 0,
+            showlevel: undefined,
+            showlevel2: undefined,
+          })} />
+      ),
+    },
+    {
+      title: '可见对象',
+      key: 'subject',
+      render: (_v, r, i) => {
+        if (r.shareType === 6) {
+          return (
+            <Space size={4}>
+              <InputNumber size="small" min={0} max={100} placeholder="下限" value={r.showlevel ?? null}
+                disabled={disabled} onChange={(v) => updateMenuShare(i, { showlevel: v == null ? undefined : Number(v) })} />
+              <span>~</span>
+              <InputNumber size="small" min={0} max={100} placeholder="上限" value={r.showlevel2 ?? null}
+                disabled={disabled} onChange={(v) => updateMenuShare(i, { showlevel2: v == null ? undefined : Number(v) })} />
+            </Space>
+          );
+        }
+        if (r.shareType === 7) return <Tag color="green">所有登录用户</Tag>;
+        const authType = SHARE_TYPE_TO_AUTH_TYPE[Number(r.shareType)];
+        if (!authType) return null;
+        return (
+          <AuthObjectPicker
+            objtype={authType}
+            value={r.shareId ? String(r.shareId) : undefined}
+            disabled={disabled}
+            onChange={(v) => {
+              const first = Array.isArray(v) ? v[0] : v;
+              updateMenuShare(i, { shareId: first == null ? undefined : String(first) });
+            }}
+          />
+        );
+      },
+    },
+    {
+      title: '含子级',
+      key: 'includeSub',
+      width: 80,
+      render: (_v, r, i) => r.shareType === 3 ? (
+        <Switch size="small" checked={r.includeSub === 1} disabled={disabled}
+          onChange={(c) => updateMenuShare(i, { includeSub: c ? 1 : 0 })} />
+      ) : null,
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 70,
+      render: (_v, _r, i) => (
+        <Button danger type="link" size="small" icon={<DeleteOutlined />} disabled={disabled} onClick={() => removeMenuShare(i)} />
+      ),
+    },
+  ];
+
   const tabItems = [
     {
       key: 'right',
@@ -1086,6 +1201,14 @@ const FormRightDrawer: React.FC<Props> = ({ formId, formName: formNameProp, open
             <span style={{ color: '#999', fontSize: 12 }}>
               保存后创建/更新该表单专属菜单，路径 /formmode/formview/{formId}
             </span>
+          </div>
+          <div>
+            <div style={{ marginBottom: 6, color: '#666', fontSize: 13 }}>菜单可见范围（不配则默认仅按模块权限中的角色授权）</div>
+            <Table rowKey={(_, i) => 'ms-' + i} size="small" columns={menuShareColumns}
+              dataSource={menuShares} pagination={false} locale={{ emptyText: '未配置菜单可见范围' }} />
+            <Button type="dashed" icon={<PlusOutlined />} onClick={addMenuShare} disabled={disabled} block style={{ marginTop: 8 }}>
+              新增菜单可见范围
+            </Button>
           </div>
           <Button type="dashed" icon={<PlusOutlined />} onClick={addRight} disabled={disabled} block>
             新增模块权限
