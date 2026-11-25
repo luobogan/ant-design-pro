@@ -147,6 +147,7 @@ const ensureSingleFieldGroup = (s: AuthScheme): AuthScheme => {
 const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) => {
   const [schemes, setSchemes] = useState<AuthScheme[]>([]);
   const [selectedSchemeIds, setSelectedSchemeIds] = useState<string[]>([]);
+  const [editingSchemeIds, setEditingSchemeIds] = useState<string[]>([]);
   const [scheme, setScheme] = useState<AuthScheme | null>(null);
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -215,23 +216,27 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
 
   const startCreate = () => {
     setSubjectIds([]);
+    setEditingSchemeIds([]);
     setScheme(ensureSingleFieldGroup(emptyScheme(formId)));
     setStep(0);
   };
 
-  const startEdit = (item: AuthScheme) => {
-    setSubjectIds(item.subjectId == null || item.subjectType === 7 ? [] : [String(item.subjectId)]);
-    setScheme(ensureSingleFieldGroup({ ...item, formId }));
+  const startEdit = (items: AuthScheme[]) => {
+    const first = items[0];
+    if (!first) return;
+    setEditingSchemeIds(items.map((item) => String(item.id)));
+    setSubjectIds(first.subjectType === 7 ? ['0'] : items.map((item) => item.subjectId == null ? '' : String(item.subjectId)).filter(Boolean));
+    setScheme(ensureSingleFieldGroup({ ...first, formId }));
     setStep(0);
   };
 
-  const cloneSchemeForSubject = (subjectId: string, index: number, name?: string): AuthScheme => {
+  const cloneSchemeForSubject = (subjectId: string, index: number, name?: string, existingId?: string): AuthScheme => {
     const cloned: AuthScheme = JSON.parse(JSON.stringify(scheme));
     const baseName = (scheme.schemeName || '').trim() || `${SUBJECT_TYPES.find((t) => t.value === scheme.subjectType)?.label || '授权'}方案`;
-    cloned.id = undefined;
+    cloned.id = existingId;
     cloned.subjectId = subjectId;
     cloned.subjectName = name || subjectNames[subjectNameKey(scheme.subjectType, subjectId)] || scheme.subjectName;
-    cloned.schemeName = subjectIds.length > 1 ? `${baseName}-${subjectId}` : baseName;
+    cloned.schemeName = subjectIds.length > 1 ? `${baseName.replace(/-(\d+)$/, '')}-${subjectId}` : baseName;
     cloned.fieldGroups = (cloned.fieldGroups || []).map((g) => ({
       ...g,
       id: undefined,
@@ -257,7 +262,7 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
     for (const item of schemes) {
       if (Number(item.subjectType) !== Number(scheme.subjectType)) continue;
       const id = item.subjectId == null ? '' : String(item.subjectId);
-      if (id && String(item.id) !== String(scheme.id)) existing.set(id, item.schemeName || String(item.id));
+      if (id && !editingSchemeIds.includes(String(item.id))) existing.set(id, item.schemeName || String(item.id));
     }
     const conflicts = ids.filter((id) => existing.has(id));
     if (conflicts.length) {
@@ -276,15 +281,8 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
         ...Object.fromEntries(Object.entries(resolvedNames).map(([id, name]) => [subjectNameKey(scheme.subjectType, id), name])),
       }));
       const payloads: AuthScheme[] = [];
-      if (scheme.id) {
-        payloads.push({ ...scheme, subjectId: ids[0], subjectName: resolvedNames[ids[0]] || scheme.subjectName });
-        for (let i = 1; i < ids.length; i++) {
-          payloads.push(cloneSchemeForSubject(ids[i], i, resolvedNames[ids[i]]));
-        }
-      } else {
-        for (let i = 0; i < ids.length; i++) {
-          payloads.push(cloneSchemeForSubject(ids[i], i, resolvedNames[ids[i]]));
-        }
+      for (let i = 0; i < ids.length; i++) {
+        payloads.push(cloneSchemeForSubject(ids[i], i, resolvedNames[ids[i]], editingSchemeIds[i]));
       }
       await saveAuthSchemes(payloads);
       message.success(ids.length > 1 ? `已生成 ${ids.length} 个授权方案` : '授权方案已保存');
@@ -388,6 +386,17 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
     setSubjectIds((prev) => (prev.length === 1 && prev[0] === '0' ? prev : ['0']));
   }, [scheme?.subjectType]);
 
+  const schemeGroups = useMemo(() => {
+    const groups = new Map<string, AuthScheme[]>();
+    for (const item of schemes) {
+      const baseName = (item.schemeName || '').replace(/-(\d+)$/, '');
+      const key = `${item.formId}|${item.subjectType}|${baseName}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(item);
+    }
+    return Array.from(groups.entries()).map(([key, items]) => ({ key, items, first: items[0] }));
+  }, [schemes]);
+
   const schemeList = (
     <div>
       <Space style={{ marginBottom: 12 }}>
@@ -399,36 +408,64 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
         >
           <Button danger icon={<DeleteOutlined />} disabled={!selectedSchemeIds.length}>批量删除</Button>
         </Popconfirm>
-        <span style={{ color: '#999' }}>一个方案只配置一个授权对象；同一用户可命中多个方案。</span>
+        <span style={{ color: '#999' }}>一次多选生成的方案会归为一组显示；同一用户可命中多组方案。</span>
       </Space>
       <Table
-        rowKey={(r) => String(r.id)}
-        dataSource={schemes}
+        rowKey={(r) => (r as any).key}
+        dataSource={schemeGroups}
         rowSelection={{
-          selectedRowKeys: selectedSchemeIds,
-          onChange: (keys) => setSelectedSchemeIds(keys.map(String)),
+          selectedRowKeys: schemeGroups
+            .filter((g) => g.items.some((item) => selectedSchemeIds.includes(String(item.id))))
+            .map((g) => g.key),
+          onChange: (keys) => setSelectedSchemeIds((keys as string[]).flatMap((key) =>
+            (schemeGroups.find((g) => g.key === key)?.items || []).map((item) => String(item.id)))),
         }}
         pagination={false}
         size="small"
         locale={{ emptyText: <Empty description="暂无授权方案" /> }}
         columns={[
-          { title: '方案名称', dataIndex: 'schemeName' },
-          { title: '授权对象类型', dataIndex: 'subjectType', width: 110, render: (v) => SUBJECT_TYPES.find((t) => t.value === v)?.label || v },
-          { title: '授权对象', dataIndex: 'subjectName', width: 180, render: (v, r) => r.subjectType === 7
-            ? '所有登录用户'
-            : (v || subjectNames[subjectNameKey(r.subjectType, r.subjectId)] || String(r.subjectId ?? '')) },
-          { title: '优先级', dataIndex: 'priority', width: 90 },
+          {
+            title: '方案名称', dataIndex: 'key',
+            render: (_v, r: any) => {
+              const group = schemeGroups.find((g) => g.key === r.key)!;
+              const base = (group.first.schemeName || '').replace(/-(\d+)$/, '');
+              return group.items.length > 1 ? `${base}（${group.items.length}个对象）` : group.first.schemeName;
+            },
+          },
+          {
+            title: '授权对象类型', width: 110,
+            render: (_v, r: any) => SUBJECT_TYPES.find((t) => t.value === schemeGroups.find((g) => g.key === r.key)?.first.subjectType)?.label
+              || schemeGroups.find((g) => g.key === r.key)?.first.subjectType,
+          },
+          {
+            title: '授权对象', width: 260,
+            render: (_v, r: any) => {
+              const group = schemeGroups.find((g) => g.key === r.key)!;
+              if (group.first.subjectType === 7) return '所有登录用户';
+              return group.items.map((item) => subjectNames[subjectNameKey(item.subjectType, item.subjectId)] || item.subjectName || String(item.subjectId ?? '')).join('、');
+            },
+          },
+          {
+            title: '优先级', width: 90,
+            render: (_v, r: any) => schemeGroups.find((g) => g.key === r.key)?.first.priority,
+          },
           {
             title: '操作', key: 'op', width: 160,
-            render: (_v, r) => (
-              <Space size={2}>
-                <Button type="link" size="small" icon={<EditOutlined />} onClick={() => startEdit(r)}>编辑</Button>
-                <Button type="link" size="small" icon={<CopyOutlined />} onClick={async () => { await copyAuthScheme(String(r.id)); await load(); }}>复制</Button>
-                <Popconfirm title="确认删除该方案？" onConfirm={async () => { await deleteAuthScheme(String(r.id)); await load(); }}>
-                  <Button danger type="link" size="small" icon={<DeleteOutlined />} />
-                </Popconfirm>
-              </Space>
-            ),
+            render: (_v, r: any) => {
+              const group = schemeGroups.find((g) => g.key === r.key)!;
+              return (
+                <Space size={2}>
+                  <Button type="link" size="small" icon={<EditOutlined />} onClick={() => startEdit(group.items)}>编辑</Button>
+                  <Button type="link" size="small" icon={<CopyOutlined />} onClick={async () => { await copyAuthScheme(String(group.first.id)); await load(); }}>复制</Button>
+                  <Popconfirm title={`确认删除该组 ${group.items.length} 个方案？`} onConfirm={async () => {
+                    await deleteAuthSchemes(group.items.map((item) => String(item.id)));
+                    await load();
+                  }}>
+                    <Button danger type="link" size="small" icon={<DeleteOutlined />} />
+                  </Popconfirm>
+                </Space>
+              );
+            },
           },
         ]}
       />
