@@ -502,11 +502,8 @@ const FormDirTree: React.FC<Props> = ({ value, onChange, onChanged, movingFormId
         title={`目录权限 - ${authDir?.name || ''}`}
         open={authOpen}
         placement="right"
-        onClose={() => (authView === 'wizard' && authStep === 1 ? setAuthStep(0) : setAuthOpen(false))}
-        onOk={authView === 'list' ? undefined : (authStep === 0 ? nextAuthStep : saveAuth)}
-        okText={authView === 'wizard' ? (authStep === 0 ? '下一步' : '保存') : undefined}
-        cancelText={authView === 'wizard' && authStep === 1 ? '上一步' : '取消'}
-        footer={authView === 'list' ? null : (
+        onClose={() => setAuthOpen(false)}
+        extra={authView === 'wizard' ? (
           <Space>
             <Button onClick={() => (authStep === 0 ? setAuthOpen(false) : setAuthStep(0))}>
               {authStep === 0 ? '取消' : '上一步'}
@@ -515,7 +512,8 @@ const FormDirTree: React.FC<Props> = ({ value, onChange, onChanged, movingFormId
               {authStep === 0 ? '下一步' : '保存'}
             </Button>
           </Space>
-        )}
+        ) : null}
+        footer={null}
         width={authView === 'list' ? 960 : 720}
         destroyOnHidden
       >

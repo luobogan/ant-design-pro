@@ -1035,17 +1035,15 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
       open={open}
       onClose={() => { setScheme(null); onClose(); }}
       width="min(1200px, calc(100vw - 48px))"
-      styles={{ body: { paddingBottom: 80 } }}
-      footer={
-        scheme ? (
-          <Space>
-            <Button onClick={() => setScheme(null)}>返回方案列表</Button>
-            <Button disabled={step === 0} onClick={() => setStep(step - 1)}>上一步</Button>
-            {step < 3 ? <Button type="primary" onClick={() => setStep(step + 1)}>下一步</Button> : null}
-            <Button type="primary" loading={loading} onClick={save}>保存并完成</Button>
-          </Space>
-        ) : null
-      }
+      extra={scheme ? (
+        <Space>
+          <Button onClick={() => setScheme(null)}>返回方案列表</Button>
+          <Button disabled={step === 0} onClick={() => setStep(step - 1)}>上一步</Button>
+          {step < 3 ? <Button type="primary" onClick={() => setStep(step + 1)}>下一步</Button> : null}
+          <Button type="primary" loading={loading} onClick={save}>保存并完成</Button>
+        </Space>
+      ) : null}
+      footer={null}
     >
       {scheme ? (
         <>
