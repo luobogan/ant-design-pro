@@ -855,7 +855,7 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
           {
             title: '权限类型', dataIndex: 'rightTypes', width: 190,
             render: (v, r, i) => {
-              const rights = Array.isArray(v) && v.length ? v : (r.type === 2 ? [1, 3, 4] : [1]);
+              const rights = Array.isArray(v) ? v : [];
               return (
                 <Select
                   mode="multiple"

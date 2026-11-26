@@ -330,7 +330,8 @@ const FormDirTree: React.FC<Props> = ({ value, onChange, onChanged, movingFormId
         });
       }
       const rightType = Number(row.rightType);
-      if (rightType) scopeMap.get(key)!.rightTypes.push(rightType);
+      const current = scopeMap.get(key)!;
+      if (rightType && !current.rightTypes.includes(rightType)) current.rightTypes.push(rightType);
     });
     setAuthScopes(Array.from(scopeMap.values()));
     setAuthView('wizard');
@@ -385,13 +386,17 @@ const FormDirTree: React.FC<Props> = ({ value, onChange, onChanged, movingFormId
         return;
       }
     }
-    const subjectIds = authSubjectType === 7 ? ['0'] : authSubjectIds;
+    const subjectIds = Array.from(new Set(authSubjectType === 7 ? ['0'] : authSubjectIds));
     const schemeId = editingSchemeId || `${Date.now()}${Math.floor(Math.random() * 1000)}`;
     const schemeName = authSchemeName.trim() || `目录权限方案-${schemeId}`;
     const payload: ModeDirAuth[] = [];
+    const seen = new Set<string>();
     subjectIds.forEach((subjectId) => {
       authScopes.forEach((scope) => {
-        scope.rightTypes.forEach((rightType) => {
+        Array.from(new Set(scope.rightTypes.map(Number))).forEach((rightType) => {
+          const key = [subjectId, scope.scopeType, scope.scopeColumn || '', scope.scopeValue || '', rightType].join('|');
+          if (seen.has(key)) return;
+          seen.add(key);
           payload.push({
             dirId: String(authDir.id),
             subjectType: authSubjectType,
@@ -514,7 +519,7 @@ const FormDirTree: React.FC<Props> = ({ value, onChange, onChanged, movingFormId
           </Space>
         ) : null}
         footer={null}
-        width={authView === 'list' ? 960 : 720}
+        width="min(1200px, calc(100vw - 48px))"
         destroyOnHidden
       >
         {authView === 'list' ? (
@@ -666,7 +671,7 @@ const FormDirTree: React.FC<Props> = ({ value, onChange, onChanged, movingFormId
                           options={RIGHT_TYPES}
                           onChange={(next) => {
                             const rows = [...authScopes];
-                            rows[i] = { ...rows[i], rightTypes: next.map(Number) };
+                            rows[i] = { ...rows[i], rightTypes: Array.from(new Set(next.map(Number))) };
                             setAuthScopes(rows);
                           }}
                         />
