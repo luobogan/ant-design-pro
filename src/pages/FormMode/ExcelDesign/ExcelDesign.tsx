@@ -194,7 +194,7 @@ export interface ExcelDesignProps {
    * 把「保存」能力回传给宿主（供弹窗底部「保存」按钮调用）。
    * 这样保存入口不依赖 Univer 原生 ribbon 的注册时序，弹窗里一定有可用的保存。
    */
-  onReady?: (api: { save: () => Promise<boolean> }) => void;
+  onReady?: (api: { save: (options?: { silent?: boolean }) => Promise<boolean> }) => void;
   /** 布局保存成功后回调（ribbon / 弹窗底部按钮 / 代码块保存共用 handleSave，均会触发）：
    *  宿主用它做「布局必填 → 节点 BPMN 字段权限」联动 */
   onSaved?: () => void;
@@ -986,7 +986,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     };
   }, []);
 
-  const loadFormLayout = async (force = false, typeOverride?: number) => {
+  const loadFormLayout = async (force = false, typeOverride?: number, silent = false) => {
     if (!formId) return;
     setLoading(true);
     try {
@@ -1060,7 +1060,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
         // 页签独立布局（E9 etables.tab_N → tabTables）：与明细表同理随布局一起加载
         setTabLayouts((layoutJson && (layoutJson as any).tabTables) || {});
         console.log('[LoadFormLayout] 已加载布局数据', { hasFieldMeta: JSON.stringify(layoutJson).includes('fieldMeta') });
-        message.success('布局数据加载成功');
+        if (!silent) message.success('布局数据加载成功');
       }
     } catch (error) {
       console.error('加载布局数据失败:', error);
@@ -1131,8 +1131,8 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     }
   }, [message, getMergedTabTables]);
 
-  const handleSave = useCallback(async (): Promise<boolean> => {
-    console.log('[Save] handleSave 触发', { formId, nodeKey });
+  const handleSave = useCallback(async (options?: { silent?: boolean }): Promise<boolean> => {
+    console.log('[Save] handleSave 触发', { formId, nodeKey, silent: !!options?.silent });
     if (!formId) {
       message.warning('请先选择表单');
       return false;
@@ -1142,7 +1142,7 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
     // 此时若直接保存会只拿到子画布布局；用 mainGridApiRef 保证始终拿到主表布局。
     const univerGrid = mainGridApiRef.current || (window as any).univerExcelGrid;
     if (!univerGrid) {
-      message.error('Excel组件未初始化');
+      if (!options?.silent) message.error('Excel组件未初始化');
       return false;
     }
 
@@ -1153,11 +1153,11 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
       sheetLayoutData = univerGrid.saveLayoutData();
     } catch (e) {
       console.error('[Save] 获取布局数据异常:', e);
-      message.error(`获取布局数据失败：${(e as Error)?.message || e}`);
+      if (!options?.silent) message.error(`获取布局数据失败：${(e as Error)?.message || e}`);
       return false;
     }
     if (!sheetLayoutData) {
-      message.error('获取布局数据失败：Excel 组件尚未就绪，请稍候重试');
+      if (!options?.silent) message.error('获取布局数据失败：Excel 组件尚未就绪，请稍候重试');
       return false;
     }
 
@@ -1199,19 +1199,19 @@ const ExcelDesignContent: React.FC<ExcelDesignProps> = (props) => {
       const code = res?.code;
       if (code !== undefined && code !== null && Number(code) !== 200 && Number(code) !== 0) {
         console.error('[Save] 后端返回失败:', res);
-        message.error(`保存失败：${res?.msg || res?.message || '后端返回失败'}`);
+        if (!options?.silent) message.error(`保存失败：${res?.msg || res?.message || '后端返回失败'}`);
         return false;
       }
-      message.success('保存成功');
+      if (!options?.silent) message.success('保存成功');
       // 保存成功即通知宿主做「布局必填 → 节点 BPMN 字段权限」联动（异步，不阻塞保存返回）
       props.onSaved?.();
 
       // 保存成功后重新加载布局数据，确保页面显示最新数据（强制刷新，覆盖用户编辑）
-      await loadFormLayout(true);
+      await loadFormLayout(true, undefined, !!options?.silent);
       return true;
     } catch (error) {
       console.error('保存失败:', error);
-      message.error('保存失败');
+      if (!options?.silent) message.error('保存失败');
       return false;
     } finally {
       setSaving(false);

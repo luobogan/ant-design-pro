@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Button, Drawer, Empty, Form, Input, InputNumber, message, Modal, Popconfirm, Select, Space, Steps, Table, Tree, TreeSelect,
+  Button, Drawer, Empty, Form, Input, InputNumber, message, Modal, Popconfirm, Select, Space, Steps, Table, Tag, Tree, TreeSelect,
 } from 'antd';
 import {
   CopyOutlined, DeleteOutlined, EditOutlined, PlusOutlined, SafetyCertificateOutlined,
@@ -31,7 +31,7 @@ const SUBJECT_TYPES = [
 ];
 
 const RIGHT_TYPES = [
-  { value: 1, label: '可见' },
+  { value: 1, label: '详情' },
   { value: 2, label: '新增' },
   { value: 3, label: '编辑' },
   { value: 4, label: '删除' },
@@ -66,10 +66,20 @@ interface DirScope {
 }
 
 const DIR_SCOPE_COLUMNS = [
-  { fieldName: '创建人', fieldLabel: '创建人', fieldDbName: 'create_user', fieldDbType: 'bigint' },
-  { fieldName: '表单状态', fieldLabel: '表单状态', fieldDbName: 'status', fieldDbType: 'int' },
+  { fieldName: '编号', fieldLabel: '编号', fieldDbName: 'id', fieldDbType: 'bigint' },
+  { fieldName: '表单名称', fieldLabel: '表单名称', fieldDbName: 'form_name', fieldDbType: 'varchar' },
+  { fieldName: '数据库表名', fieldLabel: '数据库表名', fieldDbName: 'table_name', fieldDbType: 'varchar' },
   { fieldName: '表单类型', fieldLabel: '表单类型', fieldDbName: 'form_type', fieldDbType: 'tinyint' },
-  { fieldName: '明细表数', fieldLabel: '明细表数', fieldDbName: 'detail_table_count', fieldDbType: 'int' },
+  { fieldName: '描述', fieldLabel: '描述', fieldDbName: 'description', fieldDbType: 'varchar' },
+  { fieldName: '表单状态', fieldLabel: '表单状态', fieldDbName: 'status', fieldDbType: 'int' },
+  { fieldName: '模块ID', fieldLabel: '模块ID', fieldDbName: 'module_id', fieldDbType: 'bigint' },
+  { fieldName: '创建人', fieldLabel: '创建人', fieldDbName: 'create_user', fieldDbType: 'bigint' },
+  { fieldName: '创建部门id', fieldLabel: '创建部门id', fieldDbName: 'create_dept', fieldDbType: 'bigint' },
+  { fieldName: '创建时间', fieldLabel: '创建时间', fieldDbName: 'create_time', fieldDbType: 'datetime' },
+  { fieldName: '更新人', fieldLabel: '更新人', fieldDbName: 'update_user', fieldDbType: 'bigint' },
+  { fieldName: '更新时间', fieldLabel: '更新时间', fieldDbName: 'update_time', fieldDbType: 'datetime' },
+  { fieldName: '租户编号', fieldLabel: '租户编号', fieldDbName: 'tenant_id', fieldDbType: 'varchar' },
+  { fieldName: '明细表数', fieldLabel: '明细表数', fieldDbName: 'detailtablecount', fieldDbType: 'int' },
 ];
 
 const newScopeKey = () => `scope-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -165,11 +175,27 @@ const FormDirTree: React.FC<Props> = ({ value, onChange, onChanged, movingFormId
     }))).then((groups) => {
       if (!alive) return;
       const next: Record<string, string> = {};
-      groups.forEach((g) => Object.assign(next, g.names));
+      groups.forEach((g) => {
+        Object.entries(g.names || {}).forEach(([id, name]) => {
+          next[`${g.type}:${id}`] = name;
+        });
+      });
       setSubjectNames(next);
     });
     return () => { alive = false; };
   }, [allAuthRows]);
+
+  useEffect(() => {
+    if (!authOpen || authView !== 'wizard' || authSubjectType === 7 || !authSubjectIds.length) return;
+    let alive = true;
+    resolveSubjectNames(authSubjectType, authSubjectIds).then((names) => {
+      if (!alive) return;
+      const next: Record<string, string> = {};
+      Object.entries(names).forEach(([id, name]) => { next[`${authSubjectType}:${id}`] = name; });
+      setSubjectNames((prev) => ({ ...prev, ...next }));
+    });
+    return () => { alive = false; };
+  }, [authOpen, authView, authSubjectType, authSubjectIds]);
 
   const treeData = useMemo(() => {
     const byParent = new Map<string, ModeDir[]>();
@@ -510,6 +536,12 @@ const FormDirTree: React.FC<Props> = ({ value, onChange, onChanged, movingFormId
         onClose={() => setAuthOpen(false)}
         extra={authView === 'wizard' ? (
           <Space>
+            <Button onClick={() => {
+              setAuthStep(0);
+              setAuthView('list');
+            }}>
+              返回列表
+            </Button>
             <Button onClick={() => (authStep === 0 ? setAuthOpen(false) : setAuthStep(0))}>
               {authStep === 0 ? '取消' : '上一步'}
             </Button>
@@ -587,6 +619,23 @@ const FormDirTree: React.FC<Props> = ({ value, onChange, onChanged, movingFormId
               current={authStep}
               items={[{ title: '授权对象' }, { title: '数据范围' }]}
             />
+            <div style={{ background: '#f6ffed', border: '1px solid #b7eb8f', padding: 8, marginBottom: 16 }}>
+              <Space wrap>
+                <Tag color="blue">当前方案：{authSchemeName || '未命名'}</Tag>
+                <Tag>授权对象类型：{SUBJECT_TYPES.find((t) => t.value === authSubjectType)?.label}</Tag>
+                <Tag>
+                  授权对象：{authSubjectType === 7
+                    ? '所有登录用户'
+                    : (authSubjectIds.length
+                      ? authSubjectIds.map((id) => subjectNames[`${authSubjectType}:${id}`] || id).join('、')
+                      : '待选择')}
+                </Tag>
+                {authShowLevel != null || authShowLevel2 != null
+                  ? <Tag color="orange">安全级别：{authShowLevel ?? 0}~{authShowLevel2 ?? '不封顶'}</Tag>
+                  : null}
+                <Tag>布局优先级：{authPriority ?? 100}</Tag>
+              </Space>
+            </div>
             {authStep === 0 ? (
               <Space direction="vertical" style={{ width: '100%' }} size={12}>
                 <div>

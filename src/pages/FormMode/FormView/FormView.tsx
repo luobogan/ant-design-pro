@@ -27,6 +27,7 @@ import type {
 } from '@/services/formmode/typings';
 import { PersonOrgValueText } from '@/components/FormMode/PersonOrgPicker';
 import { resolveBrowserMeta } from '@/components/FormMode/personOrg';
+import { resolveBrowserType } from '@/components/FormMode/fieldTypes';
 
 const { Search } = Input;
 
@@ -316,10 +317,12 @@ const FormDataList: React.FC = () => {
         ellipsis: true,
         render: (text: any) => {
           if (text === null || text === undefined) return '-';
-          // 浏览按钮字段：存 id 逗号串，列表展示名称
-          if (field.fieldHtmlType === 2) {
-            const meta = resolveBrowserMeta(field.fieldType, field.browType);
-            return <PersonOrgValueText browserType={meta?.browserType} value={text} />;
+          // 浏览按钮字段：统一按 fieldTypes.resolveBrowserType 解析 browType / fieldType，
+          // fieldHtmlType=3 才是浏览按钮（2 是多行文本），历史误写 2 的兼容逻辑保留。
+          const browserType = resolveBrowserType(field) ?? (Number(field.fieldHtmlType) === 2 ? Number(field.fieldType) : undefined);
+          if (browserType) {
+            const meta = resolveBrowserMeta(field.fieldType, field.browType ?? browserType);
+            return <PersonOrgValueText browserType={meta?.browserType ?? browserType} value={text} />;
           }
           return String(text);
         },

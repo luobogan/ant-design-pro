@@ -13,7 +13,7 @@ import { LAYOUT_TYPES, DEFAULT_LAYOUT_TYPE_NAMES, layoutTypeName } from '@/pages
 import {
   getFormLayout, getFormLayoutTypeNames, saveFormLayoutTypeName, syncFormLayout,
 } from '@/services/formmode/formLayoutApi';
-import { fieldApi, formApi } from '@/services/formmode';
+import { fieldApi } from '@/services/formmode';
 import type { FieldDefinition } from '@/services/formmode/typings';
 import {
   copyAuthScheme, deleteAuthScheme, deleteAuthSchemes, listAuthSchemes, saveAuthScheme, saveAuthSchemes, type AuthScheme,
@@ -102,16 +102,6 @@ async function resolveSubjectNames(type: number, ids: string[]): Promise<Record<
   return result;
 }
 
-const RIGHT_TYPES = [
-  { value: 1, label: '可见' },
-  { value: 2, label: '新建' },
-  { value: 3, label: '编辑' },
-  { value: 4, label: '删除' },
-  { value: 5, label: '详情' },
-  { value: 6, label: '导入' },
-  { value: 7, label: '导出' },
-];
-
 const SCOPE_TYPES = [
   { value: 1, label: '全部可见' },
   { value: 2, label: '本人可见' },
@@ -126,7 +116,7 @@ const scopeTypeOptions = (subjectType?: number) => Number(subjectType) === 4
   : SCOPE_TYPES;
 
 const SCOPE_RIGHT_TYPES = [
-  { value: 1, label: '查看' },
+  { value: 1, label: '详情' },
   { value: 2, label: '新增' },
   { value: 3, label: '编辑' },
   { value: 4, label: '删除' },
@@ -189,7 +179,6 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
   const [fieldSearch, setFieldSearch] = useState('');
   const [fieldScope, setFieldScope] = useState('main');
   const [menuTree, setMenuTree] = useState<any[]>([]);
-  const [allForms, setAllForms] = useState<Array<{ id?: string; formName?: string }>>([]);
   const [columnPickerIndex, setColumnPickerIndex] = useState<number | null>(null);
   const [columnPickerValue, setColumnPickerValue] = useState('');
   const [columnKeyword, setColumnKeyword] = useState('');
@@ -203,7 +192,7 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
   const [syncTargetNodes, setSyncTargetNodes] = useState<string[]>([]);
   const [syncTargetTypes, setSyncTargetTypes] = useState<number[]>([]);
   const [syncOverwrite, setSyncOverwrite] = useState(false);
-  const univerApiRef = useRef<{ save: () => Promise<boolean> } | null>(null);
+  const univerApiRef = useRef<{ save: (options?: { silent?: boolean }) => Promise<boolean> } | null>(null);
 
   const load = async () => {
     if (!formId) return;
@@ -254,7 +243,6 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
       const rows = Array.isArray(r) ? r : (r?.data || []);
       setMenuTree(Array.isArray(rows) ? rows : []);
     }).catch(() => setMenuTree([]));
-    formApi.getAll().then((rows: any) => setAllForms(Array.isArray(rows) ? rows : [])).catch(() => setAllForms([]));
   }, [open, formId]);
 
   const update = (patch: Partial<AuthScheme>) => setScheme((prev) => prev ? { ...prev, ...patch } : prev);
@@ -347,7 +335,6 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
     }
   };
 
-  const addRight = () => update({ rights: [...(scheme?.rights || []), { righttype: 1 }] });
   const addScope = () => update({
     dataScopes: [...(scheme?.dataScopes || []), {
       type: 1,
@@ -682,62 +669,6 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
           </div>
         </div>
       </div>
-      <div style={{ border: '1px solid #f0f0f0', padding: 12 }}>
-        <div style={{ fontWeight: 600, marginBottom: 10 }}>表单建模数据范围（表单管理列表）</div>
-        <Space wrap>
-          <div>
-            <div style={{ marginBottom: 6 }}>范围类型</div>
-            <Select
-              style={{ width: 180 }}
-              value={scheme.formManageScope?.scopeType ?? 1}
-              options={[
-                { value: 1, label: '全部表单' },
-                { value: 2, label: '本人创建' },
-                { value: 3, label: '指定表单' },
-              ]}
-              onChange={(v) => update({ formManageScope: { ...scheme.formManageScope, scopeType: v } })}
-            />
-          </div>
-          {Number(scheme.formManageScope?.scopeType) === 3 ? (
-            <div style={{ minWidth: 360 }}>
-              <div style={{ marginBottom: 6 }}>指定表单</div>
-              <Select
-                mode="multiple"
-                style={{ width: '100%' }}
-                value={(scheme.formManageScope?.scopeValue || '').split(',').filter(Boolean)}
-                options={allForms.map((f) => ({
-                  value: String(f.id),
-                  label: `${f.formName || '未命名表单'}（${f.id}）`,
-                }))}
-                onChange={(values) => update({ formManageScope: { ...scheme.formManageScope, scopeValue: values.join(',') } })}
-              />
-            </div>
-          ) : null}
-        </Space>
-        <div style={{ marginTop: 8, color: '#999' }}>
-          此范围只控制“表单管理”列表能看到哪些表单，不影响第四步动态列表数据范围。
-        </div>
-      </div>
-      <Button type="dashed" icon={<PlusOutlined />} onClick={addRight} block>新增模块权限</Button>
-      <Table
-        rowKey={(_r, i) => String(i)}
-        size="small"
-        pagination={false}
-        dataSource={scheme.rights}
-        columns={[
-          {
-            title: '权限类型', dataIndex: 'righttype', width: 160,
-            render: (v, _r, i) => <Select style={{ width: 130 }} value={v} options={RIGHT_TYPES} onChange={(nv) => {
-              const next = [...(scheme.rights || [])]; next[i] = { ...next[i], righttype: nv }; update({ rights: next });
-            }} />,
-          },
-          { title: '授权对象', width: 200, render: () => <Tag>{SUBJECT_TYPES.find((t) => t.value === scheme.subjectType)?.label} · {scheme.subjectName || scheme.subjectId || '待选择'}</Tag> },
-          {
-            title: '操作', width: 70,
-            render: (_v, _r, i) => <Button danger type="link" size="small" onClick={() => update({ rights: (scheme.rights || []).filter((_x, idx) => idx !== i) })}>删除</Button>,
-          },
-        ]}
-      />
     </Space>
   );
 
@@ -1052,7 +983,7 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
             style={{ marginBottom: 20 }}
             items={[
               { title: '授权对象' },
-              { title: '模块权限与菜单' },
+              { title: '菜单' },
               { title: '字段权限' },
               { title: '数据范围' },
             ]}
@@ -1075,7 +1006,11 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
         onCancel={() => { univerApiRef.current = null; setDesignGroup(null); }}
         onOk={async () => {
           if (designGroup == null) return;
-          const ok = await univerApiRef.current?.save();
+          if (!univerApiRef.current) {
+            message.warning('设计器尚未就绪，请稍候重试');
+            return;
+          }
+          const ok = await univerApiRef.current.save();
           if (ok) {
             message.success(`「${layoutTypeName(univerLayoutType, layoutTypeNames)}」布局已保存`);
             await loadLayoutTypeMeta(groupToDesign?.groupKey);
@@ -1088,8 +1023,18 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
             <Tabs
               size="small"
               activeKey={String(univerLayoutType)}
-              onChange={(key) => {
-                setUniverLayoutType(Number(key));
+              onChange={async (key) => {
+                const nextType = Number(key);
+                if (nextType === univerLayoutType) return;
+                if (univerApiRef.current) {
+                  const ok = await univerApiRef.current.save({ silent: true });
+                  if (!ok) {
+                    message.error('当前布局保存失败，已取消切换页签');
+                    return;
+                  }
+                }
+                univerApiRef.current = null;
+                setUniverLayoutType(nextType);
                 setLayoutNameEditing(null);
               }}
               items={LAYOUT_TYPES.map((t) => ({
