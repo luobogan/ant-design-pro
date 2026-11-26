@@ -393,7 +393,7 @@ const FormDataList: React.FC = () => {
               loading={formsLoading}
               optionFilterProp="label"
               options={allForms.map((f) => ({ value: f.id, label: f.formName }))}
-              onChange={(id) => navigate(`/formmode/formview?formId=${id}`)}
+              onChange={(id) => navigate(`/formmode/formview/${id}`)}
               notFoundContent={formsLoading ? '加载中...' : '暂无可用表单'}
             />
             <div style={{ marginTop: 12, color: '#999', fontSize: 12 }}>

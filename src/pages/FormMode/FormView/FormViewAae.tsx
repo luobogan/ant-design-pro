@@ -159,7 +159,7 @@ const DataAae: React.FC = () => {
         await dataApi.create(formId, formData);
         message.success('新增成功');
       }
-      navigate(`/formmode/formview?formId=${formId}`);
+      navigate(`/formmode/formview/${formId}`);
     } catch (error) {
       console.error('操作失败:', error);
       message.error(isEditMode ? '更新失败' : '新增失败');
@@ -193,7 +193,7 @@ const DataAae: React.FC = () => {
 
   if (!fetchLoading && !fieldConfigured) {
     return (
-      <PageContainer title={pageTitle} onBack={() => navigate(`/formmode/formview?formId=${formId}`)}>
+      <PageContainer title={pageTitle} onBack={() => navigate(`/formmode/formview/${formId}`)}>
         <Card>
           <div style={{ textAlign: 'center', padding: '50px' }}>
             该表单尚未完成字段配置，无法新增或编辑数据。请先到字段管理/表格设计器完成字段配置。
@@ -206,7 +206,7 @@ const DataAae: React.FC = () => {
   return (
     <PageContainer
       title={pageTitle}
-      onBack={() => navigate(`/formmode/formview?formId=${formId}`)}
+      onBack={() => navigate(`/formmode/formview/${formId}`)}
       extra={isViewMode || invalidDataId ? undefined : (
         <Button type="primary" icon={<SaveOutlined />} loading={loading} disabled={!fieldConfigured || !layoutData} onClick={handleSubmit}>
           保存
@@ -243,7 +243,7 @@ const DataAae: React.FC = () => {
             onSubmit={(values, _errors, valid) => {
               if (valid) submitData(values);
             }}
-            onClose={() => navigate(`/formmode/formview?formId=${formId}`)}
+            onClose={() => navigate(`/formmode/formview/${formId}`)}
             title={pageTitle}
           />
         )}
