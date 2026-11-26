@@ -559,6 +559,7 @@ const FormManageList: React.FC = () => {
             <Button
               icon={<FolderOpenOutlined />}
               onClick={() => {
+                listModeDirs().then(setBatchDirs).catch(() => setBatchDirs([]));
                 setBatchMoveDirId(undefined);
                 setBatchMoveVisible(true);
               }}
@@ -583,7 +584,10 @@ const FormManageList: React.FC = () => {
                 setSelectedDirId(id);
                 fetchData({ current: 1, dirId: id });
               }}
-              onChanged={() => fetchData({ current: 1 })}
+              onChanged={() => {
+              listModeDirs().then(setBatchDirs).catch(() => setBatchDirs([]));
+              fetchData({ current: 1 });
+            }}
               movingFormId={movingFormId}
               onMoved={() => {
                 setMovingFormId(undefined);

@@ -20,6 +20,9 @@ export interface ModeDirAuth {
   includeSub?: number;
   scopeType?: number;
   scopeValue?: string;
+  schemeId?: string;
+  schemeName?: string;
+  priority?: number;
 }
 
 export const listModeDirs = async (): Promise<ModeDir[]> => {
