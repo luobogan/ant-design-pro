@@ -7,6 +7,9 @@ import {
 } from '@ant-design/icons';
 import { resolveItemNames, type PersonOrgCategory } from '@/components/FormMode/personOrg';
 import * as roleApi from '@/services/authority/role';
+import * as userApi from '@/services/system/user';
+import * as deptApi from '@/services/system/dept';
+import * as postApi from '@/pages/System/Post/service';
 import AuthObjectPicker from '@/components/FormMode/AuthObjectPicker';
 import {
   deleteModeDir, listModeDirAuth, listModeDirs, moveFormToDir, saveModeDir, saveModeDirAuth,
@@ -87,6 +90,33 @@ const newScopeKey = () => `scope-${Date.now()}-${Math.random().toString(36).slic
 const scopeTypeOptions = (subjectType?: number) => Number(subjectType) === 4
   ? DATA_SCOPE_TYPES.filter((item) => [1, 2, 5].includes(item.value))
   : DATA_SCOPE_TYPES;
+
+async function findFreeSubjectIds(type: number, used: Set<string>, count: number): Promise<string[]> {
+  try {
+    const pickRows = (res: any): any[] => Array.isArray(res)
+      ? res
+      : (res?.data?.records || res?.records || res?.data || []);
+    const collectTree = (rows: any[], out: string[]) => rows.forEach((row) => {
+      if (row?.id != null) out.push(String(row.id));
+      if (Array.isArray(row?.children)) collectTree(row.children, out);
+    });
+    let candidates: string[] = [];
+    if (type === 1) {
+      collectTree(pickRows(await roleApi.list({ current: 1, size: 1000 })), candidates);
+    } else if (type === 4) {
+      candidates = pickRows(await userApi.list({ current: 1, size: 1000 })).map((r) => String(r?.id ?? '')).filter(Boolean);
+    } else if (type === 2 || type === 5) {
+      collectTree(pickRows(await deptApi.tree({})), candidates);
+    } else if (type === 3) {
+      candidates = pickRows(await postApi.list({ current: 1, size: 1000 })).map((r) => String(r?.id ?? '')).filter(Boolean);
+    }
+    return Array.from(new Set(candidates))
+      .filter((id) => id && id !== '0' && !used.has(id))
+      .slice(0, count);
+  } catch {
+    return [];
+  }
+}
 
 async function resolveSubjectNames(type: number, ids: string[]): Promise<Record<string, string>> {
   const result: Record<string, string> = {};
@@ -370,10 +400,24 @@ const FormDirTree: React.FC<Props> = ({ value, onChange, onChanged, movingFormId
   };
 
   const copyAuthScheme = async (group: AuthSchemeGroup) => {
+    const first = group.rows[0];
+    if (!first) return;
+    const subjectType = Number(first.subjectType || 4);
+    const oldSubjectIds = Array.from(new Set(group.rows.map((r) => String(r.subjectId || '0'))));
+    const used = new Set(allAuthRows
+      .filter((r) => Number(r.subjectType) === subjectType)
+      .map((r) => String(r.subjectId)));
+    const freeIds = await findFreeSubjectIds(subjectType, used, oldSubjectIds.length);
+    if (freeIds.length < oldSubjectIds.length) {
+      message.warning('没有足够的同类型授权对象用于复制，请先新建方案');
+      return;
+    }
+    const subjectMap = new Map(oldSubjectIds.map((id, i) => [id, freeIds[i]]));
     const schemeId = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
     const copies = group.rows.map((row) => ({
       ...row,
       id: undefined,
+      subjectId: subjectMap.get(String(row.subjectId || '0')),
       schemeId,
       schemeName: `${group.schemeName}（副本）`,
       priority: (group.priority || 100) + 1,

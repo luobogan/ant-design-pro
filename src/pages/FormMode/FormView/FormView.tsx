@@ -41,7 +41,7 @@ const FormDataList: React.FC = () => {
   const location = useLocation();
   // 方案C：菜单 path=/formmode/formview/{formId} 是字面量路由，useParams 取不到；
   // 从 pathname 末段解析；同时兼容 :formId 动态路由与旧 query 形式。
-  const pathFormId = /^\/formmode\/formview\/(\d+)$/.exec(location.pathname)?.[1];
+  const pathFormId = /^\/formmode\/formview\/(\d+)(?:\/scheme\/\d+)?$/.exec(location.pathname)?.[1];
   const formId = pathFormId || params?.formId || searchParams.get('formId');
   const { buttons } = usePageButtons();
   // 列表列与字段权限同源：layoutType=0（编辑布局口径），管理员/未收窄场景返回空数组。

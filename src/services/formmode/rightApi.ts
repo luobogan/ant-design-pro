@@ -259,7 +259,7 @@ export interface AuthScheme {
   showlevel2?: number;
   priority?: number;
   rights?: Array<{ id?: string; righttype: number; objname?: string; includesub?: number; showlevel?: number; showlevel2?: number }>;
-  fieldGroups?: Array<{ id?: string; groupKey?: string; groupName?: string; fields?: Array<{ fieldId: string; rightvalue: 0 | 1 | 2 }> }>;
+  fieldGroups?: Array<{ id?: string; groupKey?: string; sourceGroupKey?: string; groupName?: string; fields?: Array<{ fieldId: string; rightvalue: 0 | 1 | 2 }> }>;
   dataScopes?: Array<{
     id?: string; type?: number; objtype?: number; objid?: string; includeSub?: number; creatorSelf?: number;
     conditionField?: string; conditionOp?: string; conditionValue?: string; conditionEnabled?: number;

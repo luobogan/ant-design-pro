@@ -151,6 +151,18 @@ const emptyScheme = (formId?: string): AuthScheme => ({
 
 const newGroupKey = () => `scheme-group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+const MENU_EDIT_KEYS = ['formMenuName', 'parentId', 'menuIcon', 'menuAlias', 'menuSort', 'menuStatus'] as const;
+
+/** 多方案编辑时保留每个方案自己的菜单；只把用户实际改过的字段同步到整组。 */
+const mergeMenuSettings = (target: any, edited: any, baseline: any): any => {
+  const merged: any = target ? JSON.parse(JSON.stringify(target)) : {};
+  if (!baseline) return { ...merged, menuShares: (merged.menuShares || []).map((s: any) => ({ ...s, id: undefined })) };
+  for (const key of MENU_EDIT_KEYS) {
+    if (JSON.stringify(edited?.[key]) !== JSON.stringify(baseline?.[key])) merged[key] = edited?.[key];
+  }
+  return { ...merged, menuShares: (merged.menuShares || []).map((s: any) => ({ ...s, id: undefined })) };
+};
+
 /** 一个方案对应一个授权对象，因此只需要一个隐含字段组；不向用户暴露“新增组”。 */
 const ensureSingleFieldGroup = (s: AuthScheme): AuthScheme => {
   const first = Array.isArray(s.fieldGroups) && s.fieldGroups.length ? s.fieldGroups[0] : null;
@@ -170,6 +182,7 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
   const [selectedSchemeIds, setSelectedSchemeIds] = useState<string[]>([]);
   const [editingSchemeIds, setEditingSchemeIds] = useState<string[]>([]);
   const [scheme, setScheme] = useState<AuthScheme | null>(null);
+  const [menuBaseline, setMenuBaseline] = useState<any>(null);
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [fields, setFields] = useState<FieldDefinition[]>([]);
@@ -257,6 +270,7 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
     setSubjectIds([]);
     setEditingSchemeIds([]);
     setScheme(ensureSingleFieldGroup(emptyScheme(formId)));
+    setMenuBaseline(null);
     setStep(0);
   };
 
@@ -266,6 +280,7 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
     setEditingSchemeIds(items.map((item) => String(item.id)));
     setSubjectIds(first.subjectType === 7 ? ['0'] : items.map((item) => item.subjectId == null ? '' : String(item.subjectId)).filter(Boolean));
     setScheme(ensureSingleFieldGroup({ ...first, formId }));
+    setMenuBaseline(first.menu ? JSON.parse(JSON.stringify(first.menu)) : null);
     setStep(0);
   };
 
@@ -276,17 +291,23 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
     cloned.subjectId = subjectId;
     cloned.subjectName = name || subjectNames[subjectNameKey(scheme.subjectType, subjectId)] || scheme.subjectName;
     cloned.schemeName = subjectIds.length > 1 ? `${baseName.replace(/-(\d+)$/, '')}-${subjectId}` : baseName;
-    cloned.fieldGroups = (cloned.fieldGroups || []).map((g) => ({
+    const existing = existingId ? schemes.find((s) => String(s.id) === String(existingId)) : undefined;
+    cloned.fieldGroups = (cloned.fieldGroups || []).map((g, groupIndex) => ({
       ...g,
       id: undefined,
-      groupKey: index === 0 && scheme.id ? g.groupKey : newGroupKey(),
+      // 已存在的方案必须保留自己的 groupKey，否则 Univer 布局会失联；
+      // 新建方案才生成新 key，并带上源组 key 供后端复制已有布局。
+      groupKey: existing?.fieldGroups?.[groupIndex]?.groupKey
+        || (existingId ? g.groupKey : newGroupKey()),
+      sourceGroupKey: existingId ? undefined : (g.groupKey || undefined),
     }));
     cloned.rights = (cloned.rights || []).map((r) => ({ ...r, id: undefined }));
     cloned.dataScopes = (cloned.dataScopes || []).map((s) => ({ ...s, id: undefined }));
-    cloned.menu = {
-      ...cloned.menu,
-      menuShares: (cloned.menu?.menuShares || []).map((s) => ({ ...s, id: undefined })),
-    };
+    cloned.menu = mergeMenuSettings(existing?.menu || cloned.menu, scheme.menu, existingId ? menuBaseline : null);
+    if (!existingId) {
+      // 新方案要等后端分配 schemeId 才能确定路径，不能沿用源方案的 /scheme/{旧ID}。
+      cloned.menu = { ...cloned.menu, menuPath: `/formmode/formview/${cloned.formId || formId}` };
+    }
     return cloned;
   };
 
@@ -323,13 +344,22 @@ const AuthSchemeDrawer: React.FC<Props> = ({ formId, formName, open, onClose }) 
       for (let i = 0; i < ids.length; i++) {
         payloads.push(cloneSchemeForSubject(ids[i], i, resolvedNames[ids[i]], editingSchemeIds[i]));
       }
+      const menuChanged = !menuBaseline || MENU_EDIT_KEYS.some((key) =>
+        JSON.stringify(scheme.menu?.[key]) !== JSON.stringify(menuBaseline?.[key]));
+      const schemeCountChanged = ids.length !== editingSchemeIds.length;
       await saveAuthSchemes(payloads);
       message.success(ids.length > 1 ? `已生成 ${ids.length} 个授权方案` : '授权方案已保存');
       setScheme(null);
+      setMenuBaseline(null);
       setSubjectIds([]);
       await load();
+      // 菜单树只在应用初始化时拉取；新增/改动菜单后必须刷新，否则当前页面看不到新菜单。
+      if (menuChanged || schemeCountChanged) setTimeout(() => window.location.reload(), 1200);
     } catch (e: any) {
-      message.error(e?.message || '保存失败');
+      const msg = e?.message || '保存失败';
+      message.error(msg);
+      // 页面持有已删除方案或旧菜单路径时，刷新后重新拉取方案/菜单树才能恢复。
+      if (/方案不存在|已被删除|刷新后重试|菜单路径必须为/.test(msg)) setTimeout(() => window.location.reload(), 800);
     } finally {
       setLoading(false);
     }

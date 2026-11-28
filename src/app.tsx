@@ -283,11 +283,14 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
       const formattedPath = Func.formatRoutePath(item.path);
       const pathParts = formattedPath.split('/').filter(Boolean);
 
-      // 方案C：一表单一菜单 path=/formmode/formview/{formId}，末段是数字ID，
-      // 不能当作组件名推导；统一映射到 FormView 组件。
-      const isFormDataMenuPath = /^\/formmode\/formview\/\d+$/.test(String(item.path || ''))
-        || /^formdata_view_\d+$/.test(String(item.code || ''));
-      const rawPage = isFormDataMenuPath ? 'formview' : pathParts[pathParts.length - 1];
+      // 方案C：表单数据菜单 path=/formmode/formview/{formId}，末段是数字ID；
+      // 每个方案独立菜单时追加 /scheme/{schemeId}，同样不能当作组件名推导。
+      const isFormDataMenuPath = /^\/formmode\/formview\/\d+(?:\/scheme\/\d+)?$/.test(String(item.path || ''))
+        || /^formdata_view_\d+(?:_scheme_\d+)?$/.test(String(item.code || ''));
+      // 新增/编辑页同理：/formmode/formview/aae[/scheme/{schemeId}] 统一映射到 FormViewAae。
+      const isFormDataAaeMenuPath = /^\/formmode\/formview\/aae(?:\/scheme\/\d+)?$/.test(String(item.path || ''))
+        || /^formdata_aae_\d+(?:_scheme_\d+)?$/.test(String(item.code || ''));
+      const rawPage = isFormDataMenuPath ? 'formview' : (isFormDataAaeMenuPath ? 'aae' : pathParts[pathParts.length - 1]);
       const [module, page] = [toPascalCase(pathParts[0]), toPascalCase(rawPage)];
 
       // 子按钮组件页收集：对**所有带 path 的菜单**执行（含顶级单段菜单），
@@ -330,11 +333,17 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
               const rawParts = String(item1.path || '').split('/').filter(Boolean);
               const lastSegment = rawParts[rawParts.length - 1];
               const moduleSeg = toPascalCase(rawParts[0]);
-              // 组件名（末段）：走 toPascalCase 智能分词（ExcelPreviewPage 靠 commonWords 还原）
-              const componentName = toPascalCase(lastSegment);
-              // 中间目录段（3 段以上路径的第 2..n-1 段），
-              // 如 /formmode/exceldesign/ExcelDesign 的 exceldesign → 目录 ExcelDesign
-              const midDirs = rawParts.length > 2 ? rawParts.slice(1, -1) : [];
+              // 表单新增编辑页是组件型菜单（category=2/isComponent=1），走按钮分支；
+              // 方案专属 path 末段是 schemeId，必须显式还原成 aae，否则会按数字推组件而 404。
+              const isFormDataAaeButton = /^\/formmode\/formview\/aae(?:\/scheme\/\d+)?$/.test(String(item1.path || ''))
+                || /^formdata_aae_\d+(?:_scheme_\d+)?$/.test(String(item1.code || ''));
+              const componentName = isFormDataAaeButton ? 'Aae' : toPascalCase(lastSegment);
+              const rawPageForLoader = isFormDataAaeButton ? 'aae' : lastSegment;
+              // 中间目录段（3 段以上路径的第 2..n-1 段），如 exceldesign → 目录 ExcelDesign。
+              // aae 固定按 FormView 目录解析（磁盘文件 FormViewAae.tsx）。
+              const midDirs = isFormDataAaeButton
+                ? ['formview']
+                : (rawParts.length > 2 ? rawParts.slice(1, -1) : []);
               //
               // ⚠️⚠️ 必须复用菜单页分支的 buildComponentLoaders，不要自己拼模板字符串：
               // 实测（2026-10-10）自己写的 `import(\`./pages/${a}/${b}/${c}.tsx\`)` 会被
@@ -348,7 +357,7 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
               const componentLoaders = buildComponentLoaders(
                 moduleSeg,
                 componentName,
-                lastSegment,
+                rawPageForLoader,
                 midDirs,
               );
               console.log(
@@ -443,7 +452,9 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
         // 中间段（3 段以上路径的第 2..n-1 段）参与嵌套目录推导，例如 /workflow/create/start 的 create。
         // 方案C：/formmode/formview/{formId} 的 formview 是组件段，不是中间目录，
         // 否则会按嵌套目录 ./pages/Formmode/Formview/Formview.tsx 推导而 404。
-        const midDirs = isFormDataMenuPath ? [] : (pathParts.length > 2 ? pathParts.slice(1, -1) : []);
+        const midDirs = isFormDataMenuPath
+          ? []
+          : (isFormDataAaeMenuPath ? ['formview'] : (pathParts.length > 2 ? pathParts.slice(1, -1) : []));
         const componentPath = `./pages/${module}/${page}/${page}.tsx`;
         const componentIndexPath = `./pages/${module}/${page}/index.tsx`;
         const loaders = buildComponentLoaders(module, page, rawPage, midDirs);
