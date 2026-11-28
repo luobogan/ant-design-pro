@@ -722,11 +722,6 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   const [hoverVisible, setHoverVisible] = useState(false);
   const hoverTimerRef = useRef<any>(null);
 
-  // 拖拽字段时的落点提示：仅 window.__pendingField 存在（正在拖/待放置）才显示
-  const [isDraggingField, setIsDraggingField] = useState(false);
-  const [dropTargetCell, setDropTargetCell] = useState<{ row: number; col: number } | null>(null);
-  const [dropTargetStyle, setDropTargetStyle] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
-
   /** 计算单元格在画布容器中的绝对定位，供悬停/拖拽提示共用 */
   const computeCellOverlayStyle = useCallback((row: number, col: number) => {
     if (!workbook) return null;
@@ -829,19 +824,6 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
       console.warn('[Hover] 计算单元格位置失败:', e);
     }
   }, [hoveredCell, hoverVisible, computeCellOverlayStyle]);
-
-  // 拖拽字段时，实时计算鼠标下方单元格的提示框位置
-  useEffect(() => {
-    if (!dropTargetCell) {
-      setDropTargetStyle(null);
-      return;
-    }
-    try {
-      setDropTargetStyle(computeCellOverlayStyle(dropTargetCell.row, dropTargetCell.col));
-    } catch (e) {
-      console.warn('[DropTarget] 计算单元格位置失败:', e);
-    }
-  }, [dropTargetCell, computeCellOverlayStyle]);
 
   // ──────────────────────────────────────
   // 字段类型 → 数据验证规则映射
@@ -5622,33 +5604,16 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
     let dragCount = 0;
 
-    const clearDragHint = () => {
-      setIsDraggingField(false);
-      setDropTargetCell(null);
-    };
-
     const handleGlobalDragOver = (e: DragEvent) => {
-      // 检查是否有待放置的字段
+      // 检查是否有待放置的字段；只阻止默认行为以允许 drop，不绘制任何落点边框
       const pending = (window as any).__pendingField;
       if (pending) {
         e.preventDefault();
         e.dataTransfer!.dropEffect = 'copy';
-        setIsDraggingField(true);
-        const { row, col } = getCellFromMouseEvent(e.clientX, e.clientY);
-        if (row >= 0 && col >= 0) {
-          setDropTargetCell((prev) =>
-            prev && prev.row === row && prev.col === col ? prev : { row, col },
-          );
-        } else {
-          setDropTargetCell(null);
-        }
-      } else {
-        clearDragHint();
       }
     };
 
     const handleGlobalDrop = (e: DragEvent) => {
-      clearDragHint();
       dragCount++;
       console.log(`[GlobalDrop][${dragCount}] drop 事件触发`, {
         hasDataTransfer: !!e.dataTransfer,
@@ -5690,13 +5655,11 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
     window.addEventListener('dragover', handleGlobalDragOver, false);
     window.addEventListener('drop', handleGlobalDrop, false);
-    window.addEventListener('dragend', clearDragHint, false);
     console.log('[GlobalDrop] ✅ 全局监听器已注册');
 
     return () => {
       window.removeEventListener('dragover', handleGlobalDragOver, false);
       window.removeEventListener('drop', handleGlobalDrop, false);
-      window.removeEventListener('dragend', clearDragHint, false);
       console.log('[GlobalDrop] 监听器已移除');
     };
   }, [workbook, handleFieldDrop, getCellFromMouseEvent]);
@@ -5950,26 +5913,7 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           position: 'relative',
           overflow: 'hidden',
         }}
-      >
-        {/* 字段拖拽落点提示：仅拖拽/待放置期间显示，普通字段悬停不显示 */}
-        {isDraggingField && dropTargetStyle && (
-          <div
-            style={{
-              position: 'absolute',
-              left: dropTargetStyle.left - 8,
-              top: dropTargetStyle.top - 8,
-              width: dropTargetStyle.width + 16,
-              height: dropTargetStyle.height + 16,
-              border: '2px solid #007bff',
-              borderRadius: 2,
-              pointerEvents: 'none',
-              zIndex: 5,
-              boxSizing: 'border-box',
-              boxShadow: '0 0 6px rgba(0, 123, 255, 0.3)',
-            }}
-          />
-        )}
-      </div>
+      ></div>
 
       {/* 加载中遮罩 */}
       {!initialized && !initError && (
