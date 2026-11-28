@@ -37,7 +37,13 @@ import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
 import defaultSettings from '../config/defaultSettings';
 import { errorConfig, getSavedFormData } from '@/requestErrorConfig';
 import { dynamicRoutes, dynamicButtons } from '@/services/system/menu';
-import { getToken, setButtons, getButtons } from '@/utils/authority';
+import {
+  getToken,
+  setButtons,
+  getButtons,
+  isModelViewMenuCode,
+  isModelAaeMenuCode,
+} from '@/utils/authority';
 import Func from '@/utils/Func';
 import { formatRoutes, pickPayload } from '@/utils/utils';
 
@@ -286,10 +292,10 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
       // 方案C：表单数据菜单 path=/formmode/formview/{formId}，末段是数字ID；
       // 每个方案独立菜单时追加 /scheme/{schemeId}，同样不能当作组件名推导。
       const isFormDataMenuPath = /^\/formmode\/formview\/\d+(?:\/scheme\/\d+)?$/.test(String(item.path || ''))
-        || /^formdata_view_\d+(?:_scheme_\d+)?$/.test(String(item.code || ''));
+        || isModelViewMenuCode(item.code);
       // 新增/编辑页同理：/formmode/formview/aae[/scheme/{schemeId}] 统一映射到 FormViewAae。
       const isFormDataAaeMenuPath = /^\/formmode\/formview\/aae(?:\/scheme\/\d+)?$/.test(String(item.path || ''))
-        || /^formdata_aae_\d+(?:_scheme_\d+)?$/.test(String(item.code || ''));
+        || isModelAaeMenuCode(item.code);
       const rawPage = isFormDataMenuPath ? 'formview' : (isFormDataAaeMenuPath ? 'aae' : pathParts[pathParts.length - 1]);
       const [module, page] = [toPascalCase(pathParts[0]), toPascalCase(rawPage)];
 
@@ -336,7 +342,7 @@ const loopMenuItem = (menus: MenuItem[], pId: number | string): RouteItem[] => {
               // 表单新增编辑页是组件型菜单（category=2/isComponent=1），走按钮分支；
               // 方案专属 path 末段是 schemeId，必须显式还原成 aae，否则会按数字推组件而 404。
               const isFormDataAaeButton = /^\/formmode\/formview\/aae(?:\/scheme\/\d+)?$/.test(String(item1.path || ''))
-                || /^formdata_aae_\d+(?:_scheme_\d+)?$/.test(String(item1.code || ''));
+                || isModelAaeMenuCode(item1.code);
               const componentName = isFormDataAaeButton ? 'Aae' : toPascalCase(lastSegment);
               const rawPageForLoader = isFormDataAaeButton ? 'aae' : lastSegment;
               // 中间目录段（3 段以上路径的第 2..n-1 段），如 exceldesign → 目录 ExcelDesign。

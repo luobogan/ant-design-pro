@@ -49,6 +49,7 @@ import {
   Select,
   Space,
   Tag,
+  Tooltip,
   Tree,
   TreeSelect,
 } from 'antd';
@@ -57,6 +58,12 @@ import { history } from '@umijs/max';
 import React, { useMemo, useState, useEffect } from 'react';
 import * as menuApi from '@/services/system/menu';
 import * as tenantApi from '@/services/system/tenant';
+import {
+  isModelMenu,
+  isModelMenuCode,
+  MODEL_MENU_MANAGE_TIP,
+  MODEL_MENU_TAG,
+} from '@/utils/authority';
 import { usePageButtons } from '@/hooks/usePageButtons';
 import type { ButtonConfig } from '@/components/BusinessComponents/ToolBar';
 // @ts-expect-error useModel 由 @umijs/max 的 request 插件在运行时提供
@@ -121,6 +128,7 @@ interface MenuItem {
   remark: string;
   createTime: string;
   tenantId: string;
+  modelMenu?: boolean;
   children?: MenuItem[];
 }
 
@@ -264,6 +272,16 @@ const MenuPage: React.FC = () => {
     return transformedData;
   }, [data]);
 
+  const flattenMenuItems = (list: MenuItem[]): MenuItem[] =>
+    list.reduce<MenuItem[]>((all, item) => {
+      all.push(item);
+      if (item.children?.length) all.push(...flattenMenuItems(item.children));
+      return all;
+    }, []);
+
+  const hasModelMenuInSubtree = (record: MenuItem): boolean =>
+    isModelMenu(record) || Boolean(record.children?.some(hasModelMenuInSubtree));
+
   // 构建上级菜单选项（树形结构）
   const parentMenuOptions = useMemo(() => {
     const buildTree = (list: any[]): any[] => {
@@ -293,6 +311,16 @@ const MenuPage: React.FC = () => {
       key: 'name',
       search: true,
       width: 180,
+      render: (name: any, record: MenuItem) => (
+        <Space>
+          <span>{name}</span>
+          {isModelMenu(record) && (
+            <Tooltip title={MODEL_MENU_MANAGE_TIP}>
+              <Tag color="orange">{MODEL_MENU_TAG}</Tag>
+            </Tooltip>
+          )}
+        </Space>
+      ),
     },
     {
       title: '路由地址',
@@ -353,23 +381,43 @@ const MenuPage: React.FC = () => {
             </Button>
           )}
           {buttons.some(btn => btn.code === 'menu_edit') && (
-            <Button
-              type="link"
-              icon={<EditOutlined />}
-              onClick={() => handleEdit(record)}
-            >
-              编辑
-            </Button>
+            isModelMenu(record) ? (
+              <Tooltip title={MODEL_MENU_MANAGE_TIP}>
+                <span>
+                  <Button type="link" icon={<EditOutlined />} disabled>
+                    编辑
+                  </Button>
+                </span>
+              </Tooltip>
+            ) : (
+              <Button
+                type="link"
+                icon={<EditOutlined />}
+                onClick={() => handleEdit(record)}
+              >
+                编辑
+              </Button>
+            )
           )}
           {buttons.some(btn => btn.code === 'menu_delete') && (
-            <Button
-              type="link"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={() => handleDelete([record.id])}
-            >
-              删除
-            </Button>
+            hasModelMenuInSubtree(record) ? (
+              <Tooltip title={MODEL_MENU_MANAGE_TIP}>
+                <span>
+                  <Button type="link" danger icon={<DeleteOutlined />} disabled>
+                    删除
+                  </Button>
+                </span>
+              </Tooltip>
+            ) : (
+              <Button
+                type="link"
+                danger
+                icon={<DeleteOutlined />}
+                onClick={() => handleDelete([record.id])}
+              >
+                删除
+              </Button>
+            )
           )}
         </Space>
       ),
@@ -377,6 +425,11 @@ const MenuPage: React.FC = () => {
   ];
 
   const handleDelete = (ids: React.Key[]) => {
+    const selectedMenus = flattenMenuItems(menus).filter(item => ids.includes(item.id));
+    if (selectedMenus.some(hasModelMenuInSubtree)) {
+      message.warning(MODEL_MENU_MANAGE_TIP);
+      return;
+    }
     Modal.confirm({
       title: '确认删除',
       content: (
@@ -405,6 +458,11 @@ const MenuPage: React.FC = () => {
       message.warning('请选择要删除的菜单');
       return;
     }
+    const selectedMenus = flattenMenuItems(menus).filter(item => selectedRowKeys.includes(item.id));
+    if (selectedMenus.some(hasModelMenuInSubtree)) {
+      message.warning(MODEL_MENU_MANAGE_TIP);
+      return;
+    }
     handleDelete(selectedRowKeys);
   };
 
@@ -430,6 +488,10 @@ const MenuPage: React.FC = () => {
   const handleAddOk = async () => {
     try {
       const values = await form.validateFields();
+      if (isModelMenuCode(values.code)) {
+        message.error(MODEL_MENU_MANAGE_TIP);
+        return;
+      }
       // 确保 category 和 isOpen 是数字类型
       const submitData = {
         ...values,
@@ -450,6 +512,10 @@ const MenuPage: React.FC = () => {
   };
 
   const handleEdit = (record: MenuItem) => {
+    if (isModelMenu(record)) {
+      message.warning(MODEL_MENU_MANAGE_TIP);
+      return;
+    }
     setCurrentMenu(record);
     setSelectedIcon(record.source || '');
     // 初始化 menuType 状态
@@ -483,6 +549,10 @@ const MenuPage: React.FC = () => {
   const handleEditOk = async () => {
     try {
       const values = await form.validateFields();
+      if (isModelMenu(currentMenu) || isModelMenuCode(values.code)) {
+        message.error(MODEL_MENU_MANAGE_TIP);
+        return;
+      }
       // 确保 source 是字符串
       const iconValue = typeof selectedIcon === 'string' ? selectedIcon : '';
 
@@ -606,6 +676,10 @@ const MenuPage: React.FC = () => {
             rowSelection={{
               selectedRowKeys,
               onChange: (keys) => setSelectedRowKeys(keys),
+              getCheckboxProps: (record: MenuItem) => ({
+                disabled: hasModelMenuInSubtree(record),
+                title: hasModelMenuInSubtree(record) ? MODEL_MENU_MANAGE_TIP : undefined,
+              }),
             }}
             toolBarRender={() => [
               buttons.some(btn => btn.code === 'menu_add') && (

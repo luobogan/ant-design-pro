@@ -190,6 +190,33 @@ export function hasButton(buttons: any[], code: string): boolean {
   return buttons.filter((button: any) => button.code === code).length > 0;
 }
 
+const MODEL_VIEW_CODE = /^formdata_view_\d+(?:_scheme_\d+)?$/;
+const MODEL_AAE_CODE = /^formdata_aae_\d+(?:_scheme_\d+)?$/;
+
+export const MODEL_MENU_TAG = '建模生成';
+export const MODEL_MENU_MANAGE_TIP =
+  '建模生成的菜单由表单建模维护，不能在菜单管理中编辑或删除';
+export const MODEL_MENU_SCOPE_TIP =
+  '建模生成的菜单由表单建模维护，不能在此配置数据权限';
+
+export function isModelViewMenuCode(code?: unknown): boolean {
+  return MODEL_VIEW_CODE.test(String(code ?? '').trim());
+}
+
+export function isModelAaeMenuCode(code?: unknown): boolean {
+  return MODEL_AAE_CODE.test(String(code ?? '').trim());
+}
+
+export function isModelMenuCode(code?: unknown): boolean {
+  return isModelViewMenuCode(code) || isModelAaeMenuCode(code);
+}
+
+export function isModelMenu(
+  item?: { code?: unknown; modelMenu?: boolean } | null,
+): boolean {
+  return Boolean(item?.modelMenu) || isModelMenuCode(item?.code);
+}
+
 /**
  * 设置按钮权限
  */

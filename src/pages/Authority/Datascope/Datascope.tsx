@@ -23,6 +23,7 @@ import {
   Select,
   Space,
   Tag,
+  Tooltip,
   Tree,
 } from 'antd';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -30,6 +31,12 @@ import * as dataPermissionApi from '@/services/authority/dataPermission';
 import { submitScopeFields, type ScopeFieldConfig } from '@/services/authority/dataPermission';
 import * as menuApi from '@/services/system/menu';
 import * as tenantApi from '@/services/system/tenant';
+import {
+  isModelMenu,
+  isModelMenuCode,
+  MODEL_MENU_SCOPE_TIP,
+  MODEL_MENU_TAG,
+} from '@/utils/authority';
 import { useModel } from '@umijs/max';
 import VisibleFieldSelector from './components/VisibleFieldSelector';
 
@@ -45,6 +52,7 @@ interface Menu {
   sort: number;
   icon?: string;
   hasDataPermission?: boolean;
+  modelMenu?: boolean;
 }
 
 interface DataPermission {
@@ -185,6 +193,7 @@ const DataPermissionPage: React.FC = () => {
       code: item.code || item.menuCode || '-',
       sort: item.sort || item.menuSort || 0,
       icon: item.icon || item.source || '',
+      modelMenu: item.modelMenu || isModelMenuCode(item.code),
     }));
   }, [menuData]);
 
@@ -253,6 +262,16 @@ const DataPermissionPage: React.FC = () => {
       key: 'name',
       search: true,
       width: 180,
+      render: (name: any, record: Menu) => (
+        <Space>
+          <span>{name}</span>
+          {isModelMenu(record) && (
+            <Tooltip title={MODEL_MENU_SCOPE_TIP}>
+              <Tag color="orange">{MODEL_MENU_TAG}</Tag>
+            </Tooltip>
+          )}
+        </Space>
+      ),
     },
     {
       title: '路由地址',
@@ -292,13 +311,23 @@ const DataPermissionPage: React.FC = () => {
       key: 'action',
       width: 120,
       render: (_: any, record: Menu) => (
-        <Button
-          type="link"
-          icon={<SettingOutlined />}
-          onClick={() => handleConfig(record)}
-        >
-          权限配置
-        </Button>
+        isModelMenu(record) ? (
+          <Tooltip title={MODEL_MENU_SCOPE_TIP}>
+            <span>
+              <Button type="link" icon={<SettingOutlined />} disabled>
+                权限配置
+              </Button>
+            </span>
+          </Tooltip>
+        ) : (
+          <Button
+            type="link"
+            icon={<SettingOutlined />}
+            onClick={() => handleConfig(record)}
+          >
+            权限配置
+          </Button>
+        )
       ),
     },
   ];
@@ -363,7 +392,8 @@ const DataPermissionPage: React.FC = () => {
             type="link"
             icon={<EditOutlined />}
             onClick={() => handleEdit(record)}
-            disabled={!isSuperAdmin && record.tenantId !== currentTenantId}
+            disabled={(!isSuperAdmin && record.tenantId !== currentTenantId) || isModelMenuCode(record.resourceCode)}
+            title={isModelMenuCode(record.resourceCode) ? MODEL_MENU_SCOPE_TIP : undefined}
           >
             编辑
           </Button>
@@ -372,7 +402,8 @@ const DataPermissionPage: React.FC = () => {
             danger
             icon={<DeleteOutlined />}
             onClick={() => handleDelete([record.id])}
-            disabled={!isSuperAdmin && record.tenantId !== currentTenantId}
+            disabled={(!isSuperAdmin && record.tenantId !== currentTenantId) || isModelMenuCode(record.resourceCode)}
+            title={isModelMenuCode(record.resourceCode) ? MODEL_MENU_SCOPE_TIP : undefined}
           >
             删除
           </Button>
@@ -383,12 +414,23 @@ const DataPermissionPage: React.FC = () => {
 
   // 打开权限配置弹窗
   const handleConfig = (record: Menu) => {
+    if (isModelMenu(record)) {
+      message.warning(MODEL_MENU_SCOPE_TIP);
+      return;
+    }
     setCurrentMenu(record);
     setConfigModalVisible(true);
     setSelectedRowKeys([]);
   };
 
   const handleDelete = (ids: React.Key[]) => {
+    const hasModelScope = dataPermissions.some(
+      item => ids.some(id => String(item.id) === String(id)) && isModelMenuCode(item.resourceCode),
+    );
+    if (hasModelScope) {
+      message.warning(MODEL_MENU_SCOPE_TIP);
+      return;
+    }
     modal.confirm({
       title: '确认删除',
       content: `确定要删除选中的 ${ids.length} 个数据权限吗？`,
@@ -496,6 +538,10 @@ const DataPermissionPage: React.FC = () => {
   const handleAddOk = async () => {
     try {
       const values = await formAdd.validateFields();
+      if (isModelMenu(currentMenu) || isModelMenuCode(values.resourceCode)) {
+        message.error(MODEL_MENU_SCOPE_TIP);
+        return;
+      }
       const invalid = validateScopeField(values.visibleField, values.scopeColumn);
       if (invalid) {
         message.error(invalid);
@@ -532,6 +578,10 @@ const DataPermissionPage: React.FC = () => {
   const handleEditOk = async () => {
     try {
       const values = await formEdit.validateFields();
+      if (isModelMenu(currentMenu) || isModelMenuCode(values.resourceCode)) {
+        message.error(MODEL_MENU_SCOPE_TIP);
+        return;
+      }
       const invalid = validateScopeField(values.visibleField, values.scopeColumn);
       if (invalid) {
         message.error(invalid);
@@ -572,6 +622,10 @@ const DataPermissionPage: React.FC = () => {
   };
 
   const handleEdit = (record: DataPermission) => {
+    if (isModelMenuCode(record.resourceCode)) {
+      message.warning(MODEL_MENU_SCOPE_TIP);
+      return;
+    }
     pendingFieldsRef.current = [];
     setCurrentDataPermission(record);
     setEditModalVisible(true);
