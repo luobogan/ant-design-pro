@@ -5927,61 +5927,6 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           overflow: 'hidden',
         }}
       >
-        {/* 字段悬停高亮边框 - 绝对定位在 canvas 上方，含 8px 内边距 */}
-        {hoverVisible && hoverStyle && (
-          <div
-            style={{
-              position: 'absolute',
-              // 内边距 8px：边框略微大于单元格，视觉上更舒适
-              left: hoverStyle.left - 8,
-              top: hoverStyle.top - 8,
-              width: hoverStyle.width + 16,
-              height: hoverStyle.height + 16,
-              border: '2px solid #007bff',
-              borderRadius: 2,
-              pointerEvents: 'none',
-              zIndex: 5,
-              boxSizing: 'border-box',
-              outline: 'none',
-              // 过渡效果：平滑移动和大小变化（0.3s ease，符合 0.3-0.5s 要求）
-              transition: [
-                'left 0.3s ease',
-                'top 0.3s ease',
-                'width 0.3s ease',
-                'height 0.3s ease',
-                'opacity 0.3s ease',
-                'border-color 0.3s ease',
-              ].join(', '),
-              // Chrome/Safari/Edge (WebKit) 前缀
-              WebkitTransition: [
-                'left 0.3s ease',
-                'top 0.3s ease',
-                'width 0.3s ease',
-                'height 0.3s ease',
-                'opacity 0.3s ease',
-              ].join(', '),
-              // Firefox (Moz) 前缀
-              MozTransition: [
-                'left 0.3s ease',
-                'top 0.3s ease',
-                'width 0.3s ease',
-                'height 0.3s ease',
-                'opacity 0.3s ease',
-              ].join(', '),
-              // IE/Edge 旧版 (ms) 前缀
-              msTransition: [
-                'left 0.3s ease',
-                'top 0.3s ease',
-                'width 0.3s ease',
-                'height 0.3s ease',
-                'opacity 0.3s ease',
-              ].join(', '),
-              opacity: 1,
-              // box-shadow 增强视觉深度
-              boxShadow: '0 0 6px rgba(0, 123, 255, 0.3), 0 0 2px rgba(0, 123, 255, 0.2)',
-            }}
-          />
-        )}
       </div>
 
       {/* 加载中遮罩 */}
