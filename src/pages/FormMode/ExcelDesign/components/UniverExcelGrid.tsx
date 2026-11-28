@@ -275,7 +275,7 @@ interface FieldMeta {
     /**
      * 字段单元格视觉样式（唯一决策点，参照 ecology getCellFieldImage）
      * 背景色由 fieldAttr 唯一决定，label 标签格不应用背景色：
-     *   1=只读 → 灰底灰字   2=可编辑 → 白底黑字   3=必填 → 浅红底黑字
+     *   1=只读 → 灰底灰字   2=可编辑 → 无底色黑字（透出网格线）   3=必填 → 浅红底黑字
      *   setCellField 与 setFieldAttr 共用此函数，避免两处上色逻辑不一致导致"切不回去"。
      */
     const applyFieldAttrStyle = (range: any, meta: FieldMeta) => {
@@ -285,7 +285,8 @@ interface FieldMeta {
       if (meta.fieldAttr === 1) {
         bg = '#f5f5f5'; font = '#999999';
       } else if (meta.fieldAttr === 2) {
-        bg = '#ffffff'; font = '#000000';
+        // 可编辑字段不铺白底：Univer 网格线画在单元格底色之下，白底会把网格线盖掉。
+        bg = ''; font = '#000000';
       } else if (meta.fieldAttr === 3) {
         bg = '#fff1f0'; font = '#000000';
       } else if (meta.fieldAttr === 0) {
@@ -721,6 +722,54 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
   const [hoverVisible, setHoverVisible] = useState(false);
   const hoverTimerRef = useRef<any>(null);
 
+  // 拖拽字段时的落点提示：仅 window.__pendingField 存在（正在拖/待放置）才显示
+  const [isDraggingField, setIsDraggingField] = useState(false);
+  const [dropTargetCell, setDropTargetCell] = useState<{ row: number; col: number } | null>(null);
+  const [dropTargetStyle, setDropTargetStyle] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+
+  /** 计算单元格在画布容器中的绝对定位，供悬停/拖拽提示共用 */
+  const computeCellOverlayStyle = useCallback((row: number, col: number) => {
+    if (!workbook) return null;
+    const sheet = sheetRef.current;
+    if (!sheet) return null;
+
+    let rect: any = null;
+    if (typeof sheet.getCellRect === 'function') {
+      rect = sheet.getCellRect(row, col);
+    }
+    if (!rect) {
+      let left = 0;
+      for (let c = 0; c < col; c++) {
+        const w = typeof sheet.getColumnWidth === 'function' ? sheet.getColumnWidth(c) : 73;
+        left += w && w > 0 ? w : 73;
+      }
+      let top = 0;
+      for (let r = 0; r < row; r++) {
+        const h = typeof sheet.getRowHeight === 'function' ? sheet.getRowHeight(r) : 24;
+        top += h && h > 0 ? h : 24;
+      }
+      const width = (typeof sheet.getColumnWidth === 'function' ? sheet.getColumnWidth(col) : 73) || 73;
+      const height = (typeof sheet.getRowHeight === 'function' ? sheet.getRowHeight(row) : 24) || 24;
+      rect = { left, top, width, height };
+    }
+
+    const canvasEl = containerRef.current?.querySelector('canvas');
+    let offsetX = 0;
+    let offsetY = 0;
+    if (canvasEl && containerRef.current) {
+      const canvasRect = canvasEl.getBoundingClientRect();
+      const containerRect = containerRef.current.getBoundingClientRect();
+      offsetX = canvasRect.left - containerRect.left + (containerRef.current.scrollLeft || 0);
+      offsetY = canvasRect.top - containerRect.top + (containerRef.current.scrollTop || 0);
+    }
+    return {
+      left: rect.left + offsetX,
+      top: rect.top + offsetY,
+      width: rect.width,
+      height: rect.height,
+    };
+  }, [workbook]);
+
   // 监听 hoveredField 变化 → 找到对应单元格 → 计算位置
   useEffect(() => {
     // 清除之前的定时器
@@ -769,75 +818,30 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
   // 当 hoveredCell 变化时，计算位置
   useEffect(() => {
-    if (!hoveredCell || !workbook) {
-      return;
-    }
-
+    if (!hoveredCell) return;
     try {
-      const fWorkbook: any = workbook;
-      // 用缓存的活动表，避免悬停计算（可能涉及 Univer 内部命令回调）里再调 getActiveSheet() 触发 redi 循环依赖
-      const sheet = sheetRef.current;
-      if (!sheet) return;
-
-      const { row, col } = hoveredCell;
-
-      // 使用 getCellRect 获取单元格的像素位置（相对于 canvas/sheet 内容区）
-      // 这是最精准的方式，由 Univer Skeleton 计算，考虑了滚动、缩放、合并单元格等所有因素
-      let rect = null;
-      if (typeof (sheet as any).getCellRect === 'function') {
-        rect = (sheet as any).getCellRect(row, col);
-      }
-
-      if (!rect) {
-        console.warn('[Hover] getCellRect 不可用，使用降级方案');
-        // 降级：使用累加计算（不可靠，仅作兜底）
-        let left = 0;
-        for (let c = 0; c < col; c++) {
-          let w = typeof sheet.getColumnWidth === 'function' ? sheet.getColumnWidth(c) : 73;
-          if (!w || w <= 0) w = 73;
-          left += w;
-        }
-        let top = 0;
-        for (let r = 0; r < row; r++) {
-          let h = typeof sheet.getRowHeight === 'function' ? sheet.getRowHeight(r) : 24;
-          if (!h || h <= 0) h = 24;
-          top += h;
-        }
-        const width = (typeof sheet.getColumnWidth === 'function' ? sheet.getColumnWidth(col) : 73) || 73;
-        const height = (typeof sheet.getRowHeight === 'function' ? sheet.getRowHeight(row) : 24) || 24;
-        rect = { left, top, width, height };
-      }
-
-      // getCellRect 返回的是相对于 sheet 内容区（左上角）的像素坐标
-      // 高亮框是绝对定位在 container 中的，需要加上 sheet 内容区在 container 内的偏移
-      // 这个偏移 = canvas 元素在 container 内的偏移（即行头宽度 + 列头高度）
-      const canvasEl = containerRef.current?.querySelector('canvas');
-      let offsetX = 0;
-      let offsetY = 0;
-      if (canvasEl) {
-        const canvasRect = canvasEl.getBoundingClientRect();
-        const containerRect = containerRef.current!.getBoundingClientRect();
-        // canvas 相对于 viewport 的偏移 减去 container 相对于 viewport 的偏移
-        offsetX = canvasRect.left - containerRect.left + (containerRef.current?.scrollLeft || 0);
-        offsetY = canvasRect.top - containerRect.top + (containerRef.current?.scrollTop || 0);
-      }
-
-      const newStyle = {
-        left: rect.left + offsetX,
-        top: rect.top + offsetY,
-        width: rect.width,
-        height: rect.height,
-      };
-      setHoverStyle(newStyle);
-
-      // 如果是新位置（从 null 或不同位置过来），先瞬间移到新位置再显示
-      if (!hoverVisible) {
-        setHoverVisible(true);
+      const newStyle = computeCellOverlayStyle(hoveredCell.row, hoveredCell.col);
+      if (newStyle) {
+        setHoverStyle(newStyle);
+        if (!hoverVisible) setHoverVisible(true);
       }
     } catch (e) {
       console.warn('[Hover] 计算单元格位置失败:', e);
     }
-  }, [hoveredCell, workbook, hoverVisible]);
+  }, [hoveredCell, hoverVisible, computeCellOverlayStyle]);
+
+  // 拖拽字段时，实时计算鼠标下方单元格的提示框位置
+  useEffect(() => {
+    if (!dropTargetCell) {
+      setDropTargetStyle(null);
+      return;
+    }
+    try {
+      setDropTargetStyle(computeCellOverlayStyle(dropTargetCell.row, dropTargetCell.col));
+    } catch (e) {
+      console.warn('[DropTarget] 计算单元格位置失败:', e);
+    }
+  }, [dropTargetCell, computeCellOverlayStyle]);
 
   // ──────────────────────────────────────
   // 字段类型 → 数据验证规则映射
@@ -4679,7 +4683,8 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
               range.setBackgroundColor?.('');
               range.setFontColor?.('');
             } else {
-              range.setBackgroundColor?.('#ffffff');
+              // 普通格清空后同样恢复无底色，避免白底盖住 Univer 网格线。
+              range.setBackgroundColor?.('');
               range.setFontColor?.('#000000');
             }
           } catch (e) {
@@ -5617,16 +5622,33 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
     let dragCount = 0;
 
+    const clearDragHint = () => {
+      setIsDraggingField(false);
+      setDropTargetCell(null);
+    };
+
     const handleGlobalDragOver = (e: DragEvent) => {
       // 检查是否有待放置的字段
       const pending = (window as any).__pendingField;
       if (pending) {
         e.preventDefault();
         e.dataTransfer!.dropEffect = 'copy';
+        setIsDraggingField(true);
+        const { row, col } = getCellFromMouseEvent(e.clientX, e.clientY);
+        if (row >= 0 && col >= 0) {
+          setDropTargetCell((prev) =>
+            prev && prev.row === row && prev.col === col ? prev : { row, col },
+          );
+        } else {
+          setDropTargetCell(null);
+        }
+      } else {
+        clearDragHint();
       }
     };
 
     const handleGlobalDrop = (e: DragEvent) => {
+      clearDragHint();
       dragCount++;
       console.log(`[GlobalDrop][${dragCount}] drop 事件触发`, {
         hasDataTransfer: !!e.dataTransfer,
@@ -5668,11 +5690,13 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
 
     window.addEventListener('dragover', handleGlobalDragOver, false);
     window.addEventListener('drop', handleGlobalDrop, false);
+    window.addEventListener('dragend', clearDragHint, false);
     console.log('[GlobalDrop] ✅ 全局监听器已注册');
 
     return () => {
       window.removeEventListener('dragover', handleGlobalDragOver, false);
       window.removeEventListener('drop', handleGlobalDrop, false);
+      window.removeEventListener('dragend', clearDragHint, false);
       console.log('[GlobalDrop] 监听器已移除');
     };
   }, [workbook, handleFieldDrop, getCellFromMouseEvent]);
@@ -5927,6 +5951,24 @@ const UniverExcelGrid: React.FC<UniverExcelGridProps> = ({
           overflow: 'hidden',
         }}
       >
+        {/* 字段拖拽落点提示：仅拖拽/待放置期间显示，普通字段悬停不显示 */}
+        {isDraggingField && dropTargetStyle && (
+          <div
+            style={{
+              position: 'absolute',
+              left: dropTargetStyle.left - 8,
+              top: dropTargetStyle.top - 8,
+              width: dropTargetStyle.width + 16,
+              height: dropTargetStyle.height + 16,
+              border: '2px solid #007bff',
+              borderRadius: 2,
+              pointerEvents: 'none',
+              zIndex: 5,
+              boxSizing: 'border-box',
+              boxShadow: '0 0 6px rgba(0, 123, 255, 0.3)',
+            }}
+          />
+        )}
       </div>
 
       {/* 加载中遮罩 */}
